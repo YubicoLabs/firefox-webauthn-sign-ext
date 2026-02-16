@@ -16,7 +16,7 @@ class ApplicationPanel {
    *        The frame/window dedicated to this panel.
    * @param {Toolbox} toolbox
    *        The toolbox instance responsible for this panel.
-   * @param {Object} commands
+   * @param {object} commands
    *        The commands object with all interfaces defined from devtools/shared/commands/
    */
   constructor(panelWin, toolbox, commands) {
@@ -40,6 +40,21 @@ class ApplicationPanel {
     this.panelWin = null;
     this.toolbox = null;
     this.emit("destroyed");
+  }
+
+  /**
+   * Called by toolbox.js on `Esc` keydown.
+   *
+   * @param {AbortController} abortController
+   */
+  onToolboxChromeEventHandlerEscapeKeyDown(abortController) {
+    // If a popover is displayed, prevent the Esc event listener of the toolbox to occur
+    // (i.e. don't toggle split console)
+    const popoverEl = this.panelWin.document.querySelector(":popover-open");
+    if (popoverEl) {
+      abortController.abort();
+      popoverEl.hidePopover();
+    }
   }
 }
 

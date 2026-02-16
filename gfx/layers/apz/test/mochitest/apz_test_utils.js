@@ -391,6 +391,8 @@ async function promiseApzFlushedRepaints(aPopupElement = null) {
 //   onload: optional, a function that will be registered as a load event listener
 //           for the child window that will hold the subtest. the function will be
 //           passed exactly one argument, which will be the child window.
+//   windowFeatures: optional, will be passed to as the third argument of `window.open`.
+//                   See https://developer.mozilla.org/en-US/docs/Web/API/Window/open#windowfeatures
 // An example of an array is:
 //   aSubtests = [
 //     { 'file': 'test_file_name.html' },
@@ -462,7 +464,13 @@ function runSubtestsSeriallyInFreshWindows(aSubtests) {
 
       test = aSubtests[testIndex];
 
-      let recognizedProps = ["file", "prefs", "dp_suppression", "onload"];
+      let recognizedProps = [
+        "file",
+        "prefs",
+        "dp_suppression",
+        "onload",
+        "windowFeatures",
+      ];
       for (let prop in test) {
         if (!recognizedProps.includes(prop)) {
           SimpleTest.ok(
@@ -505,7 +513,14 @@ function runSubtestsSeriallyInFreshWindows(aSubtests) {
       }
 
       function spawnTest(aFile) {
-        w = window.open("", "_blank");
+        var subtestUrl =
+          location.href.substring(0, location.href.lastIndexOf("/") + 1) +
+          aFile;
+        w = window.open(
+          subtestUrl,
+          "_blank",
+          test.windowFeatures ? test.windowFeatures : ""
+        );
         w.subtestDone = advanceSubtestExecution;
         w.subtestFailed = advanceSubtestExecutionWithFailure;
         w.isApzSubtest = true;
@@ -546,9 +561,6 @@ function runSubtestsSeriallyInFreshWindows(aSubtests) {
             { once: true }
           );
         }
-        var subtestUrl =
-          location.href.substring(0, location.href.lastIndexOf("/") + 1) +
-          aFile;
         function urlResolves(url) {
           var request = new XMLHttpRequest();
           request.open("GET", url, false);
@@ -561,12 +573,11 @@ function runSubtestsSeriallyInFreshWindows(aSubtests) {
             "Subtest URL " +
               subtestUrl +
               " does not resolve. " +
-              "Be sure it's present in the support-files section of mochitest.ini."
+              "Be sure it's present in the support-files section of mochitest.toml."
           );
           reject();
           return undefined;
         }
-        w.location = subtestUrl;
         return w;
       }
 
@@ -653,7 +664,6 @@ function isKeyApzEnabled() {
 // The snapshot is returned in the form of a data URL.
 function getSnapshot(rect) {
   function parentProcessSnapshot() {
-    /* eslint-env mozilla/chrome-script */
     addMessageListener("snapshot", function (parentRect) {
       var topWin = Services.wm.getMostRecentWindow("navigator:browser");
       if (!topWin) {
@@ -1082,6 +1092,10 @@ function promiseOneEvent(eventTarget, eventType, filter) {
       }
     });
   });
+}
+
+function promiseScrollend(aTarget = window) {
+  return promiseOneEvent(aTarget, "scrollend");
 }
 
 function visualViewportAsZoomedRect() {

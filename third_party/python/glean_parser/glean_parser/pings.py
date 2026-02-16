@@ -26,6 +26,7 @@ class Ping:
         notification_emails: List[str],
         metadata: Optional[Dict] = None,
         data_reviews: Optional[List[str]] = None,
+        uploader_capabilities: Optional[List[str]] = None,
         include_client_id: bool = False,
         send_if_empty: bool = False,
         reasons: Optional[Dict[str, str]] = None,
@@ -47,7 +48,9 @@ class Ping:
         self.metadata = metadata
         self.precise_timestamps = self.metadata.get("precise_timestamps", True)
         self.include_info_sections = self.metadata.get("include_info_sections", True)
-        self.follows_collection_enabled = self.metadata.get("follows_collection_enabled", True)
+        self.follows_collection_enabled = self.metadata.get(
+            "follows_collection_enabled", True
+        )
         if enabled is None:
             enabled = True
         self.enabled = enabled
@@ -57,6 +60,9 @@ class Ping:
         if data_reviews is None:
             data_reviews = []
         self.data_reviews = data_reviews
+        if not uploader_capabilities:
+            uploader_capabilities = []
+        self.uploader_capabilities = uploader_capabilities
         self.include_client_id = include_client_id
         self.send_if_empty = send_if_empty
         if reasons is None:

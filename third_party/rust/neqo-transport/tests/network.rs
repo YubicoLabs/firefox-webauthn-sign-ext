@@ -10,8 +10,8 @@ use neqo_transport::{CloseReason, ConnectionParameters, Error, State};
 use test_fixture::{
     boxed,
     sim::{
-        connection::{ConnectionNode, ReachState, ReceiveData, SendData},
-        network::{Delay, Drop, TailDrop},
+        connection::{Node, ReachState, ReceiveData, SendData},
+        network::{Drop, RandomDelay, TailDrop},
         Simulator,
     },
     simulate,
@@ -31,13 +31,13 @@ const fn weeks(m: u32) -> Duration {
 simulate!(
     connect_direct,
     [
-        ConnectionNode::new_client(
-            ConnectionParameters::default(),
+        Node::new_client(
+            ConnectionParameters::default().mlkem(false),
             [],
             boxed![ReachState::new(State::Confirmed)]
         ),
-        ConnectionNode::new_server(
-            ConnectionParameters::default(),
+        Node::new_server(
+            ConnectionParameters::default().mlkem(false),
             [],
             boxed![ReachState::new(State::Confirmed)]
         ),
@@ -47,10 +47,10 @@ simulate!(
 simulate!(
     idle_timeout,
     [
-        ConnectionNode::default_client(boxed![ReachState::new(State::Closed(
+        Node::default_client(boxed![ReachState::new(State::Closed(
             CloseReason::Transport(Error::IdleTimeout)
         ))]),
-        ConnectionNode::default_server(boxed![ReachState::new(State::Closed(
+        Node::default_server(boxed![ReachState::new(State::Closed(
             CloseReason::Transport(Error::IdleTimeout)
         ))]),
     ]
@@ -59,23 +59,27 @@ simulate!(
 simulate!(
     idle_timeout_crazy_rtt,
     [
-        ConnectionNode::new_client(
-            ConnectionParameters::default().idle_timeout(weeks(1000)),
+        Node::new_client(
+            ConnectionParameters::default()
+                .idle_timeout(weeks(1000))
+                .mlkem(false),
             boxed![ReachState::new(State::Confirmed),],
             boxed![ReachState::new(State::Closed(CloseReason::Transport(
                 Error::IdleTimeout
             )))]
         ),
-        Delay::new(weeks(6)..weeks(6)),
+        RandomDelay::new(weeks(6)..weeks(6)),
         Drop::percentage(10),
-        ConnectionNode::new_server(
-            ConnectionParameters::default().idle_timeout(weeks(1000)),
+        Node::new_server(
+            ConnectionParameters::default()
+                .idle_timeout(weeks(1000))
+                .mlkem(false),
             boxed![ReachState::new(State::Confirmed),],
             boxed![ReachState::new(State::Closed(CloseReason::Transport(
                 Error::IdleTimeout
             )))]
         ),
-        Delay::new(weeks(8)..weeks(8)),
+        RandomDelay::new(weeks(8)..weeks(8)),
         Drop::percentage(10),
     ],
 );
@@ -83,60 +87,60 @@ simulate!(
 simulate!(
     transfer,
     [
-        ConnectionNode::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
-        ConnectionNode::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
+        Node::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
+        Node::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
     ]
 );
 
 simulate!(
     connect_fixed_rtt,
     [
-        ConnectionNode::new_client(
-            ConnectionParameters::default(),
+        Node::new_client(
+            ConnectionParameters::default().mlkem(false),
             [],
             boxed![ReachState::new(State::Confirmed)]
         ),
-        Delay::new(DELAY..DELAY),
-        ConnectionNode::new_server(
-            ConnectionParameters::default(),
+        RandomDelay::new(DELAY..DELAY),
+        Node::new_server(
+            ConnectionParameters::default().mlkem(false),
             [],
             boxed![ReachState::new(State::Confirmed)]
         ),
-        Delay::new(DELAY..DELAY),
+        RandomDelay::new(DELAY..DELAY),
     ],
 );
 
 simulate!(
     connect_taildrop_jitter,
     [
-        ConnectionNode::new_client(
-            ConnectionParameters::default(),
+        Node::new_client(
+            ConnectionParameters::default().mlkem(false),
             [],
             boxed![ReachState::new(State::Confirmed)]
         ),
         TailDrop::dsl_downlink(),
-        Delay::new(ZERO..JITTER),
-        ConnectionNode::new_server(
-            ConnectionParameters::default(),
+        RandomDelay::new(ZERO..JITTER),
+        Node::new_server(
+            ConnectionParameters::default().mlkem(false),
             [],
             boxed![ReachState::new(State::Confirmed)]
         ),
         TailDrop::dsl_uplink(),
-        Delay::new(ZERO..JITTER),
+        RandomDelay::new(ZERO..JITTER),
     ],
 );
 
 simulate!(
     connect_taildrop,
     [
-        ConnectionNode::new_client(
-            ConnectionParameters::default(),
+        Node::new_client(
+            ConnectionParameters::default().mlkem(false),
             [],
             boxed![ReachState::new(State::Confirmed)]
         ),
         TailDrop::dsl_downlink(),
-        ConnectionNode::new_server(
-            ConnectionParameters::default(),
+        Node::new_server(
+            ConnectionParameters::default().mlkem(false),
             [],
             boxed![ReachState::new(State::Confirmed)]
         ),
@@ -147,11 +151,11 @@ simulate!(
 simulate!(
     transfer_delay_drop,
     [
-        ConnectionNode::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
-        Delay::new(DELAY_RANGE),
+        Node::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
+        RandomDelay::new(DELAY_RANGE),
         Drop::percentage(1),
-        ConnectionNode::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
-        Delay::new(DELAY_RANGE),
+        Node::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
+        RandomDelay::new(DELAY_RANGE),
         Drop::percentage(1),
     ],
 );
@@ -159,9 +163,9 @@ simulate!(
 simulate!(
     transfer_taildrop,
     [
-        ConnectionNode::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
+        Node::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
         TailDrop::dsl_downlink(),
-        ConnectionNode::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
+        Node::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
         TailDrop::dsl_uplink(),
     ],
 );
@@ -169,12 +173,22 @@ simulate!(
 simulate!(
     transfer_taildrop_jitter,
     [
-        ConnectionNode::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
+        Node::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
         TailDrop::dsl_downlink(),
-        Delay::new(ZERO..JITTER),
-        ConnectionNode::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
+        RandomDelay::new(ZERO..JITTER),
+        Node::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
         TailDrop::dsl_uplink(),
-        Delay::new(ZERO..JITTER),
+        RandomDelay::new(ZERO..JITTER),
+    ],
+);
+
+simulate!(
+    transfer_taildrop_ecn,
+    [
+        Node::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
+        TailDrop::new(1_000_000, 65_536, true, Duration::from_millis(50)),
+        Node::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
+        TailDrop::new(200_000, 16_384, true, Duration::from_millis(50))
     ],
 );
 
@@ -185,11 +199,11 @@ fn transfer_fixed_seed() {
     let mut sim = Simulator::new(
         "transfer_fixed_seed",
         boxed![
-            ConnectionNode::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
-            Delay::new(ZERO..DELAY),
+            Node::default_client(boxed![SendData::new(TRANSFER_AMOUNT)]),
+            RandomDelay::new(ZERO..DELAY),
             Drop::percentage(1),
-            ConnectionNode::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
-            Delay::new(ZERO..DELAY),
+            Node::default_server(boxed![ReceiveData::new(TRANSFER_AMOUNT)]),
+            RandomDelay::new(ZERO..DELAY),
             Drop::percentage(1),
         ],
     );

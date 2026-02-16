@@ -7,8 +7,8 @@
 #define ImageToI420Converter_h
 
 #include "mozilla/AlreadyAddRefed.h"
-#include "nsError.h"
 #include "mozilla/gfx/Point.h"
+#include "nsError.h"
 
 namespace mozilla {
 
@@ -31,7 +31,7 @@ already_AddRefed<gfx::SourceSurface> GetSourceSurface(layers::Image* aImage);
  */
 nsresult ConvertToI420(layers::Image* aImage, uint8_t* aDestY, int aDestStrideY,
                        uint8_t* aDestU, int aDestStrideU, uint8_t* aDestV,
-                       int aDestStrideV);
+                       int aDestStrideV, const gfx::IntSize& aDestSize);
 
 /**
  * Converts aImage to an NV12 image and writes it to the given buffers.

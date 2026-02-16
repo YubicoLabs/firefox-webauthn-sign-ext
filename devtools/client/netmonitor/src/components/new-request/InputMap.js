@@ -7,11 +7,11 @@
 const {
   Component,
   createRef,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const {
   L10N,
 } = require("resource://devtools/client/netmonitor/src/utils/l10n.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
 const { div, input, textarea, button } = dom;
 
@@ -27,7 +27,7 @@ const REMOVE_ITEM = L10N.getStr("netmonitor.custom.removeItem");
 
 /**
  * Editable name and value list component with optional form to add new items
- **/
+ */
 class InputMap extends Component {
   static get propTypes() {
     return {

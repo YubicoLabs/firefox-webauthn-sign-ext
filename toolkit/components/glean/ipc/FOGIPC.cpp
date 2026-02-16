@@ -31,7 +31,6 @@
 #include "mozilla/ipc/UtilityProcessManager.h"
 #include "mozilla/ipc/UtilityProcessParent.h"
 #include "mozilla/ipc/UtilityProcessSandboxing.h"
-#include "mozilla/Unused.h"
 #include "GMPPlatform.h"
 #include "GMPServiceParent.h"
 #include "nsIClassifiedChannel.h"
@@ -75,9 +74,9 @@ struct ProcessingTimeMarker {
     MS schema{MS::Location::MarkerChart, MS::Location::MarkerTable};
     schema.AddKeyLabelFormat("time", "Recorded Time", MS::Format::Milliseconds);
     schema.AddKeyLabelFormat("tracker", "Tracker Type", MS::Format::String);
+    schema.AddKeyFormat("label", MS::Format::String, MS::PayloadFlags::Hidden);
     schema.SetTooltipLabel("{marker.name} - {marker.data.label}");
-    schema.SetTableLabel(
-        "{marker.name} - {marker.data.label}: {marker.data.time}");
+    schema.SetTableLabel("{marker.data.label}: {marker.data.time}");
     return schema;
   }
 };
@@ -97,9 +96,9 @@ struct ProcessEnergyMarker {
     using MS = MarkerSchema;
     MS schema{MS::Location::MarkerChart, MS::Location::MarkerTable};
     schema.AddKeyLabelFormat("energy", "Energy (µWh)", MS::Format::Integer);
+    schema.AddKeyFormat("label", MS::Format::String, MS::PayloadFlags::Hidden);
     schema.SetTooltipLabel("{marker.name} - {marker.data.label}");
-    schema.SetTableLabel(
-        "{marker.name} - {marker.data.label}: {marker.data.energy}µWh");
+    schema.SetTableLabel("{marker.data.label}: {marker.data.energy}µWh");
     return schema;
   }
 };
@@ -116,6 +115,7 @@ enum ProcessType {
   eContentForeground,
   eContentBackground,
   eGpuProcess,
+  eInferenceProcess,
   eUnknown,
 };
 
@@ -189,6 +189,10 @@ void RecordThreadCpuUse(const nsACString& aThreadName, uint64_t aCpuTimeMs,
         power_cpu_ms_per_thread::gpu_process.Get(threadName)
             .Add(int32_t(aCpuTimeMs));
         break;
+      case eInferenceProcess:
+        power_cpu_ms_per_thread::inference_process.Get(threadName)
+            .Add(int32_t(aCpuTimeMs));
+        break;
       case eUnknown:
         // Nothing to do.
         break;
@@ -216,6 +220,10 @@ void RecordThreadCpuUse(const nsACString& aThreadName, uint64_t aCpuTimeMs,
         break;
       case eGpuProcess:
         power_wakeups_per_thread::gpu_process.Get(threadName)
+            .Add(int32_t(aWakeCount));
+        break;
+      case eInferenceProcess:
+        power_wakeups_per_thread::inference_process.Get(threadName)
             .Add(int32_t(aWakeCount));
         break;
       case eUnknown:
@@ -324,9 +332,9 @@ void RecordPowerMetrics() {
   nsAutoCString type(XRE_GetProcessTypeString());
   nsAutoCString trackerType;
   if (XRE_IsContentProcess()) {
-    auto* cc = dom::ContentChild::GetSingleton();
+    auto* cc = mozilla::dom::ContentChild::GetSingleton();
     if (cc) {
-      type.Assign(dom::RemoteTypePrefix(cc->GetRemoteType()));
+      type.Assign(mozilla::dom::RemoteTypePrefix(cc->GetRemoteType()));
       if (StringBeginsWith(type, WEB_REMOTE_TYPE)) {
         type.AssignLiteral("web");
         switch (cc->GetProcessPriority()) {
@@ -350,6 +358,9 @@ void RecordPowerMetrics() {
             MOZ_ASSERT_UNREACHABLE("Unsuppored process type for cpu time");
             break;
         }
+      } else if (type == INFERENCE_REMOTE_TYPE) {
+        type.AssignLiteral("inference");
+        gThisProcessType = ProcessType::eInferenceProcess;
       }
       GetTrackerType(trackerType);
     } else {
@@ -549,18 +560,18 @@ void SendFOGData(ipc::ByteBuf&& buf) {
       mozilla::gmp::SendFOGData(std::move(buf));
     } break;
     case GeckoProcessType_GPU:
-      Unused << mozilla::gfx::GPUParent::GetSingleton()->SendFOGData(
+      (void)mozilla::gfx::GPUParent::GetSingleton()->SendFOGData(
           std::move(buf));
       break;
     case GeckoProcessType_RDD:
-      Unused << mozilla::RDDParent::GetSingleton()->SendFOGData(std::move(buf));
+      (void)mozilla::RDDParent::GetSingleton()->SendFOGData(std::move(buf));
       break;
     case GeckoProcessType_Socket:
-      Unused << net::SocketProcessChild::GetSingleton()->SendFOGData(
+      (void)net::SocketProcessChild::GetSingleton()->SendFOGData(
           std::move(buf));
       break;
     case GeckoProcessType_Utility:
-      Unused << ipc::UtilityProcessChild::GetSingleton()->SendFOGData(
+      (void)ipc::UtilityProcessChild::GetSingleton()->SendFOGData(
           std::move(buf));
       break;
     default:
@@ -590,7 +601,7 @@ RefPtr<GenericPromise> FlushAndUseFOGData() {
 }
 
 void TestTriggerMetrics(uint32_t aProcessType,
-                        const RefPtr<dom::Promise>& promise) {
+                        const RefPtr<mozilla::dom::Promise>& promise) {
   switch (aProcessType) {
     case nsIXULRuntime::PROCESS_TYPE_GMPLUGIN: {
       RefPtr<mozilla::gmp::GeckoMediaPluginServiceParent> gmps(
@@ -615,19 +626,19 @@ void TestTriggerMetrics(uint32_t aProcessType,
     case nsIXULRuntime::PROCESS_TYPE_SOCKET: {
       RefPtr<net::SocketProcessParent> socketParent(
           net::SocketProcessParent::GetSingleton());
-      Unused << socketParent->SendTestTriggerMetrics()->Then(
+      (void)socketParent->SendTestTriggerMetrics()->Then(
           GetCurrentSerialEventTarget(), __func__,
           [promise]() { promise->MaybeResolveWithUndefined(); },
           [promise]() { promise->MaybeRejectWithUndefined(); });
     } break;
     case nsIXULRuntime::PROCESS_TYPE_UTILITY:
-      Unused << ipc::UtilityProcessManager::GetSingleton()
-                    ->GetProcessParent(ipc::SandboxingKind::GENERIC_UTILITY)
-                    ->SendTestTriggerMetrics()
-                    ->Then(
-                        GetCurrentSerialEventTarget(), __func__,
-                        [promise]() { promise->MaybeResolveWithUndefined(); },
-                        [promise]() { promise->MaybeRejectWithUndefined(); });
+      (void)ipc::UtilityProcessManager::GetSingleton()
+          ->GetProcessParent(ipc::SandboxingKind::GENERIC_UTILITY)
+          ->SendTestTriggerMetrics()
+          ->Then(
+              GetCurrentSerialEventTarget(), __func__,
+              [promise]() { promise->MaybeResolveWithUndefined(); },
+              [promise]() { promise->MaybeRejectWithUndefined(); });
       break;
     default:
       promise->MaybeRejectWithUndefined();

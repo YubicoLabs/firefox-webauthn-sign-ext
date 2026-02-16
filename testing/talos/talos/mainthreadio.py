@@ -30,29 +30,25 @@ KEY_RUN_COUNT = "RunCount"
 
 LEAKED_SYMLINK_PREFIX = "::\\{"
 
-PATH_SUBSTITUTIONS = OrderedDict(
-    [
-        ("profile", "{profile}"),
-        ("firefox", "{xre}"),
-        ("desktop", "{desktop}"),
-        ("fonts", "{fonts}"),
-        ("appdata", " {appdata}"),
-    ]
-)
-NAME_SUBSTITUTIONS = OrderedDict(
-    [
-        ("installtime", "{time}"),
-        ("prefetch", "{prefetch}"),
-        ("thumbnails", "{thumbnails}"),
-        # {appdata}\locallow\mozilla\temp-{*}
-        ("temp-{", "{temp}"),
-        ("cltbld.", "{cltbld}"),
-        ("windows media player", "{media_player}"),
-        # regex order matters
-        (re.compile(r"{\w{8}-\w{4}-\w{4}-\w{4}-\w{12}}"), "{uuid}"),
-        (re.compile(r"{uuid}\.\d+\.ver\w+\.db"), "{uuid-db}"),
-    ]
-)
+PATH_SUBSTITUTIONS = OrderedDict([
+    ("profile", "{profile}"),
+    ("firefox", "{xre}"),
+    ("desktop", "{desktop}"),
+    ("fonts", "{fonts}"),
+    ("appdata", " {appdata}"),
+])
+NAME_SUBSTITUTIONS = OrderedDict([
+    ("installtime", "{time}"),
+    ("prefetch", "{prefetch}"),
+    ("thumbnails", "{thumbnails}"),
+    # {appdata}\locallow\mozilla\temp-{*}
+    ("temp-{", "{temp}"),
+    ("cltbld.", "{cltbld}"),
+    ("windows media player", "{media_player}"),
+    # regex order matters
+    (re.compile(r"{\w{8}-\w{4}-\w{4}-\w{4}-\w{12}}"), "{uuid}"),
+    (re.compile(r"{uuid}\.\d+\.ver\w+\.db"), "{uuid-db}"),
+])
 
 TUPLE_EVENT_SOURCE_INDEX = 1
 TUPLE_FILENAME_INDEX = 2
@@ -61,12 +57,12 @@ ALLOWLIST_FILENAME = os.path.join(SCRIPT_DIR, "mtio-allowlist.json")
 
 def parse(logfilename, data):
     try:
-        with open(logfilename, "r") as logfile:
+        with open(logfilename) as logfile:
             if not logfile:
                 return False
             stage = STAGE_STARTUP
             for line in logfile:
-                prev_filename = str()
+                prev_filename = ""
                 entries = line.strip().split(",")
                 if len(entries) == LENGTH_IO_ENTRY:
                     if stage == STAGE_STARTUP:
@@ -107,7 +103,7 @@ def parse(logfilename, data):
                     # Format 2: next stage
                     stage = stage + 1
             return True
-    except IOError as e:
+    except OSError as e:
         print("%s: %s" % (e.filename, e.strerror))
         return False
 
@@ -134,7 +130,7 @@ def write_output(outfilename, data):
                     outfile.write("\n")
             outfile.write("]\n")
             return True
-    except IOError as e:
+    except OSError as e:
         print("%s: %s" % (e.filename, e.strerror))
         return False
 

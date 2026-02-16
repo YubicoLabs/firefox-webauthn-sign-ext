@@ -61,7 +61,7 @@ def patch_vcs(monkeypatch):
 
 @pytest.fixture(scope="session")
 def run_mach():
-    mach = mach_initialize.initialize(tasks.build.topsrcdir)
+    mach = mach_initialize.initialize(tasks.build.topsrcdir, ["try"])
 
     def inner(args):
         return mach.run(args)
@@ -90,7 +90,7 @@ def pytest_generate_tests(metafunc):
         preset_path = os.path.join(
             push.build.topsrcdir, "tools", "tryselect", "try_presets.yml"
         )
-        with open(preset_path, "r") as fh:
+        with open(preset_path) as fh:
             presets = list(yaml.safe_load(fh).items())
 
         ids = [p[0] for p in presets]

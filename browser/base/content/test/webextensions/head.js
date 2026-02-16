@@ -1,5 +1,6 @@
 ChromeUtils.defineESModuleGetters(this, {
   AddonTestUtils: "resource://testing-common/AddonTestUtils.sys.mjs",
+  ExtensionParent: "resource://gre/modules/ExtensionParent.sys.mjs",
   ExtensionsUI: "resource:///modules/ExtensionsUI.sys.mjs",
 });
 
@@ -9,11 +10,7 @@ const BASE = getRootDirectory(gTestPath).replace(
 );
 
 ChromeUtils.defineLazyGetter(this, "Management", () => {
-  // eslint-disable-next-line no-shadow
-  const { Management } = ChromeUtils.importESModule(
-    "resource://gre/modules/Extension.sys.mjs"
-  );
-  return Management;
+  return ExtensionParent.apiManager;
 });
 
 let { CustomizableUITestUtils } = ChromeUtils.importESModule(
@@ -128,7 +125,7 @@ function promiseInstallEvent(addon, event) {
  *
  * @param {string} url
  *        URL of the .xpi file to install
- * @param {Object?} installTelemetryInfo
+ * @param {object?} installTelemetryInfo
  *        an optional object that contains additional details used by the telemetry events.
  *
  * @returns {Promise}
@@ -215,7 +212,7 @@ function isDefaultIcon(icon) {
  *        regular expression it is tested against the icon url, and if
  *        it is a function, it is called with the icon url and returns
  *        true if the url is correct.
- * @param {array} permissions
+ * @param {Array} permissions
  *        The expected entries in the permissions list.  Each element
  *        in this array is itself a 2-element array with the string key
  *        for the item (e.g., "webext-perms-description-foo") and an
@@ -226,8 +223,8 @@ function isDefaultIcon(icon) {
 function checkNotification(panel, checkIcon, permissions, sideloaded) {
   let icon = panel.getAttribute("icon");
   let learnMoreLink = panel.querySelector(".popup-notification-learnmore-link");
-  let ul = document.getElementById("addon-webext-perm-list");
-  let singleDataEl = document.getElementById("addon-webext-perm-single-entry");
+  let listRequired = document.getElementById("addon-webext-perm-list-required");
+  let listOptional = document.getElementById("addon-webext-perm-list-optional");
 
   if (checkIcon instanceof RegExp) {
     ok(
@@ -243,10 +240,7 @@ function checkNotification(panel, checkIcon, permissions, sideloaded) {
   let description = panel.querySelector(
     ".popup-notification-description"
   ).textContent;
-  let descL10nId = "webext-perms-header";
-  if (permissions.length) {
-    descL10nId = "webext-perms-header-with-perms";
-  }
+  let descL10nId = "webext-perms-header2";
   if (sideloaded) {
     descL10nId = "webext-perms-sideload-header";
   }
@@ -254,8 +248,8 @@ function checkNotification(panel, checkIcon, permissions, sideloaded) {
   ok(description.startsWith(exp.at(0)), "Description is the expected one");
   ok(description.endsWith(exp.at(-1)), "Description is the expected one");
 
-  const hasPBCheckbox = !!(
-    singleDataEl.querySelector("checkbox") || ul.querySelector("checkbox")
+  const hasPBCheckbox = !!listOptional.querySelector(
+    "li.webext-perm-privatebrowsing > moz-checkbox"
   );
 
   is(
@@ -265,47 +259,46 @@ function checkNotification(panel, checkIcon, permissions, sideloaded) {
   );
 
   if (!permissions.length && !hasPBCheckbox) {
-    ok(ul.hidden, "Permissions list is hidden");
-    ok(singleDataEl.hidden, "Expect a single permission entry to be hidden");
+    ok(listRequired.hidden, "Required permissions list is hidden");
+    ok(listOptional.hidden, "Optional permissions list is hidden");
   } else if (!permissions.length) {
-    ok(ul.hidden, "Permissions list is hidden");
-    ok(
-      !singleDataEl.hidden,
-      "Expect a single permission entry for the private browsing checkbox to not be hidden"
-    );
-    ok(
-      singleDataEl.querySelector("checkbox"),
-      "Expect a checkbox inside the single permission entry"
-    );
-    ok(singleDataEl.textContent, "Single entry text content should not empty");
-    is(ul.childElementCount, 0, "Permission list should have no entries");
-  } else if (permissions.length === 1 && hasPBCheckbox) {
-    ok(!ul.hidden, "Permissions list to not be hidden");
-    is(ul.childElementCount, 2, "Expect 2 entries in the permissions list");
+    ok(listRequired.hidden, "Required permissions list is hidden");
+    ok(!listOptional.hidden, "Optional permissions list is visible");
+    ok(hasPBCheckbox, "Expect a checkbox inside the list of permissions");
     is(
-      ul.children[0].textContent,
+      listOptional.childElementCount,
+      1,
+      "Optional permissions list should have an entry"
+    );
+  } else if (permissions.length === 1 && hasPBCheckbox) {
+    ok(!listRequired.hidden, "Required permissions list is visible");
+    is(
+      listRequired.childElementCount,
+      1,
+      "Required permissions list should have an entry"
+    );
+    ok(!listOptional.hidden, "Optional permissions list is visible");
+    is(
+      listOptional.childElementCount,
+      1,
+      "Optional permissions list should have an entry"
+    );
+    is(
+      listRequired.children[0].textContent,
       formatExtValue(permissions[0]),
       "First Permission entry is correct"
     );
-    const lastEntry = ul.children[permissions.length];
+    const entry = listOptional.firstChild;
     ok(
-      lastEntry.classList.contains("webext-perm-privatebrowsing"),
+      entry.classList.contains("webext-perm-privatebrowsing"),
       "Expect last permissions list entry to be the private browsing checkbox"
     );
     ok(
-      lastEntry.querySelector("checkbox"),
+      entry.querySelector("moz-checkbox"),
       "Expect a checkbox inside the last permissions list entry"
     );
-  } else if (permissions.length === 1 && !hasPBCheckbox) {
-    ok(ul.hidden, "Permissions list to be hidden");
-    ok(!ul.childElementCount, "Permission list has no entries");
   } else {
-    ok(singleDataEl.hidden, "Single permission data entry is hidden");
-    ok(
-      !singleDataEl.textContent,
-      "Single permission data label has not been set"
-    );
-    ok(!ul.hidden, "Permissions list to not be hidden");
+    ok(!listRequired.hidden, "Required permissions list is visible");
     for (let i in permissions) {
       let [key, param] = permissions[i];
       const expected = formatExtValue(key, param);
@@ -314,18 +307,21 @@ function checkNotification(panel, checkIcon, permissions, sideloaded) {
       // value (in particular this is the case when the permission dialog
       // is going to show multiple host permissions as a single permission
       // entry and a nested ul listing all those domains).
-      const permDescriptionEl = ul.children[i].querySelector("label")
-        ? ul.children[i].firstElementChild.value
-        : ul.children[i].textContent;
+      const permDescriptionEl = listRequired.children[i].querySelector("label")
+        ? listRequired.children[i].firstElementChild.value
+        : listRequired.children[i].textContent;
       is(permDescriptionEl, expected, `Permission number ${i + 1} is correct`);
     }
 
     if (hasPBCheckbox) {
-      const lastEntry = ul.children[permissions.length];
+      ok(!listOptional.hidden, "Optional permissions list is visible");
+      const entry = listOptional.firstChild;
       ok(
-        lastEntry.classList.contains("webext-perm-privatebrowsing"),
+        entry.classList.contains("webext-perm-privatebrowsing"),
         "Expect last permissions list entry to be the private browsing checkbox"
       );
+    } else {
+      ok(listOptional.hidden, "Optional permissions list is hidden");
     }
   }
 }
@@ -680,6 +676,24 @@ async function interactiveUpdateTest(autoUpdate, checkFn) {
   );
 }
 
+async function getCachedPermissions(extensionId) {
+  const NotFound = Symbol("extension ID not found in permissions cache");
+  try {
+    return await ExtensionParent.StartupCache.permissions.get(
+      extensionId,
+      () => {
+        // Throw error to prevent the key from being created.
+        throw NotFound;
+      }
+    );
+  } catch (e) {
+    if (e === NotFound) {
+      return null;
+    }
+    throw e;
+  }
+}
+
 // The tests in this directory install a bunch of extensions but they
 // need to uninstall them before exiting, as a stray leftover extension
 // after one test can foul up subsequent tests.
@@ -693,6 +707,8 @@ let testCleanup;
 add_setup(async function head_setup() {
   let addons = await AddonManager.getAllAddons();
   let existingAddons = new Set(addons.map(a => a.id));
+
+  let uuids = Services.prefs.getStringPref("extensions.webextensions.uuids");
 
   registerCleanupFunction(async function () {
     if (testCleanup) {
@@ -709,5 +725,11 @@ add_setup(async function head_setup() {
         await addon.uninstall();
       }
     }
+    // Regression test for https://bugzilla.mozilla.org/show_bug.cgi?id=1974419
+    is(
+      Services.prefs.getStringPref("extensions.webextensions.uuids"),
+      uuids,
+      "No unexpected changes to extensions.webextensions.uuid"
+    );
   });
 });

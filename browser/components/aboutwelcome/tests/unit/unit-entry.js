@@ -202,6 +202,7 @@ const TEST_GLOBAL = {
       insert() {},
       markPageAsTyped() {},
       removeObserver() {},
+      pageFrecencyThreshold() {},
     },
     "@mozilla.org/io/string-input-stream;1": {
       createInstance() {
@@ -503,11 +504,7 @@ const TEST_GLOBAL = {
     },
   },
   FX_MONITOR_OAUTH_CLIENT_ID: "fake_client_id",
-  ExperimentAPI: {
-    getExperiment() {},
-    getExperimentMetaData() {},
-    getRolloutMetaData() {},
-  },
+  ExperimentAPI: {},
   NimbusFeatures: {
     glean: {
       getVariable() {},
@@ -537,10 +534,6 @@ const TEST_GLOBAL = {
       settings: {},
     },
   },
-  TelemetryStopwatch: {
-    start: () => {},
-    finish: () => {},
-  },
   Sampling: {
     ratioSample(_seed, _ratios) {
       return Promise.resolve(0);
@@ -565,6 +558,9 @@ const TEST_GLOBAL = {
   },
   Logger: FakeLogger,
   getFxAccountsSingleton() {},
+  AWEnsureAddonInstalled() {
+    return Promise.resolve({ value: "complete" });
+  },
   AboutNewTab: {},
   Glean: {
     newtab: {

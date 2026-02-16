@@ -265,9 +265,9 @@ export var SessionStartup = {
       // Report shutdown success via telemetry. Shortcoming here are
       // being-killed-by-OS-shutdown-logic, shutdown freezing after
       // session restore was written, etc.
-      Services.telemetry
-        .getHistogramById("SHUTDOWN_OK")
-        .add(!this._previousSessionCrashed);
+      Glean.sessionRestore.shutdownOk[
+        this._previousSessionCrashed ? "false" : "true"
+      ].add();
       Glean.sessionRestore.shutdownSuccessSessionStartup.record({
         shutdown_ok: this._previousSessionCrashed.toString(),
         shutdown_reason: previousSessionCrashedReason,
@@ -330,6 +330,7 @@ export var SessionStartup = {
    * launch of the browser. This does not include crash restoration. In
    * particular, if session restore is configured to restore only in case of
    * crash, this method returns false.
+   *
    * @returns bool
    */
   isAutomaticRestoreEnabled() {
@@ -348,6 +349,7 @@ export var SessionStartup = {
 
   /**
    * Determines whether there is a pending session restore.
+   *
    * @returns bool
    */
   willRestore() {
@@ -360,6 +362,7 @@ export var SessionStartup = {
   /**
    * Determines whether there is a pending session restore and if that will refer
    * back to a crash.
+   *
    * @returns bool
    */
   willRestoreAsCrashed() {

@@ -9,23 +9,11 @@ add_setup(async function () {
     url: getRootDirectory(gTestPath) + "testEngine.xml",
     setAsDefault: true,
   });
+  TelemetryTestUtils.getAndClearKeyedHistogram("SEARCH_COUNTS");
+  Services.fog.testResetFOG();
 });
 
 add_task(async function test() {
-  let histogramKey = "other-" + engine.name + ".contextmenu";
-  let numSearchesBefore = 0;
-
-  try {
-    let hs = Services.telemetry
-      .getKeyedHistogramById("SEARCH_COUNTS")
-      .snapshot();
-    if (histogramKey in hs) {
-      numSearchesBefore = hs[histogramKey].sum;
-    }
-  } catch (ex) {
-    // No searches performed yet, not a problem, |numSearchesBefore| is 0.
-  }
-
   let tabs = [];
   let tabsLoadedDeferred = new Deferred();
 
@@ -44,22 +32,18 @@ add_task(async function test() {
 
   BrowserTestUtils.addTab(gBrowser, "about:blank");
 
-  SearchUIUtils.loadSearchFromContext(
+  SearchUIUtils.loadSearchFromContext({
     window,
-    "mozilla",
-    false,
-    Services.scriptSecurityManager.getSystemPrincipal(),
-    Services.scriptSecurityManager.getSystemPrincipal().csp,
-    new PointerEvent("click")
-  );
-  SearchUIUtils.loadSearchFromContext(
+    searchText: "mozilla",
+    triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+    event: new PointerEvent("click"),
+  });
+  SearchUIUtils.loadSearchFromContext({
     window,
-    "firefox",
-    false,
-    Services.scriptSecurityManager.getSystemPrincipal(),
-    Services.scriptSecurityManager.getSystemPrincipal().csp,
-    new PointerEvent("click")
-  );
+    searchText: "firefox",
+    triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+    event: new PointerEvent("click"),
+  });
 
   // Wait for all the tabs to open.
   await tabsLoadedDeferred.promise;
@@ -79,14 +63,11 @@ add_task(async function test() {
   container.removeEventListener("TabOpen", tabAdded);
   tabs.forEach(gBrowser.removeTab, gBrowser);
 
-  // Make sure that the context searches are correctly recorded in telemetry.
-  // Telemetry is not updated synchronously here, we must wait for it.
-  await TestUtils.waitForCondition(() => {
-    let hs = Services.telemetry
-      .getKeyedHistogramById("SEARCH_COUNTS")
-      .snapshot();
-    return histogramKey in hs && hs[histogramKey].sum == numSearchesBefore + 2;
-  }, "The histogram must contain the correct search count");
+  await SearchUITestUtils.assertSAPTelemetry({
+    engineName: "Foo",
+    source: "contextmenu",
+    count: 2,
+  });
 });
 
 function Deferred() {

@@ -11,8 +11,6 @@ use std::fs::{read_dir, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use chrono::offset::TimeZone;
-use iso8601::Date::YMD;
 use serde_json::Value as JsonValue;
 
 use ctor::ctor;
@@ -41,9 +39,13 @@ pub fn tempdir() -> (tempfile::TempDir, String) {
 
 pub const GLOBAL_APPLICATION_ID: &str = "org.mozilla.glean.test.app";
 
-// Creates a new instance of Glean with a temporary directory.
-// We need to keep the `TempDir` alive, so that it's not deleted before we stop using it.
-pub fn new_glean(tempdir: Option<tempfile::TempDir>) -> (Glean, tempfile::TempDir) {
+/// Creates a new instance of Glean with a temporary directory, with `upload_enabled` specified.
+///
+/// We need to keep the `TempDir` alive, so that it's not deleted before we stop using it.
+pub fn new_glean_with_upload(
+    tempdir: Option<tempfile::TempDir>,
+    upload_enabled: bool,
+) -> (Glean, tempfile::TempDir) {
     let dir = match tempdir {
         Some(tempdir) => tempdir,
         None => tempfile::tempdir().unwrap(),
@@ -53,7 +55,7 @@ pub fn new_glean(tempdir: Option<tempfile::TempDir>) -> (Glean, tempfile::TempDi
         data_path: dir.path().display().to_string(),
         application_id: GLOBAL_APPLICATION_ID.into(),
         language_binding_name: "Rust".into(),
-        upload_enabled: true,
+        upload_enabled,
         max_events: None,
         delay_ping_lifetime_io: false,
         app_build: "Unknown".into(),
@@ -77,25 +79,92 @@ pub fn new_glean(tempdir: Option<tempfile::TempDir>) -> (Glean, tempfile::TempDi
     (glean, dir)
 }
 
+/// Creates a new instance of Glean with a temporary directory.
+///
+/// We need to keep the `TempDir` alive, so that it's not deleted before we stop using it.
+pub fn new_glean(tempdir: Option<tempfile::TempDir>) -> (Glean, tempfile::TempDir) {
+    new_glean_with_upload(tempdir, true)
+}
+
 pub fn new_test_ping(glean: &mut Glean, name: &str) -> PingType {
-    let ping = PingType::new(name, true, false, true, true, true, vec![], vec![], true);
+    let ping = PingBuilder::new(name).build();
     glean.register_ping_type(&ping);
     ping
 }
 
-/// Converts an iso8601::DateTime to a chrono::DateTime<FixedOffset>
-pub fn iso8601_to_chrono(datetime: &iso8601::DateTime) -> chrono::DateTime<chrono::FixedOffset> {
-    if let YMD { year, month, day } = datetime.date {
-        return chrono::FixedOffset::east(datetime.time.tz_offset_hours * 3600)
-            .ymd(year, month, day)
-            .and_hms_milli(
-                datetime.time.hour,
-                datetime.time.minute,
-                datetime.time.second,
-                datetime.time.millisecond,
-            );
-    };
-    panic!("Unsupported datetime format");
+pub struct PingBuilder {
+    name: String,
+    include_client_id: bool,
+    send_if_empty: bool,
+    precise_timestamps: bool,
+    include_info_sections: bool,
+    enabled: bool,
+    schedules_pings: Vec<String>,
+    reason_codes: Vec<String>,
+    follows_collection_enabled: bool,
+    uploader_capabilities: Vec<String>,
+}
+
+impl PingBuilder {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            include_client_id: true,
+            send_if_empty: false,
+            precise_timestamps: true,
+            include_info_sections: true,
+            enabled: true,
+            schedules_pings: vec![],
+            reason_codes: vec![],
+            follows_collection_enabled: true,
+            uploader_capabilities: vec![],
+        }
+    }
+
+    pub fn build(self) -> PingType {
+        PingType::new(
+            self.name,
+            self.include_client_id,
+            self.send_if_empty,
+            self.precise_timestamps,
+            self.include_info_sections,
+            self.enabled,
+            self.schedules_pings,
+            self.reason_codes,
+            self.follows_collection_enabled,
+            self.uploader_capabilities,
+        )
+    }
+
+    pub fn with_send_if_empty(mut self, value: bool) -> Self {
+        self.send_if_empty = value;
+        self
+    }
+
+    pub fn with_include_info_sections(mut self, value: bool) -> Self {
+        self.include_info_sections = value;
+        self
+    }
+
+    pub fn with_enabled(mut self, value: bool) -> Self {
+        self.enabled = value;
+        self
+    }
+
+    pub fn with_follows_collection_enabled(mut self, value: bool) -> Self {
+        self.follows_collection_enabled = value;
+        self
+    }
+
+    pub fn with_schedules_pings(mut self, value: Vec<String>) -> Self {
+        self.schedules_pings = value;
+        self
+    }
+
+    pub fn with_reasons(mut self, value: Vec<String>) -> Self {
+        self.reason_codes = value;
+        self
+    }
 }
 
 /// Gets a vector of the currently queued pings.

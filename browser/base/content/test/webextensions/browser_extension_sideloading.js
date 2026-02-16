@@ -73,7 +73,7 @@ add_task(async function test_sideloading() {
     set: [
       ["xpinstall.signatures.required", false],
       ["extensions.autoDisableScopes", 15],
-      ["extensions.ui.showAddonIconForUnsigned", true],
+      ["extensions.ui.disableUnsignedWarnings", true],
     ],
   });
 
@@ -148,7 +148,9 @@ add_task(async function test_sideloading() {
       gBrowser.selectedBrowser,
       "about:blank"
     );
-    await BrowserTestUtils.browserLoaded(gBrowser.selectedBrowser);
+    await BrowserTestUtils.browserLoaded(gBrowser.selectedBrowser, {
+      wantLoad: "about:blank",
+    });
   });
 
   let changePromise = new Promise(resolve => {
@@ -272,6 +274,10 @@ add_task(async function test_sideloading() {
     DEFAULT_ICON_URL,
     [["webext-perms-host-description-all-urls"]],
     kSideloaded
+  );
+  ok(
+    panel.querySelector(".webext-perm-privatebrowsing moz-checkbox"),
+    "Expect incognito checkbox in sideload prompt"
   );
 
   // Accept the permissions

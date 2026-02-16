@@ -8,6 +8,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.preference.PreferenceManager
 import com.google.android.gms.tasks.Task
@@ -30,7 +31,7 @@ object AppReviewUtils {
     /**
      * Shows in app review or opens play store if Review Info task is not successful.
      *
-     * @property activity where In App review is triggered
+     * @param activity where In App review is triggered
      */
     fun showAppReview(activity: Activity) {
         if (shouldShowInAppReview(activity)) {
@@ -59,7 +60,7 @@ object AppReviewUtils {
     /**
      * Set the number of app openings and the flag when In App Review is needed.
      *
-     * @property context needed for SharePref
+     * @param context needed for SharePref
      */
     fun addAppOpenings(context: Context) {
         val preferenceManage = PreferenceManager.getDefaultSharedPreferences(context)
@@ -77,10 +78,12 @@ object AppReviewUtils {
         )
 
         preferenceManage
-            .edit().putInt(
-                context.getString(R.string.pref_in_app_review_openings),
-                currentOpeningsNumber,
-            ).apply()
+            .edit {
+                putInt(
+                    context.getString(R.string.pref_in_app_review_openings),
+                    currentOpeningsNumber,
+                )
+            }
         if (currentOpeningsNumber == APP_OPENINGS_REVIEW_TRIGGER &&
             appReviewStep == AppReviewStep.Pending.name
         ) {
@@ -133,17 +136,21 @@ object AppReviewUtils {
 
     private fun setAppReviewStep(context: Context, appReviewStep: AppReviewStep) {
         PreferenceManager.getDefaultSharedPreferences(context)
-            .edit().putString(
-                context.getString(R.string.pref_in_app_review_step),
-                appReviewStep.name,
-            ).apply()
+            .edit {
+                putString(
+                    context.getString(R.string.pref_in_app_review_step),
+                    appReviewStep.name,
+                )
+            }
     }
 
     private fun setLastReviewedTime(context: Context) {
         PreferenceManager.getDefaultSharedPreferences(context)
-            .edit().putLong(
-                context.getString(R.string.pref_in_app_review_time),
-                System.currentTimeMillis(),
-            ).apply()
+            .edit {
+                putLong(
+                    context.getString(R.string.pref_in_app_review_time),
+                    System.currentTimeMillis(),
+                )
+            }
     }
 }

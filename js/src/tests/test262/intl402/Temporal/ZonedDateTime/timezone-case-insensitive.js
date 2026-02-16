@@ -1,11 +1,11 @@
-// |reftest| shell-option(--enable-temporal) skip-if(!this.hasOwnProperty('Temporal')||!xulRuntime.shell) -- Temporal is not enabled unconditionally, requires shell-options
+// |reftest| skip-if(!this.hasOwnProperty('Temporal')) -- Temporal is not enabled unconditionally
 // Copyright (C) 2022 Igalia, S.L. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
 esid: sec-temporal.zoneddatetime
 description: Time zone names are case-normalized
-features: [Temporal]
+features: [Temporal, canonical-tz]
 ---*/
 
 const timeZone = 'eTc/gMt+1';

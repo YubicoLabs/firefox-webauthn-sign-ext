@@ -139,6 +139,10 @@ async function getMessageValidators(skipValidation) {
       "./content-src/templates/OnboardingMessage/MenuMessage.schema.json",
       { common: true }
     ),
+    newtab_message: await getValidator(
+      "./content-src/templates/OnboardingMessage/NewtabMessage.schema.json",
+      { common: true }
+    ),
   };
 
   messageValidators.milestone_message = messageValidators.cfr_doorhanger;
@@ -181,9 +185,8 @@ async function format(content) {
 
 async function main() {
   const { default: meow } = await import("meow");
-  const { MESSAGING_EXPERIMENTS_DEFAULT_FEATURES } = await import(
-    "../modules/MessagingExperimentConstants.sys.mjs"
-  );
+  const { MESSAGING_EXPERIMENTS_DEFAULT_FEATURES } =
+    await import("../modules/MessagingExperimentConstants.sys.mjs");
 
   const fileUrl = pathToFileURL(__filename);
 

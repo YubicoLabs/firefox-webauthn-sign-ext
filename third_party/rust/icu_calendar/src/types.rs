@@ -2,88 +2,328 @@
 // called LICENSE at the top level of the ICU4X source tree
 // (online at: https://github.com/unicode-org/icu4x/blob/main/LICENSE ).
 
-//! This module contains various types used by `icu_calendar` and `icu::datetime`
+//! This module contains various types used by `icu::calendar` and `icu::datetime`
 
-use crate::error::CalendarError;
-use core::convert::TryFrom;
-use core::convert::TryInto;
+#[doc(no_inline)]
+pub use calendrical_calculations::rata_die::RataDie;
 use core::fmt;
-use core::num::NonZeroU8;
-use core::str::FromStr;
 use tinystr::TinyAsciiStr;
-use tinystr::{TinyStr16, TinyStr4};
-use zerovec::maps::ZeroMapKV;
 use zerovec::ule::AsULE;
 
-/// The era of a particular date
-///
-/// Different calendars use different era codes, see their documentation
-/// for details.
-///
-/// Era codes are shared with Temporal, [see Temporal proposal][era-proposal].
-///
-/// [era-proposal]: https://tc39.es/proposal-intl-era-monthcode/
-#[derive(Copy, Clone, Debug, PartialEq)]
-#[allow(clippy::exhaustive_structs)] // this is a newtype
-pub struct Era(pub TinyStr16);
+// Export the duration types from here
+#[cfg(feature = "unstable")]
+pub use crate::duration::{DateDuration, DateDurationUnit};
+use crate::error::MonthCodeParseError;
 
-impl From<TinyStr16> for Era {
-    fn from(x: TinyStr16) -> Self {
-        Self(x)
+#[cfg(feature = "unstable")]
+pub use unstable::DateFields;
+#[cfg(not(feature = "unstable"))]
+pub(crate) use unstable::DateFields;
+
+mod unstable {
+    /// A bag of various ways of expressing the year, month, and/or day.
+    ///
+    /// Pass this into [`Date::try_from_fields`](crate::Date::try_from_fields).
+    ///
+    /// <div class="stab unstable">
+    /// 🚧 This code is considered unstable; it may change at any time, in breaking or non-breaking ways,
+    /// including in SemVer minor releases. Do not use this type unless you are prepared for things to occasionally break.
+    ///
+    /// Graduation tracking issue: [issue #7161](https://github.com/unicode-org/icu4x/issues/7161).
+    /// </div>
+    ///
+    /// ✨ *Enabled with the `unstable` Cargo feature.*
+    #[derive(Copy, Clone, PartialEq, Default)]
+    #[non_exhaustive]
+    pub struct DateFields<'a> {
+        /// The era code as a UTF-8 string.
+        ///
+        /// The acceptable codes are defined by CLDR and documented on each calendar.
+        ///
+        /// If set, [`Self::era_year`] must also be set.
+        ///
+        /// # Examples
+        ///
+        /// To set the era field, use a byte string:
+        ///
+        /// ```
+        /// use icu::calendar::types::DateFields;
+        ///
+        /// let mut fields = DateFields::default();
+        ///
+        /// // As a byte string literal:
+        /// fields.era = Some(b"reiwa");
+        ///
+        /// // Using str::as_bytes:
+        /// fields.era = Some("reiwa".as_bytes());
+        /// ```
+        ///
+        /// For a full example, see [`Self::extended_year`].
+        pub era: Option<&'a [u8]>,
+        /// The numeric year in [`Self::era`].
+        ///
+        /// If set, [`Self::era`] must also be set.
+        ///
+        /// For an example, see [`Self::extended_year`].
+        pub era_year: Option<i32>,
+        /// See [`Date::extended_year()`](crate::Date::extended_year).
+        ///
+        /// If both this and [`Self::era`]/[`Self::era_year`] are set, they must
+        /// refer to the same year.
+        ///
+        /// # Examples
+        ///
+        /// Either `extended_year` or `era` + `era_year` can be used in DateFields:
+        ///
+        /// ```
+        /// use icu::calendar::cal::Japanese;
+        /// use icu::calendar::types::DateFields;
+        /// use icu::calendar::Date;
+        ///
+        /// let mut fields1 = DateFields::default();
+        /// fields1.era = Some(b"reiwa");
+        /// fields1.era_year = Some(7);
+        /// fields1.ordinal_month = Some(1);
+        /// fields1.day = Some(1);
+        ///
+        /// let date1 =
+        ///     Date::try_from_fields(fields1, Default::default(), Japanese::new())
+        ///         .expect("a well-defined Japanese date from era year");
+        ///
+        /// let mut fields2 = DateFields::default();
+        /// fields2.extended_year = Some(2025);
+        /// fields2.ordinal_month = Some(1);
+        /// fields2.day = Some(1);
+        ///
+        /// let date2 =
+        ///     Date::try_from_fields(fields2, Default::default(), Japanese::new())
+        ///         .expect("a well-defined Japanese date from extended year");
+        ///
+        /// assert_eq!(date1, date2);
+        ///
+        /// let year_info = date1.year().era().unwrap();
+        /// assert_eq!(year_info.year, 7);
+        /// assert_eq!(year_info.era.as_str(), "reiwa");
+        /// assert_eq!(year_info.extended_year, 2025);
+        /// ```
+        pub extended_year: Option<i32>,
+        /// The month code representing a valid month in this calendar year,
+        /// as a UTF-8 string.
+        ///
+        /// See [`MonthCode`](crate::types::MonthCode) for information on the syntax.
+        ///
+        /// # Examples
+        ///
+        /// To set the month code field, use a byte string:
+        ///
+        /// ```
+        /// use icu::calendar::types::DateFields;
+        ///
+        /// let mut fields = DateFields::default();
+        ///
+        /// // As a byte string literal:
+        /// fields.era = Some(b"M02L");
+        ///
+        /// // Using str::as_bytes:
+        /// fields.era = Some("M02L".as_bytes());
+        /// ```
+        ///
+        /// For a full example, see [`Self::ordinal_month`].
+        pub month_code: Option<&'a [u8]>,
+        /// See [`MonthInfo::ordinal`](crate::types::MonthInfo::ordinal).
+        ///
+        /// If both this and [`Self::month_code`] are set, they must refer to
+        /// the same month.
+        ///
+        /// Note: using [`Self::month_code`] is recommended, because the ordinal month numbers
+        /// can vary from year to year, as illustrated in the following example.
+        ///
+        /// # Examples
+        ///
+        /// Either `month_code` or `ordinal_month` can be used in DateFields, but they
+        /// might not resolve to the same month number:
+        ///
+        /// ```
+        /// use icu::calendar::cal::ChineseTraditional;
+        /// use icu::calendar::types::DateFields;
+        /// use icu::calendar::Date;
+        ///
+        /// // The 2023 Year of the Rabbit had a leap month after the 2nd month.
+        /// let mut fields1 = DateFields::default();
+        /// fields1.extended_year = Some(2023);
+        /// fields1.month_code = Some(b"M02L");
+        /// fields1.day = Some(1);
+        ///
+        /// let date1 = Date::try_from_fields(
+        ///     fields1,
+        ///     Default::default(),
+        ///     ChineseTraditional::new(),
+        /// )
+        /// .expect("a well-defined Chinese date from month code");
+        ///
+        /// let mut fields2 = DateFields::default();
+        /// fields2.extended_year = Some(2023);
+        /// fields2.ordinal_month = Some(3);
+        /// fields2.day = Some(1);
+        ///
+        /// let date2 = Date::try_from_fields(
+        ///     fields2,
+        ///     Default::default(),
+        ///     ChineseTraditional::new(),
+        /// )
+        /// .expect("a well-defined Chinese date from ordinal month");
+        ///
+        /// assert_eq!(date1, date2);
+        ///
+        /// let month_info = date1.month();
+        /// assert_eq!(month_info.ordinal, 3);
+        /// assert_eq!(month_info.standard_code.0, "M02L");
+        /// ```
+        pub ordinal_month: Option<u8>,
+        /// See [`DayOfMonth`](crate::types::DayOfMonth).
+        pub day: Option<u8>,
     }
 }
 
-impl FromStr for Era {
-    type Err = <TinyStr16 as FromStr>::Err;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse().map(Self)
+// Custom impl to stringify era and month_code where possible.
+impl fmt::Debug for DateFields<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // Ensures we catch future fields
+        let Self {
+            era,
+            era_year,
+            extended_year,
+            month_code,
+            ordinal_month,
+            day,
+        } = *self;
+        let mut builder = f.debug_struct("DateFields");
+        if let Some(s) = era.and_then(|s| core::str::from_utf8(s).ok()) {
+            builder.field("era", &Some(s));
+        } else {
+            builder.field("era", &era);
+        }
+        builder.field("era_year", &era_year);
+        builder.field("extended_year", &extended_year);
+        if let Some(s) = month_code.and_then(|s| core::str::from_utf8(s).ok()) {
+            builder.field("month_code", &Some(s));
+        } else {
+            builder.field("month_code", &month_code);
+        }
+        builder.field("ordinal_month", &ordinal_month);
+        builder.field("day", &day);
+        builder.finish()
     }
 }
 
-/// Representation of a formattable year.
-///
-/// More fields may be added in the future for things like extended year
+/// The type of year: Calendars like Chinese don't have an era and instead format with cyclic years.
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[non_exhaustive]
-pub struct FormattableYear {
-    /// The era containing the year.
+pub enum YearInfo {
+    /// An era and a year in that era
+    Era(EraYear),
+    /// A cyclic year, and the related ISO year
     ///
-    /// This may not always be the canonical era for the calendar and could be an alias,
-    /// for example all `islamic` calendars return `islamic` as the formattable era code
-    /// which allows them to share data.
-    pub era: Era,
-
-    /// The year number in the current era (usually 1-based).
-    pub number: i32,
-
-    /// The year in the current cycle for cyclic calendars (1-indexed)
-    /// can be set to `None` for non-cyclic calendars
-    ///
-    /// For chinese and dangi it will be
-    /// a number between 1 and 60, for hypothetical other calendars it may be something else.
-    pub cyclic: Option<NonZeroU8>,
-
-    /// The related ISO year. This is normally the ISO (proleptic Gregorian) year having the greatest
-    /// overlap with the calendar year. It is used in certain date formatting patterns.
-    ///
-    /// Can be `None` if the calendar does not typically use `related_iso` (and CLDR does not contain patterns
-    /// using it)
-    pub related_iso: Option<i32>,
+    /// Knowing the cyclic year is typically not enough to pinpoint a date, however cyclic calendars
+    /// don't typically use eras, so disambiguation can be done by saying things like "Year 甲辰 (2024)"
+    Cyclic(CyclicYear),
 }
 
-impl FormattableYear {
-    /// Construct a new Year given an era and number
+impl From<EraYear> for YearInfo {
+    fn from(value: EraYear) -> Self {
+        Self::Era(value)
+    }
+}
+
+impl From<CyclicYear> for YearInfo {
+    fn from(value: CyclicYear) -> Self {
+        Self::Cyclic(value)
+    }
+}
+
+impl YearInfo {
+    /// Get *some* year number that can be displayed
     ///
-    /// Other fields can be set mutably after construction
-    /// as needed
-    pub fn new(era: Era, number: i32, cyclic: Option<NonZeroU8>) -> Self {
-        Self {
-            era,
-            number,
-            cyclic,
-            related_iso: None,
+    /// Gets the era year for era calendars, and the related ISO year for cyclic calendars.
+    pub fn era_year_or_related_iso(self) -> i32 {
+        match self {
+            YearInfo::Era(e) => e.year,
+            YearInfo::Cyclic(c) => c.related_iso,
         }
     }
+
+    /// Get the extended year (See [`Date::extended_year`](crate::Date::extended_year))
+    /// for more information
+    pub fn extended_year(self) -> i32 {
+        match self {
+            YearInfo::Era(e) => e.extended_year,
+            YearInfo::Cyclic(c) => c.related_iso,
+        }
+    }
+
+    /// Get the era year information, if available
+    pub fn era(self) -> Option<EraYear> {
+        match self {
+            Self::Era(e) => Some(e),
+            Self::Cyclic(_) => None,
+        }
+    }
+
+    /// Get the cyclic year informat, if available
+    pub fn cyclic(self) -> Option<CyclicYear> {
+        match self {
+            Self::Era(_) => None,
+            Self::Cyclic(c) => Some(c),
+        }
+    }
+}
+
+/// Defines whether the era or century is required to interpret the year.
+///
+/// For example 2024 AD can be formatted as `2024`, or even `24`, but 1931 AD
+/// should not be formatted as `31`, and 2024 BC should not be formatted as `2024`.
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[allow(clippy::exhaustive_enums)] // logically complete
+pub enum YearAmbiguity {
+    /// The year is unambiguous without a century or era.
+    Unambiguous,
+    /// The century is required, the era may be included.
+    CenturyRequired,
+    /// The era is required, the century may be included.
+    EraRequired,
+    /// The century and era are required.
+    EraAndCenturyRequired,
+}
+
+/// Year information for a year that is specified with an era
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct EraYear {
+    /// The numeric year in that era
+    pub year: i32,
+    /// See [`YearInfo::extended_year()`]
+    pub extended_year: i32,
+    /// The era code as defined by CLDR, expect for cases where CLDR does not define a code.
+    pub era: TinyAsciiStr<16>,
+    /// An era index, for calendars with a small set of eras.
+    ///
+    /// The only guarantee we make is that these values are stable. These do *not*
+    /// match the indices produced by ICU4C or CLDR.
+    ///
+    /// These are used by ICU4X datetime formatting for efficiently storing data.
+    pub era_index: Option<u8>,
+    /// The ambiguity of the era/year combination
+    pub ambiguity: YearAmbiguity,
+}
+
+/// Year information for a year that is specified as a cyclic year
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct CyclicYear {
+    /// The year in the cycle, 1-based
+    pub year: u8,
+    /// The ISO year corresponding to this year
+    pub related_iso: i32,
 }
 
 /// Representation of a month in a year
@@ -98,88 +338,83 @@ impl FormattableYear {
 /// [era-proposal]: https://tc39.es/proposal-intl-era-monthcode/
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[allow(clippy::exhaustive_structs)] // this is a newtype
-#[cfg_attr(
-    feature = "datagen",
-    derive(serde::Serialize, databake::Bake),
-    databake(path = icu_calendar::types),
-)]
+#[cfg_attr(feature = "datagen", derive(serde::Serialize, databake::Bake))]
+#[cfg_attr(feature = "datagen", databake(path = icu_calendar::types))]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize))]
-pub struct MonthCode(pub TinyStr4);
+pub struct MonthCode(pub TinyAsciiStr<4>);
 
 impl MonthCode {
     /// Returns an option which is `Some` containing the non-month version of a leap month
     /// if the [`MonthCode`] this method is called upon is a leap month, and `None` otherwise.
     /// This method assumes the [`MonthCode`] is valid.
+    #[deprecated(since = "2.1.0")]
     pub fn get_normal_if_leap(self) -> Option<MonthCode> {
         let bytes = self.0.all_bytes();
         if bytes[3] == b'L' {
-            Some(MonthCode(TinyAsciiStr::from_bytes(&bytes[0..3]).ok()?))
+            Some(MonthCode(TinyAsciiStr::try_from_utf8(&bytes[0..3]).ok()?))
         } else {
             None
         }
     }
+
+    #[deprecated(since = "2.1.0")]
     /// Get the month number and whether or not it is leap from the month code
     pub fn parsed(self) -> Option<(u8, bool)> {
-        // Match statements on tinystrs are annoying so instead
-        // we calculate it from the bytes directly
-
-        let bytes = self.0.all_bytes();
-        let is_leap = bytes[3] == b'L';
-        if bytes[0] != b'M' {
-            return None;
-        }
-        if bytes[1] == b'0' {
-            if bytes[2] >= b'1' && bytes[2] <= b'9' {
-                return Some((bytes[2] - b'0', is_leap));
-            }
-        } else if bytes[1] == b'1' && bytes[2] >= b'0' && bytes[2] <= b'3' {
-            return Some((10 + bytes[2] - b'0', is_leap));
-        }
-        None
+        ValidMonthCode::try_from_utf8(self.0.as_bytes())
+            .ok()
+            .map(ValidMonthCode::to_tuple)
     }
 
     /// Construct a "normal" month code given a number ("Mxx").
     ///
     /// Returns an error for months greater than 99
-    #[cfg(test)] // Only used in tests for now. Could be made public if people need it.
-    pub(crate) fn new_normal(number: u8) -> Option<Self> {
-        let tens = number / 10;
-        let ones = number % 10;
-        if tens > 9 {
-            return None;
-        }
+    pub fn new_normal(number: u8) -> Option<Self> {
+        (1..=99)
+            .contains(&number)
+            .then(|| ValidMonthCode::new_unchecked(number, false).to_month_code())
+    }
 
-        let bytes = [b'M', b'0' + tens, b'0' + ones, 0];
-        Some(MonthCode(TinyAsciiStr::try_from_raw(bytes).ok()?))
+    /// Construct a "leap" month code given a number ("MxxL").
+    ///
+    /// Returns an error for months greater than 99
+    pub fn new_leap(number: u8) -> Option<Self> {
+        (1..=99)
+            .contains(&number)
+            .then(|| ValidMonthCode::new_unchecked(number, true).to_month_code())
     }
 }
 
 #[test]
 fn test_get_normal_month_code_if_leap() {
-    let mc1 = MonthCode(tinystr::tinystr!(4, "M01L"));
-    let result1 = mc1.get_normal_if_leap();
-    assert_eq!(result1, Some(MonthCode(tinystr::tinystr!(4, "M01"))));
+    #![allow(deprecated)]
+    assert_eq!(
+        MonthCode::new_leap(1).unwrap().get_normal_if_leap(),
+        MonthCode::new_normal(1)
+    );
 
-    let mc2 = MonthCode(tinystr::tinystr!(4, "M11L"));
-    let result2 = mc2.get_normal_if_leap();
-    assert_eq!(result2, Some(MonthCode(tinystr::tinystr!(4, "M11"))));
+    assert_eq!(
+        MonthCode::new_leap(11).unwrap().get_normal_if_leap(),
+        MonthCode::new_normal(11)
+    );
 
-    let mc_invalid = MonthCode(tinystr::tinystr!(4, "M10"));
-    let result_invalid = mc_invalid.get_normal_if_leap();
-    assert_eq!(result_invalid, None);
+    assert_eq!(
+        MonthCode::new_normal(10).unwrap().get_normal_if_leap(),
+        None
+    );
 }
 
 impl AsULE for MonthCode {
-    type ULE = TinyStr4;
-    fn to_unaligned(self) -> TinyStr4 {
+    type ULE = TinyAsciiStr<4>;
+    fn to_unaligned(self) -> TinyAsciiStr<4> {
         self.0
     }
-    fn from_unaligned(u: TinyStr4) -> Self {
+    fn from_unaligned(u: TinyAsciiStr<4>) -> Self {
         Self(u)
     }
 }
 
-impl<'a> ZeroMapKV<'a> for MonthCode {
+#[cfg(feature = "alloc")]
+impl<'a> zerovec::maps::ZeroMapKV<'a> for MonthCode {
     type Container = zerovec::ZeroVec<'a, MonthCode>;
     type Slice = zerovec::ZeroSlice<MonthCode>;
     type GetType = <MonthCode as AsULE>::ULE;
@@ -192,74 +427,193 @@ impl fmt::Display for MonthCode {
     }
 }
 
-impl From<TinyStr4> for MonthCode {
-    fn from(x: TinyStr4) -> Self {
-        Self(x)
-    }
+/// A [`MonthCode`] that has been parsed into its internal representation.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) struct ValidMonthCode {
+    /// Month number between 0 and 99
+    number: u8,
+    is_leap: bool,
 }
-impl FromStr for MonthCode {
-    type Err = <TinyStr4 as FromStr>::Err;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse().map(Self)
+
+impl ValidMonthCode {
+    #[inline]
+    pub(crate) fn try_from_utf8(bytes: &[u8]) -> Result<Self, MonthCodeParseError> {
+        match *bytes {
+            [b'M', tens, ones] => Ok(Self {
+                number: (tens - b'0') * 10 + ones - b'0',
+                is_leap: false,
+            }),
+            [b'M', tens, ones, b'L'] => Ok(Self {
+                number: (tens - b'0') * 10 + ones - b'0',
+                is_leap: true,
+            }),
+            _ => Err(MonthCodeParseError::InvalidSyntax),
+        }
+    }
+
+    /// Create a new ValidMonthCode without checking that the number is between 1 and 99
+    #[inline]
+    pub(crate) const fn new_unchecked(number: u8, is_leap: bool) -> Self {
+        debug_assert!(1 <= number && number <= 99);
+        Self { number, is_leap }
+    }
+
+    /// Returns the month number according to the month code.
+    ///
+    /// This is NOT the same as the ordinal month!
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use icu::calendar::Date;
+    /// use icu::calendar::cal::Hebrew;
+    ///
+    /// let hebrew_date = Date::try_new_iso(2024, 7, 1).unwrap().to_calendar(Hebrew);
+    /// let month_info = hebrew_date.month();
+    ///
+    /// // Hebrew year 5784 was a leap year, so the ordinal month and month number diverge.
+    /// assert_eq!(month_info.ordinal, 10);
+    /// assert_eq!(month_info.valid_month_code.number(), 9);
+    /// ```
+    #[inline]
+    pub fn number(self) -> u8 {
+        self.number
+    }
+
+    /// Returns whether the month is a leap month.
+    ///
+    /// This is true for intercalary months in [`Hebrew`] and [`LunarChinese`].
+    ///
+    /// [`Hebrew`]: crate::cal::Hebrew
+    /// [`LunarChinese`]: crate::cal::LunarChinese
+    #[inline]
+    pub fn is_leap(self) -> bool {
+        self.is_leap
+    }
+
+    #[inline]
+    pub(crate) fn to_tuple(self) -> (u8, bool) {
+        (self.number, self.is_leap)
+    }
+
+    pub(crate) fn to_month_code(self) -> MonthCode {
+        #[allow(clippy::unwrap_used)] // by construction
+        MonthCode(
+            TinyAsciiStr::try_from_raw([
+                b'M',
+                b'0' + self.number / 10,
+                b'0' + self.number % 10,
+                if self.is_leap { b'L' } else { 0 },
+            ])
+            .unwrap(),
+        )
     }
 }
 
 /// Representation of a formattable month.
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[allow(clippy::exhaustive_structs)] // this type is stable
-pub struct FormattableMonth {
+#[non_exhaustive]
+pub struct MonthInfo {
     /// The month number in this given year. For calendars with leap months, all months after
     /// the leap month will end up with an incremented number.
     ///
     /// In general, prefer using the month code in generic code.
-    pub ordinal: u32,
+    pub ordinal: u8,
 
     /// The month code, used to distinguish months during leap years.
     ///
+    /// Round-trips through `Date` constructors like [`Date::try_new_from_codes`] and [`Date::try_from_fields`].
+    ///
+    /// This follows [Temporal's specification](https://tc39.es/proposal-intl-era-monthcode/#table-additional-month-codes).
+    /// Months considered the "same" have the same code: This means that the Hebrew months "Adar" and "Adar II" ("Adar, but during a leap year")
+    /// are considered the same month and have the code M05.
+    ///
+    /// [`Date::try_new_from_codes`]: crate::Date::try_new_from_codes
+    /// [`Date::try_from_fields`]: crate::Date::try_from_fields
+    pub standard_code: MonthCode,
+
+    /// Same as [`Self::standard_code`] but with invariants validated.
+    pub(crate) valid_standard_code: ValidMonthCode,
+
+    /// A month code, useable for formatting.
+    ///
+    /// Does NOT necessarily round-trip through `Date` constructors like [`Date::try_new_from_codes`] and [`Date::try_from_fields`].
+    ///
     /// This may not necessarily be the canonical month code for a month in cases where a month has different
     /// formatting in a leap year, for example Adar/Adar II in the Hebrew calendar in a leap year has
-    /// the code M06, but for formatting specifically the Hebrew calendar will return M06L since it is formatted
+    /// the standard code M06, but for formatting specifically the Hebrew calendar will return M06L since it is formatted
     /// differently.
-    pub code: MonthCode,
+    ///
+    /// [`Date::try_new_from_codes`]: crate::Date::try_new_from_codes
+    /// [`Date::try_from_fields`]: crate::Date::try_from_fields
+    pub formatting_code: MonthCode,
+
+    /// Same as [`Self::formatting_code`] but with invariants validated.
+    pub(crate) valid_formatting_code: ValidMonthCode,
 }
 
-/// A struct containing various details about the position of the day within a year. It is returned
-// by the [`day_of_year_info()`](trait.DateInput.html#tymethod.day_of_year_info) method of the
-// [`DateInput`] trait.
+impl MonthInfo {
+    pub(crate) fn non_lunisolar(number: u8) -> Self {
+        Self::for_code_and_ordinal(ValidMonthCode::new_unchecked(number, false), number)
+    }
+
+    pub(crate) fn for_code_and_ordinal(code: ValidMonthCode, ordinal: u8) -> Self {
+        Self {
+            ordinal,
+            standard_code: code.to_month_code(),
+            valid_standard_code: code,
+            formatting_code: code.to_month_code(),
+            valid_formatting_code: code,
+        }
+    }
+
+    /// Gets the month number. A month number N is not necessarily the Nth month in the year
+    /// if there are leap months in the year, rather it is associated with the Nth month of a "regular"
+    /// year. There may be multiple month Ns in a year
+    pub fn month_number(self) -> u8 {
+        self.valid_standard_code.number()
+    }
+
+    /// Get whether the month is a leap month
+    pub fn is_leap(self) -> bool {
+        self.valid_standard_code.is_leap()
+    }
+
+    #[doc(hidden)]
+    pub fn formatting_month_number(self) -> u8 {
+        self.valid_formatting_code.number()
+    }
+
+    #[doc(hidden)]
+    pub fn formatting_is_leap(self) -> bool {
+        self.valid_formatting_code.is_leap()
+    }
+}
+
+/// The current day of the year, 1-based.
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[allow(clippy::exhaustive_structs)] // this type is stable
-pub struct DayOfYearInfo {
-    /// The current day of the year, 1-based.
-    pub day_of_year: u16,
-    /// The number of days in a year.
-    pub days_in_year: u16,
-    /// The previous year.
-    pub prev_year: FormattableYear,
-    /// The number of days in the previous year.
-    pub days_in_prev_year: u16,
-    /// The next year.
-    pub next_year: FormattableYear,
+#[allow(clippy::exhaustive_structs)] // this is a newtype
+pub struct DayOfYear(pub u16);
+
+/// A 1-based day number in a month.
+#[allow(clippy::exhaustive_structs)] // this is a newtype
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DayOfMonth(pub u8);
+
+/// A week number in a year
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(clippy::exhaustive_structs)] // this is a newtype
+pub struct IsoWeekOfYear {
+    /// The 1-based ISO week number
+    pub week_number: u8,
+    /// The ISO year
+    pub iso_year: i32,
 }
-
-/// A day number in a month. Usually 1-based.
-#[allow(clippy::exhaustive_structs)] // this is a newtype
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct DayOfMonth(pub u32);
-
-/// A week number in a month. Usually 1-based.
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[allow(clippy::exhaustive_structs)] // this is a newtype
-pub struct WeekOfMonth(pub u32);
-
-/// A week number in a year. Usually 1-based.
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[allow(clippy::exhaustive_structs)] // this is a newtype
-pub struct WeekOfYear(pub u32);
 
 /// A day of week in month. 1-based.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[allow(clippy::exhaustive_structs)] // this is a newtype
-pub struct DayOfWeekInMonth(pub u32);
+pub struct DayOfWeekInMonth(pub u8);
 
 impl From<DayOfMonth> for DayOfWeekInMonth {
     fn from(day_of_month: DayOfMonth) -> Self {
@@ -274,472 +628,6 @@ fn test_day_of_week_in_month() {
     assert_eq!(DayOfWeekInMonth::from(DayOfMonth(8)).0, 2);
 }
 
-/// This macro defines a struct for 0-based date fields: hours, minutes, seconds
-/// and fractional seconds. Each unit is bounded by a range. The traits implemented
-/// here will return a Result on whether or not the unit is in range from the given
-/// input.
-macro_rules! dt_unit {
-    ($name:ident, $storage:ident, $value:expr, $docs:expr) => {
-        #[doc=$docs]
-        #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
-        pub struct $name($storage);
-
-        impl $name {
-            /// Gets the numeric value for this component.
-            pub const fn number(self) -> $storage {
-                self.0
-            }
-
-            /// Creates a new value at 0.
-            pub const fn zero() -> $name {
-                Self(0)
-            }
-        }
-
-        impl FromStr for $name {
-            type Err = CalendarError;
-
-            fn from_str(input: &str) -> Result<Self, Self::Err> {
-                let val: $storage = input.parse()?;
-                if val > $value {
-                    Err(CalendarError::Overflow {
-                        field: "$name",
-                        max: $value,
-                    })
-                } else {
-                    Ok(Self(val))
-                }
-            }
-        }
-
-        impl TryFrom<$storage> for $name {
-            type Error = CalendarError;
-
-            fn try_from(input: $storage) -> Result<Self, Self::Error> {
-                if input > $value {
-                    Err(CalendarError::Overflow {
-                        field: "$name",
-                        max: $value,
-                    })
-                } else {
-                    Ok(Self(input))
-                }
-            }
-        }
-
-        impl TryFrom<usize> for $name {
-            type Error = CalendarError;
-
-            fn try_from(input: usize) -> Result<Self, Self::Error> {
-                if input > $value {
-                    Err(CalendarError::Overflow {
-                        field: "$name",
-                        max: $value,
-                    })
-                } else {
-                    Ok(Self(input as $storage))
-                }
-            }
-        }
-
-        impl From<$name> for $storage {
-            fn from(input: $name) -> Self {
-                input.0
-            }
-        }
-
-        impl From<$name> for usize {
-            fn from(input: $name) -> Self {
-                input.0 as Self
-            }
-        }
-
-        impl $name {
-            /// Attempts to add two values.
-            /// Returns `Some` if the sum is within bounds.
-            /// Returns `None` if the sum is out of bounds.
-            pub fn try_add(self, other: $storage) -> Option<Self> {
-                let sum = self.0.saturating_add(other);
-                if sum > $value {
-                    None
-                } else {
-                    Some(Self(sum))
-                }
-            }
-
-            /// Attempts to subtract two values.
-            /// Returns `Some` if the difference is within bounds.
-            /// Returns `None` if the difference is out of bounds.
-            pub fn try_sub(self, other: $storage) -> Option<Self> {
-                self.0.checked_sub(other).map(Self)
-            }
-        }
-    };
-}
-
-dt_unit!(
-    IsoHour,
-    u8,
-    24,
-    "An ISO-8601 hour component, for use with ISO calendars.
-
-Must be within inclusive bounds `[0, 24]`. The value could be equal to 24 to
-denote the end of a day, with the writing 24:00:00. It corresponds to the same
-time as the next day at 00:00:00."
-);
-
-dt_unit!(
-    IsoMinute,
-    u8,
-    60,
-    "An ISO-8601 minute component, for use with ISO calendars.
-
-Must be within inclusive bounds `[0, 60]`. The value could be equal to 60 to
-denote the end of an hour, with the writing 12:60:00. This example corresponds
-to the same time as 13:00:00. This is an extension to ISO 8601."
-);
-
-dt_unit!(
-    IsoSecond,
-    u8,
-    61,
-    "An ISO-8601 second component, for use with ISO calendars.
-
-Must be within inclusive bounds `[0, 61]`. `60` accommodates for leap seconds.
-
-The value could also be equal to 60 or 61, to indicate the end of a leap second,
-with the writing `23:59:61.000000000Z` or `23:59:60.000000000Z`. These examples,
-if used with this goal, would correspond to the same time as the next day, at
-time `00:00:00.000000000Z`. This is an extension to ISO 8601."
-);
-
-dt_unit!(
-    NanoSecond,
-    u32,
-    999_999_999,
-    "A fractional second component, stored as nanoseconds.
-
-Must be within inclusive bounds `[0, 999_999_999]`."
-);
-
-#[test]
-fn test_iso_hour_arithmetic() {
-    const HOUR_MAX: u8 = 24;
-    const HOUR_VALUE: u8 = 5;
-    let hour = IsoHour(HOUR_VALUE);
-
-    // middle of bounds
-    assert_eq!(
-        hour.try_add(HOUR_VALUE - 1),
-        Some(IsoHour(HOUR_VALUE + (HOUR_VALUE - 1)))
-    );
-    assert_eq!(
-        hour.try_sub(HOUR_VALUE - 1),
-        Some(IsoHour(HOUR_VALUE - (HOUR_VALUE - 1)))
-    );
-
-    // edge of bounds
-    assert_eq!(hour.try_add(HOUR_MAX - HOUR_VALUE), Some(IsoHour(HOUR_MAX)));
-    assert_eq!(hour.try_sub(HOUR_VALUE), Some(IsoHour(0)));
-
-    // out of bounds
-    assert_eq!(hour.try_add(1 + HOUR_MAX - HOUR_VALUE), None);
-    assert_eq!(hour.try_sub(1 + HOUR_VALUE), None);
-}
-
-#[test]
-fn test_iso_minute_arithmetic() {
-    const MINUTE_MAX: u8 = 60;
-    const MINUTE_VALUE: u8 = 5;
-    let minute = IsoMinute(MINUTE_VALUE);
-
-    // middle of bounds
-    assert_eq!(
-        minute.try_add(MINUTE_VALUE - 1),
-        Some(IsoMinute(MINUTE_VALUE + (MINUTE_VALUE - 1)))
-    );
-    assert_eq!(
-        minute.try_sub(MINUTE_VALUE - 1),
-        Some(IsoMinute(MINUTE_VALUE - (MINUTE_VALUE - 1)))
-    );
-
-    // edge of bounds
-    assert_eq!(
-        minute.try_add(MINUTE_MAX - MINUTE_VALUE),
-        Some(IsoMinute(MINUTE_MAX))
-    );
-    assert_eq!(minute.try_sub(MINUTE_VALUE), Some(IsoMinute(0)));
-
-    // out of bounds
-    assert_eq!(minute.try_add(1 + MINUTE_MAX - MINUTE_VALUE), None);
-    assert_eq!(minute.try_sub(1 + MINUTE_VALUE), None);
-}
-
-#[test]
-fn test_iso_second_arithmetic() {
-    const SECOND_MAX: u8 = 61;
-    const SECOND_VALUE: u8 = 5;
-    let second = IsoSecond(SECOND_VALUE);
-
-    // middle of bounds
-    assert_eq!(
-        second.try_add(SECOND_VALUE - 1),
-        Some(IsoSecond(SECOND_VALUE + (SECOND_VALUE - 1)))
-    );
-    assert_eq!(
-        second.try_sub(SECOND_VALUE - 1),
-        Some(IsoSecond(SECOND_VALUE - (SECOND_VALUE - 1)))
-    );
-
-    // edge of bounds
-    assert_eq!(
-        second.try_add(SECOND_MAX - SECOND_VALUE),
-        Some(IsoSecond(SECOND_MAX))
-    );
-    assert_eq!(second.try_sub(SECOND_VALUE), Some(IsoSecond(0)));
-
-    // out of bounds
-    assert_eq!(second.try_add(1 + SECOND_MAX - SECOND_VALUE), None);
-    assert_eq!(second.try_sub(1 + SECOND_VALUE), None);
-}
-
-#[test]
-fn test_iso_nano_second_arithmetic() {
-    const NANO_SECOND_MAX: u32 = 999_999_999;
-    const NANO_SECOND_VALUE: u32 = 5;
-    let nano_second = NanoSecond(NANO_SECOND_VALUE);
-
-    // middle of bounds
-    assert_eq!(
-        nano_second.try_add(NANO_SECOND_VALUE - 1),
-        Some(NanoSecond(NANO_SECOND_VALUE + (NANO_SECOND_VALUE - 1)))
-    );
-    assert_eq!(
-        nano_second.try_sub(NANO_SECOND_VALUE - 1),
-        Some(NanoSecond(NANO_SECOND_VALUE - (NANO_SECOND_VALUE - 1)))
-    );
-
-    // edge of bounds
-    assert_eq!(
-        nano_second.try_add(NANO_SECOND_MAX - NANO_SECOND_VALUE),
-        Some(NanoSecond(NANO_SECOND_MAX))
-    );
-    assert_eq!(nano_second.try_sub(NANO_SECOND_VALUE), Some(NanoSecond(0)));
-
-    // out of bounds
-    assert_eq!(
-        nano_second.try_add(1 + NANO_SECOND_MAX - NANO_SECOND_VALUE),
-        None
-    );
-    assert_eq!(nano_second.try_sub(1 + NANO_SECOND_VALUE), None);
-}
-
-/// A representation of a time in hours, minutes, seconds, and nanoseconds
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[allow(clippy::exhaustive_structs)] // this type is stable
-pub struct Time {
-    /// 0-based hour.
-    pub hour: IsoHour,
-
-    /// 0-based minute.
-    pub minute: IsoMinute,
-
-    /// 0-based second.
-    pub second: IsoSecond,
-
-    /// Fractional second
-    pub nanosecond: NanoSecond,
-}
-
-impl Time {
-    /// Construct a new [`Time`], without validating that all components are in range
-    pub const fn new(
-        hour: IsoHour,
-        minute: IsoMinute,
-        second: IsoSecond,
-        nanosecond: NanoSecond,
-    ) -> Self {
-        Self {
-            hour,
-            minute,
-            second,
-            nanosecond,
-        }
-    }
-
-    /// Construct a new [`Time`] representing midnight (00:00.000)
-    pub const fn midnight() -> Self {
-        Self {
-            hour: IsoHour::zero(),
-            minute: IsoMinute::zero(),
-            second: IsoSecond::zero(),
-            nanosecond: NanoSecond::zero(),
-        }
-    }
-
-    /// Construct a new [`Time`], whilst validating that all components are in range
-    pub fn try_new(
-        hour: u8,
-        minute: u8,
-        second: u8,
-        nanosecond: u32,
-    ) -> Result<Self, CalendarError> {
-        Ok(Self {
-            hour: hour.try_into()?,
-            minute: minute.try_into()?,
-            second: second.try_into()?,
-            nanosecond: nanosecond.try_into()?,
-        })
-    }
-
-    /// Takes a number of minutes, which could be positive or negative, and returns the Time
-    /// and the day number, which could be positive or negative.
-    pub(crate) fn from_minute_with_remainder_days(minute: i32) -> (Time, i32) {
-        let (extra_days, minute_in_day) = (minute.div_euclid(1440), minute.rem_euclid(1440));
-        let (hours, minutes) = (minute_in_day / 60, minute_in_day % 60);
-        #[allow(clippy::unwrap_used)] // values are moduloed to be in range
-        (
-            Self {
-                hour: (hours as u8).try_into().unwrap(),
-                minute: (minutes as u8).try_into().unwrap(),
-                second: IsoSecond::zero(),
-                nanosecond: NanoSecond::zero(),
-            },
-            extra_days,
-        )
-    }
-}
-
-#[test]
-fn test_from_minute_with_remainder_days() {
-    #[derive(Debug)]
-    struct TestCase {
-        minute: i32,
-        expected_time: Time,
-        expected_remainder: i32,
-    }
-    let zero_time = Time::new(
-        IsoHour::zero(),
-        IsoMinute::zero(),
-        IsoSecond::zero(),
-        NanoSecond::zero(),
-    );
-    let first_minute_in_day = Time::new(
-        IsoHour::zero(),
-        IsoMinute::try_from(1u8).unwrap(),
-        IsoSecond::zero(),
-        NanoSecond::zero(),
-    );
-    let last_minute_in_day = Time::new(
-        IsoHour::try_from(23u8).unwrap(),
-        IsoMinute::try_from(59u8).unwrap(),
-        IsoSecond::zero(),
-        NanoSecond::zero(),
-    );
-    let cases = [
-        TestCase {
-            minute: 0,
-            expected_time: zero_time,
-            expected_remainder: 0,
-        },
-        TestCase {
-            minute: 30,
-            expected_time: Time::new(
-                IsoHour::zero(),
-                IsoMinute::try_from(30u8).unwrap(),
-                IsoSecond::zero(),
-                NanoSecond::zero(),
-            ),
-            expected_remainder: 0,
-        },
-        TestCase {
-            minute: 60,
-            expected_time: Time::new(
-                IsoHour::try_from(1u8).unwrap(),
-                IsoMinute::zero(),
-                IsoSecond::zero(),
-                NanoSecond::zero(),
-            ),
-            expected_remainder: 0,
-        },
-        TestCase {
-            minute: 90,
-            expected_time: Time::new(
-                IsoHour::try_from(1u8).unwrap(),
-                IsoMinute::try_from(30u8).unwrap(),
-                IsoSecond::zero(),
-                NanoSecond::zero(),
-            ),
-            expected_remainder: 0,
-        },
-        TestCase {
-            minute: 1439,
-            expected_time: last_minute_in_day,
-            expected_remainder: 0,
-        },
-        TestCase {
-            minute: 1440,
-            expected_time: Time::new(
-                IsoHour::zero(),
-                IsoMinute::zero(),
-                IsoSecond::zero(),
-                NanoSecond::zero(),
-            ),
-            expected_remainder: 1,
-        },
-        TestCase {
-            minute: 1441,
-            expected_time: first_minute_in_day,
-            expected_remainder: 1,
-        },
-        TestCase {
-            minute: i32::MAX,
-            expected_time: Time::new(
-                IsoHour::try_from(2u8).unwrap(),
-                IsoMinute::try_from(7u8).unwrap(),
-                IsoSecond::zero(),
-                NanoSecond::zero(),
-            ),
-            expected_remainder: 1491308,
-        },
-        TestCase {
-            minute: -1,
-            expected_time: last_minute_in_day,
-            expected_remainder: -1,
-        },
-        TestCase {
-            minute: -1439,
-            expected_time: first_minute_in_day,
-            expected_remainder: -1,
-        },
-        TestCase {
-            minute: -1440,
-            expected_time: zero_time,
-            expected_remainder: -1,
-        },
-        TestCase {
-            minute: -1441,
-            expected_time: last_minute_in_day,
-            expected_remainder: -2,
-        },
-        TestCase {
-            minute: i32::MIN,
-            expected_time: Time::new(
-                IsoHour::try_from(21u8).unwrap(),
-                IsoMinute::try_from(52u8).unwrap(),
-                IsoSecond::zero(),
-                NanoSecond::zero(),
-            ),
-            expected_remainder: -1491309,
-        },
-    ];
-    for cas in cases {
-        let (actual_time, actual_remainder) = Time::from_minute_with_remainder_days(cas.minute);
-        assert_eq!(actual_time, cas.expected_time, "{cas:?}");
-        assert_eq!(actual_remainder, cas.expected_remainder, "{cas:?}");
-    }
-}
-
 /// A weekday in a 7-day week, according to ISO-8601.
 ///
 /// The discriminant values correspond to ISO-8601 weekday numbers (Monday = 1, Sunday = 7).
@@ -747,22 +635,19 @@ fn test_from_minute_with_remainder_days() {
 /// # Examples
 ///
 /// ```
-/// use icu::calendar::types::IsoWeekday;
+/// use icu::calendar::types::Weekday;
 ///
-/// assert_eq!(1, IsoWeekday::Monday as usize);
-/// assert_eq!(7, IsoWeekday::Sunday as usize);
+/// assert_eq!(1, Weekday::Monday as usize);
+/// assert_eq!(7, Weekday::Sunday as usize);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(missing_docs)] // The weekday variants should be self-obvious.
 #[repr(i8)]
-#[cfg_attr(
-    feature = "datagen",
-    derive(serde::Serialize, databake::Bake),
-    databake(path = icu_calendar::types),
-)]
+#[cfg_attr(feature = "datagen", derive(serde::Serialize, databake::Bake))]
+#[cfg_attr(feature = "datagen", databake(path = icu_calendar::types))]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize))]
 #[allow(clippy::exhaustive_enums)] // This is stable
-pub enum IsoWeekday {
+pub enum Weekday {
     Monday = 1,
     Tuesday,
     Wednesday,
@@ -772,23 +657,13 @@ pub enum IsoWeekday {
     Sunday,
 }
 
-impl From<usize> for IsoWeekday {
-    /// Convert from an ISO-8601 weekday number to an [`IsoWeekday`] enum. 0 is automatically converted
-    /// to 7 (Sunday). If the number is out of range, it is interpreted modulo 7.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use icu::calendar::types::IsoWeekday;
-    ///
-    /// assert_eq!(IsoWeekday::Sunday, IsoWeekday::from(0));
-    /// assert_eq!(IsoWeekday::Monday, IsoWeekday::from(1));
-    /// assert_eq!(IsoWeekday::Sunday, IsoWeekday::from(7));
-    /// assert_eq!(IsoWeekday::Monday, IsoWeekday::from(8));
-    /// ```
-    fn from(input: usize) -> Self {
-        use IsoWeekday::*;
-        match input % 7 {
+// RD 0 is a Sunday
+const SUNDAY: RataDie = RataDie::new(0);
+
+impl From<RataDie> for Weekday {
+    fn from(value: RataDie) -> Self {
+        use Weekday::*;
+        match (value - SUNDAY).rem_euclid(7) {
             0 => Sunday,
             1 => Monday,
             2 => Tuesday,
@@ -801,10 +676,27 @@ impl From<usize> for IsoWeekday {
     }
 }
 
-impl IsoWeekday {
+impl Weekday {
+    /// Convert from an ISO-8601 weekday number to an [`Weekday`] enum. 0 is automatically converted
+    /// to 7 (Sunday). If the number is out of range, it is interpreted modulo 7.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use icu::calendar::types::Weekday;
+    ///
+    /// assert_eq!(Weekday::Sunday, Weekday::from_days_since_sunday(0));
+    /// assert_eq!(Weekday::Monday, Weekday::from_days_since_sunday(1));
+    /// assert_eq!(Weekday::Sunday, Weekday::from_days_since_sunday(7));
+    /// assert_eq!(Weekday::Monday, Weekday::from_days_since_sunday(8));
+    /// ```
+    pub fn from_days_since_sunday(input: isize) -> Self {
+        (SUNDAY + input as i64).into()
+    }
+
     /// Returns the day after the current day.
-    pub(crate) fn next_day(self) -> IsoWeekday {
-        use IsoWeekday::*;
+    pub(crate) fn next_day(self) -> Weekday {
+        use Weekday::*;
         match self {
             Monday => Tuesday,
             Tuesday => Wednesday,

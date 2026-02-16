@@ -110,10 +110,16 @@ let privateWin;
 // XXX: Note that tasks are currently run in sequence. Some tests may assume the state
 // resulting from successful or unsuccessful logins in previous tasks
 
+add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
+});
+
 add_task(async function test_setup() {
   normalWin = await BrowserTestUtils.openNewBrowserWindow({ private: false });
   privateWin = await BrowserTestUtils.openNewBrowserWindow({ private: true });
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
 });
 
 add_task(async function test_normal_popup_notification_1() {
@@ -175,7 +181,7 @@ add_task(async function test_private_popup_notification_2() {
   );
 
   // clear existing logins for parity with the previous test
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   await focusWindow(privateWin);
   await BrowserTestUtils.withNewTab(
     {
@@ -252,7 +258,7 @@ add_task(async function test_private_popup_notification_no_capture_pref_2b() {
   Services.prefs.setBoolPref(PRIVATE_BROWSING_CAPTURE_PREF, false);
 
   // clear existing logins for parity with the previous test
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
 
   await focusWindow(privateWin);
   await BrowserTestUtils.withNewTab(
@@ -310,7 +316,7 @@ add_task(async function test_normal_popup_notification_3() {
       "match existing username/password: no popup notification should appear"
   );
 
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   await Services.logins.addLoginAsync(login);
   let allLogins = await Services.logins.getAllLogins();
   // Sanity check the HTTP login exists.
@@ -357,8 +363,9 @@ add_task(async function test_normal_popup_notification_3() {
     loginGuid,
     "Sanity-check we are comparing the same login record"
   );
-  Assert.ok(
-    allLogins[0].timeLastUsed > timeLastUsed,
+  Assert.greater(
+    allLogins[0].timeLastUsed,
+    timeLastUsed,
     "The timeLastUsed timestamp has been updated"
   );
 });
@@ -369,7 +376,7 @@ add_task(async function test_private_popup_notification_3b() {
       " match existing username/password: no popup notification should appear"
   );
 
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   await Services.logins.addLoginAsync(login);
   let allLogins = await Services.logins.getAllLogins();
   // Sanity check the HTTP login exists.
@@ -429,7 +436,7 @@ add_task(async function test_normal_new_password_4() {
     "test 4: run with a login, outside of private mode," +
       " add a new password: popup notification should appear"
   );
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   await Services.logins.addLoginAsync(login);
   let allLogins = await Services.logins.getAllLogins();
   // Sanity check the HTTP login exists.
@@ -596,7 +603,7 @@ add_task(async function test_normal_with_login_6() {
         );
         await cleanupDoorhanger(notif);
       }
-      Services.logins.removeLogin(login);
+      await Services.logins.removeLoginAsync(login);
     }
   );
 });
@@ -761,7 +768,7 @@ add_task(async function test_normal_http_basic_auth() {
   info(
     "test normal/basic-auth: verify that we get a doorhanger after basic-auth login"
   );
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   clearHttpAuths();
 
   await focusWindow(normalWin);
@@ -822,7 +829,7 @@ add_task(async function test_private_http_basic_auth() {
   info(
     "test private/basic-auth: verify that we don't get a doorhanger after basic-auth login"
   );
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   clearHttpAuths();
 
   const capturePrefValue = Services.prefs.getBoolPref(
@@ -885,7 +892,7 @@ add_task(async function test_private_http_basic_auth_no_capture_pref() {
   );
   Services.prefs.setBoolPref(PRIVATE_BROWSING_CAPTURE_PREF, false);
 
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   clearHttpAuths();
 
   await focusWindow(privateWin);

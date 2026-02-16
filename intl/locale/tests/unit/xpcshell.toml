@@ -6,10 +6,11 @@ support-files = [
 ]
 
 ["test_bug22310.js"]
-skip-if = ["os != 'win' && os != 'mac'"]
 
 ["test_intl_on_workers.js"]
-skip-if = ["os == 'android'"] # bug 1309447
+skip-if = [
+  "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1309447
+]
 
 ["test_langPackMatcher.js"]
 

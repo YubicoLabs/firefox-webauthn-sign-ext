@@ -1,11 +1,11 @@
-// |reftest| shell-option(--enable-temporal) skip-if(!this.hasOwnProperty('Temporal')||!xulRuntime.shell) -- Temporal is not enabled unconditionally, requires shell-options
+// |reftest| skip-if(!this.hasOwnProperty('Temporal')) -- Temporal is not enabled unconditionally
 // Copyright (C) 2022 André Bargull. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
 esid: sec-temporal.zoneddatetime
 description: ZonedDateTime constructor accepts link names as time zone ID input
-features: [Temporal]
+features: [Temporal, canonical-tz]
 ---*/
 
 const testCases = [

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 #
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -18,16 +17,14 @@ import yaml
 
 # Skip all common files used to support tests for jstests
 # These files are listed in the README.txt
-SUPPORT_FILES = set(
-    [
-        "browser.js",
-        "shell.js",
-        "template.js",
-        "user.js",
-        "js-test-driver-begin.js",
-        "js-test-driver-end.js",
-    ]
-)
+SUPPORT_FILES = set([
+    "browser.js",
+    "shell.js",
+    "template.js",
+    "user.js",
+    "js-test-driver-begin.js",
+    "js-test-driver-end.js",
+])
 
 
 # Run once per subdirectory
@@ -133,7 +130,6 @@ UNSUPPORTED_FEATURES = [
 UNSUPPORTED_PATHS = [
     "Intl",
     "Temporal/Intl",
-    "ReadableStream",
     "reflect-parse",
     "extensions/empty.txt",
     "extensions/file-mapped-arraybuffers.txt",
@@ -199,7 +195,7 @@ def featureFromReftest(reftest: str) -> Optional[str]:
         return "async-iterator-helpers"
     if reftest == "Temporal":
         return "Temporal"
-    if reftest in ("Intl", "addIntlExtras", "ReadableStream"):
+    if reftest in ("Intl", "addIntlExtras"):
         return None
     raise Exception(f"Unexpected feature {reftest}")
 
@@ -678,7 +674,7 @@ def exportTest262(
 
             for fileName in fileNames:
                 # Skip browser.js files
-                if fileName == "browser.js" or fileName == "shell.js":
+                if fileName in {"browser.js", "shell.js"}:
                     continue
 
                 if fileName.endswith("~"):

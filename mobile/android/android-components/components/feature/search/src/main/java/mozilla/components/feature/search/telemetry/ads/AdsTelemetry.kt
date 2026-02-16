@@ -4,8 +4,10 @@
 
 package mozilla.components.feature.search.telemetry.ads
 
-import android.net.Uri
 import androidx.annotation.VisibleForTesting
+import androidx.core.net.toUri
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.Engine
 import mozilla.components.feature.search.telemetry.BaseSearchTelemetry
@@ -22,7 +24,9 @@ import org.json.JSONObject
  * Implemented as a browser extension based on the WebExtension API:
  * https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions
  */
-class AdsTelemetry : BaseSearchTelemetry() {
+class AdsTelemetry(
+    mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+) : BaseSearchTelemetry(mainDispatcher) {
 
     // SERP cached cookies used to check whether an ad was clicked.
     @VisibleForTesting
@@ -47,7 +51,7 @@ class AdsTelemetry : BaseSearchTelemetry() {
         cachedCookies = message.getJSONArray(ADS_MESSAGE_COOKIES_KEY).toList()
 
         val urls = message.getJSONArray(ADS_MESSAGE_DOCUMENT_URLS_KEY).toList<String>()
-        val uri = Uri.parse(message.getString(ADS_MESSAGE_SESSION_URL_KEY))
+        val uri = message.getString(ADS_MESSAGE_SESSION_URL_KEY).toUri()
         val provider = getProviderForUrl(message.getString(ADS_MESSAGE_SESSION_URL_KEY))
 
         provider?.let {
@@ -74,7 +78,7 @@ class AdsTelemetry : BaseSearchTelemetry() {
         if (url == null) {
             return
         }
-        val uri = Uri.parse(url) ?: return
+        val uri = url.toUri()
         val provider = getProviderForUrl(url) ?: return
         val paramSet = uri.queryParameterNames
         val containsQueryParam = provider.queryParamNames?.any { paramSet.contains(it) }

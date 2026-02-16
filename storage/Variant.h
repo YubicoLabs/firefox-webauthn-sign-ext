@@ -4,20 +4,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_storage_Variant_h__
-#define mozilla_storage_Variant_h__
+#ifndef mozilla_storage_Variant_h_
+#define mozilla_storage_Variant_h_
 
 #include "nsIInterfaceRequestor.h"
 #include "nsIVariant.h"
 #include "nsCOMPtr.h"
 #include "nsString.h"
 
-#define VARIANT_BASE_IID                             \
-  { /* 78888042-0fa3-4f7a-8b19-7996f99bf1aa */       \
-    0x78888042, 0x0fa3, 0x4f7a, {                    \
-      0x8b, 0x19, 0x79, 0x96, 0xf9, 0x9b, 0xf1, 0xaa \
-    }                                                \
-  }
+#define VARIANT_BASE_IID                      \
+  {/* 78888042-0fa3-4f7a-8b19-7996f99bf1aa */ \
+   0x78888042,                                \
+   0x0fa3,                                    \
+   0x4f7a,                                    \
+   {0x8b, 0x19, 0x79, 0x96, 0xf9, 0x9b, 0xf1, 0xaa}}
 
 /**
  * This class is used by the storage module whenever an nsIVariant needs to be
@@ -50,7 +50,7 @@ class Variant_base : public nsIVariant, public nsIInterfaceRequestor {
  public:
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIVARIANT
-  NS_DECLARE_STATIC_IID_ACCESSOR(VARIANT_BASE_IID)
+  NS_INLINE_DECL_STATIC_IID(VARIANT_BASE_IID)
 
   NS_IMETHOD
   GetInterface(const nsIID& aIID, void** aResult) override {
@@ -71,8 +71,6 @@ class Variant_base : public nsIVariant, public nsIInterfaceRequestor {
  protected:
   virtual ~Variant_base() = default;
 };
-
-NS_DEFINE_STATIC_IID_ACCESSOR(Variant_base, VARIANT_BASE_IID)
 
 ////////////////////////////////////////////////////////////////////////////////
 //// Traits
@@ -518,4 +516,4 @@ using ArrayOfUTF8StringsVariant = Variant<nsCString[], false>;
 
 #include "Variant_inl.h"
 
-#endif  // mozilla_storage_Variant_h__
+#endif  // mozilla_storage_Variant_h_

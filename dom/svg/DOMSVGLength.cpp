@@ -6,23 +6,22 @@
 
 #include "DOMSVGLength.h"
 
-#include "DOMSVGLengthList.h"
 #include "DOMSVGAnimatedLengthList.h"
-#include "nsError.h"
-#include "nsMathUtils.h"
+#include "DOMSVGLengthList.h"
 #include "SVGAnimatedLength.h"
 #include "SVGAnimatedLengthList.h"
 #include "SVGAttrTearoffTable.h"
 #include "SVGLength.h"
 #include "mozilla/dom/SVGElement.h"
 #include "mozilla/dom/SVGLengthBinding.h"
-#include "mozilla/FloatingPoint.h"
+#include "nsError.h"
+#include "nsMathUtils.h"
 
 // See the architecture comment in DOMSVGAnimatedLengthList.h.
 
 namespace mozilla::dom {
 
-MOZ_CONSTINIT static SVGAttrTearoffTable<SVGAnimatedLength, DOMSVGLength>
+constinit static SVGAttrTearoffTable<SVGAnimatedLength, DOMSVGLength>
     sBaseSVGLengthTearOffTable, sAnimSVGLengthTearOffTable;
 
 // We could use NS_IMPL_CYCLE_COLLECTION(, except that in Unlink() we need to
@@ -51,6 +50,7 @@ DOMSVGLength::DOMSVGLength(DOMSVGLengthList* aList, uint8_t aAttrEnum,
       mListIndex(aListIndex),
       mAttrEnum(aAttrEnum),
       mIsAnimValItem(aIsAnimValItem),
+      mIsInTearoffTable(false),
       mUnit(SVGLength_Binding::SVG_LENGTHTYPE_NUMBER) {
   MOZ_ASSERT(aList, "bad arg");
   MOZ_ASSERT(mAttrEnum == aAttrEnum, "bitfield too small");
@@ -63,6 +63,7 @@ DOMSVGLength::DOMSVGLength()
       mListIndex(0),
       mAttrEnum(0),
       mIsAnimValItem(false),
+      mIsInTearoffTable(false),
       mUnit(SVGLength_Binding::SVG_LENGTHTYPE_NUMBER) {}
 
 DOMSVGLength::DOMSVGLength(SVGAnimatedLength* aVal, SVGElement* aSVGElement,
@@ -71,6 +72,7 @@ DOMSVGLength::DOMSVGLength(SVGAnimatedLength* aVal, SVGElement* aSVGElement,
       mListIndex(0),
       mAttrEnum(aVal->mAttrEnum),
       mIsAnimValItem(aAnimVal),
+      mIsInTearoffTable(false),
       mUnit(SVGLength_Binding::SVG_LENGTHTYPE_NUMBER) {
   MOZ_ASSERT(aVal, "bad arg");
   MOZ_ASSERT(mAttrEnum == aVal->mAttrEnum, "bitfield too small");
@@ -88,22 +90,33 @@ void DOMSVGLength::CleanupWeakRefs() {
 
   // Similarly, we must update the tearoff table to remove its (non-owning)
   // pointer to mVal.
-  if (nsCOMPtr<SVGElement> svg = do_QueryInterface(mOwner)) {
-    auto& table = mIsAnimValItem ? sAnimSVGLengthTearOffTable
-                                 : sBaseSVGLengthTearOffTable;
-    table.RemoveTearoff(svg->GetAnimatedLength(mAttrEnum));
+  if (mIsInTearoffTable) {
+    nsCOMPtr<SVGElement> svg = do_QueryInterface(mOwner);
+    MOZ_ASSERT(svg,
+               "We need our svgElement reference in order to remove "
+               "ourselves from tearoff table...");
+    if (MOZ_LIKELY(svg)) {
+      auto& table = mIsAnimValItem ? sAnimSVGLengthTearOffTable
+                                   : sBaseSVGLengthTearOffTable;
+      table.RemoveTearoff(svg->GetAnimatedLength(mAttrEnum));
+      mIsInTearoffTable = false;
+    }
   }
 }
 
 already_AddRefed<DOMSVGLength> DOMSVGLength::GetTearOff(SVGAnimatedLength* aVal,
                                                         SVGElement* aSVGElement,
                                                         bool aAnimVal) {
+  MOZ_ASSERT(aVal && aSVGElement, "Expecting non-null aVal and aSVGElement");
+  MOZ_ASSERT(aVal == aSVGElement->GetAnimatedLength(aVal->mAttrEnum),
+             "Mismatched aVal/SVGElement?");
   auto& table =
       aAnimVal ? sAnimSVGLengthTearOffTable : sBaseSVGLengthTearOffTable;
   RefPtr<DOMSVGLength> domLength = table.GetTearoff(aVal);
   if (!domLength) {
     domLength = new DOMSVGLength(aVal, aSVGElement, aAnimVal);
     table.AddTearoff(aVal, domLength);
+    domLength->mIsInTearoffTable = true;
   }
 
   return domLength.forget();
@@ -176,7 +189,8 @@ float DOMSVGLength::GetValue(ErrorResult& aRv) {
   }
 
   if (SVGLength::IsAbsoluteUnit(mUnit)) {
-    return SVGLength(mValue, mUnit).GetValueInPixels(nullptr, 0);
+    return SVGLength(mValue, mUnit)
+        .GetValueInPixels(nullptr, SVGLength::Axis::XY);
   }
 
   // else [SVGWG issue] Can't convert this length's value to user units
@@ -382,7 +396,8 @@ void DOMSVGLength::ConvertToSpecifiedUnits(uint16_t aUnit, ErrorResult& aRv) {
     if (mUnit == aUnit) {
       return;
     }
-    val = SVGLength(mValue, mUnit).GetValueInSpecifiedUnit(aUnit, nullptr, 0);
+    val = SVGLength(mValue, mUnit)
+              .GetValueInSpecifiedUnit(aUnit, nullptr, SVGLength::Axis::XY);
   }
   if (!std::isfinite(val)) {
     aRv.ThrowTypeError<MSG_NOT_FINITE>("value");

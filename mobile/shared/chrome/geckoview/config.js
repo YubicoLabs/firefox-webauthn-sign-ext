@@ -148,7 +148,7 @@ var NewPrefDialog = {
   // New prefs create dialog only allows creating a non-existing preference, doesn't allow for
   // Changing an existing one on-the-fly, tap existing/displayed line item pref for that
   create: function AC_create() {
-    if (this._positiveButton.getAttribute("disabled") == "true") {
+    if (this._positiveButton.hasAttribute("disabled")) {
       return;
     }
 
@@ -241,12 +241,6 @@ var AboutConfig = {
   uninit: function AC_uninit() {
     // Remove the prefs observer
     Services.prefs.removeObserver("", this);
-  },
-
-  // Clear the filterInput value, to display the entire list
-  clearFilterInput: function AC_clearFilterInput() {
-    this.filterInput.value = "";
-    this.bufferFilterInput();
   },
 
   // Buffer down rapid changes in filterInput value from keyboard

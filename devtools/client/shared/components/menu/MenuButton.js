@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-env browser */
 "use strict";
 
 // A button that toggles a doorhanger menu.
@@ -11,9 +10,12 @@ const flags = require("resource://devtools/shared/flags.js");
 const {
   createRef,
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
+const {
+  createPortal,
+} = require("resource://devtools/client/shared/vendor/react-dom.mjs");
 const { button } = dom;
 
 const isMacOS = Services.appinfo.OS === "Darwin";
@@ -29,13 +31,6 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   focusableSelector: "resource://devtools/client/shared/focus.mjs",
 });
-
-loader.lazyRequireGetter(
-  this,
-  "createPortal",
-  "resource://devtools/client/shared/vendor/react-dom.js",
-  true
-);
 
 // Return a copy of |obj| minus |fields|.
 const omit = (obj, fields) => {

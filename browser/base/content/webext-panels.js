@@ -23,6 +23,19 @@ function getBrowser(panel) {
     return Promise.resolve(browser);
   }
 
+  if (panel.viewType === "sidebar" && gSidebarRevampEnabled) {
+    if (!customElements.get("sidebar-panel-header")) {
+      ChromeUtils.importESModule(
+        "chrome://browser/content/sidebar/sidebar-panel-header.mjs",
+        { global: "current" }
+      );
+    }
+    const heading =
+      panel.extension.manifest.sidebar_action.default_title ??
+      panel.extension.name;
+    document.getElementById("sidebar-panel-header").heading = heading;
+  }
+
   let stack = document.getElementById("webext-panels-stack");
   if (!stack) {
     stack = document.createXULElement("stack");
@@ -78,7 +91,7 @@ function getBrowser(panel) {
   stack.appendChild(browser);
 
   browser.addEventListener(
-    "DoZoomEnlargeBy10",
+    "DoZoomEnlarge",
     () => {
       let { ZoomManager } = browser.ownerGlobal;
       let zoom = browser.fullZoom;
@@ -91,7 +104,7 @@ function getBrowser(panel) {
     true
   );
   browser.addEventListener(
-    "DoZoomReduceBy10",
+    "DoZoomReduce",
     () => {
       let { ZoomManager } = browser.ownerGlobal;
       let zoom = browser.fullZoom;
@@ -196,5 +209,12 @@ XPCOMUtils.defineLazyPreferenceGetter(
   this,
   "gAllowTransparentBrowser",
   "browser.tabs.allow_transparent_browser",
+  false
+);
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  this,
+  "gSidebarRevampEnabled",
+  "sidebar.revamp",
   false
 );

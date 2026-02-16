@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsSocketTransportService2_h__
-#define nsSocketTransportService2_h__
+#ifndef nsSocketTransportService2_h_
+#define nsSocketTransportService2_h_
 
 #include "PollableEvent.h"
 #include "mozilla/Atomics.h"
@@ -136,7 +136,7 @@ class nsSocketTransportService final : public nsPISocketTransportService,
   bool UpdatePortRemapPreference(nsACString const& aPortMappingPref);
 
  protected:
-  virtual ~nsSocketTransportService();
+  ~nsSocketTransportService();
 
  private:
   //-------------------------------------------------------------------------
@@ -257,14 +257,10 @@ class nsSocketTransportService final : public nsPISocketTransportService,
 
   PRIntervalTime PollTimeout(
       PRIntervalTime now);  // computes ideal poll timeout
-  nsresult DoPollIteration(TimeDuration* pollDuration);
+  nsresult DoPollIteration();
   // perfoms a single poll iteration
-  int32_t Poll(TimeDuration* pollDuration, PRIntervalTime ts);
-  // calls PR_Poll.  the out param
-  // interval indicates the poll
-  // duration in seconds.
-  // pollDuration is used only for
-  // telemetry
+  int32_t Poll(PRIntervalTime ts);
+  // calls PR_Poll.
 
   //-------------------------------------------------------------------------
   // pending socket queue - see NotifyWhenCanAttachSocket

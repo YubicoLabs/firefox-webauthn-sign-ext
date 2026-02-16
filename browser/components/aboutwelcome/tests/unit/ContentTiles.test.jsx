@@ -3,6 +3,8 @@ import { shallow, mount } from "enzyme";
 import { ContentTiles } from "content-src/components/ContentTiles";
 import { ActionChecklist } from "content-src/components/ActionChecklist";
 import { MobileDownloads } from "content-src/components/MobileDownloads";
+import { EmbeddedBackupRestore } from "content-src/components/EmbeddedBackupRestore";
+import { EmbeddedMigrationWizard } from "content-src/components/EmbeddedMigrationWizard";
 import { AboutWelcomeUtils } from "content-src/lib/aboutwelcome-utils.mjs";
 import { GlobalOverrider } from "asrouter/tests/unit/utils";
 
@@ -11,7 +13,7 @@ describe("ContentTiles component", () => {
   let wrapper;
   let handleAction;
   let setActiveMultiSelect;
-  let setActiveSingleSelect;
+  let setActiveSingleSelectSelection;
   let globals;
 
   const CHECKLIST_TILE = {
@@ -74,14 +76,29 @@ describe("ContentTiles component", () => {
     tiles: [CHECKLIST_TILE, MOBILE_TILE],
   };
 
+  const EMBEDDED_BACKUP_RESTORE_TILE = {
+    type: "backup_restore",
+    title: "Tile Title",
+    subtitle: "Tile Subtitle",
+  };
+
   beforeEach(() => {
     sandbox = sinon.createSandbox();
     handleAction = sandbox.stub();
     setActiveMultiSelect = sandbox.stub();
-    setActiveSingleSelect = sandbox.stub();
+    setActiveSingleSelectSelection = sandbox.stub();
     globals = new GlobalOverrider();
     globals.set({
       AWSendToDeviceEmailsSupported: () => Promise.resolve(),
+    });
+    globals.set({ AWSendToParent: sandbox.stub() });
+    globals.set({
+      AWSendToParent: sandbox.stub(),
+      AWFindBackupsInWellKnownLocations: sandbox.stub().resolves({
+        found: false,
+        multipleBackupsFound: false,
+        backupFileToRestore: null,
+      }),
     });
     wrapper = shallow(
       <ContentTiles
@@ -259,6 +276,29 @@ describe("ContentTiles component", () => {
     assert.equal(mobileDownloads.prop("handleAction"), handleAction);
   });
 
+  it("should render EmbeddedBackupRestore for 'backup_restore' tile type", () => {
+    const TEST_CONTENT_WITH_EMBEDDED_BACKUP_RESTORE = {
+      tiles: [EMBEDDED_BACKUP_RESTORE_TILE],
+    };
+
+    const backupWrapper = mount(
+      <ContentTiles
+        content={TEST_CONTENT_WITH_EMBEDDED_BACKUP_RESTORE}
+        handleAction={handleAction}
+        activeMultiSelect={null}
+        setActiveMultiSelect={setActiveMultiSelect}
+      />
+    );
+
+    const embeddedBackupRestore = backupWrapper.find(EmbeddedBackupRestore);
+    assert.ok(
+      embeddedBackupRestore.exists(),
+      "EmbeddedBackupRestore component should be rendered"
+    );
+
+    backupWrapper.unmount();
+  });
+
   it("should handle a single tile object", () => {
     wrapper.setProps({
       content: {
@@ -337,10 +377,11 @@ describe("ContentTiles component", () => {
     wrapper.update();
 
     sinon.assert.calledOnce(setActiveMultiSelect);
-    sinon.assert.calledWithExactly(setActiveMultiSelect, [
-      "option1",
-      "option3",
-    ]);
+    sinon.assert.calledWithExactly(
+      setActiveMultiSelect,
+      ["option1", "option3"],
+      "tile-0"
+    );
   });
 
   it("should not prefill activeMultiSelect if it is already set", () => {
@@ -433,7 +474,7 @@ describe("ContentTiles component", () => {
         handleAction={() => {}}
         activeMultiSelect={null}
         setActiveMultiSelect={setActiveMultiSelect}
-        setActiveSingleSelect={setActiveSingleSelect}
+        setActiveSingleSelectSelection={setActiveSingleSelectSelection}
       />
     );
 
@@ -466,5 +507,713 @@ describe("ContentTiles component", () => {
     );
 
     mountedWrapper.unmount();
+  });
+
+  it("should pre-populate multiple MultiSelect components in the same ContentTiles independently of one another", () => {
+    const FIRST_MULTISELECT_TILE = {
+      type: "multiselect",
+      header: {
+        title: "First Multiselect",
+      },
+      data: [
+        { id: "checklist1-option1", defaultValue: true },
+        { id: "checklist1-option2", defaultValue: false },
+      ],
+    };
+
+    const SECOND_MULTISELECT_TILE = {
+      type: "multiselect",
+      header: {
+        title: "Second Multiselect",
+      },
+      data: [
+        { id: "checklist2-option1", defaultValue: false },
+        { id: "checklist2-option2", defaultValue: true },
+      ],
+    };
+
+    const contentWithMultipleMultiselects = {
+      tiles: [FIRST_MULTISELECT_TILE, SECOND_MULTISELECT_TILE],
+    };
+
+    wrapper = mount(
+      <ContentTiles
+        content={contentWithMultipleMultiselects}
+        activeMultiSelect={null}
+        setActiveMultiSelect={setActiveMultiSelect}
+        handleAction={handleAction}
+      />
+    );
+    wrapper.update();
+
+    sinon.assert.calledWithExactly(
+      setActiveMultiSelect.getCall(0),
+      ["checklist1-option1"],
+      "tile-0"
+    );
+    sinon.assert.calledWithExactly(
+      setActiveMultiSelect.getCall(1),
+      ["checklist2-option2"],
+      "tile-1"
+    );
+
+    wrapper.unmount();
+  });
+
+  it("should handle interaction between multiselect instances independently of one another", () => {
+    const FIRST_MULTISELECT_TILE = {
+      type: "multiselect",
+      header: {
+        title: "First Multiselect",
+      },
+      data: [
+        { id: "checklist1-option1", defaultValue: true, label: "Option 1-1" },
+        { id: "checklist1-option2", defaultValue: false, label: "Option 1-2" },
+      ],
+    };
+
+    const SECOND_MULTISELECT_TILE = {
+      type: "multiselect",
+      header: {
+        title: "Second Multiselect",
+      },
+      data: [
+        { id: "checklist2-option1", defaultValue: false, label: "Option 2-1" },
+        { id: "checklist2-option2", defaultValue: true, label: "Option 2-2" },
+      ],
+    };
+
+    const contentWithMultipleMultiselects = {
+      tiles: [FIRST_MULTISELECT_TILE, SECOND_MULTISELECT_TILE],
+    };
+
+    const initialActiveMultiSelect = {
+      "tile-0": ["checklist1-option1"],
+      "tile-1": ["checklist2-option2"],
+    };
+
+    const setScreenMultiSelects = sandbox.stub();
+
+    wrapper = mount(
+      <ContentTiles
+        content={contentWithMultipleMultiselects}
+        activeMultiSelect={initialActiveMultiSelect}
+        setActiveMultiSelect={setActiveMultiSelect}
+        setScreenMultiSelects={setScreenMultiSelects}
+        handleAction={handleAction}
+      />
+    );
+
+    // First multiselect
+    const firstTileButton = wrapper.find(".tile-header").at(0);
+    assert.ok(firstTileButton.exists(), "First tile header should exist");
+    firstTileButton.simulate("click");
+
+    const firstChecklistInputs = wrapper.find(".multi-select-container input");
+    assert.equal(
+      firstChecklistInputs.length,
+      2,
+      "First checklist should have 2 inputs"
+    );
+
+    assert.equal(
+      firstChecklistInputs.at(0).prop("checked"),
+      true,
+      "First option should be checked"
+    );
+    assert.equal(
+      firstChecklistInputs.at(1).prop("checked"),
+      false,
+      "Second option should be unchecked"
+    );
+
+    const secondInput = firstChecklistInputs.at(1);
+    secondInput.getDOMNode().checked = true;
+    secondInput.simulate("change");
+
+    sinon.assert.calledOnce(setActiveMultiSelect);
+    sinon.assert.calledWithExactly(
+      setActiveMultiSelect,
+      ["checklist1-option1", "checklist1-option2"],
+      "tile-0"
+    );
+    setActiveMultiSelect.reset();
+
+    // Second multiSelect
+    const secondTileButton = wrapper.find(".tile-header").at(1);
+    secondTileButton.simulate("click");
+
+    const secondChecklistInputs = wrapper.find(".multi-select-container input");
+    assert.equal(
+      secondChecklistInputs.length,
+      2,
+      "Second checklist should have 2 inputs"
+    );
+
+    assert.equal(
+      secondChecklistInputs.at(0).prop("checked"),
+      false,
+      "First option should be unchecked"
+    );
+    assert.equal(
+      secondChecklistInputs.at(1).prop("checked"),
+      true,
+      "Second option should be checked"
+    );
+
+    // Uncheck the second checkbox in the second multiselect
+    const lastInput = secondChecklistInputs.at(1);
+    lastInput.getDOMNode().checked = false;
+    lastInput.simulate("change");
+
+    sinon.assert.calledOnce(setActiveMultiSelect);
+    sinon.assert.calledWithExactly(setActiveMultiSelect, [], "tile-1");
+
+    // Ensure the first multiselect's state wasn't altered by changes to the second multiselect
+    wrapper.setProps({
+      activeMultiSelect: {
+        "tile-0": ["checklist1-option1", "checklist1-option2"],
+        "tile-1": [],
+      },
+    });
+
+    firstTileButton.simulate("click");
+
+    // Get the updated checkboxes from the first checklist
+    const updatedFirstInputs = wrapper.find(".multi-select-container input");
+
+    assert.equal(
+      updatedFirstInputs.at(0).prop("checked"),
+      true,
+      "First option should still be checked"
+    );
+    assert.equal(
+      updatedFirstInputs.at(1).prop("checked"),
+      true,
+      "Second option should still be checked"
+    );
+
+    wrapper.unmount();
+  });
+
+  it("should select defaults of single select tiles independently of one another", () => {
+    const SINGLE_SELECT_1 = {
+      type: "single-select",
+      selected: "test1",
+      data: [
+        {
+          id: "test1",
+          label: {
+            raw: "test1 label",
+          },
+        },
+        {
+          defaultValue: true,
+          id: "test2",
+          label: {
+            raw: "test2 label",
+          },
+        },
+      ],
+    };
+
+    const SINGLE_SELECT_2 = {
+      type: "single-select",
+      selected: "test4",
+      data: [
+        {
+          id: "test3",
+          label: {
+            raw: "test3 label",
+          },
+        },
+        {
+          defaultValue: true,
+          id: "test4",
+          label: {
+            raw: "test4 label",
+          },
+        },
+      ],
+    };
+
+    const content = { tiles: [SINGLE_SELECT_1, SINGLE_SELECT_2] };
+    wrapper = mount(
+      <ContentTiles
+        content={content}
+        setActiveSingleSelectSelection={setActiveSingleSelectSelection}
+        handleAction={handleAction}
+      />
+    );
+    wrapper.update();
+
+    sinon.assert.calledWithExactly(
+      setActiveSingleSelectSelection.getCall(0),
+      "test1",
+      "single-select-0"
+    );
+
+    sinon.assert.calledWithExactly(
+      setActiveSingleSelectSelection.getCall(1),
+      "test4",
+      "single-select-1"
+    );
+    wrapper.unmount();
+  });
+
+  it("should handle interactions with multiple single select tiles independently of one another", () => {
+    const SINGLE_SELECT_1 = {
+      type: "single-select",
+      selected: "test1",
+      data: [
+        {
+          id: "test1",
+          label: {
+            raw: "test1 label",
+          },
+        },
+        {
+          defaultValue: true,
+          id: "test2",
+          label: {
+            raw: "test2 label",
+          },
+        },
+      ],
+    };
+
+    const SINGLE_SELECT_2 = {
+      type: "single-select",
+      selected: "test4",
+      data: [
+        {
+          id: "test3",
+          label: {
+            raw: "test3 label",
+          },
+        },
+        {
+          defaultValue: true,
+          id: "test4",
+          label: {
+            raw: "test4 label",
+          },
+        },
+      ],
+    };
+
+    const content = { tiles: [SINGLE_SELECT_1, SINGLE_SELECT_2] };
+    wrapper = mount(
+      <ContentTiles
+        content={content}
+        setActiveSingleSelectSelection={setActiveSingleSelectSelection}
+        handleAction={handleAction}
+      />
+    );
+
+    wrapper.update();
+
+    const tile2 = wrapper.find('input[value="test2"]');
+    tile2.simulate("click");
+
+    sinon.assert.calledWithExactly(
+      setActiveSingleSelectSelection.getCall(2),
+      "test2",
+      "single-select-0"
+    );
+
+    const tile3 = wrapper.find('input[value="test3"]');
+    tile3.simulate("click");
+
+    sinon.assert.calledWithExactly(
+      setActiveSingleSelectSelection.getCall(3),
+      "test3",
+      "single-select-1"
+    );
+    wrapper.unmount();
+  });
+
+  it("should apply styles to label element", () => {
+    const TEST_STYLE = { marginBlock: "5px" };
+    const tileData = {
+      type: "single-select",
+      selected: "vertical",
+      data: [
+        {
+          id: "vertical",
+          label: { raw: "Vertical", marginBlock: "5px" },
+        },
+      ],
+    };
+
+    wrapper = mount(
+      <ContentTiles
+        content={{ tiles: [tileData] }}
+        setActiveSingleSelectSelection={() => {}}
+        handleAction={() => {}}
+      />
+    );
+
+    const styledDiv = wrapper.find(".text").at(0);
+
+    assert.deepEqual(
+      styledDiv.prop("style"),
+      TEST_STYLE,
+      "Style prop should match TEST_STYLE"
+    );
+    wrapper.unmount();
+  });
+
+  it("should apply valid styles from tile.data.style and include minWidth from icon.width", () => {
+    const icon = {
+      width: "101px",
+    };
+
+    const style = {
+      paddingBlock: "8px",
+    };
+
+    const tileData = {
+      type: "single-select",
+      selected: "test",
+      data: [
+        {
+          id: "test",
+          icon,
+          label: { raw: "Test" },
+          style,
+        },
+      ],
+    };
+
+    wrapper = mount(
+      <ContentTiles
+        content={{ tiles: [tileData] }}
+        setActiveSingleSelectSelection={() => {}}
+        handleAction={() => {}}
+      />
+    );
+
+    const label = wrapper.find("label.select-item").at(0);
+    const labelStyle = label.prop("style");
+
+    assert.equal(
+      labelStyle.paddingBlock,
+      "8px",
+      "paddingBlock should be applied"
+    );
+    assert.equal(
+      labelStyle.minWidth,
+      "101px",
+      "minWidth should be set from icon.width"
+    );
+    wrapper.unmount();
+  });
+
+  it("restores last tiles focus in Spotlight context and genuine Tab is ignored", async () => {
+    const TAB_GRACE_WINDOW_MS = 250;
+
+    function nextFrame() {
+      return new Promise(r => requestAnimationFrame(r));
+    }
+    function delay(ms) {
+      return new Promise(r => setTimeout(r, ms));
+    }
+    async function waitFor(condition, timeout = TAB_GRACE_WINDOW_MS) {
+      const start = performance.now();
+      while (!condition()) {
+        await nextFrame();
+        if (performance.now() - start > timeout) {
+          throw new Error("timeout waiting for condition");
+        }
+      }
+    }
+
+    // Pretend we're in a Spotlight dialog so the effect runs
+    const root = document.body.appendChild(document.createElement("div"));
+    root.id = "multi-stage-message-root";
+    root.className = "onboardingContainer";
+    root.dataset.page = "spotlight";
+
+    const mountNode = document.body.appendChild(document.createElement("div"));
+
+    const content = {
+      tiles: [{ type: "multiselect", header: { title: "Test" }, data: [] }],
+    };
+
+    const focusWrapper = mount(
+      <main role="alertdialog">
+        <ContentTiles
+          content={content}
+          handleAction={() => {}}
+          activeMultiSelect={null}
+          setActiveMultiSelect={() => {}}
+        />
+        <div className="action-buttons">
+          <button className="primary">Continue</button>
+        </div>
+      </main>,
+      { attachTo: mountNode }
+    );
+
+    // Let the hook attach listeners
+    await nextFrame();
+
+    const dialog = focusWrapper.getDOMNode();
+    const header = dialog.querySelector(".tile-header");
+    const primary = dialog.querySelector(".action-buttons .primary");
+
+    // Record real DOM focus inside tiles
+    header.focus();
+    header.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    await nextFrame();
+
+    // Wait past the tab grace window so this isn’t treated as a real Tab
+    await delay(TAB_GRACE_WINDOW_MS + 1);
+
+    // Simulate programmatic focus “snap” to an outside control
+    primary.focus();
+    primary.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+
+    await waitFor(() => document.activeElement === header);
+    assert.strictEqual(
+      document.activeElement,
+      header,
+      "restored focus to tiles header"
+    );
+
+    dialog.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Tab",
+        bubbles: true,
+        cancelable: true,
+      })
+    );
+    primary.focus();
+    primary.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    await nextFrame();
+    assert.strictEqual(
+      document.activeElement,
+      primary,
+      "did not override genuine Tab focus"
+    );
+
+    // Cleanup
+    focusWrapper.unmount();
+    mountNode.remove();
+    root.remove();
+  });
+
+  it("passes content.skip_button to EmbeddedBackupRestore as skipButton", () => {
+    const content = {
+      tiles: [EMBEDDED_BACKUP_RESTORE_TILE],
+      skip_button: {
+        label: { raw: "Don't restore" },
+        action: { navigate: true },
+      },
+    };
+
+    const mountedWrapper = mount(
+      <ContentTiles
+        content={content}
+        handleAction={handleAction}
+        activeMultiSelect={null}
+        setActiveMultiSelect={setActiveMultiSelect}
+      />
+    );
+
+    const embeddedBackupComponent = mountedWrapper.find(EmbeddedBackupRestore);
+    assert.ok(
+      embeddedBackupComponent.exists(),
+      "EmbeddedBackupRestore rendered"
+    );
+    assert.deepEqual(
+      embeddedBackupComponent.prop("skipButton"),
+      content.skip_button,
+      "prop is wired"
+    );
+    mountedWrapper.unmount();
+  });
+
+  it("renders a single tile without container when there is no header or container style", () => {
+    const SINGLE_TILE_NO_CONTAINER = {
+      tiles: {
+        tile_items: {
+          type: "mobile_downloads",
+          data: { email: { link_text: "Email!" } },
+        },
+        container: {},
+      },
+    };
+
+    const mounted = mount(
+      <ContentTiles
+        content={SINGLE_TILE_NO_CONTAINER}
+        handleAction={() => {}}
+        activeMultiSelect={null}
+        setActiveMultiSelect={setActiveMultiSelect}
+      />
+    );
+
+    assert.isFalse(
+      mounted.find("#content-tiles-container").exists(),
+      "should not render container wrapper"
+    );
+    assert.equal(mounted.find(".content-tile").length, 1);
+
+    mounted.unmount();
+  });
+
+  it("passes migration_wizard_options properties to migration-wizard element", () => {
+    const MIGRATION_WIZARD_TILE = {
+      type: "migration-wizard",
+      migration_wizard_options: {
+        force_show_import_all: true,
+        option_expander_title_string: "Custom title",
+        hide_option_expander_subtitle: true,
+        hide_select_all: true,
+      },
+    };
+
+    const content = {
+      tiles: [MIGRATION_WIZARD_TILE],
+    };
+
+    const mountedWrapper = mount(
+      <ContentTiles
+        content={content}
+        handleAction={handleAction}
+        activeMultiSelect={null}
+        setActiveMultiSelect={setActiveMultiSelect}
+      />
+    );
+
+    const embeddedMigrationWizard = mountedWrapper.find(
+      EmbeddedMigrationWizard
+    );
+    assert.ok(
+      embeddedMigrationWizard.exists(),
+      "EmbeddedMigrationWizard rendered"
+    );
+
+    const migrationWizardEl = mountedWrapper.find("migration-wizard");
+    assert.ok(migrationWizardEl.exists(), "migration-wizard element rendered");
+
+    assert.equal(
+      migrationWizardEl.prop("force-show-import-all"),
+      true,
+      "force-show-import-all is set"
+    );
+    assert.equal(
+      migrationWizardEl.prop("option-expander-title-string"),
+      "Custom title",
+      "option-expander-title-string is set"
+    );
+    assert.equal(
+      migrationWizardEl.prop("hide-option-expander-subtitle"),
+      true,
+      "hide-option-expander-subtitle is set"
+    );
+    assert.equal(
+      migrationWizardEl.prop("hide-select-all"),
+      true,
+      "hide-select-all is set"
+    );
+
+    mountedWrapper.unmount();
+  });
+
+  it("should render link tiles with external-link-icon and no aria-expanded", () => {
+    const LINK_TILE = {
+      type: "link",
+      header: {
+        title: "link title",
+      },
+      action: {
+        type: "OPEN_URL",
+        data: { url: "https://example.com" },
+      },
+    };
+
+    const linkWrapper = mount(
+      <ContentTiles
+        content={{ tiles: [LINK_TILE] }}
+        handleAction={handleAction}
+        setActiveMultiSelect={setActiveMultiSelect}
+      />
+    );
+
+    const tileButton = linkWrapper.find(".tile-header");
+
+    assert.strictEqual(
+      tileButton.prop("aria-expanded"),
+      undefined,
+      "Should not have aria-expanded since links don't expand content"
+    );
+
+    assert.strictEqual(
+      tileButton.prop("aria-controls"),
+      undefined,
+      "Should not have aria-controls"
+    );
+
+    assert.ok(
+      linkWrapper.find(".external-link-icon").exists(),
+      "Should show external-link-icon"
+    );
+    assert.ok(
+      !linkWrapper.find(".arrow-icon").exists(),
+      "Should not show arrow-icon"
+    );
+
+    linkWrapper.unmount();
+  });
+
+  it("should call handleAction when link tile is clicked", () => {
+    const LINK_TILE = {
+      type: "link",
+      id: "test-link",
+      header: {
+        title: "link tile",
+      },
+      action: {
+        type: "OPEN_URL",
+        data: { url: "https://example.com" },
+      },
+    };
+
+    let telemetrySpy = sandbox.spy(AboutWelcomeUtils, "sendActionTelemetry");
+    const linkWrapper = mount(
+      <ContentTiles
+        content={{ tiles: [LINK_TILE] }}
+        handleAction={handleAction}
+        setActiveMultiSelect={setActiveMultiSelect}
+      />
+    );
+
+    const tileButton = linkWrapper.find(".tile-header");
+    tileButton.simulate("click");
+
+    sinon.assert.calledOnce(handleAction);
+    const callArgs = handleAction.firstCall.args;
+    assert.equal(
+      callArgs[1].type,
+      "OPEN_URL",
+      "Should call handleAction with tile action"
+    );
+
+    sinon.assert.calledOnce(telemetrySpy);
+    assert.equal(
+      telemetrySpy.firstCall.args[1],
+      "link_test-link_header",
+      "Telemetry should be sent for link tile click"
+    );
+
+    assert.ok(
+      !linkWrapper.find(".tile-content").exists(),
+      "Link tiles should not render tile-content"
+    );
+
+    linkWrapper.unmount();
   });
 });

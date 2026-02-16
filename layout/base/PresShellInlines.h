@@ -7,11 +7,11 @@
 #ifndef mozilla_PresShellInlines_h
 #define mozilla_PresShellInlines_h
 
-#include "nsDocShell.h"
 #include "GeckoProfiler.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
+#include "nsDocShell.h"
 
 namespace mozilla {
 
@@ -50,12 +50,12 @@ void PresShell::SetNeedStyleFlush() {
 
 void PresShell::EnsureStyleFlush() {
   SetNeedStyleFlush();
-  ObserveStyleFlushes();
+  ScheduleFlush();
 }
 
 void PresShell::EnsureLayoutFlush() {
   SetNeedLayoutFlush();
-  ObserveStyleFlushes();
+  ScheduleFlush();
 }
 
 void PresShell::SetNeedThrottledAnimationFlush() {

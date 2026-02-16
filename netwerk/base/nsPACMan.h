@@ -4,12 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsPACMan_h__
-#define nsPACMan_h__
+#ifndef nsPACMan_h_
+#define nsPACMan_h_
 
 #include "mozilla/Atomics.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/DataMutex.h"
+#include "mozilla/Monitor.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/Logging.h"
 #include "mozilla/net/NeckoTargetHolder.h"
@@ -263,7 +263,10 @@ class nsPACMan final : public nsIStreamLoaderObserver,
   UniquePtr<ProxyAutoConfigBase> mPAC;
   nsCOMPtr<nsIThread> mPACThread;
   nsCOMPtr<nsISystemProxySettings> mSystemProxySettings;
+
   nsCOMPtr<nsIDHCPClient> mDHCPClient;
+  mozilla::Monitor mMonitor{"mDHCPMonitor"};
+  nsCString mPACStringFromDHCP MOZ_GUARDED_BY(mMonitor);
 
   LinkedList<PendingPACQuery> mPendingQ; /* pac thread only */
 
@@ -292,4 +295,4 @@ extern LazyLogModule gProxyLog;
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // nsPACMan_h__
+#endif  // nsPACMan_h_

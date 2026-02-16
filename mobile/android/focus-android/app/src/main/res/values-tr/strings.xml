@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -11,7 +18,7 @@
   -->
 
   <!-- Label used for buttons, e.g. in dialogs -->
-  <string name="action_cancel">Vazgeç</string>
+  <string name="action_cancel">İptal</string>
   <!-- Label used for buttons, e.g. in dialogs -->
   <string name="action_ok">Tamam</string>
   <string name="action_save">Kaydet</string>
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">Gezinti geçmişi temizlendi</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">Sekmenin gezinti geçmişi silinmiştir.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">%1$s terimini ara</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Paylaş…</string>
@@ -52,7 +62,7 @@
   <string name="menu_settings">Ayarlar</string>
   <string name="menu_about">Hakkında</string>
   <string name="menu_help">Yardım</string>
-  <string name="menu_rights">Haklarınız</string>
+  <string name="menu_terms_of_use">Kullanım Koşulları</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -143,19 +153,12 @@
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Focus Nightly’de ara</string>
   <!--
-    Content of about focus. Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
-    Argument 2 is the url for the learn-more link.
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
   -->
-  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote">&lt;p&gt;%1$s kontrolü size verir.&lt;/p&gt;
-&lt;p&gt;Onu gizlilik odaklı bir tarayıcı olarak kullanabilirsiniz:
-  &lt;ul&gt;
-    &lt;li&gt;Doğrudan uygulamada arama yapabilir ve web’de gezinebilirsiniz&lt;/li&gt;
-    &lt;li&gt;Takip kodlarını engelleyebilirsiniz (veya belli takip kodlarına izin verebilirsiniz)&lt;/li&gt;
-    &lt;li&gt;Tek düğmeyle çerezleri, arama ve gezinti geçmişinizi silebilirsiniz&lt;/li&gt;
-  &lt;/ul&gt;
-&lt;/p&gt;
-&lt;p&gt;%1$s Mozilla tarafından geliştirilmiştir. Misyonumuz daha sağlıklı ve açık bir internet yaratmaktır.&lt;br/&gt;
-&lt;a href="%2$s"&gt;Daha fazla bilgi alın&lt;/a&gt;&lt;/p&gt;</string>
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s kontrolü size verir.</p>\n<p>Onu gizlilik odaklı bir tarayıcı olarak kullanabilirsiniz:\n<ul>\n<li>Doğrudan uygulamada arama yapabilir ve web’de gezinebilirsiniz</li>\n<li>Takip kodlarını engelleyebilirsiniz (veya belli takip kodlarına izin verebilirsiniz)</li>\n<li>Tek düğmeyle çerezleri, arama ve gezinti geçmişinizi silebilirsiniz</li>\n</ul> </p>\n<p>%1$s Mozilla tarafından geliştirilmiştir. Misyonumuz daha sağlıklı ve açık bir internet yaratmaktır.<br/>\n<a href=\"%2$s\">Daha fazla bilgi alın</a></p>]]></string>
+  <!-- A link to SUMO at the bottom of About Focus screen. -->
+  <string name="about_screen_learn_more">Daha fazla bilgi alın</string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">Gizlilik ve Güvenlik</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -207,14 +210,14 @@
   <string name="preference_switch_autocomplete_topsites">Popüler sitelerde</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">%s’un 450’den fazla popüler adresi adres çubuğunda tamamlaması için bunu etkinleştirin.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">Eklediğim sitelerde</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">%s’un sık kullandığınız adresleri otomatik tamamlaması için etkinleştirin.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -289,8 +292,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">Kısayollar eklediysem veya %s tarayıcısında bir web sitesi açıksa kilidi parmak iziyle aç.</string>
   <!--
@@ -338,9 +341,9 @@
   <string name="preference_libraries_we_use">Kullandığımız kitaplıklar</string>
   <!-- Link to Focus Crash reports list. -->
   <string name="preference_crashes">Çökmeler</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s | OSS Kitaplıkları</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">%1$s hakkında</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">Yüklü arama motorları</string>
@@ -364,7 +367,7 @@
   <string name="search_add_manually_name_hint">Arama motoru adı</string>
   <string name="search_add_manually_string">Kullanılacak arama dizgisi</string>
   <string name="search_add_manually_save">Kaydet</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">Örnek: example.com/search/?q=%s</string>
   <string name="search_add_confirmation">Yeni arama motoru eklendi.</string>
   <string name="search_add_error_empty_name">Arama motoru adını yazın</string>
@@ -436,19 +439,19 @@
   <string name="external_app_prompt_title">Bağlantıyı farklı uygulamada aç</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">Bu bağlantıyı %2$s ile açmak için %1$s\'tan çıkabilirsiniz.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">Bağlantıyı açabilecek bir uygulama bul</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">Cihazınızdaki uygulamalar bu bağlantıyı açamıyor. %2$s mağazasında uygun bir uygulama aramak için %1$s\'tan çıkabilirsiniz.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">Gizli Gezinti\'den çıkılsın mı?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s indirildi</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">Aç</string>
@@ -458,7 +461,7 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">%1$s tarayıcısına hoş geldiniz</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
@@ -468,25 +471,25 @@
 
     %1$s will be replaced by a link using onboarding_first_screen_terms_of_use_link as text
   -->
-  <string name="onboarding_first_screen_terms_of_use_text" tools:ignore="UnusedResources">Devam ettiğinizde %1$s’nı kabul etmiş sayılırsınız.</string>
+  <string name="onboarding_first_screen_terms_of_use_text_2" tools:ignore="UnusedResources">Devam ettiğinizde %1$s’nı kabul etmiş sayılırsınız.</string>
   <!--
     New Onboarding flow first screen 'terms of use link'
 
     Text for the link used in onboarding_first_screen_terms_of_use_text
   -->
-  <string name="onboarding_first_screen_terms_of_use_link" tools:ignore="BrandUsage">Firefox Kullanım Koşulları</string>
+  <string name="onboarding_first_screen_terms_of_use_link_2" tools:ignore="BrandUsage">Firefox Kullanım Koşulları</string>
   <!--
     New Onboarding flow first screen 'privacy notice' text
 
     %1$s will be replaced by a link using onboarding_first_screen_privacy_notice_link as text
   -->
-  <string name="onboarding_first_screen_privacy_notice_text" tools:ignore="BrandUsage">Firefox gizliliğinize önem verir. Daha fazla bilgi için %1$s’ne bakabilirsiniz.</string>
+  <string name="onboarding_first_screen_privacy_notice_text_2" tools:ignore="BrandUsage">Firefox gizliliğinize önem verir. Daha fazla bilgi için %1$s’ne bakabilirsiniz.</string>
   <!-- Text for the link used in onboarding_first_screen_privacy_notice_text -->
-  <string name="onboarding_first_screen_privacy_notice_link">Gizlilik Bildirimi</string>
+  <string name="onboarding_first_screen_privacy_notice_link_2">Gizlilik Bildirimi</string>
   <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">Başlayın</string>
-  <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_agree_and_continue">Kabul et ve devam et</string>
+  <string name="onboarding_first_screen_button_agree_and_continue_2">Devam et</string>
+  <!-- In the first screen of new onboarding flow, additional accessibility description for content that contain urls. -->
+  <string name="a11y_link_available">Kullanılabilir bağlantı var</string>
   <!--
     Onboarding second screen: Title
 
@@ -564,36 +567,6 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">Firefox’u indir</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">Mozilla ve gönüllüler tarafından geliştirilen %1$s, özgür ve açık kaynaklı bir yazılımdır.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s, &lt;a href="%2$s"&gt;Mozilla Kamu Lisansı&lt;/a&gt; ve diğer açık kaynak lisanslarının koşullarıyla sunulmaktadır.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">Mozilla Vakfı’nın tescilli markaları olan Mozilla, Firefox, %1$s adları ve logoları da dahil olmak üzere, tescilli markalarımızın hakları ve lisansları sizinle paylaşılmamaktadır. Daha fazla bilgi almak isterseniz &lt;a href="%2$s"&gt;buraya&lt;/a&gt; bakabilirsiniz.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">Bazı ek %1$s kaynak kodları çeşitli özgür lisanslar ve açık kaynak &lt;a href="%2$s"&gt;lisansları&lt;/a&gt; ile sunulmaktadır.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s ayrıca Disconnect, Inc. tarafından sağlanan engelleme listelerini kullanır. Tarayıcıdan ayrı ve bağımsız olan &lt;a href="%3$s"&gt;bu çalışmalar&lt;/a&gt; &lt;a href="%2$s"&gt;GNU Kamu Lisansı v3&lt;/a&gt; ile sunulmaktadır.</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">Kullanıcı adı</string>
   <string name="gv_prompt_password_hint">Parola</string>
@@ -615,15 +588,17 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">Sayfada bul</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
-  <string name="accessibility_find_in_page_result">%2$d sonuçtan %1$d. sonuç</string>
+  <string name="accessibility_find_in_page_result">%2$d sonuçtan %1$d sonuç</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
   <string name="accessibility_next_result">Sonraki sonucu bul</string>
   <!-- String to be read by the accessibility service when focusing the previous result button -->
@@ -668,18 +643,18 @@
   <string name="cookie_banner_exception_panel_switch_state_off">Bu sitede KAPALI</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">Bu sitede AÇIK</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">%1$s için çerez bildirimlerini azaltma açılsın mı?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">%1$s için çerez bildirimlerini azaltma kapatılsın mı?</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">%1$s bu sitenin çerezlerini temizleyip sayfayı tazeleyecek. Tüm çerezlerin temizlenmesi oturumunuzu kapatabilir veya alışveriş sepetlerinizi boşaltabilir.</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">%1$s çerez isteklerini otomatik olarak reddetmeyi deneyebilir.</string>
   <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_description_site_is_not_supported">Çerez bildirimlerini azaltma özelliği henüz bu siteyi desteklemiyor. Ekibimizin bu siteyi inceleyip gelecekte desteklemesini ister misiniz?</string>
   <!-- Text for cancel button indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
-  <string name="cookie_banner_exception_panel_site_is_not_supported_cancel_button">Vazgeç</string>
+  <string name="cookie_banner_exception_panel_site_is_not_supported_cancel_button">İptal</string>
   <!-- Text for request support button indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_site_is_not_supported_request_support_button">Destek iste</string>
   <!-- Label for the snackBar, after the user reports with success a website where cookie banner reducer did not work -->
@@ -701,11 +676,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Android ayarlarına gidin</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. &lt;b&gt;İzinler&lt;/b&gt;’e dokunun</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. <b>İzinler</b>’e dokunun]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">Ayarlara git</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. &lt;b&gt;%1$s&lt;/b&gt; ayarını AÇIK yapın</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. <b>%1$s</b> ayarını AÇIK yapın]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">Kamera</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -732,20 +707,6 @@
   <string name="preference_block_autoplay_audio_only_summary">Önerilen</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">Ses ve videoyu engelle</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">Araştırmalar</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Firefox zaman zaman araştırmalar yükleyip çalıştırabilir.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">Daha fazla bilgi al</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">Değişiklikleri uygulamak için uygulama kapanacak</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">Kaldır</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">Etkin</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">Tamamlandı</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">USB/Wi-Fi ile uzaktan hata ayıklama</string>
   <!-- Text Button for show biometric prompt -->
@@ -777,7 +738,7 @@
     Description for the prompt to enable search suggestions
     %1$s will be replaced by the app name (e.g. Firefox Focus)
   -->
-  <string name="enable_search_suggestion_description"> Arama önerileri alabilmeniz için %1$s’un adres çubuğuna yazdığınız şeyleri seçtiğiniz arama motoruna göndermesi gerekir.</string>
+  <string name="enable_search_suggestion_description">Arama önerileri alabilmeniz için %1$s’un adres çubuğuna yazdığınız şeyleri seçtiğiniz arama motoruna göndermesi gerekir.</string>
   <!-- Label used for the "NO button" for the prompt to enable search suggestions -->
   <string name="enable_search_suggestions_no">Hayır</string>
   <!-- Label used for the "YES button" for the prompt to enable search suggestions -->
@@ -792,35 +753,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">Düzgün görünmeyen bir site mi var?\n
-    İzlenme Koruması’nı kapatmayı deneyin</string>
+  <string name="tip_disable_tracking_protection">Düzgün görünmeyen bir site mi var?\nİzlenme Koruması’nı kapatmayı deneyin</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">En sık kullandığınız sitelere tek dokunuşla ulaşın%1$s Menü &gt; Ana ekrana ekle</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">Her bağlantıyı %1$s ile açabilirsiniz\n
-        %1$s’u varsayılan tarayıcınız yapın
-    </string>
+  <string name="tip_set_default_browser">Her bağlantıyı %1$s ile açabilirsiniz\n%1$s’u varsayılan tarayıcınız yapın</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">En çok kullandığınız sitelerin adreslerini otomatik tamamlayabilirsiniz\n
-        Adres çubuğundaki herhangi bir adrese basılı tutun
-    </string>
+  <string name="tip_autocomplete_url">En çok kullandığınız sitelerin adreslerini otomatik tamamlayabilirsiniz\nAdres çubuğundaki herhangi bir adrese basılı tutun</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">Bağlantıları yeni sekmede açabilirsiniz\n
-        Bir sayfadaki herhangi bir bağlantıya uzun basın
-    </string>
+  <string name="tip_open_in_new_tab">Bağlantıları yeni sekmede açabilirsiniz\nBir sayfadaki herhangi bir bağlantıya uzun basın</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">Başlangıç ​​ekranında ipuçlarını kapat</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -861,29 +815,29 @@
   <string name="crash_report_send_crash_label">Çökme raporunu Mozilla’ya gönder</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">%s tarihinden beri engellenen takip kodu</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">İçerik</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">Reklam</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">Sosyal</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">Analitik</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">Gelişmiş izlenme koruması</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">Bu sitede korumalar KAPALI</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">Bu sitede korumalar AÇIK</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">Bağlantı güvenli</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">Bağlantı güvenli değil</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">Engellenecek takip kodları ve betikler</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">Geri dön</string>
   <!--
     Top Sites
@@ -901,7 +855,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">%1$s geçmişini sildiğinizde, kaydettiğiniz ve paylaştığınız resimler &lt;b&gt;silinmeyecektir&lt;/b&gt;</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[%1$s geçmişini sildiğinizde, kaydettiğiniz ve paylaştığınız resimler <b>silinmeyecektir</b>]]></string>
   <!--
     Theme Preferences
 
@@ -919,25 +873,16 @@
   <!-- The title of the error page for websites that do not support HTTPS when HTTPS-Only is turned on -->
   <string name="errorpage_httpsonly_title2">Bu site HTTPS’i desteklemiyor</string>
   <!--
-    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s will get replaced with the name of the app (e.g. "Firefox Focus").
-    Contains a button that will redirect the user to Privacy & Security Screen
+    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"),
+    %2$s is a URL to a support article. Contains a button that will redirect the user to Privacy & Security Screen.
   -->
-  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote">%1$s, güvenliğinizi artırmak için mümkünse HTTPS bağlantısı kullanmaya çalışır.
-     &lt;a href="%2$s"&gt;Daha fazla bilgi alın&lt;/a&gt; &lt;br/&gt;&lt;br/&gt;
-     Bu ayarı Ayarlar &gt; Gizlilik ve Güvenlik &gt; Güvenlik kısmından değiştirebilirsiniz.</string>
+  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[%1$s, güvenliğinizi artırmak için mümkünse HTTPS bağlantısı kullanmaya çalışır. <a href=\"%2$s\">Daha fazla bilgi alın</a> <br/><br/> Bu ayarı Ayarlar > Gizlilik ve Güvenlik > Güvenlik kısmından değiştirebilirsiniz.]]></string>
   <!-- The document title and heading of the error page shown when a website has an invalid or expired SSL certificate. -->
   <string name="mozac_browser_errorpages_security_bad_cert_title">Bağlantı güvenli değil</string>
   <!-- The error message shown when a website has an invalid or expired SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_message">
-    Sunucunun yapılandırmasıyla ilgili bir sorun olabilir veya birisi sunucuyu taklit etmeye çalışıyor olabilir.&lt;br/&gt;&lt;br/&gt;
-    Daha önce bu sunucuya sorunsuz bağlandıysanız sorun geçici olabilir.
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_message"><![CDATA[Sunucunun yapılandırmasıyla ilgili bir sorun olabilir veya birisi sunucuyu taklit etmeye çalışıyor olabilir.<br/><br/> Daha önce bu sunucuya sorunsuz bağlandıysanız sorun geçici olabilir.]]></string>
   <!-- The advanced certificate information shown when a website has an invalid SSL certificate. The %1$s will be replaced by the app name and %2$s will be replaced by website URL. It's only shown when a website has an invalid SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_techInfo">
-        &lt;label&gt;Birisi bu siteyi taklit etmeye çalışıyor olabilir ve devam etmeniz riskli olabilir.&lt;/label&gt;
-        &lt;br&gt;&lt;br&gt;
-        &lt;label&gt;%1$s &lt;b&gt;%2$s&lt;/b&gt; sitesine güvenmiyor. Sitenin sertifikasını düzenleyen kuruluş tanınmıyor olabilir, sertifika kendi kendine imzalanmış olabilir veya sunucu doğu ara sertifikaları göndermiyor olabilir.&lt;/label&gt;
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_techInfo"><![CDATA[<label>Birisi bu siteyi taklit etmeye çalışıyor olabilir ve devam etmeniz riskli olabilir.</label> <br><br>\n<label>%1$s <b>%2$s</b> sitesine güvenmiyor. Sitenin sertifikasını düzenleyen kuruluş tanınmıyor olabilir, sertifika kendi kendine imzalanmış olabilir veya sunucu doğu ara sertifikaları göndermiyor olabilir.</label>]]></string>
   <!--
     Sessions List
 
@@ -1000,13 +945,13 @@
 
     Message shown to explain how to exit fullscreen mode when gesture navigation is enabled.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_gesture_short">Çıkmak için ekranı yukarıdan çekip geri dönme hareketini kullanın</string>
   <!--
     Message shown to explain how to exit fullscreen mode when using back button navigation.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_back_button_short">Çıkmak için ekranı yukarıdan çekip geri düğmesine basın</string>
 </resources>

@@ -5,53 +5,49 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/Promise.h"
-#include "mozilla/dom/Promise-inl.h"
 
+#include "PromiseDebugging.h"
+#include "PromiseNativeHandler.h"
+#include "PromiseWorkerProxy.h"
+#include "WrapperFactory.h"
 #include "js/Debug.h"
-
-#include "mozilla/Atomics.h"
+#include "js/Exception.h"  // JS::ExceptionStack
+#include "js/Object.h"     // JS::GetCompartment
+#include "js/StructuredClone.h"
+#include "jsfriendapi.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/OwningNonNull.h"
 #include "mozilla/Preferences.h"
-#include "mozilla/ResultExtensions.h"
-#include "mozilla/Unused.h"
-
 #include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/DOMException.h"
 #include "mozilla/dom/DOMExceptionBinding.h"
 #include "mozilla/dom/Exceptions.h"
 #include "mozilla/dom/MediaStreamError.h"
+#include "mozilla/dom/Promise-inl.h"
 #include "mozilla/dom/PromiseBinding.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/UserActivation.h"
 #include "mozilla/dom/WorkerPrivate.h"
-#include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/dom/WorkerRef.h"
-#include "mozilla/dom/WorkletImpl.h"
+#include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/dom/WorkletGlobalScope.h"
-
-#include "jsfriendapi.h"
-#include "js/Exception.h"  // JS::ExceptionStack
-#include "js/Object.h"     // JS::GetCompartment
-#include "js/StructuredClone.h"
+#include "mozilla/dom/WorkletImpl.h"
+#include "mozilla/webgpu/PipelineError.h"
 #include "nsContentUtils.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsDebug.h"
 #include "nsGlobalWindowInner.h"
 #include "nsIScriptObjectPrincipal.h"
+#include "nsISupportsImpl.h"
 #include "nsJSEnvironment.h"
 #include "nsJSPrincipals.h"
 #include "nsJSUtils.h"
 #include "nsPIDOMWindow.h"
-#include "PromiseDebugging.h"
-#include "PromiseNativeHandler.h"
-#include "PromiseWorkerProxy.h"
-#include "WrapperFactory.h"
-#include "xpcpublic.h"
 #include "xpcprivate.h"
+#include "xpcpublic.h"
 
 namespace mozilla::dom {
 
@@ -79,10 +75,10 @@ Promise::Promise(nsIGlobalObject* aGlobal)
     : mGlobal(aGlobal), mPromiseObj(nullptr) {
   MOZ_ASSERT(mGlobal);
 
-  mozilla::HoldJSObjects(this);
+  mozilla::HoldJSObjectsWithKey(this);
 }
 
-Promise::~Promise() { mozilla::DropJSObjects(this); }
+Promise::~Promise() { mozilla::DropJSObjectsWithKey(this); }
 
 // static
 already_AddRefed<Promise> Promise::Create(
@@ -218,6 +214,132 @@ already_AddRefed<Promise> Promise::All(
   return CreateFromExisting(global, result, aPropagateUserInteraction);
 }
 
+struct WaitForAllEmptyTask : public MicroTaskRunnable {
+  WaitForAllEmptyTask(
+      nsIGlobalObject* aGlobal,
+      const std::function<void(const Span<JS::Heap<JS::Value>>&)>& aCallback)
+      : mGlobal(aGlobal), mCallback(aCallback) {}
+
+ private:
+  virtual void Run(AutoSlowOperation&) override { mCallback({}); }
+
+  virtual bool Suppressed() override { return mGlobal->IsInSyncOperation(); }
+
+  nsCOMPtr<nsIGlobalObject> mGlobal;
+  const std::function<void(const Span<JS::Heap<JS::Value>>&)> mCallback;
+};
+
+// Initializing WaitForAllResults also performs step 1 and step 2 of
+// #wait-for-all.
+struct WaitForAllResults {
+  NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(WaitForAllResults)
+  NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_NATIVE_CLASS(WaitForAllResults)
+
+  explicit WaitForAllResults(size_t aSize) : mResult(aSize) {
+    HoldJSObjects(this);
+
+    mResult.EnsureLengthAtLeast(aSize);
+  }
+
+  // Step 1
+  size_t mFullfilledCount = 0;
+
+  // Step 2
+  bool mRejected = false;
+
+  nsTArray<JS::Heap<JS::Value>> mResult;
+
+ private:
+  ~WaitForAllResults() { DropJSObjects(this); };
+};
+
+NS_IMPL_CYCLE_COLLECTION_WITH_JS_MEMBERS(WaitForAllResults, (), (mResult))
+
+// https://webidl.spec.whatwg.org/#wait-for-all
+/* static */
+void Promise::WaitForAll(nsIGlobalObject* aGlobal,
+                         const Span<RefPtr<Promise>>& aPromises,
+                         SuccessSteps aSuccessSteps, FailureSteps aFailureSteps,
+                         nsISupports* aCycleCollectedArg) {
+  // Step 1 and step 2 are in WaitForAllResults.
+
+  // Step 3
+  const auto& rejectionHandlerSteps =
+      [aFailureSteps](JSContext* aCx, JS::Handle<JS::Value> aArg,
+                      ErrorResult& aRv,
+                      const RefPtr<WaitForAllResults>& aResult,
+                      const nsCOMPtr<nsISupports>& aCycleCollectedArg) {
+        // Step 3.1
+        if (aResult->mRejected) {
+          return nullptr;
+        }
+        // Step 3.2
+        aResult->mRejected = true;
+        // Step 3.3
+        aFailureSteps(aArg);
+        return nullptr;
+      };
+  // Step 5
+  const size_t total = aPromises.size();
+  // Step 6
+  if (!total) {
+    CycleCollectedJSContext* context = CycleCollectedJSContext::Get();
+    if (context) {
+      RefPtr<MicroTaskRunnable> microTask =
+          new WaitForAllEmptyTask(aGlobal, aSuccessSteps);
+      // Step 6.1
+      context->DispatchToMicroTask(microTask.forget());
+    }
+    // Step 6.2
+    return;
+  }
+  // Step 7
+  size_t index = 0;
+  // Step 8
+  // Since we'll be passing an nsTArray to several invocations to
+  // fulfillmentHandlerSteps we wrap it into a cycle collecting and tracing
+  // object.
+  RefPtr result = MakeAndAddRef<WaitForAllResults>(total);
+  nsCOMPtr arg = aCycleCollectedArg;
+  // Step 9
+  for (const auto& promise : aPromises) {
+    // Step 9.1 and step 9.2
+    const auto& fulfillmentHandlerSteps =
+        [aSuccessSteps, promiseIndex = index](
+            JSContext* aCx, JS::Handle<JS::Value> aArg, ErrorResult& aRv,
+            const RefPtr<WaitForAllResults>& aResult,
+            const nsCOMPtr<nsISupports>& aCycleCollectedArg)
+        -> already_AddRefed<Promise> {
+      // Step 9.2.1
+      aResult->mResult[promiseIndex].set(aArg.get());
+      // Step 9.2.2
+      aResult->mFullfilledCount++;
+      // Step 9.2.3.
+      // aResult->mResult.Length() is by definition equals to total.
+      if (aResult->mFullfilledCount == aResult->mResult.Length()) {
+        aSuccessSteps(aResult->mResult);
+      }
+      return nullptr;
+    };
+    // Step 9.4 (and actually also step 4 and step 9.3)
+    Result resultPromise = promise->ThenCatchWithCycleCollectedArgs(
+        fulfillmentHandlerSteps, rejectionHandlerSteps, result, arg);
+
+    // https://tc39.es/ecma262/multipage/control-abstraction-objects.html#sec-performpromisethen
+    // Step 12
+    // Promise;:ThenCatchWithCycleCollectedArgs is fairly similar to, but not
+    // exactly the same as PerformPromiseThen, in particular the step that marks
+    // the promise as handled is missing. It's performed here to not change the
+    // existing behavior of ThenCatchWithCycleCollectedArgs.
+    if (resultPromise.isOk()) {
+      (void)resultPromise.unwrap()->SetAnyPromiseIsHandled();
+    }
+
+    // Step 9.5
+    index++;
+  }
+}
+
 static void SettlePromise(Promise* aSettlingPromise, Promise* aCallbackPromise,
                           ErrorResult& aRv) {
   if (!aSettlingPromise) {
@@ -304,7 +426,7 @@ void Promise::CreateWrapper(
     return;
   }
   if (aPropagateUserInteraction == ePropagateUserInteraction) {
-    Unused << MaybePropagateUserInputEventHandling();
+    (void)MaybePropagateUserInputEventHandling();
   }
 }
 
@@ -390,11 +512,11 @@ namespace {
 class PromiseNativeHandlerShim final : public PromiseNativeHandler {
   RefPtr<PromiseNativeHandler> mInner;
 #ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
-  enum InnerState{
-      NotCleared,
-      ClearedFromResolve,
-      ClearedFromReject,
-      ClearedFromCC,
+  enum InnerState {
+    NotCleared,
+    ClearedFromResolve,
+    ClearedFromReject,
+    ClearedFromCC,
   };
   InnerState mState = NotCleared;
 #endif
@@ -595,6 +717,12 @@ void Promise::MaybeReject(const RefPtr<MediaStreamError>& aArg) {
   MaybeSomething(aArg, &Promise::MaybeReject);
 }
 
+void Promise::MaybeReject(const RefPtr<webgpu::PipelineError>& aArg) {
+  NS_ASSERT_OWNINGTHREAD(Promise);
+
+  MaybeSomething(aArg, &Promise::MaybeReject);
+}
+
 void Promise::MaybeRejectWithUndefined() {
   NS_ASSERT_OWNINGTHREAD(Promise);
 
@@ -751,8 +879,9 @@ class PromiseWorkerProxyRunnable final : public WorkerThreadRunnable {
 
     // Here we convert the buffer to a JS::Value.
     JS::Rooted<JS::Value> value(aCx);
-    if (!mPromiseWorkerProxy->Read(aCx, &value)) {
-      JS_ClearPendingException(aCx);
+    IgnoredErrorResult rv;
+    mPromiseWorkerProxy->Read(aCx, &value, rv);
+    if (rv.Failed()) {
       return false;
     }
 
@@ -837,10 +966,6 @@ WorkerPrivate* PromiseWorkerProxy::GetWorkerPrivate() const {
   return mWorkerRef->Private();
 }
 
-bool PromiseWorkerProxy::OnWritingThread() const {
-  return IsCurrentThreadRunningWorker();
-}
-
 Promise* PromiseWorkerProxy::GetWorkerPromise() const {
   MOZ_ASSERT(IsCurrentThreadRunningWorker());
   return mWorkerPromise;
@@ -858,8 +983,9 @@ void PromiseWorkerProxy::RunCallback(JSContext* aCx,
   }
 
   // The |aValue| is written into the StructuredCloneHolderBase.
-  if (!Write(aCx, aValue)) {
-    JS_ClearPendingException(aCx);
+  IgnoredErrorResult rv;
+  Write(aCx, aValue, rv);
+  if (rv.Failed()) {
     MOZ_ASSERT(false,
                "cannot serialize the value with the StructuredCloneAlgorithm!");
   }

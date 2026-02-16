@@ -3,7 +3,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 
-import json
 import unittest
 from pprint import pprint
 from unittest.mock import patch
@@ -11,7 +10,8 @@ from unittest.mock import patch
 import pytest
 from mozunit import MockedOpen, main
 from taskgraph import create
-from taskgraph.util import taskcluster
+from taskgraph.util import json, taskcluster
+from taskgraph.util.taskcluster import _task_definitions_cache
 
 from gecko_taskgraph import actions
 from gecko_taskgraph.actions.util import combine_task_graph_files, relativize_datestamps
@@ -155,7 +155,7 @@ def is_subset(subset, superset):
 def test_extract_applicable_action(
     responses, monkeypatch, actions_json, task_def, expected
 ):
-    actions.util.get_task_definition.cache_clear()
+    _task_definitions_cache.cache.clear()
     base_url = "https://taskcluster"
     decision_task_id = "dddd"
     task_id = "tttt"

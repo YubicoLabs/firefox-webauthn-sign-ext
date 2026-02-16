@@ -7,9 +7,9 @@
 const {
   Component,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   fetchNetworkUpdatePacket,
   propertiesEqual,
@@ -26,6 +26,7 @@ const {
   RequestListColumnCookies,
   RequestListColumnDomain,
   RequestListColumnFile,
+  RequestListColumnPath,
   RequestListColumnMethod,
   RequestListColumnProtocol,
   RequestListColumnRemoteIP,
@@ -63,6 +64,11 @@ loader.lazyGetter(this, "RequestListColumnDomain", function () {
 loader.lazyGetter(this, "RequestListColumnFile", function () {
   return createFactory(
     require("resource://devtools/client/netmonitor/src/components/request-list/RequestListColumnFile.js")
+  );
+});
+loader.lazyGetter(this, "RequestListColumnPath", function () {
+  return createFactory(
+    require("resource://devtools/client/netmonitor/src/components/request-list/RequestListColumnPath.js")
   );
 });
 loader.lazyGetter(this, "RequestListColumnUrl", function () {
@@ -167,6 +173,8 @@ const UPDATED_REQ_ITEM_PROPS = [
   "waitingTime",
   "isEventStream",
   "priority",
+  "blockedReason",
+  "extension",
 ];
 
 const UPDATED_REQ_PROPS = [
@@ -198,6 +206,11 @@ const COLUMN_COMPONENTS = [
     column: "file",
     ColumnComponent: RequestListColumnFile,
     props: ["onWaterfallMouseDown", "slowLimit"],
+  },
+  {
+    column: "path",
+    ColumnComponent: RequestListColumnPath,
+    props: ["onWaterfallMouseDown"],
   },
   {
     column: "url",

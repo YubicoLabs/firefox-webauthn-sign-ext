@@ -6,7 +6,6 @@ import React from "react";
 import ReactDOM from "react-dom";
 import { AboutWelcomeUtils } from "./lib/aboutwelcome-utils.mjs";
 import { MultiStageAboutWelcome } from "./components/MultiStageAboutWelcome";
-import { ReturnToAMO } from "./components/ReturnToAMO";
 
 class AboutWelcome extends React.PureComponent {
   constructor(props) {
@@ -36,6 +35,7 @@ class AboutWelcome extends React.PureComponent {
           mountStart: performance.getEntriesByName("mount").pop().startTime,
           domState,
           source: this.props.UTMTerm,
+          writeInMicrosurvey: this.props.write_in_microsurvey,
         });
       };
       if (document.readyState === "complete") {
@@ -57,22 +57,16 @@ class AboutWelcome extends React.PureComponent {
 
   render() {
     const { props } = this;
-    if (props.template === "return_to_amo") {
-      return (
-        <ReturnToAMO
-          message_id={props.messageId}
-          type={props.type}
-          name={props.name}
-          url={props.url}
-          iconURL={props.iconURL}
-          themeScreenshots={props.screenshots}
-          metricsFlowUri={this.state.metricsFlowUri}
-        />
-      );
-    }
     return (
       <MultiStageAboutWelcome
+        addonId={props.addonId}
+        addonType={props.type}
+        addonName={props.name || ""}
+        addonURL={props.url}
+        addonIconURL={props.iconURL}
+        themeScreenshots={props.screenshots}
         message_id={props.messageId}
+        writeInMicrosurvey={props.write_in_microsurvey}
         defaultScreens={props.screens}
         updateHistory={!props.disableHistoryUpdates}
         metricsFlowUri={this.state.metricsFlowUri}
@@ -82,6 +76,7 @@ class AboutWelcome extends React.PureComponent {
         startScreen={props.startScreen || 0}
         appAndSystemLocaleInfo={props.appAndSystemLocaleInfo}
         ariaRole={props.aria_role}
+        gateInitialPaint={true}
       />
     );
   }

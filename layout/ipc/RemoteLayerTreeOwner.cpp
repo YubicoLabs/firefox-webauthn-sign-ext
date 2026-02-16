@@ -4,23 +4,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "base/basictypes.h"
-
-#include "mozilla/PresShell.h"
-#include "mozilla/dom/ContentParent.h"
-#include "mozilla/dom/BrowserParent.h"
-#include "mozilla/layers/CompositorBridgeParent.h"
-#include "mozilla/layers/CompositorTypes.h"
-#include "nsFrameLoader.h"
-#include "nsStyleStructInlines.h"
-#include "nsSubDocumentFrame.h"
 #include "RemoteLayerTreeOwner.h"
+
+#include "base/basictypes.h"
+#include "mozilla/PresShell.h"
+#include "mozilla/dom/BrowserParent.h"
+#include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/EffectsInfo.h"
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/layers/CompositorBridgeChild.h"
+#include "mozilla/layers/CompositorBridgeParent.h"
+#include "mozilla/layers/CompositorTypes.h"
 #include "mozilla/layers/WebRenderLayerManager.h"
 #include "mozilla/layers/WebRenderScrollData.h"
 #include "mozilla/webrender/WebRenderAPI.h"
-#include "mozilla/dom/EffectsInfo.h"
+#include "nsFrameLoader.h"
+#include "nsStyleStructInlines.h"
+#include "nsSubDocumentFrame.h"
 
 using namespace mozilla::dom;
 using namespace mozilla::gfx;
@@ -84,20 +84,17 @@ void RemoteLayerTreeOwner::Destroy() {
 }
 
 void RemoteLayerTreeOwner::EnsureLayersConnected(
-    CompositorOptions* aCompositorOptions) {
+    Maybe<CompositorOptions>& aCompositorOptions) {
   RefPtr<WindowRenderer> renderer = GetWindowRenderer(mBrowserParent);
-  if (!renderer) {
-    return;
-  }
-
-  if (!renderer->GetCompositorBridgeChild()) {
+  if (!renderer || !renderer->GetCompositorBridgeChild()) {
+    aCompositorOptions = Nothing();
     return;
   }
 
   mLayersConnected =
       renderer->GetCompositorBridgeChild()->SendNotifyChildRecreated(
           mLayersId, &mCompositorOptions);
-  *aCompositorOptions = mCompositorOptions;
+  aCompositorOptions = Some(mCompositorOptions);
 }
 
 bool RemoteLayerTreeOwner::AttachWindowRenderer() {
@@ -118,7 +115,7 @@ bool RemoteLayerTreeOwner::AttachWindowRenderer() {
 }
 
 void RemoteLayerTreeOwner::OwnerContentChanged() {
-  Unused << AttachWindowRenderer();
+  (void)AttachWindowRenderer();
 }
 
 void RemoteLayerTreeOwner::GetTextureFactoryIdentifier(

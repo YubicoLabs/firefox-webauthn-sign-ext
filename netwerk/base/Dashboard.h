@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsDashboard_h__
-#define nsDashboard_h__
+#ifndef nsDashboard_h_
+#define nsDashboard_h_
 
 #include "mozilla/Mutex.h"
 #include "mozilla/net/DashboardTypes.h"
@@ -17,6 +17,7 @@ namespace net {
 
 class SocketData;
 class HttpData;
+class Http3ConnectionStatsData;
 class DnsData;
 class WebSocketRequest;
 class ConnectionData;
@@ -72,12 +73,14 @@ class Dashboard final : public nsIDashboard, public nsIDashboardEventNotifier {
 
   nsresult GetSocketsDispatch(SocketData*);
   nsresult GetHttpDispatch(HttpData*);
+  nsresult GetHttp3ConnectionStatsDispatch(Http3ConnectionStatsData*);
   nsresult GetDnsInfoDispatch(DnsData*);
   nsresult TestNewConnection(ConnectionData*);
 
   /* Helper methods that pass the JSON to the callback function. */
   nsresult GetSockets(SocketData*);
   nsresult GetHttpConnections(HttpData*);
+  nsresult GetHttp3ConnectionStats(Http3ConnectionStatsData*);
   nsresult GetDNSCacheEntries(DnsData*);
   nsresult GetWebSocketConnections(WebSocketRequest*);
   nsresult GetRcwnData(RcwnData*);
@@ -88,4 +91,4 @@ class Dashboard final : public nsIDashboard, public nsIDashboardEventNotifier {
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // nsDashboard_h__
+#endif  // nsDashboard_h_

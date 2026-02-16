@@ -11,7 +11,6 @@ import tempfile
 import time
 
 import mozfile
-import six
 
 from ..devices import BaseEmulator
 from .runner import BaseRunner
@@ -29,7 +28,7 @@ class DeviceRunner(BaseRunner):
         "MOZ_CRASHREPORTER_SHUTDOWN": "1",
         "MOZ_HIDE_RESULTS_TABLE": "1",
         "MOZ_IN_AUTOMATION": "1",
-        "MOZ_LOG": "signaling:3,mtransport:4,DataChannel:4,jsep:4",
+        "MOZ_LOG": "signaling:3,mtransport:4,DataChannel:3,jsep:4",
         "R_LOG_LEVEL": "6",
         "R_LOG_DESTINATION": "stderr",
         "R_LOG_VERBOSE": "1",
@@ -45,10 +44,7 @@ class DeviceRunner(BaseRunner):
         if env:
             self._device_env.update(env)
 
-        if six.PY2:
-            stdout = codecs.getwriter("utf-8")(sys.stdout)
-        else:
-            stdout = codecs.getwriter("utf-8")(sys.stdout.buffer)
+        stdout = codecs.getwriter("utf-8")(sys.stdout.buffer)
         process_args = {
             "stream": stdout,
             "processOutputLine": self.on_output,
@@ -110,8 +106,8 @@ class DeviceRunner(BaseRunner):
             self.app_ctx.device.pkill(self.app_ctx.remote_process, sig=sig)
             if self.wait(timeout) is None and sig is not None:
                 print(
-                    "timed out waiting for '{}' process to exit, trying "
-                    "without signal {}".format(self.app_ctx.remote_process, sig)
+                    f"timed out waiting for '{self.app_ctx.remote_process}' process to exit, trying "
+                    f"without signal {sig}"
                 )
 
             # need to call adb stop otherwise the system will attempt to
@@ -119,9 +115,7 @@ class DeviceRunner(BaseRunner):
             self.app_ctx.stop_application()
             if self.wait(timeout) is None:
                 print(
-                    "timed out waiting for '{}' process to exit".format(
-                        self.app_ctx.remote_process
-                    )
+                    f"timed out waiting for '{self.app_ctx.remote_process}' process to exit"
                 )
 
     @property
@@ -183,7 +177,7 @@ class DeviceRunner(BaseRunner):
             dump_directory=dump_dir,
             dump_save_path=dump_save_path,
             test_name=test_name,
-            **kwargs
+            **kwargs,
         )
         mozfile.remove(dump_dir)
         return crashed
@@ -195,5 +189,5 @@ class DeviceRunner(BaseRunner):
 
 class FennecRunner(DeviceRunner):
     def __init__(self, cmdargs=None, **kwargs):
-        super(FennecRunner, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.cmdargs = cmdargs or []

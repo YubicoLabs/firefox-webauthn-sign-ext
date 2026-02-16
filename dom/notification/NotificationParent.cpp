@@ -6,71 +6,231 @@
 
 #include "NotificationParent.h"
 
-#include "nsThreadUtils.h"
+#include "NotificationHandler.h"
 #include "NotificationUtils.h"
 #include "mozilla/AlertNotification.h"
 #include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/dom/ServiceWorkerManager.h"
+#include "mozilla/glean/DomNotificationMetrics.h"
 #include "mozilla/ipc/Endpoint.h"
-#include "mozilla/Components.h"
 #include "nsComponentManagerUtils.h"
-#include "nsIAlertsService.h"
 #include "nsIServiceWorkerManager.h"
+#include "nsIURIClassifier.h"
+#include "nsNetCID.h"
+#include "nsThreadUtils.h"
 
 namespace mozilla::dom::notification {
 
-NS_IMPL_ISUPPORTS(NotificationParent, nsIObserver)
+NS_IMPL_ISUPPORTS0(NotificationParent)
 
-NS_IMETHODIMP
-NotificationParent::Observe(nsISupports* aSubject, const char* aTopic,
-                            const char16_t* aData) {
-  if (!strcmp("alertdisablecallback", aTopic)) {
-    return RemovePermission(mPrincipal);
+// TODO(krosylight): Would be nice to replace nsIObserver with something like:
+//
+// nsINotificationManager.NotifyClick(notification.id [, notification.action])
+class NotificationObserver final : public nsIObserver {
+ public:
+  NS_DECL_ISUPPORTS
+
+  NotificationObserver(const nsAString& aScope, nsIPrincipal* aPrincipal,
+                       IPCNotification aNotification,
+                       NotificationParent& aParent)
+      : mScope(aScope),
+        mPrincipal(aPrincipal),
+        mNotification(std::move(aNotification)),
+        mActor(&aParent) {}
+
+  NS_IMETHODIMP Observe(nsISupports* aSubject, const char* aTopic,
+                        const char16_t* aData) override {
+    AlertTopic topic = ToAlertTopic(aTopic, aData);
+
+    // These two never fire any content event directly
+    if (topic == AlertTopic::Disable) {
+      return RemovePermission(mPrincipal);
+    }
+    if (topic == AlertTopic::Settings) {
+      return OpenSettings(mPrincipal);
+    }
+
+    RefPtr<NotificationParent> actor(mActor);
+
+    if (actor && actor->CanSend()) {
+      // The actor is alive, call it to ping the content process and/or to make
+      // it clean up itself
+      actor->HandleAlertTopic(topic);
+      if (mScope.IsEmpty()) {
+        // The actor covered everything we need.
+        return NS_OK;
+      }
+    } else if (mScope.IsEmpty()) {
+      if (topic == AlertTopic::Click) {
+        // No actor there, we need to open up a window ourselves
+        return OpenWindowFor(mPrincipal);
+      }
+      // Nothing to do
+      return NS_OK;
+    }
+
+    // We have a Service Worker to call
+    MOZ_ASSERT(!mScope.IsEmpty());
+    if (topic == AlertTopic::Show) {
+      (void)NS_WARN_IF(NS_FAILED(
+          AdjustPushQuota(mPrincipal, NotificationStatusChange::Shown)));
+      nsresult rv = PersistNotification(mPrincipal, mNotification, mScope);
+      if (NS_FAILED(rv)) {
+        NS_WARNING("Could not persist Notification");
+      }
+      return NS_OK;
+    }
+
+    MOZ_ASSERT(topic == AlertTopic::Click || topic == AlertTopic::Finished ||
+               topic == AlertTopic::Closed);
+
+    if (topic == AlertTopic::Click) {
+      nsCOMPtr<nsIAlertAction> action = do_QueryInterface(aSubject);
+      nsAutoString actionName;
+      if (action) {
+        MOZ_TRY(action->GetAction(actionName));
+      }
+      return RespondOnClick(mPrincipal, mScope, mNotification, actionName);
+    }
+
+    RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
+    if (!swm) {
+      return NS_ERROR_FAILURE;
+    }
+
+    nsAutoCString originSuffix;
+    MOZ_TRY(mPrincipal->GetOriginSuffix(originSuffix));
+
+    MOZ_ASSERT(topic == AlertTopic::Finished || topic == AlertTopic::Closed);
+    (void)NS_WARN_IF(NS_FAILED(
+        AdjustPushQuota(mPrincipal, NotificationStatusChange::Closed)));
+    (void)NS_WARN_IF(
+        NS_FAILED(UnpersistNotification(mPrincipal, mNotification.id())));
+    (void)swm->SendNotificationCloseEvent(originSuffix, mScope, mNotification);
+
+    return NS_OK;
   }
-  if (!strcmp("alertsettingscallback", aTopic)) {
-    return OpenSettings(mPrincipal);
+
+ private:
+  virtual ~NotificationObserver() = default;
+
+  static AlertTopic ToAlertTopic(const char* aTopic, const char16_t* aData) {
+    if (!strcmp("alertdisablecallback", aTopic)) {
+      return AlertTopic::Disable;
+    }
+    if (!strcmp("alertsettingscallback", aTopic)) {
+      return AlertTopic::Settings;
+    }
+    if (!strcmp("alertclickcallback", aTopic)) {
+      return AlertTopic::Click;
+    }
+    if (!strcmp("alertshow", aTopic)) {
+      return AlertTopic::Show;
+    }
+    if (!strcmp("alertfinished", aTopic)) {
+      if (aData && nsDependentString(aData) == u"close"_ns) {
+        // Backends with asynchronous system API may hint that they are
+        // intentionally closing the notification, to disambiguate from an early
+        // alertfinished which is recognized as an error.
+        // (Not introducing alertclose for compatibility with existing browser
+        // script callers.)
+        return AlertTopic::Closed;
+      }
+      return AlertTopic::Finished;
+    }
+    MOZ_ASSERT_UNREACHABLE("Unknown alert topic");
+    return AlertTopic::Finished;
   }
-  if (!strcmp("alertclickcallback", aTopic)) {
+
+  // May want to replace with SWR ID, see bug 1881812
+  nsString mScope;
+  nsCOMPtr<nsIPrincipal> mPrincipal;
+  IPCNotification mNotification;
+  WeakPtr<NotificationParent> mActor;
+};
+
+NS_IMPL_ISUPPORTS(NotificationObserver, nsIObserver)
+
+using SafeBrowsingPromise = MozPromise<bool, nsresult, false>;
+
+class SafeBrowsingClassificationCallback final
+    : public nsIURIClassifierCallback {
+ public:
+  NS_DECL_ISUPPORTS
+
+  SafeBrowsingClassificationCallback() = default;
+
+  already_AddRefed<SafeBrowsingPromise> Promise() {
+    return mPromiseHolder.Ensure(__func__);
+  }
+
+  NS_IMETHOD OnClassifyComplete(nsresult aErrorCode, const nsACString& aList,
+                                const nsACString& aProvider,
+                                const nsACString& aFullHash) override {
+    if (NS_FAILED(aErrorCode)) {
+      mPromiseHolder.Reject(aErrorCode, __func__);
+    } else {
+      mPromiseHolder.Resolve(true, __func__);
+    }
+    return NS_OK;
+  }
+
+ private:
+  ~SafeBrowsingClassificationCallback() {
+    mPromiseHolder.RejectIfExists(NS_ERROR_ABORT, __func__);
+  }
+
+  MozPromiseHolder<SafeBrowsingPromise> mPromiseHolder;
+};
+
+NS_IMPL_ISUPPORTS(SafeBrowsingClassificationCallback, nsIURIClassifierCallback)
+
+nsresult NotificationParent::HandleAlertTopic(AlertTopic aTopic) {
+  if (aTopic == AlertTopic::Click) {
     return FireClickEvent();
   }
-  if (!strcmp("alertshow", aTopic)) {
+  if (aTopic == AlertTopic::Show) {
     if (!mResolver) {
 #ifdef ANDROID
-      // XXX: This can happen as we resolve showNotification() immediately on
-      // Android for now and a mock service may still call this.
+      // XXX: This can happen as alertshow happens asynchronously on Android as
+      // we go through GeckoView.
+      //
+      // For example, if two same-tagged notifications are requested at the same
+      // time, the first one will be canceled but can still fire alertshow,
+      // while the second one will also fire one, and the handler for the second
+      // one would get both.
+      //
+      // We may want to reintroduce UUID for such asynchronous case, but for now
+      // it's very edge case and can be ignored.
       return NS_OK;
 #else
       MOZ_ASSERT_UNREACHABLE("Are we getting double show events?");
       return NS_ERROR_FAILURE;
 #endif
     }
-
-    (void)NS_WARN_IF(NS_FAILED(
-        AdjustPushQuota(mPrincipal, NotificationStatusChange::Shown)));
-    // XXX(krosylight): Non-persistent notifications probably don't need this
-    nsresult rv =
-        PersistNotification(mPrincipal, IPCNotification(mId, mOptions), mScope);
-    if (NS_FAILED(rv)) {
-      NS_WARNING("Could not persist Notification");
-    }
     mResolver.take().value()(CopyableErrorResult());
     return NS_OK;
   }
-  if (!strcmp("alertfinished", aTopic)) {
-    if (mResolver) {
+  if (mResolver) {
+    if (aTopic == AlertTopic::Closed) {
+      // Closing without ever being shown, but intentionally by the backend
+      mResolver.take().value()(CopyableErrorResult());
+    } else if (aTopic == AlertTopic::Finished) {
       // alertshow happens first before alertfinished, and it should have
       // nullified mResolver. If not it means it failed to show and is bailing
       // out.
-      // XXX: Apparently XUL manual do not disturb mode does this without firing
-      // alertshow at all.
-      mResolver.take().value()(CopyableErrorResult(NS_ERROR_FAILURE));
-    } else {
-      // XXX: QM_TRY?
-      (void)NS_WARN_IF(NS_FAILED(
-          AdjustPushQuota(mPrincipal, NotificationStatusChange::Closed)));
-      (void)NS_WARN_IF(NS_FAILED(UnpersistNotification(mPrincipal, mId)));
-      (void)NS_WARN_IF(NS_FAILED(FireCloseEvent()));
+      // NOTE(krosylight): The spec does not define what to do when a
+      // permission-granted notification fails to open, we throw TypeError
+      // here as that's the error for when permission is denied.
+      CopyableErrorResult rv;
+      rv.ThrowTypeError(
+          "Failed to show notification, potentially because the browser did "
+          "not have the corresponding OS-level permission."_ns);
+      mResolver.take().value()(rv);
     }
+  }
 
+  if (aTopic == AlertTopic::Finished || aTopic == AlertTopic::Closed) {
     // Unpersisted already and being unregistered already by nsIAlertsService
     mDangling = true;
     Close();
@@ -84,39 +244,10 @@ NotificationParent::Observe(nsISupports* aSubject, const char* aTopic,
 }
 
 nsresult NotificationParent::FireClickEvent() {
-  if (mScope.IsEmpty()) {
-    if (SendNotifyClick()) {
-      return NS_OK;
-    }
-    return NS_ERROR_FAILURE;
-  }
-
-  // This needs to be done here rather than in the child actor's
-  // RecvNotifyClick because the caller might not be in the service worker
-  // context but in the window context
-  if (nsCOMPtr<nsIServiceWorkerManager> swm =
-          mozilla::components::ServiceWorkerManager::Service()) {
-    nsAutoCString originSuffix;
-    MOZ_TRY(mPrincipal->GetOriginSuffix(originSuffix));
-    MOZ_TRY(swm->SendNotificationClickEvent(originSuffix, mScope,
-                                            IPCNotification(mId, mOptions)));
-
+  if (!mArgs.mScope.IsEmpty()) {
     return NS_OK;
   }
-
-  return NS_ERROR_FAILURE;
-}
-
-nsresult NotificationParent::FireCloseEvent() {
-  // This needs to be done here rather than in the child actor's
-  // RecvNotifyClose because the caller might not be in the service worker
-  // context but in the window context
-  if (nsCOMPtr<nsIServiceWorkerManager> swm =
-          mozilla::components::ServiceWorkerManager::Service()) {
-    nsAutoCString originSuffix;
-    MOZ_TRY(mPrincipal->GetOriginSuffix(originSuffix));
-    MOZ_TRY(swm->SendNotificationCloseEvent(originSuffix, mScope,
-                                            IPCNotification(mId, mOptions)));
+  if (SendNotifyClick()) {
     return NS_OK;
   }
   return NS_ERROR_FAILURE;
@@ -124,7 +255,8 @@ nsresult NotificationParent::FireCloseEvent() {
 
 // Step 4 of
 // https://notifications.spec.whatwg.org/#dom-notification-notification
-mozilla::ipc::IPCResult NotificationParent::RecvShow(ShowResolver&& aResolver) {
+mozilla::ipc::IPCResult NotificationParent::RecvShow(Maybe<IPCImage>&& aIcon,
+                                                     ShowResolver&& aResolver) {
   MOZ_ASSERT(mId.IsEmpty(), "ID should not be given for a new notification");
 
   mResolver.emplace(std::move(aResolver));
@@ -133,8 +265,8 @@ mozilla::ipc::IPCResult NotificationParent::RecvShow(ShowResolver&& aResolver) {
   // not "granted", then queue a task to fire an event named error on this, and
   // abort these steps.
   NotificationPermission permission = GetNotificationPermission(
-      mPrincipal, mEffectiveStoragePrincipal, mIsSecureContext,
-      PermissionCheckPurpose::NotificationShow);
+      mArgs.mPrincipal, mArgs.mEffectiveStoragePrincipal,
+      mArgs.mIsSecureContext, PermissionCheckPurpose::NotificationShow);
   if (permission != NotificationPermission::Granted) {
     CopyableErrorResult rv;
     rv.ThrowTypeError("Permission to show Notification denied.");
@@ -143,21 +275,86 @@ mozilla::ipc::IPCResult NotificationParent::RecvShow(ShowResolver&& aResolver) {
     return IPC_OK();
   }
 
-  // Step 4.2: Run the fetch steps for notification. (Will happen in
-  // nsIAlertNotification::LoadImage)
-  // Step 4.3: Run the show steps for notification.
-  nsresult rv = Show();
-  // It's possible that we synchronously received a notification while in Show,
-  // so mResolver may now be empty.
-  if (NS_FAILED(rv) && mResolver) {
-    mResolver.take().value()(CopyableErrorResult(rv));
+  auto showNotification = [self = RefPtr(this)](Maybe<IPCImage>&& aIcon) {
+    // Step 4.2: Run the fetch steps for notification. (Already happened in the
+    // child)
+    //
+    // Step 4.3: Run the show steps for notification.
+    nsresult rv = self->Show(std::move(aIcon));
+    // It's possible that we synchronously received a notification while in
+    // Show, so mResolver may now be empty.
+    if (NS_FAILED(rv) && self->mResolver) {
+      self->mResolver.take().value()(CopyableErrorResult(rv));
+    }
+    // If not failed, the resolver will be called asynchronously by
+    // NotificationObserver.
+  };
+
+  // Check Safe Browsing blocklist if the feature is enabled (bug 1986300).
+  if (StaticPrefs::dom_webnotifications_block_if_on_safebrowsing()) {
+    nsresult rv = NS_OK;
+    nsCOMPtr<nsIURIClassifier> uriClassifier =
+        do_GetService(NS_URICLASSIFIERSERVICE_CONTRACTID, &rv);
+
+    if (NS_FAILED(rv) || !uriClassifier) {
+      NS_WARNING("URI classifier unavailable for notification check");
+    } else {
+      RefPtr<SafeBrowsingClassificationCallback> callback =
+          new SafeBrowsingClassificationCallback();
+      RefPtr<SafeBrowsingPromise> promise = callback->Promise();
+
+      bool willClassify = false;
+      rv = uriClassifier->Classify(mArgs.mPrincipal, callback, &willClassify);
+
+      if (NS_SUCCEEDED(rv) && willClassify) {
+        glean::web_notification::show_safe_browsing_block.AddToDenominator(1);
+
+        mShowPending = true;
+        promise->Then(
+            GetMainThreadSerialEventTarget(), __func__,
+            [self = RefPtr(this), showNotification,
+             icon = std::move(aIcon)](bool) mutable {
+              self->mShowPending = false;
+
+              // Always show first to register with the alert system, even if
+              // close was requested while pending. This ensures platforms like
+              // Android can properly trigger onCloseNotification callbacks.
+              showNotification(std::move(icon));
+
+              // Handle close() called while SafeBrowsing check was in progress.
+              if (self->mClosePending) {
+                self->mClosePending = false;
+                self->Unregister();
+                self->Close();
+              }
+            },
+            [self = RefPtr(this)](nsresult) {
+              // SafeBrowsing classification determined the notification is
+              // unsafe, reject the show request and revoke permission.
+              self->mShowPending = false;
+              self->mClosePending = false;
+
+              glean::web_notification::show_safe_browsing_block.AddToNumerator(
+                  1);
+              RemovePermission(self->mArgs.mPrincipal);
+
+              CopyableErrorResult rv;
+              rv.ThrowTypeError("Permission to show Notification denied.");
+              self->mResolver.take().value()(rv);
+
+              self->mDangling = true;
+            });
+
+        return IPC_OK();
+      }
+    }
   }
-  // If not failed, the resolver will be called asynchronously by
-  // NotificationObserver
+
+  showNotification(std::move(aIcon));
   return IPC_OK();
 }
 
-nsresult NotificationParent::Show() {
+nsresult NotificationParent::Show(Maybe<IPCImage>&& aIcon) {
   // Step 4.3 the show steps, which are almost all about processing `tag` and
   // then displaying the notification. Both are handled by
   // nsIAlertsService::ShowAlert. The below is all about constructing the
@@ -171,7 +368,9 @@ nsresult NotificationParent::Show() {
   // make nsIAlertsService parent process only.
   nsString obsoleteCookie = u"notification:"_ns;
 
-  bool requireInteraction = mOptions.requireInteraction();
+  const IPCNotificationOptions& options = mArgs.mNotification.options();
+
+  bool requireInteraction = options.requireInteraction();
   if (!StaticPrefs::dom_webnotifications_requireinteraction_enabled()) {
     requireInteraction = false;
   }
@@ -181,16 +380,29 @@ nsresult NotificationParent::Show() {
   if (!alert) {
     return NS_ERROR_NOT_AVAILABLE;
   }
-  MOZ_TRY(alert->Init(mOptions.tag(), mOptions.icon(), mOptions.title(),
-                      mOptions.body(), true, obsoleteCookie,
-                      NS_ConvertASCIItoUTF16(GetEnumString(mOptions.dir())),
-                      mOptions.lang(), mOptions.dataSerialized(), mPrincipal,
-                      mPrincipal->GetIsInPrivateBrowsing(), requireInteraction,
-                      mOptions.silent(), mOptions.vibrate()));
+
+  nsCOMPtr<nsIPrincipal> principal = mArgs.mPrincipal;
+  nsAutoCString iconUrl;
+  if (RefPtr<nsIURI> iconUri = options.icon()) {
+    iconUri->GetSpec(iconUrl);
+  }
+  MOZ_TRY(alert->Init(options.tag(), NS_ConvertUTF8toUTF16(iconUrl),
+                      options.title(), options.body(), true, obsoleteCookie,
+                      NS_ConvertASCIItoUTF16(GetEnumString(options.dir())),
+                      options.lang(), options.dataSerialized(), principal,
+                      principal->GetIsInPrivateBrowsing(), requireInteraction,
+                      options.silent(), options.vibrate()));
+
+  if (aIcon) {
+    if (nsCOMPtr<imgIContainer> image =
+            nsContentUtils::IPCImageToImage(*aIcon)) {
+      alert->SetImage(image);
+    }
+  }
 
   nsTArray<RefPtr<nsIAlertAction>> actions;
-  MOZ_ASSERT(mOptions.actions().Length() <= kMaxActions);
-  for (const auto& action : mOptions.actions()) {
+  MOZ_ASSERT(options.actions().Length() <= kMaxActions);
+  for (const auto& action : options.actions()) {
     actions.AppendElement(new AlertAction(action.name(), action.title()));
   }
 
@@ -198,40 +410,43 @@ nsresult NotificationParent::Show() {
 
   MOZ_TRY(alert->GetId(mId));
 
-  nsCOMPtr<nsIAlertsService> alertService = components::Alerts::Service();
-  MOZ_TRY(alertService->ShowAlert(alert, this));
-
-#ifdef ANDROID
-  // XXX: the Android nsIAlertsService is broken and doesn't send alertshow
-  // properly, so we call it here manually.
-  // (This now fires onshow event regardless of the actual result, but it should
-  // be better than the previous behavior that did not do anything at all)
-  Observe(nullptr, "alertshow", nullptr);
-#endif
+  RefPtr<NotificationObserver> observer = new NotificationObserver(
+      mArgs.mScope, principal, IPCNotification(mId, options), *this);
+  MOZ_TRY(ShowAlertWithCleanup(alert, observer));
 
   return NS_OK;
 }
 
 mozilla::ipc::IPCResult NotificationParent::RecvClose() {
-  Unregister(CloseMode::CloseMethod);
+  // If SafeBrowsing check is in progress, defer the close until it completes.
+  // We need to call Show() first to register with the alert system before
+  // Unregister() can properly trigger close callbacks (e.g.,
+  // onCloseNotification on Android).
+  if (mShowPending) {
+    mClosePending = true;
+    return IPC_OK();
+  }
+
+  Unregister();
   Close();
   return IPC_OK();
 }
 
-void NotificationParent::Unregister(CloseMode aCloseMode) {
+void NotificationParent::Unregister() {
   if (mDangling) {
     // We had no permission, so nothing to clean up.
     return;
   }
 
   mDangling = true;
-  UnregisterNotification(mPrincipal, mId, aCloseMode);
+  UnregisterNotification(mArgs.mPrincipal, mId);
 }
 
-nsresult NotificationParent::BindToMainThread(
+nsresult NotificationParent::CreateOnMainThread(
+    NotificationParentArgs&& mArgs,
     Endpoint<PNotificationParent>&& aParentEndpoint,
     PBackgroundParent::CreateNotificationParentResolver&& aResolver) {
-  if (mOptions.actions().Length() > kMaxActions) {
+  if (mArgs.mNotification.options().actions().Length() > kMaxActions) {
     return NS_ERROR_INVALID_ARG;
   }
 
@@ -239,19 +454,17 @@ nsresult NotificationParent::BindToMainThread(
 
   NS_DispatchToMainThread(NS_NewRunnableFunction(
       "NotificationParent::BindToMainThread",
-      [self = RefPtr(this), endpoint = std::move(aParentEndpoint),
+      [args = std::move(mArgs), endpoint = std::move(aParentEndpoint),
        resolver = std::move(aResolver), thread]() mutable {
-        bool result = endpoint.Bind(self);
+        RefPtr<NotificationParent> actor =
+            new NotificationParent(std::move(args));
+        bool result = endpoint.Bind(actor);
         thread->Dispatch(NS_NewRunnableFunction(
             "NotificationParent::BindToMainThreadResult",
             [result, resolver = std::move(resolver)]() { resolver(result); }));
       }));
 
   return NS_OK;
-}
-
-void NotificationParent::ActorDestroy(ActorDestroyReason aWhy) {
-  Unregister(CloseMode::InactiveGlobal);
 }
 
 }  // namespace mozilla::dom::notification

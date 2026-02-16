@@ -2,11 +2,7 @@
 * AUTO-GENERATED - DO NOT EDIT. Source: https://github.com/gpuweb/cts
 **/import { kUnitCaseParamsBuilder } from '../../../../../common/framework/params_builder.js';import { makeTestGroup } from '../../../../../common/framework/test_group.js';import { getGPU } from '../../../../../common/util/navigator_gpu.js';
 import { assert, range, reorder } from '../../../../../common/util/util.js';
-import {
-  getDefaultLimits,
-  getDefaultLimitsForAdapter } from
-
-'../../../../capability_info.js';
+import { getDefaultLimitsForCTS } from '../../../../capability_info.js';
 import { GPUConst } from '../../../../constants.js';
 import { GPUTestBase } from '../../../../gpu_test.js';
 
@@ -50,7 +46,7 @@ export function getPipelineTypeForBindingCombination(bindingCombination) {
   }
 }
 
-export function getStageVisibilityForBinidngCombination(bindingCombination) {
+export function getStageVisibilityForBindingCombination(bindingCombination) {
   switch (bindingCombination) {
     case 'vertex':
       return GPUConst.ShaderStage.VERTEX;
@@ -302,7 +298,7 @@ export const kMinimumLimitValueTests = [
 
 
 export function getDefaultLimitForAdapter(adapter, limit) {
-  const limitInfo = getDefaultLimitsForAdapter(adapter);
+  const limitInfo = getDefaultLimitsForCTS();
   return limitInfo[limit].default;
 }
 
@@ -408,8 +404,11 @@ export class LimitTestsImpl extends GPUTestBase {
     this._adapter = await gpu.requestAdapter();
     const limit = this.limit;
     // MAINTENANCE_TODO: consider removing this skip if the spec has no optional limits.
+    // Note: The cast below is required because an optional limit has no entry
+    // in capability_info.ts kLimitInfoKeys, kLimitInfoDefaults, kLimitInfoData
     this.skipIf(
-      this._adapter?.limits[limit] === undefined && !!this.limitTestParams.limitOptional,
+      this._adapter?.limits[limit] === undefined && !!this.limitTestParams.limitOptional ||
+      !(limit in getDefaultLimitsForCTS()),
       `${limit} is missing but optional for now`
     );
     this.defaultLimit = getDefaultLimitForAdapter(this.adapter, limit);
@@ -429,7 +428,7 @@ export class LimitTestsImpl extends GPUTestBase {
   }
 
   getDefaultLimits() {
-    return getDefaultLimits(this.isCompatibility ? 'compatibility' : 'core');
+    return getDefaultLimitsForCTS();
   }
 
   getDefaultLimit(limit) {
@@ -556,6 +555,10 @@ export class LimitTestsImpl extends GPUTestBase {
     this.skipIf(
       requestedLimit < 0 && limitValueTest === 'underDefault',
       `requestedLimit(${requestedLimit}) for ${this.limit} is < 0`
+    );
+    this.skipIf(
+      limitValueTest !== 'atDefault' && requestedLimit === defaultLimit,
+      'The limit value for this case is the same as the default.'
     );
     return this._getDeviceWithSpecificLimit(requestedLimit, extraLimits, features);
   }
@@ -1204,6 +1207,12 @@ export class LimitTestsImpl extends GPUTestBase {
 
   skipIfNotEnoughStorageBuffersInStage(visibility, numRequired) {
     const { device } = this;
+
+    this.skipIf(
+      numRequired > device.limits.maxStorageBuffersPerShaderStage,
+      `maxStorageBuffersPerShaderStage = ${device.limits.maxStorageBuffersPerShaderStage} which is less than ${numRequired}`
+    );
+
     this.skipIf(
       this.isCompatibility &&
       // If we're using the fragment stage

@@ -157,7 +157,13 @@ class JSObject
     setHeaderPtr(shape);
   }
 
-  static bool setFlag(JSContext* cx, JS::HandleObject obj, js::ObjectFlag flag);
+  static bool setFlags(JSContext* cx, JS::HandleObject obj,
+                       js::ObjectFlags flags);
+
+  static bool setFlag(JSContext* cx, JS::HandleObject obj,
+                      js::ObjectFlag flag) {
+    return setFlags(cx, obj, {flag});
+  }
 
   bool hasFlag(js::ObjectFlag flag) const {
     return shape()->hasObjectFlag(flag);
@@ -165,6 +171,9 @@ class JSObject
 
   bool hasAnyFlag(js::ObjectFlags flags) const {
     return shape()->objectFlags().hasAnyFlag(flags);
+  }
+  bool hasAllFlags(js::ObjectFlags flags) const {
+    return shape()->objectFlags().hasAllFlags(flags);
   }
 
   // Change this object's shape for a prototype mutation.
@@ -188,9 +197,7 @@ class JSObject
   bool isUsedAsPrototype() const {
     return hasFlag(js::ObjectFlag::IsUsedAsPrototype);
   }
-  static bool setIsUsedAsPrototype(JSContext* cx, JS::HandleObject obj) {
-    return setFlag(cx, obj, js::ObjectFlag::IsUsedAsPrototype);
-  }
+  static bool setIsUsedAsPrototype(JSContext* cx, JS::HandleObject obj);
 
   bool useWatchtowerTestingLog() const {
     return hasFlag(js::ObjectFlag::UseWatchtowerTestingLog);
@@ -203,12 +210,21 @@ class JSObject
     return hasFlag(js::ObjectFlag::GenerationCountedGlobal);
   }
 
-  bool hasFuseProperty() const {
-    return hasFlag(js::ObjectFlag::HasFuseProperty);
+  bool hasRealmFuseProperty() const {
+    return hasFlag(js::ObjectFlag::HasRealmFuseProperty);
   }
-  static bool setHasFuseProperty(JSContext* cx, JS::HandleObject obj) {
-    return setFlag(cx, obj, js::ObjectFlag::HasFuseProperty);
+  static bool setHasRealmFuseProperty(JSContext* cx, JS::HandleObject obj) {
+    return setFlag(cx, obj, js::ObjectFlag::HasRealmFuseProperty);
   }
+
+  bool hasNonFunctionAccessor() const {
+    return hasFlag(js::ObjectFlag::HasNonFunctionAccessor);
+  }
+  static bool setHasNonFunctionAccessor(JSContext* cx, JS::HandleObject obj) {
+    return setFlag(cx, obj, js::ObjectFlag::HasNonFunctionAccessor);
+  }
+
+  bool hasObjectFuse() const { return hasFlag(js::ObjectFlag::HasObjectFuse); }
 
   // A "qualified" varobj is the object on which "qualified" variable
   // declarations (i.e., those defined with "var") are kept.
@@ -311,10 +327,10 @@ class JSObject
     js::gc::PostWriteBarrierImpl<JSObject>(cellp, prev, next);
   }
 
+  js::gc::AllocKind allocKind() const;
+
   /* Return the allocKind we would use if we were to tenure this object. */
   js::gc::AllocKind allocKindForTenure(const js::Nursery& nursery) const;
-
-  bool canHaveFixedElements() const;
 
   size_t tenuredSizeOfThis() const {
     MOZ_ASSERT(isTenured());
@@ -329,7 +345,7 @@ class JSObject
   // can apply mallocSizeOf to bits and pieces of the object, whereas objects
   // in the nursery may have those bits and pieces allocated in the nursery
   // along with them, and are not each their own malloc blocks.
-  size_t sizeOfIncludingThisInNursery() const;
+  size_t sizeOfIncludingThisInNursery(mozilla::MallocSizeOf mallocSizeOf) const;
 
 #ifdef DEBUG
   static void debugCheckNewObject(js::Shape* shape, js::gc::AllocKind allocKind,
@@ -723,6 +739,10 @@ struct JSObject_Slots4 : JSObject {
   void* data[2];
   js::Value fslots[4];
 };
+struct JSObject_Slots6 : JSObject {
+  void* data[2];
+  js::Value fslots[6];
+};
 struct JSObject_Slots7 : JSObject {
   // Only used for extended functions which are required to have exactly seven
   // fixed slots due to JIT assumptions.
@@ -915,14 +935,6 @@ bool GetOwnPropertyPure(JSContext* cx, JSObject* obj, jsid id, Value* vp,
                         bool* found);
 
 bool GetGetterPure(JSContext* cx, JSObject* obj, jsid id, JSFunction** fp);
-
-bool GetOwnGetterPure(JSContext* cx, JSObject* obj, jsid id, JSFunction** fp);
-
-bool GetOwnNativeGetterPure(JSContext* cx, JSObject* obj, jsid id,
-                            JSNative* native);
-
-bool HasOwnDataPropertyPure(JSContext* cx, JSObject* obj, jsid id,
-                            bool* result);
 
 /*
  * Like JS::FromPropertyDescriptor, but ignore desc.object() and always set vp

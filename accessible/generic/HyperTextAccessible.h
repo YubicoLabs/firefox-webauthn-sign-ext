@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_a11y_HyperTextAccessible_h__
-#define mozilla_a11y_HyperTextAccessible_h__
+#ifndef mozilla_a11y_HyperTextAccessible_h_
+#define mozilla_a11y_HyperTextAccessible_h_
 
 #include "AccessibleWrap.h"
 #include "mozilla/a11y/HyperTextAccessibleBase.h"
@@ -55,12 +55,9 @@ class HyperTextAccessible : public AccessibleWrap,
   virtual void Shutdown() override;
   virtual bool RemoveChild(LocalAccessible* aAccessible) override;
   virtual bool InsertChildAt(uint32_t aIndex, LocalAccessible* aChild) override;
+  virtual void RelocateChild(uint32_t aNewIndex,
+                             LocalAccessible* aChild) override;
   virtual Relation RelationByType(RelationType aType) const override;
-
-  /**
-   * Return whether the associated content is editable.
-   */
-  bool IsEditable() const;
 
   // HyperTextAccessible (static helper method)
 
@@ -145,19 +142,8 @@ class HyperTextAccessible : public AccessibleWrap,
    */
   virtual int32_t CaretOffset() const override;
 
-  /**
-   * Return the caret rect and the widget containing the caret within this
-   * text accessible.
-   *
-   * @param [out] the widget containing the caret
-   * @return      the caret rect
-   */
-  mozilla::LayoutDeviceIntRect GetCaretRect(nsIWidget** aWidget);
-
-  virtual int32_t SelectionCount() override;
-
-  virtual bool SelectionBoundsAt(int32_t aSelectionNum, int32_t* aStartOffset,
-                                 int32_t* aEndOffset) override;
+  virtual std::pair<mozilla::LayoutDeviceIntRect, nsIWidget*> GetCaretRect()
+      override;
 
   MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual bool RemoveFromSelection(
       int32_t aSelectionNum) override;
@@ -208,12 +194,6 @@ class HyperTextAccessible : public AccessibleWrap,
    * Return frame selection object for the accessible.
    */
   already_AddRefed<nsFrameSelection> FrameSelection() const;
-
-  /**
-   * Return selection ranges within the accessible subtree.
-   */
-  void GetSelectionDOMRanges(SelectionType aSelectionType,
-                             nsTArray<nsRange*>* aRanges);
 
   // Helpers
 

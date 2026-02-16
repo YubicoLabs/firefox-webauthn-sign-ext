@@ -6,7 +6,7 @@
 
 package mozilla.components.support.utils
 
-import android.net.Uri
+import androidx.core.net.toUri
 import java.net.MalformedURLException
 import java.util.Locale
 
@@ -45,14 +45,14 @@ private fun findUrlMatchingText(url: String, text: String): String? {
     }
 
     val uri = try {
-        Uri.parse(url)
+        url.toUri()
     } catch (e: MalformedURLException) {
         null
     }
 
     var urlSansProtocol = uri?.host
     urlSansProtocol += uri?.port?.orEmpty() + uri?.path
-    urlSansProtocol?.let {
+    urlSansProtocol.let {
         if (it.startsWith(text) || it.noCommonSubdomains().startsWith(text)) {
             return url
         }
@@ -76,7 +76,7 @@ private fun matchSegment(query: String, rawUrl: String): String? {
         return rawUrl
     }
 
-    val url = Uri.parse(rawUrl)
+    val url = rawUrl.toUri()
     return url.host?.let { host ->
         if (host.startsWith(query)) {
             host + url.port.orEmpty() + url.path

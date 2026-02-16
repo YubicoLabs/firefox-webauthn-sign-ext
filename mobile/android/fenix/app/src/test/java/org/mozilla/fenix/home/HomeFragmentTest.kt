@@ -8,13 +8,6 @@ import android.content.Context
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
-import io.mockk.verify
-import mozilla.components.browser.state.search.SearchEngine
-import mozilla.components.browser.state.state.BrowserState
-import mozilla.components.browser.state.state.SearchState
-import mozilla.components.browser.state.store.BrowserStore
-import mozilla.components.feature.top.sites.TopSite
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -26,9 +19,8 @@ import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.components.Core
 import org.mozilla.fenix.ext.application
 import org.mozilla.fenix.ext.components
-import org.mozilla.fenix.home.HomeFragment.Companion.AMAZON_SPONSORED_TITLE
-import org.mozilla.fenix.home.HomeFragment.Companion.EBAY_SPONSORED_TITLE
 import org.mozilla.fenix.utils.Settings
+import org.mozilla.fenix.wallpapers.Wallpaper
 
 class HomeFragmentTest {
 
@@ -36,14 +28,12 @@ class HomeFragmentTest {
     private lateinit var context: Context
     private lateinit var core: Core
     private lateinit var homeFragment: HomeFragment
-    private lateinit var activity: HomeActivity
 
     @Before
     fun setup() {
         settings = mockk(relaxed = true)
         context = mockk(relaxed = true)
         core = mockk(relaxed = true)
-        activity = mockk(relaxed = true)
 
         val fenixApplication: FenixApplication = mockk(relaxed = true)
 
@@ -58,64 +48,6 @@ class HomeFragmentTest {
     }
 
     @Test
-    fun `WHEN getTopSitesConfig is called THEN it returns TopSitesConfig with non-null frecencyConfig`() {
-        every { settings.topSitesMaxLimit } returns 10
-
-        val topSitesConfig = homeFragment.getTopSitesConfig()
-
-        assertNotNull(topSitesConfig.frecencyConfig)
-    }
-
-    @Test
-    fun `GIVEN a topSitesMaxLimit WHEN getTopSitesConfig is called THEN it returns TopSitesConfig with totalSites = topSitesMaxLimit`() {
-        val topSitesMaxLimit = 10
-        every { settings.topSitesMaxLimit } returns topSitesMaxLimit
-
-        val topSitesConfig = homeFragment.getTopSitesConfig()
-
-        assertEquals(topSitesMaxLimit, topSitesConfig.totalSites)
-    }
-
-    @Test
-    fun `GIVEN the selected search engine is set to eBay WHEN getTopSitesConfig is called THEN providerFilter filters the eBay provided top sites`() {
-        val searchEngine: SearchEngine = mockk()
-        val browserStore = BrowserStore(
-            initialState = BrowserState(
-                search = SearchState(
-                    regionSearchEngines = listOf(searchEngine),
-                ),
-            ),
-        )
-
-        every { core.store } returns browserStore
-        every { searchEngine.name } returns EBAY_SPONSORED_TITLE
-
-        val eBayTopSite = TopSite.Provided(1L, EBAY_SPONSORED_TITLE, "eBay.com", "", "", "", 0L)
-        val amazonTopSite = TopSite.Provided(2L, AMAZON_SPONSORED_TITLE, "Amazon.com", "", "", "", 0L)
-        val firefoxTopSite = TopSite.Provided(3L, "Firefox", "mozilla.org", "", "", "", 0L)
-        val providedTopSites = listOf(eBayTopSite, amazonTopSite, firefoxTopSite)
-
-        val topSitesConfig = homeFragment.getTopSitesConfig()
-
-        val filteredProvidedSites = providedTopSites.filter {
-            topSitesConfig.providerConfig?.providerFilter?.invoke(it) ?: true
-        }
-        assertTrue(filteredProvidedSites.containsAll(listOf(amazonTopSite, firefoxTopSite)))
-        assertFalse(filteredProvidedSites.contains(eBayTopSite))
-    }
-
-    @Test
-    fun `WHEN configuration changed THEN menu is dismissed`() {
-        val homeMenuView: HomeMenuView = mockk(relaxed = true)
-        val toolbarView = ToolbarView(mockk(), mockk(), homeFragment, mockk())
-        toolbarView.homeMenuView = homeMenuView
-        homeFragment.toolbarView = toolbarView
-
-        homeFragment.onConfigurationChanged(mockk(relaxed = true))
-
-        verify(exactly = 1) { homeMenuView.dismissMenu() }
-    }
-
     fun `GIVEN the user is in normal mode WHEN checking if should enable wallpaper THEN return true`() {
         val activity: HomeActivity = mockk {
             every { themeManager.currentTheme.isPrivate } returns false
@@ -154,72 +86,74 @@ class HomeFragmentTest {
     }
 
     @Test
-    fun `WHEN not default browser and prompt supported THEN promptToSetAsDefaultBrowser is called`() {
-        every { settings.setAsDefaultBrowserPromptForExistingUsersEnabled } returns true
-        every { settings.numberOfSetAsDefaultPromptShownTimes } returns 0
-        every { settings.lastSetAsDefaultPromptShownTimeInMillis } returns 0L
-        every { settings.coldStartsBetweenSetAsDefaultPrompts } returns 5
+    fun `GIVEN canShowCFR and shouldShowCFR are true WHEN maybeShowEncourageSearchCfr is called THEN the cfr is shown and exposure recorded`() {
+        var cfrShown = false
+        var exposureRecorded = false
 
-        homeFragment.showSetAsDefaultBrowserPrompt()
+        homeFragment.maybeShowEncourageSearchCfr(
+            canShowCfr = true,
+            shouldShowCFR = true,
+            showCfr = { cfrShown = true },
+            recordExposure = { exposureRecorded = true },
+        )
 
-        verify { settings.setAsDefaultPromptCalled() }
+        assertTrue(cfrShown)
+        assertTrue(exposureRecorded)
     }
 
     @Test
-    fun `WHEN showSetAsDefaultBrowserPrompt is called GIVEN the conditions to show a prompt are not met THEN setAsDefaultPromptCalled is not called`() {
-        every { settings.setAsDefaultBrowserPromptForExistingUsersEnabled } returns false
-        every { settings.numberOfSetAsDefaultPromptShownTimes } returns 0
-        every { settings.lastSetAsDefaultPromptShownTimeInMillis } returns System.currentTimeMillis()
-        every { settings.coldStartsBetweenSetAsDefaultPrompts } returns 5
+    fun `GIVEN canShowCFR is false WHEN maybeShowEncourageSearchCfr is called THEN the cfr is not shown and exposure is not recorded`() {
+        var cfrShown = false
+        var exposureRecorded = false
 
-        if (settings.shouldShowSetAsDefaultPrompt) {
-            homeFragment.showSetAsDefaultBrowserPrompt()
-        }
+        homeFragment.maybeShowEncourageSearchCfr(
+            canShowCfr = false,
+            shouldShowCFR = true,
+            showCfr = { cfrShown = true },
+            recordExposure = { exposureRecorded = true },
+        )
 
-        // Because we should not be showing the default browser prompt in this case
-        // showSetAsDefaultBrowserPrompt() is never called.
-        verify(exactly = 0) { homeFragment.showSetAsDefaultBrowserPrompt() }
+        assertFalse(cfrShown)
+        assertFalse(exposureRecorded)
     }
 
     @Test
-    fun `WHEN showSetAsDefaultBrowserPrompt is called GIVEN the prompt has been shown maximum times THEN setAsDefaultPromptCalled is not called`() {
-        every { settings.setAsDefaultBrowserPromptForExistingUsersEnabled } returns true
-        every { settings.numberOfSetAsDefaultPromptShownTimes } returns 3 // Maximum number of times the prompt can be shown based on the design criteria
-        every { settings.lastSetAsDefaultPromptShownTimeInMillis } returns 0L
-        every { settings.coldStartsBetweenSetAsDefaultPrompts } returns 5
+    fun `GIVEN exposureRecorded is false WHEN maybeShowEncourageSearchCfr is called THEN the cfr is not shown and exposure is not recorded`() {
+        var cfrShown = false
+        var exposureRecorded = false
 
-        if (settings.shouldShowSetAsDefaultPrompt) {
-            homeFragment.showSetAsDefaultBrowserPrompt()
-        }
+        homeFragment.maybeShowEncourageSearchCfr(
+            canShowCfr = true,
+            shouldShowCFR = false,
+            showCfr = { cfrShown = true },
+            recordExposure = { exposureRecorded = true },
+        )
 
-        verify(exactly = 0) { homeFragment.showSetAsDefaultBrowserPrompt() }
+        assertFalse(cfrShown)
+        assertFalse(exposureRecorded)
     }
 
     @Test
-    fun `WHEN showSetAsDefaultBrowserPrompt is called GIVEN the time since last prompt is too short THEN setAsDefaultPromptCalled is not called`() {
-        every { settings.setAsDefaultBrowserPromptForExistingUsersEnabled } returns true
-        every { settings.numberOfSetAsDefaultPromptShownTimes } returns 1
-        every { settings.lastSetAsDefaultPromptShownTimeInMillis } returns System.currentTimeMillis() - 1000
-        every { settings.coldStartsBetweenSetAsDefaultPrompts } returns 5
+    fun `GIVEN edge to edge background is enabled and default wallpaper is set WHEN isEdgeToEdgeBackgroundEnabled is called THEN return false`() {
+        every { settings.enableHomepageEdgeToEdgeBackgroundFeature } returns true
+        every { settings.currentWallpaperName } returns Wallpaper.DEFAULT
 
-        if (settings.shouldShowSetAsDefaultPrompt) {
-            homeFragment.showSetAsDefaultBrowserPrompt()
-        }
-
-        verify(exactly = 0) { homeFragment.showSetAsDefaultBrowserPrompt() }
+        assertFalse(homeFragment.isEdgeToEdgeBackgroundEnabled())
     }
 
     @Test
-    fun `WHEN showSetAsDefaultBrowserPrompt is called GIVEN not enough cold starts THEN setAsDefaultPromptCalled is not called`() {
-        every { settings.setAsDefaultBrowserPromptForExistingUsersEnabled } returns true
-        every { settings.numberOfSetAsDefaultPromptShownTimes } returns 1
-        every { settings.lastSetAsDefaultPromptShownTimeInMillis } returns 0L
-        every { settings.coldStartsBetweenSetAsDefaultPrompts } returns 1
+    fun `GIVEN edge to edge background is enabled and wallpaper is EdgeToEdge WHEN isEdgeToEdgeBackgroundEnabled is called THEN return true`() {
+        every { settings.enableHomepageEdgeToEdgeBackgroundFeature } returns true
+        every { settings.currentWallpaperName } returns Wallpaper.EDGE_TO_EDGE
 
-        if (settings.shouldShowSetAsDefaultPrompt) {
-            homeFragment.showSetAsDefaultBrowserPrompt()
-        }
+        assertTrue(homeFragment.isEdgeToEdgeBackgroundEnabled())
+    }
 
-        verify(exactly = 0) { homeFragment.showSetAsDefaultBrowserPrompt() }
+    @Test
+    fun `GIVEN edge to edge background is disabled and wallpaper is EdgeToEdge WHEN isEdgeToEdgeBackgroundEnabled is called THEN return false`() {
+        every { settings.enableHomepageEdgeToEdgeBackgroundFeature } returns false
+        every { settings.currentWallpaperName } returns Wallpaper.EDGE_TO_EDGE
+
+        assertFalse(homeFragment.isEdgeToEdgeBackgroundEnabled())
     }
 }

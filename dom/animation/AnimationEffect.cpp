@@ -5,13 +5,13 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/AnimationEffect.h"
-#include "mozilla/dom/AnimationEffectBinding.h"
 
-#include "mozilla/dom/Animation.h"
-#include "mozilla/dom/KeyframeEffect.h"
-#include "mozilla/dom/MutationObservers.h"
 #include "mozilla/AnimationUtils.h"
 #include "mozilla/FloatingPoint.h"
+#include "mozilla/dom/Animation.h"
+#include "mozilla/dom/AnimationEffectBinding.h"
+#include "mozilla/dom/KeyframeEffect.h"
+#include "mozilla/dom/MutationObservers.h"
 #include "nsDOMMutationObserver.h"
 
 namespace mozilla::dom {
@@ -56,9 +56,9 @@ bool AnimationEffect::IsCurrent() const {
     return true;
   }
 
-  return (mAnimation->PlaybackRate() > 0 &&
+  return (mAnimation->PlaybackRateInternal() > 0 &&
           computedTiming.mPhase == ComputedTiming::AnimationPhase::Before) ||
-         (mAnimation->PlaybackRate() < 0 &&
+         (mAnimation->PlaybackRateInternal() < 0 &&
           computedTiming.mPhase == ComputedTiming::AnimationPhase::After);
 }
 
@@ -102,7 +102,8 @@ void AnimationEffect::SetSpecifiedTiming(TimingParams&& aTiming) {
 ComputedTiming AnimationEffect::GetComputedTimingAt(
     const Nullable<TimeDuration>& aLocalTime, const TimingParams& aTiming,
     double aPlaybackRate,
-    Animation::ProgressTimelinePosition aProgressTimelinePosition) {
+    Animation::ProgressTimelinePosition aProgressTimelinePosition,
+    EndpointBehavior aEndpointBehavior) {
   static const StickyTimeDuration zeroDuration;
 
   // Always return the same object to benefit from return-value optimization.
@@ -143,8 +144,8 @@ ComputedTiming AnimationEffect::GetComputedTimingAt(
   StickyTimeDuration activeAfterBoundary = aTiming.CalcActiveAfterBoundary();
 
   if (localTime > activeAfterBoundary ||
-      (aPlaybackRate >= 0 && localTime == activeAfterBoundary &&
-       !atProgressTimelineBoundary)) {
+      (aEndpointBehavior == EndpointBehavior::Exclusive && aPlaybackRate >= 0 &&
+       localTime == activeAfterBoundary && !atProgressTimelineBoundary)) {
     result.mPhase = ComputedTiming::AnimationPhase::After;
     if (!result.FillsForwards()) {
       // The animation isn't active or filling at this time.
@@ -155,7 +156,8 @@ ComputedTiming AnimationEffect::GetComputedTimingAt(
                           result.mActiveDuration),
                  zeroDuration);
   } else if (localTime < beforeActiveBoundary ||
-             (aPlaybackRate < 0 && localTime == beforeActiveBoundary &&
+             (aEndpointBehavior == EndpointBehavior::Exclusive &&
+              aPlaybackRate < 0 && localTime == beforeActiveBoundary &&
               !atProgressTimelineBoundary)) {
     result.mPhase = ComputedTiming::AnimationPhase::Before;
     if (!result.FillsBackwards()) {
@@ -266,14 +268,15 @@ ComputedTiming AnimationEffect::GetComputedTimingAt(
 }
 
 ComputedTiming AnimationEffect::GetComputedTiming(
-    const TimingParams* aTiming) const {
-  const double playbackRate = mAnimation ? mAnimation->PlaybackRate() : 1;
+    const TimingParams* aTiming, EndpointBehavior aEndpointBehavior) const {
+  const double playbackRate =
+      mAnimation ? mAnimation->PlaybackRateInternal() : 1;
   const auto progressTimelinePosition =
       mAnimation ? mAnimation->AtProgressTimelineBoundary()
                  : Animation::ProgressTimelinePosition::NotBoundary;
-  return GetComputedTimingAt(GetLocalTime(),
-                             aTiming ? *aTiming : NormalizedTiming(),
-                             playbackRate, progressTimelinePosition);
+  return GetComputedTimingAt(
+      GetLocalTime(), aTiming ? *aTiming : NormalizedTiming(), playbackRate,
+      progressTimelinePosition, aEndpointBehavior);
 }
 
 // Helper function for generating an (Computed)EffectTiming dictionary
@@ -305,7 +308,7 @@ void AnimationEffect::GetComputedTimingAsDict(
   GetEffectTimingDictionary(SpecifiedTiming(), aRetVal);
 
   // Computed timing
-  double playbackRate = mAnimation ? mAnimation->PlaybackRate() : 1;
+  double playbackRate = mAnimation ? mAnimation->PlaybackRateInternal() : 1;
   const Nullable<TimeDuration> currentTime = GetLocalTime();
   const auto progressTimelinePosition =
       mAnimation ? mAnimation->AtProgressTimelineBoundary()

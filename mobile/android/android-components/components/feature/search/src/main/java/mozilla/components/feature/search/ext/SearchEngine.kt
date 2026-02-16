@@ -4,9 +4,11 @@
 
 package mozilla.components.feature.search.ext
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.annotation.VisibleForTesting
+import androidx.core.net.toUri
 import mozilla.components.browser.state.search.OS_SEARCH_ENGINE_TERMS_PARAM
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.state.SearchState
@@ -112,8 +114,8 @@ fun SearchEngine.buildSearchUrl(searchTerm: String): String {
  * Parses a [SearchEngine] from the given [stream].
  */
 @Deprecated("Only for migrating legacy search engines. Will eventually be removed.")
-fun parseLegacySearchEngine(id: String, stream: InputStream): SearchEngine {
-    val reader = SearchEngineReader(SearchEngine.Type.CUSTOM)
+fun parseLegacySearchEngine(context: Context, id: String, stream: InputStream): SearchEngine {
+    val reader = SearchEngineReader(context, SearchEngine.Type.CUSTOM)
     return reader.loadStream(id, stream)
 }
 
@@ -123,7 +125,7 @@ fun parseLegacySearchEngine(id: String, stream: InputStream): SearchEngine {
  * @return Search terms if [url] is a known search results page, `null` otherwise.
  */
 fun SearchState.parseSearchTerms(url: String): String? {
-    val parsedUrl = Uri.parse(url)
+    val parsedUrl = url.toUri()
     // Default/selected engine is the most likely to match, check it first.
     val currentEngine = this.selectedOrDefaultSearchEngine
     // Or go through the rest of known engines.

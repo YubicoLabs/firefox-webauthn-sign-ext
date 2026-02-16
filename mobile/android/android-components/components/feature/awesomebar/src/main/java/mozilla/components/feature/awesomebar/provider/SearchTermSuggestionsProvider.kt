@@ -5,6 +5,7 @@
 package mozilla.components.feature.awesomebar.provider
 
 import android.graphics.Bitmap
+import androidx.annotation.IntRange
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import mozilla.components.browser.state.search.SearchEngine
@@ -20,7 +21,7 @@ import java.util.UUID
 /**
  * Return 2 search term suggestions by default. Same as on desktop.
  */
-const val DEFAULT_SEARCH_TERMS_SUGGESTION_LIMIT = 2
+private const val DEFAULT_SUGGESTION_LIMIT = 2
 
 /**
  * A too big limit but which help ensure the SearchSuggestionProvider' suggestions which should be placed
@@ -50,20 +51,17 @@ private const val MAXIMUM_ALLOWED_SUGGESTIONS_LIMIT_REACHED =
  * highest scored suggestion URL.
  * @param showEditSuggestion optional parameter to specify if the suggestion should show the edit button.
  * @param suggestionsHeader optional parameter to specify if the suggestion should have a header
- * @param showSuggestionsOnlyWhenEmpty optional parameter to specify if suggestions should be shown
- * only when the input text is empty.
  */
 class SearchTermSuggestionsProvider(
     private val historyStorage: PlacesHistoryStorage,
     private val searchUseCase: SearchUseCase,
     private val searchEngine: SearchEngine?,
-    @androidx.annotation.IntRange(from = 0, to = SEARCH_TERMS_MAXIMUM_ALLOWED_SUGGESTIONS_LIMIT.toLong())
-    private val maxNumberOfSuggestions: Int = DEFAULT_SEARCH_TERMS_SUGGESTION_LIMIT,
+    @param:IntRange(from = 0, to = SEARCH_TERMS_MAXIMUM_ALLOWED_SUGGESTIONS_LIMIT.toLong())
+    private val maxNumberOfSuggestions: Int = DEFAULT_SUGGESTION_LIMIT,
     private val icon: Bitmap? = null,
     private val engine: Engine? = null,
     private val showEditSuggestion: Boolean = true,
     private val suggestionsHeader: String? = null,
-    private val showSuggestionsOnlyWhenEmpty: Boolean = false,
 ) : AwesomeBar.SuggestionProvider {
     init {
         if (maxNumberOfSuggestions > SEARCH_TERMS_MAXIMUM_ALLOWED_SUGGESTIONS_LIMIT) {
@@ -78,11 +76,9 @@ class SearchTermSuggestionsProvider(
     }
 
     override suspend fun onInputChanged(text: String): List<AwesomeBar.Suggestion> = coroutineScope {
-        val shouldReturnEmpty =
-            (text.isBlank() && !showSuggestionsOnlyWhenEmpty) ||
-                (text.isNotBlank() && showSuggestionsOnlyWhenEmpty)
-
-        if (shouldReturnEmpty) return@coroutineScope emptyList()
+        if (text.isBlank()) {
+            return@coroutineScope emptyList()
+        }
 
         historyStorage.cancelReads(text)
         val suggestions = withContext(this.coroutineContext) {
@@ -128,6 +124,7 @@ private fun Iterable<HistoryMetadata>.into(
             title = result.key.searchTerm,
             description = null,
             editSuggestion = if (showEditSuggestion) safeSearchTerm else null,
+            isRemovalAllowed = true,
             // Reducing MAX_VALUE by 2: To allow SearchActionProvider to go above and
             // still have one additional spot above available.
             score = Int.MAX_VALUE - (index + 2),

@@ -4,7 +4,7 @@
 
 //! IPC Implementation, Rust part
 
-use crate::private::MetricId;
+use crate::private::BaseMetricId;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,21 +23,23 @@ type EventRecord = (u64, HashMap<String, String>);
 /// process.
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct IPCPayload {
-    pub booleans: HashMap<MetricId, bool>,
-    pub labeled_booleans: HashMap<MetricId, HashMap<String, bool>>,
-    pub counters: HashMap<MetricId, i32>,
-    pub custom_samples: HashMap<MetricId, Vec<i64>>,
-    pub labeled_custom_samples: HashMap<MetricId, HashMap<String, Vec<i64>>>,
-    pub denominators: HashMap<MetricId, i32>,
-    pub events: HashMap<MetricId, Vec<EventRecord>>,
-    pub labeled_counters: HashMap<MetricId, HashMap<String, i32>>,
-    pub memory_samples: HashMap<MetricId, Vec<u64>>,
-    pub labeled_memory_samples: HashMap<MetricId, HashMap<String, Vec<u64>>>,
-    pub numerators: HashMap<MetricId, i32>,
-    pub rates: HashMap<MetricId, (i32, i32)>,
-    pub string_lists: HashMap<MetricId, Vec<String>>,
-    pub timing_samples: HashMap<MetricId, Vec<u64>>,
-    pub labeled_timing_samples: HashMap<MetricId, HashMap<String, Vec<u64>>>,
+    pub booleans: HashMap<BaseMetricId, bool>,
+    pub labeled_booleans: HashMap<BaseMetricId, HashMap<String, bool>>,
+    pub counters: HashMap<BaseMetricId, i32>,
+    pub custom_samples: HashMap<BaseMetricId, Vec<i64>>,
+    pub labeled_custom_samples: HashMap<BaseMetricId, HashMap<String, Vec<i64>>>,
+    pub denominators: HashMap<BaseMetricId, i32>,
+    pub events: HashMap<BaseMetricId, Vec<EventRecord>>,
+    pub labeled_counters: HashMap<BaseMetricId, HashMap<String, i32>>,
+    pub dual_labeled_counters: HashMap<BaseMetricId, HashMap<(String, String), i32>>,
+    pub memory_samples: HashMap<BaseMetricId, Vec<u64>>,
+    pub labeled_memory_samples: HashMap<BaseMetricId, HashMap<String, Vec<u64>>>,
+    pub numerators: HashMap<BaseMetricId, i32>,
+    pub quantities: HashMap<BaseMetricId, i64>,
+    pub rates: HashMap<BaseMetricId, (i32, i32)>,
+    pub string_lists: HashMap<BaseMetricId, Vec<String>>,
+    pub timing_samples: HashMap<BaseMetricId, Vec<u64>>,
+    pub labeled_timing_samples: HashMap<BaseMetricId, HashMap<String, Vec<u64>>>,
 }
 
 /// Global singleton: pending IPC payload.
@@ -347,6 +349,22 @@ pub fn replay_from_buf(buf: &[u8]) -> Result<(), ()> {
             }
         }
     }
+    for (id, dual_labeled_counts) in ipc_payload.dual_labeled_counters.into_iter() {
+        if id.is_dynamic() {
+            let map = crate::factory::__jog_metric_maps::DUAL_LABELED_COUNTER_MAP
+                .read()
+                .expect("Read lock for dynamic dual labeled counter map was poisoned");
+            if let Some(metric) = map.get(&id) {
+                for ((key, category), count) in dual_labeled_counts.into_iter() {
+                    metric.get(&key, &category).add(count);
+                }
+            }
+        } else {
+            for ((key, category), count) in dual_labeled_counts.into_iter() {
+                __glean_metric_maps::dual_labeled_counter_get(*id, &key, &category).add(count);
+            }
+        }
+    }
     for (id, samples) in ipc_payload.memory_samples.into_iter() {
         if id.is_dynamic() {
             let map = crate::factory::__jog_metric_maps::MEMORY_DISTRIBUTION_MAP
@@ -388,6 +406,18 @@ pub fn replay_from_buf(buf: &[u8]) -> Result<(), ()> {
             }
         } else if let Some(metric) = __glean_metric_maps::NUMERATOR_MAP.get(&id) {
             metric.add_to_numerator(value);
+        }
+    }
+    for (id, value) in ipc_payload.quantities.into_iter() {
+        if id.is_dynamic() {
+            let map = crate::factory::__jog_metric_maps::QUANTITY_MAP
+                .read()
+                .expect("Read lock for dynamic quantity map was poisoned");
+            if let Some(metric) = map.get(&id) {
+                metric.set(value);
+            }
+        } else if let Some(metric) = __glean_metric_maps::QUANTITY_MAP.get(&id) {
+            metric.set(value);
         }
     }
     for (id, (n, d)) in ipc_payload.rates.into_iter() {

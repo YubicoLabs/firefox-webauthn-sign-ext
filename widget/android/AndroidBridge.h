@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef AndroidBridge_h__
-#define AndroidBridge_h__
+#ifndef AndroidBridge_h_
+#define AndroidBridge_h_
 
 #include <unistd.h>  // for gettid
 
@@ -47,11 +47,6 @@ class AndroidBridge final {
 
   void GetIconForExtension(const nsACString& aFileExt, uint32_t aIconSize,
                            uint8_t* const aBuf);
-
-  // Returns a global reference to the Context for Fennec's Activity. The
-  // caller is responsible for ensuring this doesn't leak by calling
-  // DeleteGlobalRef() when the context is no longer needed.
-  jobject GetGlobalContextRef(void);
 
   void GetCurrentBatteryInformation(hal::BatteryInformation* aBatteryInfo);
 
@@ -219,12 +214,8 @@ class AutoLocalJNIFrame {
 
 }  // namespace mozilla
 
-#define NS_ANDROIDBRIDGE_CID                         \
-  {                                                  \
-    0x0FE2321D, 0xEBD9, 0x467D, {                    \
-      0xA7, 0x43, 0x03, 0xA6, 0x8D, 0x40, 0x59, 0x9E \
-    }                                                \
-  }
+#define NS_ANDROIDBRIDGE_CID \
+  {0x0FE2321D, 0xEBD9, 0x467D, {0xA7, 0x43, 0x03, 0xA6, 0x8D, 0x40, 0x59, 0x9E}}
 
 class nsAndroidBridge final : public nsIGeckoViewBridge {
  public:
@@ -243,4 +234,4 @@ class nsAndroidBridge final : public nsIGeckoViewBridge {
  protected:
 };
 
-#endif /* AndroidBridge_h__ */
+#endif /* AndroidBridge_h_ */

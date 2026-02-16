@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_TouchEvents_h__
-#define mozilla_TouchEvents_h__
+#ifndef mozilla_TouchEvents_h_
+#define mozilla_TouchEvents_h_
 
 #include <stdint.h>
 
@@ -151,13 +151,23 @@ class WidgetTouchEvent final : public WidgetInputEvent {
 
   MOZ_COUNTED_DEFAULT_CTOR(WidgetTouchEvent)
 
-  WidgetTouchEvent(const WidgetTouchEvent& aOther)
+  enum class CloneTouches : bool { No, Yes };
+  WidgetTouchEvent(const WidgetTouchEvent& aOther,
+                   CloneTouches aCloneTouches = CloneTouches::No)
       : WidgetInputEvent(aOther.IsTrusted(), aOther.mMessage, aOther.mWidget,
                          eTouchEventClass) {
     MOZ_COUNT_CTOR(WidgetTouchEvent);
     mModifiers = aOther.mModifiers;
     mTimeStamp = aOther.mTimeStamp;
-    mTouches.AppendElements(aOther.mTouches);
+    if (static_cast<bool>(aCloneTouches)) {
+      mTouches.SetCapacity(aOther.mTouches.Length());
+      for (const RefPtr<dom::Touch>& touch : aOther.mTouches) {
+        RefPtr<dom::Touch> clonedTouch = new dom::Touch(*touch);
+        mTouches.AppendElement(std::move(clonedTouch));
+      }
+    } else {
+      mTouches.AppendElements(aOther.mTouches);
+    }
     mInputSource = aOther.mInputSource;
     mButton = aOther.mButton;
     mButtons = aOther.mButtons;
@@ -213,8 +223,22 @@ class WidgetTouchEvent final : public WidgetInputEvent {
     mTouches.AppendElements(aEvent.mTouches);
     mInputSource = aEvent.mInputSource;
   }
+
+  void SetConvertToPointerRawUpdate(bool aConvert) {
+    for (dom::Touch* const touch : mTouches) {
+      touch->convertToPointerRawUpdate = aConvert;
+    }
+  }
+  [[nodiscard]] bool CanConvertToPointerRawUpdate() const {
+    for (const dom::Touch* const touch : mTouches) {
+      if (touch->convertToPointerRawUpdate) {
+        return true;
+      }
+    }
+    return false;
+  }
 };
 
 }  // namespace mozilla
 
-#endif  // mozilla_TouchEvents_h__
+#endif  // mozilla_TouchEvents_h_

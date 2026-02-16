@@ -1,7 +1,9 @@
 [DEFAULT]
+run-if = [
+  "os != 'android'",
+]
 head = "head_bookmarks.js"
 firefox-appdir = "browser"
-skip-if = ["os == 'android'"] # bug 1730213
 support-files = [
   "bookmarks.glue.html",
   "bookmarks.glue.json",
@@ -31,11 +33,7 @@ support-files = [
 
 ["test_browserGlue_restore.js"]
 
-["test_clearHistory_shutdown.js"]
-prefs = ["privacy.sanitize.useOldClearHistoryDialog=true"]
-
 ["test_clearHistory_shutdown_v2.js"]
-prefs = ["privacy.sanitize.useOldClearHistoryDialog=false"]
 
 ["test_interactions_blocklist.js"]
 

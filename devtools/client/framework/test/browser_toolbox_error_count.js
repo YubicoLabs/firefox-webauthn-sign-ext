@@ -26,10 +26,6 @@ add_task(async function () {
   await pushPref("devtools.toolbox.splitconsole.open", false);
   await pushPref("devtools.toolbox.splitconsole.enabled", true);
 
-  registerCleanupFunction(() => {
-    Services.prefs.clearUserPref("devtools.toolbox.splitconsole.enabled");
-  });
-
   const tab = await addTab(TEST_URI);
 
   const toolbox = await openToolboxForTab(
@@ -129,7 +125,7 @@ add_task(async function () {
   info(
     "Reload the page and check that the error icon has the expected content"
   );
-  await reloadBrowser();
+  await reloadSelectedTab();
 
   // (console.error, console.exception, console.assert and exception)
   expectedErrorCount = 4;

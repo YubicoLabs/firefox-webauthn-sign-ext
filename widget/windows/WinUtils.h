@@ -3,15 +3,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_widget_WinUtils_h__
-#define mozilla_widget_WinUtils_h__
+#ifndef mozilla_widget_WinUtils_h_
+#define mozilla_widget_WinUtils_h_
 
 #include "nscore.h"
 #include <windows.h>
 #include <shobjidl.h>
 #include <uxtheme.h>
 #include <dwmapi.h>
-#include <unordered_map>
 #include <utility>
 
 // Undo the windows.h damage
@@ -35,7 +34,6 @@
 #include "nsIWidget.h"
 #include "nsWindowsHelpers.h"
 
-#include "mozilla/Attributes.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/LazyIdleThread.h"
 #include "mozilla/UniquePtr.h"
@@ -46,11 +44,13 @@
 
 /**
  * NS_INLINE_DECL_IUNKNOWN_REFCOUNTING should be used for defining and
- * implementing AddRef() and Release() of IUnknown interface.
- * This depends on xpcom/base/nsISupportsImpl.h.
+ * implementing AddRef() and Release() of IUnknown interface and mRefCnt.
+ * NS_INLINE_DECL_IUNKNOWN_ADDREF_RELEASE should be used for overriding
+ * AddRef() and Release() of IUnknown interface.
+ * These depend on xpcom/base/nsISupportsImpl.h.
  */
 
-#define NS_INLINE_DECL_IUNKNOWN_REFCOUNTING(_class)                         \
+#define NS_INLINE_DECL_IUNKNOWN_ADDREF_RELEASE(_class)                      \
  public:                                                                    \
   STDMETHODIMP_(ULONG) AddRef() {                                           \
     MOZ_ASSERT_TYPE_OK_FOR_REFCOUNTING(_class)                              \
@@ -73,11 +73,15 @@
       return 0;                                                             \
     }                                                                       \
     return static_cast<ULONG>(mRefCnt.get());                               \
-  }                                                                         \
-                                                                            \
- protected:                                                                 \
-  nsAutoRefCnt mRefCnt;                                                     \
-  NS_DECL_OWNINGTHREAD                                                      \
+  }
+
+#define NS_INLINE_DECL_IUNKNOWN_REFCOUNTING(_class) \
+ public:                                            \
+  NS_INLINE_DECL_IUNKNOWN_ADDREF_RELEASE(_class)    \
+                                                    \
+ protected:                                         \
+  nsAutoRefCnt mRefCnt;                             \
+  NS_DECL_OWNINGTHREAD                              \
  public:
 
 class nsWindow;
@@ -211,7 +215,6 @@ class WinUtils {
    */
   static double SystemScaleFactor();
 
-  static bool IsPerMonitorDPIAware();
   /**
    * Get the DPI of the given monitor if it's per-monitor DPI aware, otherwise
    * return the system DPI.
@@ -266,8 +269,8 @@ class WinUtils {
    * Logging helpers that dump output to prlog module 'Widget', console, and
    * OutputDebugString. Note these output in both debug and release builds.
    */
-  static void Log(const char* fmt, ...);
-  static void LogW(const wchar_t* fmt, ...);
+  static void Log(const char* fmt, ...) MOZ_FORMAT_PRINTF(1, 2);
+  static void LogW(const wchar_t* fmt, ...) MOZ_FORMAT_WPRINTF(1, 2);
 
   /**
    * PeekMessage() and GetMessage() are wrapper methods for PeekMessageW(),
@@ -547,6 +550,7 @@ class WinUtils {
   static bool MicaAvailable();
   static bool MicaEnabled();
   static bool MicaPopupsEnabled();
+  static void UpdateMicaInAllWindows();
 
   static void EnableWindowOcclusion(const bool aEnable);
 
@@ -563,6 +567,8 @@ class WinUtils {
 
   static nsresult GetProcessImageName(DWORD aProcessId, nsAString& aName);
 
+  static void InvalidateWindowPreviews();
+
  private:
   static WhitelistVec BuildWhitelist();
 
@@ -573,34 +579,6 @@ class WinUtils {
 };
 
 typedef MozPromise<nsString, nsresult, true> ObtainCachedIconFileAsyncPromise;
-
-#ifdef MOZ_PLACES
-class AsyncFaviconDataReady final : public nsIFaviconDataCallback {
- public:
-  NS_DECL_ISUPPORTS
-  NS_DECL_NSIFAVICONDATACALLBACK
-
-  AsyncFaviconDataReady(
-      nsIURI* aNewURI, RefPtr<nsISerialEventTarget> aIOThread,
-      const bool aURLShortcut, already_AddRefed<nsIRunnable> aRunnable,
-      UniquePtr<MozPromiseHolder<ObtainCachedIconFileAsyncPromise>>
-          aPromiseHolder = nullptr);
-  nsresult OnFaviconDataNotAvailable(void);
-
- private:
-  ~AsyncFaviconDataReady() {
-    if (mPromiseHolder) {
-      mPromiseHolder->RejectIfExists(NS_ERROR_FAILURE, __func__);
-    }
-  }
-
-  nsCOMPtr<nsIURI> mNewURI;
-  RefPtr<nsISerialEventTarget> mIOThread;
-  nsCOMPtr<nsIRunnable> mRunnable;
-  UniquePtr<MozPromiseHolder<ObtainCachedIconFileAsyncPromise>> mPromiseHolder;
-  const bool mURLShortcut;
-};
-#endif
 
 /**
  * Asynchronously tries add the list to the build
@@ -700,4 +678,4 @@ class ScopedRtlShimWindow {
 }  // namespace widget
 }  // namespace mozilla
 
-#endif  // mozilla_widget_WinUtils_h__
+#endif  // mozilla_widget_WinUtils_h_

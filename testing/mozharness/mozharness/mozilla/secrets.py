@@ -2,19 +2,16 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
-"""Support for fetching secrets from the secrets API
-"""
+"""Support for fetching secrets from the secrets API"""
 
 import json
 import os
-
-import six
-from six.moves import urllib
+import urllib.request
 
 
-class SecretsMixin(object):
+class SecretsMixin:
     def _fetch_secret(self, secret_name):
-        self.info("fetching secret {} from API".format(secret_name))
+        self.info(f"fetching secret {secret_name} from API")
         # fetch from TASKCLUSTER_PROXY_URL, which points to the taskcluster proxy
         # within a taskcluster task.  Outside of that environment, do not
         # use this action.
@@ -25,7 +22,8 @@ class SecretsMixin(object):
         if res.getcode() != 200:
             self.fatal("Error fetching from secrets API:" + res.read())
 
-        return json.loads(six.ensure_str(res.read()))["secret"]["content"]
+        response_data = res.read().decode("utf-8")
+        return json.loads(response_data)["secret"]["content"]
 
     def get_secrets(self):
         """
@@ -66,7 +64,7 @@ class SecretsMixin(object):
                     secret = sf["default"]
                 elif "default-file" in sf:
                     default_path = sf["default-file"].format(**dirs)
-                    with open(default_path, "r") as f:
+                    with open(default_path) as f:
                         secret = f.read()
                 else:
                     self.info("No default for secret; not writing " + filename)

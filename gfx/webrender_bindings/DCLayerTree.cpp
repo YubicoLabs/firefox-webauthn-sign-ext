@@ -23,7 +23,8 @@
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/GPUParent.h"
 #include "mozilla/gfx/Matrix.h"
-#include "mozilla/layers/HelpersD3D11.h"
+#include "mozilla/gfx/StackArray.h"
+#include "mozilla/layers/CompositeProcessD3D11FencesHolderMap.h"
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/webrender/RenderD3D11TextureHost.h"
@@ -31,7 +32,7 @@
 #include "mozilla/webrender/RenderTextureHost.h"
 #include "mozilla/webrender/RenderThread.h"
 #include "mozilla/WindowsVersion.h"
-#include "mozilla/Telemetry.h"
+#include "mozilla/glean/GfxMetrics.h"
 #include "nsPrintfCString.h"
 #include "WinUtils.h"
 
@@ -261,6 +262,14 @@ DCLayerTree::DCLayerTree(gl::GLContext* aGL, EGLConfig aEGLConfig,
       mColorRBO(0),
       mPendingCommit(false) {
   LOG("DCLayerTree::DCLayerTree()");
+
+  if (gfx::gfxVars::UseWebRenderCompositor()) {
+    if (StaticPrefs::gfx_webrender_layer_compositor_AtStartup()) {
+      mCompositorKind = Some(WebRenderOsCompositorKind::LayerCompositor);
+    } else {
+      mCompositorKind = Some(WebRenderOsCompositorKind::NativeCompositor);
+    }
+  }
 }
 
 DCLayerTree::~DCLayerTree() {
@@ -418,8 +427,19 @@ bool DCLayerTree::InitializeVideoOverlaySupport() {
                                  &info->mBgra8OverlaySupportFlags);
     output3->CheckOverlaySupport(DXGI_FORMAT_R10G10B10A2_UNORM, mDevice,
                                  &info->mRgb10a2OverlaySupportFlags);
+    output3->CheckOverlaySupport(DXGI_FORMAT_R16G16B16A16_FLOAT, mDevice,
+                                 &info->mRgba16fOverlaySupportFlags);
 
-    if (FlagsSupportsOverlays(info->mNv12OverlaySupportFlags)) {
+    if (FlagsSupportsOverlays(info->mRgb10a2OverlaySupportFlags)) {
+      info->mSupportsHDR = true;
+    }
+
+    if (FlagsSupportsOverlays(info->mRgba16fOverlaySupportFlags)) {
+      info->mSupportsHDR = true;
+    }
+
+    if (!info->mSupportsHardwareOverlays &&
+        FlagsSupportsOverlays(info->mNv12OverlaySupportFlags)) {
       // NV12 format is preferred if it's supported.
       info->mOverlayFormatUsed = DXGI_FORMAT_NV12;
       info->mSupportsHardwareOverlays = true;
@@ -430,16 +450,6 @@ bool DCLayerTree::InitializeVideoOverlaySupport() {
       // If NV12 isn't supported, fallback to YUY2 if it's supported.
       info->mOverlayFormatUsed = DXGI_FORMAT_YUY2;
       info->mSupportsHardwareOverlays = true;
-    }
-
-    // RGB10A2 overlay is used for displaying HDR content. In Intel's
-    // platform, RGB10A2 overlay is enabled only when
-    // DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 is supported.
-    if (FlagsSupportsOverlays(info->mRgb10a2OverlaySupportFlags)) {
-      if (!CheckOverlayColorSpaceSupport(
-              DXGI_FORMAT_R10G10B10A2_UNORM,
-              DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, output, mDevice))
-        info->mRgb10a2OverlaySupportFlags = 0;
     }
 
     // Early out after the first output that reports overlay support. All
@@ -520,6 +530,7 @@ void DCLayerTree::MaybeCommit() {
     return;
   }
   mCompositionDevice->Commit();
+  mPendingCommit = false;
 }
 
 void DCLayerTree::WaitForCommitCompletion() {
@@ -529,24 +540,70 @@ void DCLayerTree::WaitForCommitCompletion() {
   // correctly that works on both Win10/11. Even though this can
   // be slower than necessary, it's only used by the reftest
   // screenshotting code, so isn't particularly perf sensitive.
+  bool needsWait = false;
   for (auto it = mDCSurfaces.begin(); it != mDCSurfaces.end(); it++) {
     auto* surface = it->second->AsDCSwapChain();
     if (surface) {
-      surface->Present();
-      surface->Present();
+      needsWait = true;
     }
   }
 
+  if (needsWait) {
+    RefPtr<IDXGIDevice2> dxgiDevice2;
+    mDevice->QueryInterface((IDXGIDevice2**)getter_AddRefs(dxgiDevice2));
+    MOZ_ASSERT(dxgiDevice2);
+
+    HANDLE event = ::CreateEvent(nullptr, false, false, nullptr);
+    HRESULT hr = dxgiDevice2->EnqueueSetEvent(event);
+    if (SUCCEEDED(hr)) {
+      DebugOnly<DWORD> result = ::WaitForSingleObject(event, INFINITE);
+      MOZ_ASSERT(result == WAIT_OBJECT_0);
+    } else {
+      gfxCriticalNoteOnce << "EnqueueSetEvent failed: " << gfx::hexa(hr);
+    }
+    ::CloseHandle(event);
+  }
+
   mCompositionDevice->WaitForCommitCompletion();
+}
+
+bool DCLayerTree::UseCompositor() const { return mCompositorKind.isSome(); }
+
+bool DCLayerTree::UseNativeCompositor() const {
+  return mCompositorKind.isSome() &&
+         mCompositorKind.ref() == WebRenderOsCompositorKind::NativeCompositor;
+}
+
+bool DCLayerTree::UseLayerCompositor() const {
+  return mCompositorKind.isSome() &&
+         mCompositorKind.ref() == WebRenderOsCompositorKind::LayerCompositor;
 }
 
 void DCLayerTree::DisableNativeCompositor() {
   MOZ_ASSERT(mCurrentSurface.isNothing());
   MOZ_ASSERT(mCurrentLayers.empty());
 
+  mCompositorKind = Nothing();
   ReleaseNativeCompositorResources();
   mPrevLayers.clear();
   mRootVisual->RemoveAllVisuals();
+}
+
+bool DCLayerTree::EnableAsyncScreenshot() {
+  MOZ_ASSERT(UseLayerCompositor());
+  if (!UseLayerCompositor()) {
+    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    return false;
+  }
+
+  mAsyncScreenshotLastFrameUsed = mCurrentFrame;
+
+  if (!mEnableAsyncScreenshot) {
+    mEnableAsyncScreenshotInNextFrame = true;
+    return false;
+  }
+
+  return true;
 }
 
 bool DCLayerTree::MaybeUpdateDebugCounter() {
@@ -599,12 +656,16 @@ bool DCLayerTree::MaybeUpdateDebugVisualRedrawRegions() {
 void DCLayerTree::CompositorBeginFrame() {
   mCurrentFrame++;
   mUsedOverlayTypesInFrame = DCompOverlayTypes::NO_OVERLAY;
+  if (mEnableAsyncScreenshotInNextFrame) {
+    mEnableAsyncScreenshot = true;
+    mEnableAsyncScreenshotInNextFrame = false;
+  }
 }
 
 void DCLayerTree::CompositorEndFrame() {
   auto start = TimeStamp::Now();
   // Check if the visual tree of surfaces is the same as last frame.
-  bool same = mPrevLayers == mCurrentLayers;
+  const bool same = mPrevLayers == mCurrentLayers;
 
   if (!same) {
     // If not, we need to rebuild the visual tree. Note that addition or
@@ -620,20 +681,29 @@ void DCLayerTree::CompositorEndFrame() {
     // Ensure surface is trimmed to updated tile valid rects
     surface->UpdateAllocatedRect();
     if (!same) {
-      // Add surfaces in z-order they were added to the scene.
-      const auto visual = surface->GetVisual();
-      mRootVisual->AddVisual(visual, false, nullptr);
+      const auto visual = surface->GetRootVisual();
+      if (UseLayerCompositor()) {
+        // Layer compositor expects front to back.
+        mRootVisual->AddVisual(visual, true, nullptr);
+      } else {
+        // Native compositor expects back to front.
+        mRootVisual->AddVisual(visual, false, nullptr);
+      }
     }
   }
 
   mPrevLayers.swap(mCurrentLayers);
   mCurrentLayers.clear();
 
-  mCompositionDevice->Commit();
+  if (!same || !UseLayerCompositor()) {
+    mPendingCommit = true;
+  }
+
+  MaybeCommit();
 
   auto end = TimeStamp::Now();
-  mozilla::Telemetry::Accumulate(mozilla::Telemetry::COMPOSITE_SWAP_TIME,
-                                 (end - start).ToMilliseconds() * 10.);
+  mozilla::glean::gfx::composite_swap_time.AccumulateSingleSample(
+      (end - start).ToMilliseconds() * 10.);
 
   // Remove any framebuffers that haven't been
   // used in the last 60 frames.
@@ -651,6 +721,11 @@ void DCLayerTree::CompositorEndFrame() {
       --i;  // Examine the element again, if necessary.
       --len;
     }
+  }
+
+  if (mEnableAsyncScreenshot &&
+      (mCurrentFrame - mAsyncScreenshotLastFrameUsed) > 1) {
+    mEnableAsyncScreenshot = false;
   }
 
   if (!StaticPrefs::gfx_webrender_dcomp_video_check_slow_present()) {
@@ -675,14 +750,21 @@ void DCLayerTree::CompositorEndFrame() {
   }
 }
 
-void DCLayerTree::BindSwapChain(wr::NativeSurfaceId aId) {
+void DCLayerTree::BindSwapChain(wr::NativeSurfaceId aId,
+                                const wr::DeviceIntRect* aDirtyRects,
+                                size_t aNumDirtyRects) {
   auto surface = GetSurface(aId);
-  surface->AsDCSwapChain()->Bind();
+  surface->AsDCLayerSurface()->Bind(aDirtyRects, aNumDirtyRects);
 }
 
-void DCLayerTree::PresentSwapChain(wr::NativeSurfaceId aId) {
+void DCLayerTree::PresentSwapChain(wr::NativeSurfaceId aId,
+                                   const wr::DeviceIntRect* aDirtyRects,
+                                   size_t aNumDirtyRects) {
   auto surface = GetSurface(aId);
-  surface->AsDCSwapChain()->Present();
+  surface->AsDCLayerSurface()->Present(aDirtyRects, aNumDirtyRects);
+  if (surface->AsDCLayerDCompositionTexture()) {
+    mPendingCommit = true;
+  }
 }
 
 void DCLayerTree::Bind(wr::NativeTileId aId, wr::DeviceIntPoint* aOffset,
@@ -770,16 +852,42 @@ void DCLayerTree::CreateSurface(wr::NativeSurfaceId aId,
 
 void DCLayerTree::CreateSwapChainSurface(wr::NativeSurfaceId aId,
                                          wr::DeviceIntSize aSize,
-                                         bool aIsOpaque) {
+                                         bool aIsOpaque,
+                                         bool aNeedsSyncDcompCommit) {
+  MOZ_ASSERT_IF(mEnableAsyncScreenshot, !aNeedsSyncDcompCommit);
+
   auto it = mDCSurfaces.find(aId);
   MOZ_RELEASE_ASSERT(it == mDCSurfaces.end());
 
-  auto surface = MakeUnique<DCSwapChain>(aSize, aIsOpaque, this);
-  if (!surface->Initialize()) {
-    gfxCriticalNote << "Failed to initialize DCSwapChain: "
-                    << wr::AsUint64(aId);
-    return;
+  UniquePtr<DCSurface> surface;
+  if (UseDCLayerDCompositionTexture()) {
+    surface = MakeUnique<DCLayerDCompositionTexture>(aSize, aIsOpaque, this);
+    if (!surface->Initialize()) {
+      gfxCriticalNote << "Failed to initialize DCLayerDCompositionTexture: "
+                      << wr::AsUint64(aId);
+      RenderThread::Get()->HandleWebRenderError(WebRenderError::NEW_SURFACE);
+    }
+  } else if (
+      !mEnableAsyncScreenshot &&
+      (aNeedsSyncDcompCommit ||
+       StaticPrefs::
+           gfx_webrender_layer_compositor_force_composition_surface_AtStartup())) {
+    surface = MakeUnique<DCLayerCompositionSurface>(aSize, aIsOpaque, this);
+    if (!surface->Initialize()) {
+      gfxCriticalNote << "Failed to initialize DCLayerSurface: "
+                      << wr::AsUint64(aId);
+      RenderThread::Get()->HandleWebRenderError(WebRenderError::NEW_SURFACE);
+    }
+  } else {
+    surface = MakeUnique<DCSwapChain>(aSize, aIsOpaque, this);
+    if (!surface->Initialize()) {
+      gfxCriticalNote << "Failed to initialize DCSwapChain: "
+                      << wr::AsUint64(aId);
+      RenderThread::Get()->HandleWebRenderError(WebRenderError::NEW_SURFACE);
+    }
   }
+
+  MOZ_ASSERT_IF(mEnableAsyncScreenshot, mDCSurfaces.empty());
 
   mDCSurfaces[aId] = std::move(surface);
 }
@@ -790,7 +898,11 @@ void DCLayerTree::ResizeSwapChainSurface(wr::NativeSurfaceId aId,
   MOZ_RELEASE_ASSERT(it != mDCSurfaces.end());
   auto surface = it->second.get();
 
-  surface->AsDCSwapChain()->Resize(aSize);
+  mPendingCommit = true;
+
+  if (!surface->AsDCLayerSurface()->Resize(aSize)) {
+    RenderThread::Get()->HandleWebRenderError(WebRenderError::NEW_SURFACE);
+  }
 }
 
 void DCLayerTree::CreateExternalSurface(wr::NativeSurfaceId aId,
@@ -813,7 +925,7 @@ void DCLayerTree::DestroySurface(NativeSurfaceId aId) {
   MOZ_RELEASE_ASSERT(surface_it != mDCSurfaces.end());
   auto surface = surface_it->second.get();
 
-  mRootVisual->RemoveVisual(surface->GetVisual());
+  mRootVisual->RemoveVisual(surface->GetRootVisual());
   mDCSurfaces.erase(surface_it);
 }
 
@@ -861,11 +973,25 @@ DCSurface* DCExternalSurfaceWrapper::EnsureSurfaceForExternalImage(
   RenderTextureHost* texture =
       RenderThread::Get()->GetRenderTexture(aExternalImage);
   if (texture && texture->AsRenderDXGITextureHost()) {
-    mSurface.reset(new DCSurfaceVideo(mIsOpaque, mDCLayerTree));
-    if (!mSurface->Initialize()) {
-      gfxCriticalNote << "Failed to initialize DCSurfaceVideo: "
-                      << wr::AsUint64(aExternalImage);
-      mSurface = nullptr;
+    auto format = texture->GetFormat();
+    if (format == gfx::SurfaceFormat::B8G8R8A8 ||
+        format == gfx::SurfaceFormat::B8G8R8X8) {
+      MOZ_ASSERT(RenderDXGITextureHost::UseDCompositionTextureOverlay(format));
+      mSurface.reset(
+          new DCSurfaceDCompositionTextureOverlay(mIsOpaque, mDCLayerTree));
+      if (!mSurface->Initialize()) {
+        gfxCriticalNote
+            << "Failed to initialize DCSurfaceDCompositionTextureOverlay: "
+            << wr::AsUint64(aExternalImage);
+        mSurface = nullptr;
+      }
+    } else {
+      mSurface.reset(new DCSurfaceVideo(mIsOpaque, mDCLayerTree));
+      if (!mSurface->Initialize()) {
+        gfxCriticalNote << "Failed to initialize DCSurfaceVideo: "
+                        << wr::AsUint64(aExternalImage);
+        mSurface = nullptr;
+      }
     }
   } else if (texture && texture->AsRenderDcompSurfaceTextureHost()) {
     mSurface.reset(new DCSurfaceHandle(mIsOpaque, mDCLayerTree));
@@ -882,8 +1008,8 @@ DCSurface* DCExternalSurfaceWrapper::EnsureSurfaceForExternalImage(
   }
 
   // Add surface's visual which will contain video data to our root visual.
-  const auto surfaceVisual = mSurface->GetVisual();
-  mVisual->AddVisual(surfaceVisual, true, nullptr);
+  const auto surfaceVisual = mSurface->GetRootVisual();
+  mContentVisual->AddVisual(surfaceVisual, true, nullptr);
 
   // -
   // Apply color management.
@@ -997,6 +1123,9 @@ void DCExternalSurfaceWrapper::PresentExternalSurface(gfx::Matrix& aTransform) {
     }
   } else if (auto* surface = mSurface->AsDCSurfaceHandle()) {
     surface->PresentSurfaceHandle();
+  } else if (auto* surface =
+                 mSurface->AsDCSurfaceDCompositionTextureOverlay()) {
+    surface->Present();
   }
 }
 
@@ -1013,13 +1142,13 @@ static inline D2D1_MATRIX_3X2_F D2DMatrix(const gfx::Matrix& aTransform) {
 void DCLayerTree::AddSurface(wr::NativeSurfaceId aId,
                              const wr::CompositorSurfaceTransform& aTransform,
                              wr::DeviceIntRect aClipRect,
-                             wr::ImageRendering aImageRendering) {
+                             wr::ImageRendering aImageRendering,
+                             wr::DeviceIntRect aRoundedClipRect,
+                             wr::ClipRadius aClipRadius) {
   auto it = mDCSurfaces.find(aId);
   MOZ_RELEASE_ASSERT(it != mDCSurfaces.end());
   const auto surface = it->second.get();
-  const auto visual = surface->GetVisual();
-
-  wr::DeviceIntPoint virtualOffset = surface->GetVirtualOffset();
+  const auto visual = surface->GetContentVisual();
 
   float sx = aTransform.scale.x;
   float sy = aTransform.scale.y;
@@ -1029,6 +1158,16 @@ void DCLayerTree::AddSurface(wr::NativeSurfaceId aId,
 
   surface->PresentExternalSurface(transform);
 
+  if (UseLayerCompositor() &&
+      !surface->IsUpdated(aTransform, aClipRect, aImageRendering,
+                          aRoundedClipRect, aClipRadius)) {
+    mCurrentLayers.push_back(aId);
+    return;
+  }
+
+  mPendingCommit = true;
+
+  wr::DeviceIntPoint virtualOffset = surface->GetVirtualOffset();
   transform.PreTranslate(-virtualOffset.x, -virtualOffset.y);
 
   // The DirectComposition API applies clipping *before* any
@@ -1059,6 +1198,8 @@ void DCLayerTree::AddSurface(wr::NativeSurfaceId aId,
     visual->SetBitmapInterpolationMode(
         DCOMPOSITION_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
   }
+
+  surface->SetClip(aRoundedClipRect, aClipRadius);
 
   mCurrentLayers.push_back(aId);
 }
@@ -1200,7 +1341,19 @@ bool DCLayerTree::SupportsSwapChainTearing() {
     }
     return !!presentAllowTearing;
   }();
+
+  if (!StaticPrefs::gfx_webrender_swap_chain_allow_tearing_AtStartup()) {
+    return false;
+  }
+
   return supported;
+}
+
+bool DCLayerTree::UseDCLayerDCompositionTexture() {
+  if (!gfx::gfxVars::WebRenderLayerCompositorDCompTexture()) {
+    return false;
+  }
+  return gfx::DeviceManagerDx::Get()->CanUseDCompositionTexture();
 }
 
 DXGI_FORMAT DCLayerTree::GetOverlayFormatForSDR() {
@@ -1237,9 +1390,13 @@ layers::OverlayInfo DCLayerTree::GetOverlayInfo() {
   info.mRgb10a2Overlay =
       FlagsToOverlaySupportType(sGpuOverlayInfo->mRgb10a2OverlaySupportFlags,
                                 /* aSoftwareOverlaySupported */ false);
+  info.mRgba16fOverlay =
+      FlagsToOverlaySupportType(sGpuOverlayInfo->mRgba16fOverlaySupportFlags,
+                                /* aSoftwareOverlaySupported */ false);
 
   info.mSupportsVpSuperResolution = sGpuOverlayInfo->mSupportsVpSuperResolution;
   info.mSupportsVpAutoHDR = sGpuOverlayInfo->mSupportsVpAutoHDR;
+  info.mSupportsHDR = sGpuOverlayInfo->mSupportsHDR;
 
   return info;
 }
@@ -1260,13 +1417,42 @@ DCSurface::DCSurface(wr::DeviceIntSize aTileSize,
 
 DCSurface::~DCSurface() {}
 
+bool DCSurface::IsUpdated(const wr::CompositorSurfaceTransform& aTransform,
+                          const wr::DeviceIntRect& aClipRect,
+                          const wr::ImageRendering aImageRendering,
+                          const wr::DeviceIntRect& aRoundedClipRect,
+                          const wr::ClipRadius& aClipRadius) {
+  if (mDCSurfaceData.isSome() &&
+      mDCSurfaceData.ref().mTransform == aTransform &&
+      mDCSurfaceData.ref().mClipRect == aClipRect &&
+      mDCSurfaceData.ref().mImageRendering == aImageRendering &&
+      mDCSurfaceData.ref().mRoundedClipRect == aRoundedClipRect &&
+      mDCSurfaceData.ref().mClipRadius == aClipRadius) {
+    return false;
+  }
+  mDCSurfaceData = Some(DCSurfaceData(aTransform, aClipRect, aImageRendering,
+                                      aRoundedClipRect, aClipRadius));
+  return true;
+}
+
 bool DCSurface::Initialize() {
   // Create a visual for tiles to attach to, whether virtual or not.
   HRESULT hr;
   const auto dCompDevice = mDCLayerTree->GetCompositionDevice();
-  hr = dCompDevice->CreateVisual(getter_AddRefs(mVisual));
+  hr = dCompDevice->CreateVisual(getter_AddRefs(mRootVisual));
   if (FAILED(hr)) {
     gfxCriticalNote << "Failed to create DCompositionVisual: " << gfx::hexa(hr);
+    return false;
+  }
+  hr = dCompDevice->CreateVisual(getter_AddRefs(mContentVisual));
+  if (FAILED(hr)) {
+    gfxCriticalNote << "Failed to create DCompositionVisual: " << gfx::hexa(hr);
+    return false;
+  }
+  mRootVisual->AddVisual(mContentVisual, false, nullptr);
+  hr = dCompDevice->CreateRectangleClip(getter_AddRefs(mClip));
+  if (FAILED(hr)) {
+    gfxCriticalNote << "Failed to create RectangleClip: " << gfx::hexa(hr);
     return false;
   }
 
@@ -1282,11 +1468,43 @@ bool DCSurface::Initialize() {
     MOZ_ASSERT(SUCCEEDED(hr));
 
     // Bind the surface memory to this visual
-    hr = mVisual->SetContent(mVirtualSurface);
+    hr = mContentVisual->SetContent(mVirtualSurface);
     MOZ_ASSERT(SUCCEEDED(hr));
   }
 
   return true;
+}
+
+void DCSurface::SetClip(wr::DeviceIntRect aClipRect,
+                        wr::ClipRadius aClipRadius) {
+  bool needsClip =
+      aClipRadius.top_left > 0.0f || aClipRadius.top_right > 0.0f ||
+      aClipRadius.bottom_left > 0.0f || aClipRadius.bottom_right > 0.0f;
+
+  if (needsClip) {
+    mClip->SetLeft(aClipRect.min.x);
+    mClip->SetRight(aClipRect.max.x);
+    mClip->SetTop(aClipRect.min.y);
+    mClip->SetBottom(aClipRect.max.y);
+
+    mClip->SetTopLeftRadiusX(aClipRadius.top_left);
+    mClip->SetTopLeftRadiusY(aClipRadius.top_left);
+
+    mClip->SetTopRightRadiusX(aClipRadius.top_right);
+    mClip->SetTopRightRadiusY(aClipRadius.top_right);
+
+    mClip->SetBottomLeftRadiusX(aClipRadius.bottom_left);
+    mClip->SetBottomLeftRadiusY(aClipRadius.bottom_left);
+
+    mClip->SetBottomRightRadiusX(aClipRadius.bottom_right);
+    mClip->SetBottomRightRadiusY(aClipRadius.bottom_right);
+
+    mRootVisual->SetBorderMode(DCOMPOSITION_BORDER_MODE_SOFT);
+    mRootVisual->SetClip(mClip);
+  } else {
+    mRootVisual->SetBorderMode(DCOMPOSITION_BORDER_MODE_INHERIT);
+    mRootVisual->SetClip(nullptr);
+  }
 }
 
 void DCSurface::CreateTile(int32_t aX, int32_t aY) {
@@ -1295,7 +1513,7 @@ void DCSurface::CreateTile(int32_t aX, int32_t aY) {
 
   auto tile = MakeUnique<DCTile>(mDCLayerTree);
   if (!tile->Initialize(aX, aY, mTileSize, mIsVirtualSurface, mIsOpaque,
-                        mVisual)) {
+                        mContentVisual)) {
     gfxCriticalNote << "Failed to initialize DCTile: " << aX << aY;
     return;
   }
@@ -1303,7 +1521,7 @@ void DCSurface::CreateTile(int32_t aX, int32_t aY) {
   if (mIsVirtualSurface) {
     mAllocatedRectDirty = true;
   } else {
-    mVisual->AddVisual(tile->GetVisual(), false, nullptr);
+    mContentVisual->AddVisual(tile->GetVisual(), false, nullptr);
   }
 
   mDCTiles[key] = std::move(tile);
@@ -1315,7 +1533,7 @@ void DCSurface::DestroyTile(int32_t aX, int32_t aY) {
     mAllocatedRectDirty = true;
   } else {
     auto tile = GetTile(aX, aY);
-    mVisual->RemoveVisual(tile->GetVisual());
+    mContentVisual->RemoveVisual(tile->GetVisual());
   }
   mDCTiles.erase(key);
 }
@@ -1358,12 +1576,223 @@ DCTile* DCSurface::GetTile(int32_t aX, int32_t aY) const {
   return tile_it->second.get();
 }
 
+DCLayerDCompositionTexture::TextureHolder::TextureHolder(
+    ID3D11Texture2D* aTexture, IDCompositionTexture* aDCompositionTexture,
+    EGLSurface aEGLSurface)
+    : mTexture(aTexture),
+      mDCompositionTexture(aDCompositionTexture),
+      mEGLSurface(aEGLSurface) {}
+
+DCLayerDCompositionTexture::DCLayerDCompositionTexture(
+    wr::DeviceIntSize aSize, bool aIsOpaque, DCLayerTree* aDCLayerTree)
+    : DCLayerSurface(aIsOpaque, aDCLayerTree),
+      mSwapChainBufferCount(gfx::gfxVars::UseWebRenderTripleBufferingWin() ? 3
+                                                                           : 2),
+      mSize(aSize) {}
+
+DCLayerDCompositionTexture::~DCLayerDCompositionTexture() { DestroyTextures(); }
+
+bool DCLayerDCompositionTexture::Initialize() {
+  DCSurface::Initialize();
+
+  if (!AllocateTextures()) {
+    return false;
+  }
+  return true;
+}
+
+bool DCLayerDCompositionTexture::AllocateTextures() {
+  MOZ_ASSERT(mAvailableTextureHolders.empty());
+
+  HRESULT hr;
+  const auto device = mDCLayerTree->GetDevice();
+  const auto dcomp = mDCLayerTree->GetCompositionDevice();
+  const auto dcomp4 = QI<IDCompositionDevice4>::From(dcomp);
+  if (!dcomp4) {
+    return false;
+  }
+
+  const auto gl = mDCLayerTree->GetGLContext();
+  const auto& gle = gl::GLContextEGL::Cast(gl);
+  const auto& egl = gle->mEgl;
+  const EGLConfig eglConfig = mDCLayerTree->GetEGLConfig();
+
+  CD3D11_TEXTURE2D_DESC desc(
+      DXGI_FORMAT_B8G8R8A8_UNORM, mSize.width, mSize.height, 1, 1,
+      D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET);
+
+  desc.MiscFlags =
+      D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED;
+
+  for (size_t i = 0; i < mSwapChainBufferCount; i++) {
+    // Allocate ID3D11Texture2D
+    RefPtr<ID3D11Texture2D> texture;
+    hr = device->CreateTexture2D(&desc, nullptr, getter_AddRefs(texture));
+    if (FAILED(hr)) {
+      gfxCriticalNoteOnce << "CreateTexture2D failed:  " << gfx::hexa(hr);
+      return false;
+    }
+
+    // Allocate IDCompositionTexture
+    RefPtr<IDCompositionTexture> dcompTexture;
+    hr =
+        dcomp4->CreateCompositionTexture(texture, getter_AddRefs(dcompTexture));
+    if (FAILED(hr)) {
+      gfxCriticalNoteOnce << "CreateCompositionTexture failed:  "
+                          << gfx::hexa(hr);
+      return false;
+    }
+
+    const auto alphaMode =
+        mIsOpaque ? DXGI_ALPHA_MODE_IGNORE : DXGI_ALPHA_MODE_PREMULTIPLIED;
+    dcompTexture->SetAlphaMode(alphaMode);
+    // XXX
+    // dcompTexture->SetColorSpace();
+
+    // Allocate mEGLSurface
+    EGLSurface surface = EGL_NO_SURFACE;
+    const EGLint pbuffer_attribs[]{LOCAL_EGL_WIDTH, mSize.width,
+                                   LOCAL_EGL_HEIGHT, mSize.height,
+                                   LOCAL_EGL_NONE};
+    const auto buffer = reinterpret_cast<EGLClientBuffer>(texture.get());
+
+    surface = egl->fCreatePbufferFromClientBuffer(
+        LOCAL_EGL_D3D_TEXTURE_ANGLE, buffer, eglConfig, pbuffer_attribs);
+    if (!surface) {
+      EGLint err = egl->mLib->fGetError();
+      gfxCriticalNote << "Failed to create Pbuffer error: " << gfx::hexa(err)
+                      << " Size : "
+                      << LayoutDeviceIntSize(mSize.width, mSize.height);
+      return false;
+    }
+
+    auto textureHolder =
+        MakeUnique<TextureHolder>(texture, dcompTexture, surface);
+    mAvailableTextureHolders.push_back(std::move(textureHolder));
+  }
+
+  MOZ_ASSERT(mAvailableTextureHolders.size() == mSwapChainBufferCount);
+
+  return true;
+}
+
+void DCLayerDCompositionTexture::DestroyTextures() {
+  const auto gl = mDCLayerTree->GetGLContext();
+  const auto& gle = gl::GLContextEGL::Cast(gl);
+  const auto& egl = gle->mEgl;
+
+  if (mCurrentTextureHolder) {
+    mAvailableTextureHolders.push_back(std::move(mCurrentTextureHolder));
+  }
+
+  if (mPresentingTextureHolder) {
+    mAvailableTextureHolders.push_back(std::move(mPresentingTextureHolder));
+  }
+
+  while (!mAvailableTextureHolders.empty()) {
+    auto& front = mAvailableTextureHolders.front();
+
+    if (front->mEGLSurface) {
+      if (gle->GetEGLSurfaceOverride() == front->mEGLSurface) {
+        gle->SetEGLSurfaceOverride(EGL_NO_SURFACE);
+      }
+      egl->fDestroySurface(front->mEGLSurface);
+      front->mEGLSurface = EGL_NO_SURFACE;
+    }
+
+    mAvailableTextureHolders.pop_front();
+  }
+
+  MOZ_ASSERT(!mCurrentTextureHolder);
+  MOZ_ASSERT(!mPresentingTextureHolder);
+  MOZ_ASSERT(mAvailableTextureHolders.empty());
+}
+
+UniquePtr<DCLayerDCompositionTexture::TextureHolder>
+DCLayerDCompositionTexture::GetNextTexture() {
+  MOZ_ASSERT(!mAvailableTextureHolders.empty());
+
+  if (mAvailableTextureHolders.empty()) {
+    return nullptr;
+  }
+
+  UniquePtr<TextureHolder> textureHolder =
+      std::move(mAvailableTextureHolders.front());
+  mAvailableTextureHolders.pop_front();
+
+  return textureHolder;
+}
+
+void DCLayerDCompositionTexture::UpdateCurrentTexture() {
+  if (mCurrentTextureHolder) {
+    mAvailableTextureHolders.push_back(std::move(mCurrentTextureHolder));
+  }
+
+  MOZ_ASSERT(!mCurrentTextureHolder);
+
+  mCurrentTextureHolder = GetNextTexture();
+}
+
+void DCLayerDCompositionTexture::Bind(const wr::DeviceIntRect* aDirtyRects,
+                                      size_t aNumDirtyRects) {
+  UpdateCurrentTexture();
+
+  if (!mCurrentTextureHolder ||
+      (mCurrentTextureHolder->mEGLSurface == EGL_NO_SURFACE)) {
+    return;
+  }
+
+  const auto gl = mDCLayerTree->GetGLContext();
+  const auto& gle = gl::GLContextEGL::Cast(gl);
+
+  gle->SetEGLSurfaceOverride(mCurrentTextureHolder->mEGLSurface);
+}
+
+bool DCLayerDCompositionTexture::Resize(wr::DeviceIntSize aSize) {
+  DestroyTextures();
+  mSize = aSize;
+  bool ret = AllocateTextures();
+  return ret;
+}
+
+void DCLayerDCompositionTexture::Present(const wr::DeviceIntRect* aDirtyRects,
+                                         size_t aNumDirtyRects) {
+  if (!mCurrentTextureHolder) {
+    return;
+  }
+
+  if (mPresentingTextureHolder) {
+    mAvailableTextureHolders.push_back(std::move(mPresentingTextureHolder));
+  }
+  MOZ_ASSERT(!mPresentingTextureHolder);
+
+  mPresentingTextureHolder = std::move(mCurrentTextureHolder);
+  MOZ_ASSERT(!mCurrentTextureHolder);
+  MOZ_ASSERT(mPresentingTextureHolder);
+
+  mContentVisual->SetContent(mPresentingTextureHolder->mDCompositionTexture);
+}
+
+DCSwapChain::DCSwapChain(wr::DeviceIntSize aSize, bool aIsOpaque,
+                         DCLayerTree* aDCLayerTree)
+    : DCLayerSurface(aIsOpaque, aDCLayerTree),
+      mSwapChainBufferCount(gfx::gfxVars::UseWebRenderTripleBufferingWin() ? 3
+                                                                           : 2),
+      mSize(aSize),
+      mEGLSurface(EGL_NO_SURFACE) {
+  MOZ_ASSERT(mSwapChainBufferCount == 2 || mSwapChainBufferCount == 3);
+}
+
 DCSwapChain::~DCSwapChain() {
   if (mEGLSurface) {
     const auto gl = mDCLayerTree->GetGLContext();
 
     const auto& gle = gl::GLContextEGL::Cast(gl);
     const auto& egl = gle->mEgl;
+
+    if (gle->GetEGLSurfaceOverride() == mEGLSurface) {
+      gle->SetEGLSurfaceOverride(EGL_NO_SURFACE);
+    }
     egl->fDestroySurface(mEGLSurface);
     mEGLSurface = EGL_NO_SURFACE;
   }
@@ -1397,47 +1826,73 @@ bool DCSwapChain::Initialize() {
   desc.SampleDesc.Count = 1;
   desc.SampleDesc.Quality = 0;
   desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-  desc.BufferCount = 2;
+  desc.BufferCount = mSwapChainBufferCount;
   // DXGI_SCALING_NONE caused swap chain creation failure.
   desc.Scaling = DXGI_SCALING_STRETCH;
   desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
   desc.AlphaMode =
       mIsOpaque ? DXGI_ALPHA_MODE_IGNORE : DXGI_ALPHA_MODE_PREMULTIPLIED;
   desc.Flags = 0;
+  if (mDCLayerTree->SupportsSwapChainTearing()) {
+    desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+  }
 
   hr = dxgiFactory->CreateSwapChainForComposition(device, &desc, nullptr,
                                                   getter_AddRefs(mSwapChain));
-  MOZ_RELEASE_ASSERT(SUCCEEDED(hr));
-  mVisual->SetContent(mSwapChain);
+  if (FAILED(hr)) {
+    gfxCriticalNote << "CreateSwapChainForComposition() failed: "
+                    << gfx::hexa(hr) << " Size : "
+                    << LayoutDeviceIntSize(mSize.width, mSize.height);
+    return false;
+  }
+  mContentVisual->SetContent(mSwapChain);
 
-  ID3D11Texture2D* backBuffer;
-  hr = mSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
-  MOZ_RELEASE_ASSERT(SUCCEEDED(hr));
+  RefPtr<ID3D11Texture2D> backBuffer;
+  hr = mSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D),
+                             (void**)getter_AddRefs(backBuffer));
+  if (hr == DXGI_ERROR_INVALID_CALL) {
+    // This happens on some GPUs/drivers when there's a TDR.
+    if (device->GetDeviceRemovedReason() != S_OK) {
+      gfxCriticalNote << "GetBuffer returned invalid call: " << gfx::hexa(hr)
+                      << " Size : "
+                      << LayoutDeviceIntSize(mSize.width, mSize.height);
+      return false;
+    }
+  }
 
   const EGLint pbuffer_attribs[]{LOCAL_EGL_WIDTH, mSize.width, LOCAL_EGL_HEIGHT,
                                  mSize.height, LOCAL_EGL_NONE};
-  const auto buffer = reinterpret_cast<EGLClientBuffer>(backBuffer);
+  const auto buffer = reinterpret_cast<EGLClientBuffer>(backBuffer.get());
   EGLConfig eglConfig = mDCLayerTree->GetEGLConfig();
 
   mEGLSurface = egl->fCreatePbufferFromClientBuffer(
       LOCAL_EGL_D3D_TEXTURE_ANGLE, buffer, eglConfig, pbuffer_attribs);
-  MOZ_RELEASE_ASSERT(mEGLSurface);
-  backBuffer->Release();
+  if (!mEGLSurface) {
+    EGLint err = egl->mLib->fGetError();
+    gfxCriticalNote << "Failed to create Pbuffer error: " << gfx::hexa(err)
+                    << " Size : "
+                    << LayoutDeviceIntSize(mSize.width, mSize.height);
+    return false;
+  }
 
   return true;
 }
 
-void DCSwapChain::Bind() {
+void DCSwapChain::Bind(const wr::DeviceIntRect* aDirtyRects,
+                       size_t aNumDirtyRects) {
   const auto gl = mDCLayerTree->GetGLContext();
   const auto& gle = gl::GLContextEGL::Cast(gl);
 
   gle->SetEGLSurfaceOverride(mEGLSurface);
-  bool ok = gl->MakeCurrent();
-
-  MOZ_RELEASE_ASSERT(ok);
 }
 
-void DCSwapChain::Resize(wr::DeviceIntSize aSize) {
+bool DCSwapChain::Resize(wr::DeviceIntSize aSize) {
+  MOZ_ASSERT(mSwapChain);
+
+  if (!mSwapChain) {
+    return false;
+  }
+
   const auto gl = mDCLayerTree->GetGLContext();
 
   const auto& gle = gl::GLContextEGL::Cast(gl);
@@ -1448,42 +1903,336 @@ void DCSwapChain::Resize(wr::DeviceIntSize aSize) {
     mEGLSurface = EGL_NO_SURFACE;
   }
 
-  ID3D11Texture2D* backBuffer;
   DXGI_SWAP_CHAIN_DESC desc;
   HRESULT hr;
 
-  hr = mSwapChain->GetDesc(&desc);
-  MOZ_RELEASE_ASSERT(SUCCEEDED(hr));
+  mSwapChain->GetDesc(&desc);
 
+  UINT flags = mDCLayerTree->SupportsSwapChainTearing()
+                   ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
+                   : 0;
   hr = mSwapChain->ResizeBuffers(desc.BufferCount, aSize.width, aSize.height,
-                                 DXGI_FORMAT_B8G8R8A8_UNORM, 0);
-  MOZ_RELEASE_ASSERT(SUCCEEDED(hr));
+                                 DXGI_FORMAT_B8G8R8A8_UNORM, flags);
+  if (FAILED(hr)) {
+    gfxCriticalNote << "Failed to resize swap chain buffers: " << gfx::hexa(hr)
+                    << " Size : "
+                    << LayoutDeviceIntSize(aSize.width, aSize.height);
+    return false;
+  }
 
-  hr = mSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
-  MOZ_RELEASE_ASSERT(SUCCEEDED(hr));
+  RefPtr<ID3D11Texture2D> backBuffer;
+  hr = mSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D),
+                             (void**)getter_AddRefs(backBuffer));
+  if (hr == DXGI_ERROR_INVALID_CALL) {
+    auto device = mDCLayerTree->GetDevice();
+    // This happens on some GPUs/drivers when there's a TDR.
+    if (device->GetDeviceRemovedReason() != S_OK) {
+      gfxCriticalNote << "GetBuffer returned invalid call: " << gfx::hexa(hr)
+                      << " Size : "
+                      << LayoutDeviceIntSize(aSize.width, aSize.height);
+      return false;
+    }
+  }
 
   const EGLint pbuffer_attribs[]{LOCAL_EGL_WIDTH, aSize.width, LOCAL_EGL_HEIGHT,
                                  aSize.height, LOCAL_EGL_NONE};
-  const auto buffer = reinterpret_cast<EGLClientBuffer>(backBuffer);
+  const auto buffer = reinterpret_cast<EGLClientBuffer>(backBuffer.get());
   EGLConfig eglConfig = mDCLayerTree->GetEGLConfig();
 
   mEGLSurface = egl->fCreatePbufferFromClientBuffer(
       LOCAL_EGL_D3D_TEXTURE_ANGLE, buffer, eglConfig, pbuffer_attribs);
-  MOZ_RELEASE_ASSERT(mEGLSurface);
-
-  backBuffer->Release();
+  if (!mEGLSurface) {
+    EGLint err = egl->mLib->fGetError();
+    gfxCriticalNote << "Failed to create Pbuffer error: " << gfx::hexa(err)
+                    << " Size : "
+                    << LayoutDeviceIntSize(aSize.width, aSize.height);
+    return false;
+  }
 
   mSize = aSize;
+  return true;
 }
 
-void DCSwapChain::Present() {
+void DCSwapChain::Present(const wr::DeviceIntRect* aDirtyRects,
+                          size_t aNumDirtyRects) {
+  MOZ_ASSERT_IF(aNumDirtyRects > 0, !mFirstPresent);
+
+  MOZ_ASSERT(mSwapChain);
+
+  if (!mSwapChain) {
+    return;
+  }
+
+  HRESULT hr = S_OK;
+  int rectsCount = 0;
+  StackArray<RECT, 1> rects(aNumDirtyRects);
+  const UINT flags =
+      mDCLayerTree->SupportsSwapChainTearing() ? DXGI_PRESENT_ALLOW_TEARING : 0;
+
+  if (aNumDirtyRects > 0) {
+    for (size_t i = 0; i < aNumDirtyRects; ++i) {
+      const auto& rect = aDirtyRects[i];
+      // Clip rect to bufferSize
+      int left = std::clamp((int)rect.min.x, 0, mSize.width);
+      int top = std::clamp((int)rect.min.y, 0, mSize.height);
+      int right = std::clamp((int)rect.max.x, 0, mSize.width);
+      int bottom = std::clamp((int)rect.max.y, 0, mSize.height);
+
+      // When rect is not empty, the rect could be passed to Present1().
+      if (left < right && top < bottom) {
+        rects[rectsCount].left = left;
+        rects[rectsCount].top = top;
+        rects[rectsCount].right = right;
+        rects[rectsCount].bottom = bottom;
+        rectsCount++;
+      }
+    }
+
+    if (rectsCount > 0) {
+      DXGI_PRESENT_PARAMETERS params;
+      PodZero(&params);
+      params.DirtyRectsCount = rectsCount;
+      params.pDirtyRects = rects.data();
+
+      hr = mSwapChain->Present1(0, flags, &params);
+      if (FAILED(hr) && hr != DXGI_STATUS_OCCLUDED) {
+        gfxCriticalNote << "Present1 failed: " << gfx::hexa(hr);
+      }
+    }
+  } else {
+    mSwapChain->Present(0, flags);
+  }
+
+  if (mFirstPresent) {
+    mFirstPresent = false;
+
+    // Wait for the GPU to finish executing its commands before
+    // committing the DirectComposition tree, or else the swapchain
+    // may flicker black when it's first presented.
+    auto* device = mDCLayerTree->GetDevice();
+    RefPtr<IDXGIDevice2> dxgiDevice2;
+    device->QueryInterface((IDXGIDevice2**)getter_AddRefs(dxgiDevice2));
+    MOZ_ASSERT(dxgiDevice2);
+
+    HANDLE event = ::CreateEvent(nullptr, false, false, nullptr);
+    hr = dxgiDevice2->EnqueueSetEvent(event);
+    if (SUCCEEDED(hr)) {
+      DebugOnly<DWORD> result = ::WaitForSingleObject(event, INFINITE);
+      MOZ_ASSERT(result == WAIT_OBJECT_0);
+    } else {
+      gfxCriticalNoteOnce << "EnqueueSetEvent failed: " << gfx::hexa(hr);
+    }
+    ::CloseHandle(event);
+  }
+}
+
+DCLayerCompositionSurface::DCLayerCompositionSurface(wr::DeviceIntSize aSize,
+                                                     bool aIsOpaque,
+                                                     DCLayerTree* aDCLayerTree)
+    : DCLayerSurface(aIsOpaque, aDCLayerTree), mSize(aSize) {}
+
+DCLayerCompositionSurface::~DCLayerCompositionSurface() {
+  if (mEGLSurface) {
+    const auto gl = mDCLayerTree->GetGLContext();
+    const auto& gle = gl::GLContextEGL::Cast(gl);
+    const auto& egl = gle->mEgl;
+
+    egl->fDestroySurface(mEGLSurface);
+    mEGLSurface = EGL_NO_SURFACE;
+  }
+}
+
+bool DCLayerCompositionSurface::Initialize() {
+  DCSurface::Initialize();
+
+  if (!Resize(mSize)) {
+    return false;
+  }
+  return true;
+}
+
+void DCLayerCompositionSurface::Bind(const wr::DeviceIntRect* aDirtyRects,
+                                     size_t aNumDirtyRects) {
+  MOZ_ASSERT(mCompositionSurface);
+
+  if (!mCompositionSurface) {
+    return;
+  }
+
+  RefPtr<ID3D11Texture2D> backBuffer;
+  POINT offset;
+  HRESULT hr;
+
+  RECT updateRect;
+  gfx::IntPoint updatePos;
+  if (aNumDirtyRects > 0) {
+    MOZ_ASSERT(!mFirstDraw);
+    MOZ_ASSERT(aNumDirtyRects == 1);
+
+    updateRect.left = std::clamp(aDirtyRects[0].min.x, 0, mSize.width);
+    updateRect.top = std::clamp(aDirtyRects[0].min.y, 0, mSize.height);
+    updateRect.right = std::clamp(aDirtyRects[0].max.x, 0, mSize.width);
+    updateRect.bottom = std::clamp(aDirtyRects[0].max.y, 0, mSize.height);
+
+    updatePos = {updateRect.left, updateRect.top};
+  } else {
+    updateRect.left = 0;
+    updateRect.top = 0;
+    updateRect.right = mSize.width;
+    updateRect.bottom = mSize.height;
+
+    updatePos = {0, 0};
+  }
+
+  mFirstDraw = false;
+
+  hr = mCompositionSurface->BeginDraw(&updateRect, __uuidof(ID3D11Texture2D),
+                                      (void**)getter_AddRefs(backBuffer),
+                                      &offset);
+
+  if (FAILED(hr)) {
+    RenderThread::Get()->HandleWebRenderError(WebRenderError::BEGIN_DRAW);
+    return;
+  }
+
   const auto gl = mDCLayerTree->GetGLContext();
   const auto& gle = gl::GLContextEGL::Cast(gl);
+  const auto& egl = gle->mEgl;
 
-  HRESULT hr = mSwapChain->Present(0, 0);
-  MOZ_RELEASE_ASSERT(SUCCEEDED(hr));
+  gfx::IntPoint originOffset = {(int)offset.x - updatePos.x,
+                                (int)offset.y - updatePos.y};
+  const EGLint pbuffer_attribs[]{LOCAL_EGL_WIDTH,
+                                 mSize.width,
+                                 LOCAL_EGL_HEIGHT,
+                                 mSize.height,
+                                 LOCAL_EGL_TEXTURE_OFFSET_X_ANGLE,
+                                 originOffset.x,
+                                 LOCAL_EGL_TEXTURE_OFFSET_Y_ANGLE,
+                                 originOffset.y,
+                                 LOCAL_EGL_NONE};
+  const auto buffer = reinterpret_cast<EGLClientBuffer>(backBuffer.get());
+  EGLConfig eglConfig = mDCLayerTree->GetEGLConfig();
+
+  mEGLSurface = egl->fCreatePbufferFromClientBuffer(
+      LOCAL_EGL_D3D_TEXTURE_ANGLE, buffer, eglConfig, pbuffer_attribs);
+  if (!mEGLSurface) {
+    EGLint err = egl->mLib->fGetError();
+    gfxCriticalNote << "Failed to create Pbuffer error: " << gfx::hexa(err)
+                    << " Size : "
+                    << LayoutDeviceIntSize(mSize.width, mSize.height);
+    return;
+  }
+
+  gle->SetEGLSurfaceOverride(mEGLSurface);
+}
+
+bool DCLayerCompositionSurface::Resize(wr::DeviceIntSize aSize) {
+  MOZ_ASSERT(mEGLSurface == EGL_NO_SURFACE);
+
+  if (mSize.width == 0 || mSize.height == 0) {
+    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    return false;
+  }
+
+  HRESULT hr;
+  auto* dcompDevice = mDCLayerTree->GetCompositionDevice();
+  const auto alphaMode =
+      mIsOpaque ? DXGI_ALPHA_MODE_IGNORE : DXGI_ALPHA_MODE_PREMULTIPLIED;
+
+  RefPtr<IDCompositionSurface> surface;
+  hr = dcompDevice->CreateSurface(aSize.width, aSize.height,
+                                  DXGI_FORMAT_R8G8B8A8_UNORM, alphaMode,
+                                  getter_AddRefs(surface));
+  if (FAILED(hr)) {
+    gfxCriticalNote << "Failed to create DCompositionSurface: "
+                    << gfx::hexa(hr);
+    return false;
+  }
+
+  hr = mContentVisual->SetContent(surface);
+  if (FAILED(hr)) {
+    gfxCriticalNote << "Failed to SetContent: " << gfx::hexa(hr);
+    return false;
+  }
+
+  mCompositionSurface = surface;
+  mSize = aSize;
+  mFirstDraw = true;
+  return true;
+}
+
+void DCLayerCompositionSurface::Present(const wr::DeviceIntRect* aDirtyRects,
+                                        size_t aNumDirtyRects) {
+  MOZ_ASSERT(mEGLSurface);
+  MOZ_ASSERT(mCompositionSurface);
+
+  mDCSurfaceData = Nothing();
+
+  if (!mCompositionSurface) {
+    return;
+  }
+
+  mCompositionSurface->EndDraw();
+
+  if (!mEGLSurface) {
+    return;
+  }
+
+  const auto gl = mDCLayerTree->GetGLContext();
+  const auto& gle = gl::GLContextEGL::Cast(gl);
+  const auto& egl = gle->mEgl;
 
   gle->SetEGLSurfaceOverride(EGL_NO_SURFACE);
+
+  egl->fDestroySurface(mEGLSurface);
+  mEGLSurface = EGL_NO_SURFACE;
+}
+
+DCSurfaceDCompositionTextureOverlay::DCSurfaceDCompositionTextureOverlay(
+    bool aIsOpaque, DCLayerTree* aDCLayerTree)
+    : DCSurface(wr::DeviceIntSize{}, wr::DeviceIntPoint{}, false, aIsOpaque,
+                aDCLayerTree) {}
+
+DCSurfaceDCompositionTextureOverlay::~DCSurfaceDCompositionTextureOverlay() {}
+
+void DCSurfaceDCompositionTextureOverlay::AttachExternalImage(
+    wr::ExternalImageId aExternalImage) {
+  auto* texture = RenderThread::Get()->GetRenderTexture(aExternalImage);
+  if (!texture) {
+    return;
+  }
+  mRenderTextureHost = texture;
+}
+
+void DCSurfaceDCompositionTextureOverlay::Present() {
+  if (!mRenderTextureHost) {
+    return;
+  }
+
+  // Content is not updated
+  if (mPrevRenderTextureHost == mRenderTextureHost) {
+    return;
+  }
+
+  const auto textureHost = mRenderTextureHost->AsRenderDXGITextureHost();
+  RefPtr<IDCompositionTexture> dcompTexture =
+      textureHost->GetDCompositionTexture();
+  if (!dcompTexture) {
+    gfxCriticalNote << "Failed to get DCompTexture";
+    RenderThread::Get()->NotifyWebRenderError(
+        WebRenderError::DCOMP_TEXTURE_OVERLAY);
+    return;
+  }
+
+  const auto alphaMode =
+      mIsOpaque ? DXGI_ALPHA_MODE_IGNORE : DXGI_ALPHA_MODE_PREMULTIPLIED;
+  dcompTexture->SetAlphaMode(alphaMode);
+  //  XXX
+  //  dcompTexture->SetColorSpace();
+
+  mContentVisual->SetContent(dcompTexture);
+  mPrevRenderTextureHost = mRenderTextureHost;
+  mDCLayerTree->SetPendingCommit();
 }
 
 DCSurfaceVideo::DCSurfaceVideo(bool aIsOpaque, DCLayerTree* aDCLayerTree)
@@ -1500,16 +2249,26 @@ DCSurfaceVideo::~DCSurfaceVideo() {
 }
 
 bool IsYUVSwapChainFormat(DXGI_FORMAT aFormat) {
-  if (aFormat == DXGI_FORMAT_NV12 || aFormat == DXGI_FORMAT_YUY2) {
-    return true;
+  switch (aFormat) {
+    case DXGI_FORMAT_P010:
+    case DXGI_FORMAT_P016:
+    case DXGI_FORMAT_NV12:
+    case DXGI_FORMAT_YUY2:
+      return true;
+    default:
+      return false;
   }
-  return false;
 }
 
 void DCSurfaceVideo::AttachExternalImage(wr::ExternalImageId aExternalImage) {
   auto [texture, usageInfo] =
       RenderThread::Get()->GetRenderTextureAndUsageInfo(aExternalImage);
-  MOZ_RELEASE_ASSERT(texture);
+  if (!texture) {
+    gfxCriticalNoteOnce << "Failed to attach ExternalImage for extId:"
+                        << AsUint64(aExternalImage);
+    mRenderTextureHost = nullptr;
+    return;
+  }
 
   if (usageInfo) {
     mRenderTextureHostUsageInfo = usageInfo;
@@ -1519,10 +2278,31 @@ void DCSurfaceVideo::AttachExternalImage(wr::ExternalImageId aExternalImage) {
     return;
   }
 
+  // If the content format is HDR, we will want to use more than 8bit.
+  mContentIsHDR = false;
+  if (texture) {
+    const auto format = texture->GetFormat();
+    nsPrintfCString str("AttachExternalImage: SurfaceFormat %d", (int)format);
+    PROFILER_MARKER_TEXT("DCSurfaceVideo", GRAPHICS, {}, str);
+    switch (format) {
+      case gfx::SurfaceFormat::R10G10B10A2_UINT32:
+      case gfx::SurfaceFormat::R10G10B10X2_UINT32:
+      case gfx::SurfaceFormat::R16G16B16A16F:
+      case gfx::SurfaceFormat::P010:
+      case gfx::SurfaceFormat::P016:
+        mContentIsHDR = true;
+        break;
+      default:
+        break;
+    }
+  }
+
   // XXX if software decoded video frame format is nv12, it could be used as
   // video overlay.
   if (!texture || !texture->AsRenderDXGITextureHost() ||
-      texture->GetFormat() != gfx::SurfaceFormat::NV12) {
+      ((texture->GetFormat() != gfx::SurfaceFormat::NV12) &&
+       (texture->GetFormat() != gfx::SurfaceFormat::P010) &&
+       (texture->GetFormat() != gfx::SurfaceFormat::P016))) {
     gfxCriticalNote << "Unsupported RenderTexture for overlay: "
                     << gfx::hexa(texture);
     return;
@@ -1555,7 +2335,7 @@ bool DCSurfaceVideo::CalculateSwapChainSize(gfx::Matrix& aTransform) {
   // could be done by VideoProcessor
   bool scaleVideoAtVideoProcessor = false;
   if (StaticPrefs::gfx_webrender_dcomp_video_vp_scaling_win_AtStartup() &&
-      aTransform.PreservesAxisAlignedRectangles()) {
+      aTransform.IsTranslation()) {
     gfx::Size scaledSize = gfx::Size(mVideoSize) * aTransform.ScaleFactors();
     gfx::IntSize size(int32_t(std::round(scaledSize.width)),
                       int32_t(std::round(scaledSize.height)));
@@ -1590,7 +2370,7 @@ bool DCSurfaceVideo::CalculateSwapChainSize(gfx::Matrix& aTransform) {
   const bool driverSupportsAutoHDR =
       GetVpAutoHDRSupported(vendorId, mDCLayerTree->GetVideoContext(),
                             mDCLayerTree->GetVideoProcessor());
-  const bool contentIsHDR = false;  // XXX for now, only non-HDR is supported.
+  const bool contentIsHDR = mContentIsHDR;
   const bool monitorIsHDR =
       gfx::DeviceManagerDx::Get()->WindowHDREnabled(mDCLayerTree->GetHwnd());
   const bool powerIsCharging = RenderThread::Get()->GetPowerIsCharging();
@@ -1598,6 +2378,9 @@ bool DCSurfaceVideo::CalculateSwapChainSize(gfx::Matrix& aTransform) {
   bool useVpAutoHDR = gfx::gfxVars::WebRenderOverlayVpAutoHDR() &&
                       !contentIsHDR && monitorIsHDR && driverSupportsAutoHDR &&
                       powerIsCharging && !mVpAutoHDRFailed;
+
+  bool useHDR =
+      gfx::gfxVars::WebRenderOverlayHDR() && contentIsHDR && monitorIsHDR;
 
   if (profiler_thread_is_being_profiled_for_markers()) {
     nsPrintfCString str(
@@ -1616,10 +2399,13 @@ bool DCSurfaceVideo::CalculateSwapChainSize(gfx::Matrix& aTransform) {
     mSwapChainSize = swapChainSize;
     mIsDRM = isDRM;
 
-    auto swapChainFormat = GetSwapChainFormat(useVpAutoHDR);
+    auto swapChainFormat = GetSwapChainFormat(useVpAutoHDR, useHDR);
     bool useYUVSwapChain = IsYUVSwapChainFormat(swapChainFormat);
     if (useYUVSwapChain) {
       // Tries to create YUV SwapChain
+      nsPrintfCString str("Creating video swapchain for YUV as DXGI format %d",
+                          (int)swapChainFormat);
+      PROFILER_MARKER_TEXT("DCSurfaceVideo", GRAPHICS, {}, str);
       CreateVideoSwapChain(swapChainFormat);
       if (!mVideoSwapChain) {
         mFailedYuvSwapChain = true;
@@ -1630,6 +2416,9 @@ bool DCSurfaceVideo::CalculateSwapChainSize(gfx::Matrix& aTransform) {
     }
     // Tries to create RGB SwapChain
     if (!mVideoSwapChain) {
+      nsPrintfCString str("Creating video swapchain for RGB as DXGI format %d",
+                          (int)swapChainFormat);
+      PROFILER_MARKER_TEXT("DCSurfaceVideo", GRAPHICS, {}, str);
       CreateVideoSwapChain(swapChainFormat);
     }
     if (!mVideoSwapChain && useVpAutoHDR) {
@@ -1638,13 +2427,19 @@ bool DCSurfaceVideo::CalculateSwapChainSize(gfx::Matrix& aTransform) {
 
       // Disable VpAutoHDR
       useVpAutoHDR = false;
-      swapChainFormat = GetSwapChainFormat(useVpAutoHDR);
+      swapChainFormat = GetSwapChainFormat(useVpAutoHDR, useHDR);
+      nsPrintfCString str(
+          "Creating video swapchain for RGB as DXGI format %d after fallback "
+          "from VpAutoHDR",
+          (int)swapChainFormat);
+      PROFILER_MARKER_TEXT("DCSurfaceVideo", GRAPHICS, {}, str);
       CreateVideoSwapChain(swapChainFormat);
     }
   }
 
   aTransform = transform;
   mUseVpAutoHDR = useVpAutoHDR;
+  mUseHDR = useHDR;
 
   return needsToPresent;
 }
@@ -1660,8 +2455,6 @@ void DCSurfaceVideo::PresentVideo() {
         wr::WebRenderError::VIDEO_OVERLAY);
     return;
   }
-
-  mVisual->SetContent(mVideoSwapChain);
 
   if (!CallVideoProcessorBlt()) {
     bool useYUVSwapChain = IsYUVSwapChainFormat(mSwapChainFormat);
@@ -1776,8 +2569,12 @@ void DCSurfaceVideo::OnCompositorEndFrame(int aFrameId, uint32_t aDurationMs) {
   mRenderTextureHostUsageInfo->OnCompositorEndFrame(aFrameId, aDurationMs);
 }
 
-DXGI_FORMAT DCSurfaceVideo::GetSwapChainFormat(bool aUseVpAutoHDR) {
+DXGI_FORMAT DCSurfaceVideo::GetSwapChainFormat(bool aUseVpAutoHDR,
+                                               bool aUseHDR) {
   if (aUseVpAutoHDR) {
+    return DXGI_FORMAT_R16G16B16A16_FLOAT;
+  }
+  if (aUseHDR) {
     return DXGI_FORMAT_R16G16B16A16_FLOAT;
   }
   if (mFailedYuvSwapChain || !mDCLayerTree->SupportsHardwareOverlays()) {
@@ -1841,13 +2638,14 @@ bool DCSurfaceVideo::CreateVideoSwapChain(DXGI_FORMAT aSwapChainFormat) {
   }
 
   mSwapChainFormat = aSwapChainFormat;
+  mContentVisual->SetContent(mVideoSwapChain);
   return true;
 }
 
 // TODO: Replace with YUVRangedColorSpace
 static Maybe<DXGI_COLOR_SPACE_TYPE> GetSourceDXGIColorSpace(
-    const gfx::YUVColorSpace aYUVColorSpace,
-    const gfx::ColorRange aColorRange) {
+    const gfx::YUVColorSpace aYUVColorSpace, const gfx::ColorRange aColorRange,
+    const bool aContentIsHDR) {
   if (aYUVColorSpace == gfx::YUVColorSpace::BT601) {
     if (aColorRange == gfx::ColorRange::FULL) {
       return Some(DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601);
@@ -1861,12 +2659,35 @@ static Maybe<DXGI_COLOR_SPACE_TYPE> GetSourceDXGIColorSpace(
       return Some(DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709);
     }
   } else if (aYUVColorSpace == gfx::YUVColorSpace::BT2020) {
+    // This is a probably-temporary internal workaround for the lack of access
+    // to mTransferFunction - BT2020 seems to always be used with PQ transfer
+    // function defined by BT2100 and STMPE 2084, we've/ been making this same
+    // assumption on macOS for quite some time, so if it was not universally
+    // true, hopefully bugs would have been filed.
+    //
+    // But ideally we'd plumb mTransferFunction through the various structs
+    // instead, which is a more delicate refactor.
+    if (StaticPrefs::gfx_color_management_hdr_video_assume_rec2020_uses_pq() &&
+        StaticPrefs::gfx_color_management_hdr_video()) {
+      return Some(DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020);
+    }
     if (aColorRange == gfx::ColorRange::FULL) {
-      // XXX Add SMPTEST2084 handling. HDR content is not handled yet by
-      // video overlay.
-      return Some(DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020);
+      if (aContentIsHDR && StaticPrefs::gfx_color_management_hdr_video()) {
+        // DXGI doesn't have a full range PQ YCbCr format, hopefully we won't
+        // have to deal with this case.
+        gfxCriticalNoteOnce
+            << "GetSourceDXGIColorSpace: DXGI has no full range "
+               "BT2020 PQ YCbCr format, using studio range instead";
+        return Some(DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020);
+      } else {
+        return Some(DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020);
+      }
     } else {
-      return Some(DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020);
+      if (aContentIsHDR && StaticPrefs::gfx_color_management_hdr_video()) {
+        return Some(DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020);
+      } else {
+        return Some(DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020);
+      }
     }
   }
 
@@ -1874,21 +2695,62 @@ static Maybe<DXGI_COLOR_SPACE_TYPE> GetSourceDXGIColorSpace(
 }
 
 static Maybe<DXGI_COLOR_SPACE_TYPE> GetSourceDXGIColorSpace(
-    const gfx::YUVRangedColorSpace aYUVColorSpace) {
+    const gfx::YUVRangedColorSpace aYUVColorSpace, const bool aContentIsHDR) {
   const auto info = FromYUVRangedColorSpace(aYUVColorSpace);
-  return GetSourceDXGIColorSpace(info.space, info.range);
+  return GetSourceDXGIColorSpace(info.space, info.range, aContentIsHDR);
+}
+
+static Maybe<DXGI_COLOR_SPACE_TYPE> GetOutputDXGIColorSpace(
+    DXGI_FORMAT aSwapChainFormat, DXGI_COLOR_SPACE_TYPE aInputColorSpace,
+    bool aUseVpAutoHDR) {
+  switch (aSwapChainFormat) {
+    case DXGI_FORMAT_NV12:
+    case DXGI_FORMAT_YUY2:
+      return Some(aInputColorSpace);
+    case DXGI_FORMAT_P010:
+    case DXGI_FORMAT_P016:
+      return Some(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+      return Some(DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709);
+    case DXGI_FORMAT_R10G10B10A2_UNORM:
+      if (aInputColorSpace == DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020) {
+        // YCbCr BT2100 PQ HDR video being converted to RGB10A2
+        return Some(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+      } else if (aInputColorSpace ==
+                     DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020 ||
+                 aInputColorSpace ==
+                     DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020) {
+        return Some(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020);
+      }
+      return Some(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+    case DXGI_FORMAT_B8G8R8X8_UNORM:
+    case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+      // Refactor note - not sure if mUseVpAutoHDR is ever true here,
+      // it may only ever use DXGI_FORMAT_R16G16B16A16_FLOAT.
+      if (aUseVpAutoHDR) {
+        return Some(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+      }
+      return Some(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+    default:
+      return Nothing();
+  }
 }
 
 bool DCSurfaceVideo::CallVideoProcessorBlt() {
   MOZ_ASSERT(mRenderTextureHost);
 
   HRESULT hr;
+  const auto device = mDCLayerTree->GetDevice();
   const auto videoDevice = mDCLayerTree->GetVideoDevice();
   const auto videoContext = mDCLayerTree->GetVideoContext();
   const auto texture = mRenderTextureHost->AsRenderDXGITextureHost();
 
   Maybe<DXGI_COLOR_SPACE_TYPE> sourceColorSpace =
-      GetSourceDXGIColorSpace(texture->GetYUVColorSpace());
+      GetSourceDXGIColorSpace(texture->GetYUVColorSpace(), mContentIsHDR);
   if (sourceColorSpace.isNothing()) {
     gfxCriticalNote << "Unsupported color space";
     return false;
@@ -1904,17 +2766,10 @@ bool DCSurfaceVideo::CallVideoProcessorBlt() {
     return false;
   }
 
-  auto query = texture->GetQuery();
-  if (query) {
-    // Wait ID3D11Query of D3D11Texture2D copy complete just before blitting for
-    // video overlay with non Intel GPUs. See Bug 1817617.
-    BOOL result;
-    bool ret = layers::WaitForFrameGPUQuery(mDCLayerTree->GetDevice(),
-                                            mDCLayerTree->GetDeviceContext(),
-                                            query, &result);
-    if (!ret) {
-      gfxCriticalNoteOnce << "WaitForFrameGPUQuery() failed";
-    }
+  if (texture->mFencesHolderId.isSome()) {
+    auto* fencesHolderMap = layers::CompositeProcessD3D11FencesHolderMap::Get();
+    MOZ_ASSERT(fencesHolderMap);
+    fencesHolderMap->WaitWriteFence(texture->mFencesHolderId.ref(), device);
   }
 
   RefPtr<IDXGISwapChain3> swapChain3;
@@ -1941,18 +2796,16 @@ bool DCSurfaceVideo::CallVideoProcessorBlt() {
   videoContext1->VideoProcessorSetStreamColorSpace1(videoProcessor, 0,
                                                     inputColorSpace);
 
-  DXGI_COLOR_SPACE_TYPE outputColorSpace =
-      IsYUVSwapChainFormat(mSwapChainFormat)
-          ? inputColorSpace
-          : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
-
-  if (mUseVpAutoHDR) {
-    outputColorSpace = mSwapChainFormat == DXGI_FORMAT_R16G16B16A16_FLOAT
-                           ? DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709
-                           : DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+  Maybe<DXGI_COLOR_SPACE_TYPE> outputColorSpace =
+      GetOutputDXGIColorSpace(mSwapChainFormat, inputColorSpace, mUseVpAutoHDR);
+  if (outputColorSpace.isNothing()) {
+    gfxCriticalNoteOnce << "Unrecognized DXGI mSwapChainFormat, unsure of "
+                           "correct DXGI colorspace: "
+                        << gfx::hexa(mSwapChainFormat);
+    return false;
   }
 
-  hr = swapChain3->SetColorSpace1(outputColorSpace);
+  hr = swapChain3->SetColorSpace1(outputColorSpace.ref());
   if (FAILED(hr)) {
     gfxCriticalNoteOnce << "SetColorSpace1 failed: " << gfx::hexa(hr);
     RenderThread::Get()->NotifyWebRenderError(
@@ -1960,7 +2813,7 @@ bool DCSurfaceVideo::CallVideoProcessorBlt() {
     return false;
   }
   videoContext1->VideoProcessorSetOutputColorSpace1(videoProcessor,
-                                                    outputColorSpace);
+                                                    outputColorSpace.ref());
 
   D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC inputDesc = {};
   inputDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
@@ -2086,6 +2939,7 @@ void DCSurfaceVideo::ReleaseDecodeSwapChainResources() {
     mSwapChainSurfaceHandle = 0;
   }
   mUseVpAutoHDR = false;
+  mUseHDR = false;
 }
 
 DCSurfaceHandle::DCSurfaceHandle(bool aIsOpaque, DCLayerTree* aDCLayerTree)
@@ -2143,9 +2997,9 @@ void DCSurfaceHandle::PresentSurfaceHandle() {
   LOG_H("PresentSurfaceHandle");
   if (IDCompositionSurface* surface = EnsureSurface()) {
     LOG_H("Set surface %p to visual", surface);
-    mVisual->SetContent(surface);
+    mContentVisual->SetContent(surface);
   } else {
-    mVisual->SetContent(nullptr);
+    mContentVisual->SetContent(nullptr);
   }
 }
 

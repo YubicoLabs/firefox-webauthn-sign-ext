@@ -10,6 +10,7 @@
 
 #include "mozilla/Alignment.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/CheckedArithmetic.h"
 
 using mozilla::SegmentedVector;
 
@@ -19,10 +20,11 @@ class InfallibleAllocPolicy {
  public:
   template <typename T>
   T* pod_malloc(size_t aNumElems) {
-    if (aNumElems & mozilla::tl::MulOverflowMask<sizeof(T)>::value) {
+    size_t size;
+    if (!mozilla::SafeMul(aNumElems, sizeof(T), &size)) {
       MOZ_CRASH("TestSegmentedVector.cpp: overflow");
     }
-    T* rv = static_cast<T*>(malloc(aNumElems * sizeof(T)));
+    T* rv = static_cast<T*>(malloc(size));
     if (!rv) {
       MOZ_CRASH("TestSegmentedVector.cpp: out of memory");
     }
@@ -110,6 +112,23 @@ void TestBasics() {
 
   // Verify the contents are what we expect.
   CheckContents(v, 700);
+
+  // Verify PopLastN can take larger than .Length() value as an argument.
+  v.PopLastN(1000);
+  MOZ_RELEASE_ASSERT(v.Length() == 0);
+  MOZ_RELEASE_ASSERT(v.IsEmpty());
+
+  // Fill the vector again.
+  for (i = 0; i < 1000; ++i) {
+    v.InfallibleAppend(std::move(i));
+  }
+  MOZ_RELEASE_ASSERT(!v.IsEmpty());
+  MOZ_RELEASE_ASSERT(v.Length() == 1000);
+
+  // Verify that calling PopLastN with Length() empties the vector.
+  v.PopLastN(v.Length());
+  MOZ_RELEASE_ASSERT(v.Length() == 0);
+  MOZ_RELEASE_ASSERT(v.IsEmpty());
 }
 
 void TestMoveAndSwap() {

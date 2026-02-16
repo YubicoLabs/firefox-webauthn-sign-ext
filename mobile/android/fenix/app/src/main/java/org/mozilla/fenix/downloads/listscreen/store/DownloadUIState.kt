@@ -13,29 +13,111 @@ import org.mozilla.fenix.downloads.listscreen.store.DownloadUIState.Mode
  * @property items List of [FileItem] to display.
  * @property mode Current [Mode] of the Download screen.
  * @property pendingDeletionIds Set of [FileItem] IDs that are waiting to be deleted.
- * @property isDeletingItems Whether or not download items are being deleted.
+ * @property isDeleteDialogVisible Flag indicating whether the delete confirmation dialog is currently visible.
+ * @property searchQuery The search query entered by the user. This is used to filter the list of items.
+ * @property fileToRename FileItem if there is a file to rename.
+ * @property renameFileError [RenameFileError] indicating if there is an error when renaming a file.
+ * @param isSearchFieldRequested Indicates whether the search field is requested to be shown.
+ * @param userSelectedContentTypeFilter The user selected [FileItem.ContentTypeFilter].
  */
 data class DownloadUIState(
     val items: List<FileItem>,
     val mode: Mode,
     val pendingDeletionIds: Set<String>,
-    val isDeletingItems: Boolean,
+    val isDeleteDialogVisible: Boolean = false,
+    val searchQuery: String = "",
+    val fileToRename: FileItem? = null,
+    val renameFileError: RenameFileError? = null,
+    private val isSearchFieldRequested: Boolean = false,
+    private val userSelectedContentTypeFilter: FileItem.ContentTypeFilter = FileItem.ContentTypeFilter.All,
 ) : State {
 
     /**
-     * The list of items to display, excluding any items that are pending deletion.
+     * The ungrouped list of items, excluding any items that are pending deletion.
      */
-    val itemsToDisplay = items.filter { it.id !in pendingDeletionIds }
+    private val itemsNotPendingDeletion = items.filter { it.id !in pendingDeletionIds }
 
     /**
-     * Whether or not the state is in an empty state.
+     * The content type filter that is actually used to filter the items. This overrides the user
+     * selected content type filter to [FileItem.ContentTypeFilter.All] if there are no items that
+     * matches the user selected filter.
      */
-    val isEmptyState: Boolean = itemsToDisplay.isEmpty()
+    val selectedContentTypeFilter: FileItem.ContentTypeFilter
+        get() {
+            val selectedTypeContainsItems = itemsNotPendingDeletion
+                .filter {
+                    userSelectedContentTypeFilter == FileItem.ContentTypeFilter.All ||
+                    it.status == FileItem.Status.Completed
+                }
+                .any { download -> userSelectedContentTypeFilter.predicate(download.contentType) }
+
+            return if (selectedTypeContainsItems) {
+                userSelectedContentTypeFilter
+            } else {
+                FileItem.ContentTypeFilter.All
+            }
+        }
 
     /**
-     * Whether or not the state is in normal mode.
+     * The list of items to display grouped by the created time of the item.
+     * The ungrouped list of items to display, excluding any items that are pending deletion and
+     * that match the selected content type filter and the search query.
      */
-    val isNormalMode: Boolean = mode is Mode.Normal
+    val itemsMatchingFilters = itemsNotPendingDeletion
+        .filter {
+            selectedContentTypeFilter == FileItem.ContentTypeFilter.All ||
+            it.status == FileItem.Status.Completed
+        }
+        .filter { selectedContentTypeFilter.predicate(it.contentType) }
+        .filter { it.stringToMatchForSearchQuery.contains(searchQuery, ignoreCase = true) }
+
+    /**
+     * The list of items to display grouped by the created time of the item.
+     */
+    private val itemsToDisplay: List<DownloadListItem> = itemsMatchingFilters
+        .groupBy { it.timeCategory }
+        .toSortedMap()
+        .flatMap { (createdTime, fileItems) ->
+            listOf(HeaderItem(createdTime)) + fileItems
+        }
+
+    /**
+     * The list of content type filters that have at least one item that matches the filter.
+     */
+    private val matchingFilters: List<FileItem.ContentTypeFilter> =
+        itemsNotPendingDeletion
+            .filter { it.status == FileItem.Status.Completed }
+            .map { it.matchingContentTypeFilter }
+            .distinct()
+            .sorted()
+
+    /**
+     * The list of content type filters to display.
+     */
+    val filtersToDisplay: List<FileItem.ContentTypeFilter> =
+        if (matchingFilters.size > 1) {
+            listOf(FileItem.ContentTypeFilter.All) + matchingFilters
+        } else {
+            emptyList()
+        }
+
+    val itemsState: ItemsState = when {
+        itemsToDisplay.isEmpty() && searchQuery.isNotEmpty() -> ItemsState.NoSearchResults
+        itemsToDisplay.isEmpty() -> ItemsState.NoItems
+        else -> ItemsState.Items(itemsToDisplay)
+    }
+
+    val isSearchFieldVisible: Boolean
+        get() = isSearchFieldRequested && mode is Mode.Normal
+
+    val isSearchIconVisible: Boolean
+        get() = itemsNotPendingDeletion.isNotEmpty() && !isSearchFieldVisible && mode is Mode.Normal
+
+    val isSettingsIconVisible: Boolean
+        get() = !isSearchFieldVisible && mode is Mode.Normal
+
+    val isBackHandlerEnabled: Boolean
+        get() = isSearchFieldRequested || mode is Mode.Editing
 
     /**
      * @see [DownloadUIState].
@@ -45,8 +127,30 @@ data class DownloadUIState(
             items = emptyList(),
             mode = Mode.Normal,
             pendingDeletionIds = emptySet(),
-            isDeletingItems = false,
+            userSelectedContentTypeFilter = FileItem.ContentTypeFilter.All,
         )
+    }
+
+    /**
+     * The state of the items to display in the Download screen.
+     */
+    sealed interface ItemsState {
+        /**
+         * The state when there are no files to display.
+         */
+        data object NoItems : ItemsState
+
+        /**
+         * The state when there are no results to display based on the search query.
+         */
+        data object NoSearchResults : ItemsState
+
+        /**
+         * The state when there are files to display.
+         */
+        data class Items(
+            val items: List<DownloadListItem>,
+        ) : ItemsState
     }
 
     /**

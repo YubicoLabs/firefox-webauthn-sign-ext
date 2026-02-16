@@ -45,6 +45,14 @@ var gContentSecurityPolicy = null;
 const BASE_URL = `http://example.com`;
 const CSP_REPORT_PATH = "/csp-report.sjs";
 
+server.registerPathHandler(CSP_REPORT_PATH, (request, response) => {
+  // This endpoint used to collect CSP violations in `awaitCSP` test helper,
+  // but the test caused deadlocks in httpd.sys.mjs (bug 1408193). That was
+  // consistently reproducible in TV and debug builds.
+  // As a work-around, we capture the data with webRequest, see EXTENSION_DATA.
+  response.setStatusLine(request.httpVersion, 204, "No Content");
+});
+
 /**
  * Registers a static HTML document with the given content at the given
  * path in our test HTTP server.
@@ -175,7 +183,7 @@ function getElementData(test, opts) {
 }
 
 /**
- * The result type of the {@see createElement} function.
+ * The result type of the {@link createElement} function.
  *
  * @typedef {object} CreateElementResult
  * @property {Element} elem
@@ -189,7 +197,7 @@ function getElementData(test, opts) {
 
 /**
  * Creates a DOM tree for a given test, in a given configuration, as
- * understood by {@see getElementData}, but without the `test.srcAttr`
+ * understood by {@link getElementData}, but without the `test.srcAttr`
  * attribute having been set. The caller must set the value of that
  * attribute to the returned `src` value.
  *
@@ -199,9 +207,9 @@ function getElementData(test, opts) {
  * many variants of these as possible.
  *
  * @param {ElementTestCase} test
- *        A test object, as passed to {@see getElementData}.
+ *        A test object, as passed to {@link getElementData}.
  * @param {ElementTestOptions} opts
- *        An options object, as passed to {@see getElementData}.
+ *        An options object, as passed to {@link getElementData}.
  * @returns {CreateElementResult}
  */
 function createElement(test, opts) {
@@ -273,13 +281,13 @@ function escaped(strings, ...values) {
 }
 
 /**
- * Converts the given test data, as accepted by {@see getElementData},
+ * Converts the given test data, as accepted by {@link getElementData},
  * to an HTML representation.
  *
  * @param {ElementTestCase} test
- *        A test object, as passed to {@see getElementData}.
+ *        A test object, as passed to {@link getElementData}.
  * @param {ElementTestOptions} opts
- *        An options object, as passed to {@see getElementData}.
+ *        An options object, as passed to {@link getElementData}.
  * @returns {string}
  */
 function toHTML(test, opts) {
@@ -578,9 +586,9 @@ function testInlineCSS() {
  * various configurations.
  *
  * @param {Array<ElementTestCase>} tests
- *        A list of test objects, as understood by {@see getElementData}.
+ *        A list of test objects, as understood by {@link getElementData}.
  * @param {ElementTestOptions} baseOpts
- *        A base options object, as understood by {@see getElementData},
+ *        A base options object, as understood by {@link getElementData},
  *        which represents the default values for injections under this
  *        context.
  */
@@ -750,13 +758,13 @@ function injectElements(tests, baseOpts) {
 }
 
 /**
- * Stringifies the {@see injectElements} function for use as a page or
+ * Stringifies the {@link injectElements} function for use as a page or
  * content script.
  *
  * @param {Array<ElementTestCase>} tests
- *        A list of test objects, as understood by {@see getElementData}.
+ *        A list of test objects, as understood by {@link getElementData}.
  * @param {ElementTestOptions} opts
- *        A base options object, as understood by {@see getElementData},
+ *        A base options object, as understood by {@link getElementData},
  *        which represents the default values for injections under this
  *        context.
  * @returns {string}
@@ -814,7 +822,7 @@ function getOriginBase(origURL) {
  * with the `origin` query parameter removed.
  *
  * @param {Array<ElementTestCase>} tests
- *        A list of tests, as understood by {@see getElementData}.
+ *        A list of tests, as understood by {@link getElementData}.
  * @param {Record<string, object>} expectedSources
  *        A set of sources for which each of the above tests is expected
  *        to generate one request, if each of the properties in the
@@ -938,7 +946,7 @@ function computeExpectedForbiddenURLs(
  *
  * @param {Promise<object>} urlsPromise
  *        A promise which resolves to an object containing expected and
- *        forbidden URL sets, as returned by {@see computeBaseURLs}.
+ *        forbidden URL sets, as returned by {@link computeBaseURLs}.
  * @param {Record<string, string>} origins
  *        A mapping of origin parameters as they appear in URL query
  *        strings to the origin strings returned by corresponding
@@ -1000,11 +1008,6 @@ function awaitLoads(urlsPromise, origins) {
   });
 }
 
-function readUTF8InputStream(stream) {
-  let buffer = NetUtil.readInputStream(stream, stream.available());
-  return new TextDecoder().decode(buffer);
-}
-
 /**
  * Awaits CSP reports for each of the given forbidden base URLs.
  * Triggers a test failure if any of the given expected URLs triggers a
@@ -1012,18 +1015,19 @@ function readUTF8InputStream(stream) {
  *
  * @param {Promise<object>} urlsPromise
  *        A promise which resolves to an object containing expected and
- *        forbidden URL sets, as returned by {@see computeBaseURLs}.
+ *        forbidden URL sets, as returned by {@link computeBaseURLs}.
+ * @param {ExtensionWrapper} extension
  * @returns {Promise}
  *        A promise which resolves when all requests have been
  *        processed.
  */
-function awaitCSP(urlsPromise) {
+function awaitCSP(urlsPromise, extension) {
   return new Promise(resolve => {
     let expectedURLs, blockedURLs, blockedSources;
     let queuedRequests = [];
 
     function checkRequest(request) {
-      let body = JSON.parse(readUTF8InputStream(request.bodyInputStream));
+      let body = request.body;
       let report = body["csp-report"];
 
       let origURL = report["blocked-uri"];
@@ -1071,9 +1075,7 @@ function awaitCSP(urlsPromise) {
       }
     });
 
-    server.registerPathHandler(CSP_REPORT_PATH, (request, response) => {
-      response.setStatusLine(request.httpVersion, 204, "No Content");
-
+    extension.onMessage("CSP_REPORT_PATH", request => {
       if (expectedURLs) {
         checkRequest(request);
       } else {
@@ -1085,7 +1087,7 @@ function awaitCSP(urlsPromise) {
 
 /**
  * A list of tests to run in each context, as understood by
- * {@see getElementData}.
+ * {@link getElementData}.
  */
 const TESTS = [
   {
@@ -1221,6 +1223,8 @@ function catchViolation() {
 
 const EXTENSION_DATA = {
   manifest: {
+    permissions: ["webRequest", "webRequestBlocking"],
+    host_permissions: ["http://example.com/*"],
     content_scripts: [
       {
         matches: ["http://*/page.html"],
@@ -1236,6 +1240,30 @@ const EXTENSION_DATA = {
       source: "contentScript",
       origin: "contentScript",
     }),
+  },
+  background() {
+    // Use webRequest to detect CSP violations; see CSP_REPORT_PATH
+    browser.webRequest.onBeforeRequest.addListener(
+      details => {
+        try {
+          let rawBody = "";
+          const decoder = new TextDecoder();
+          for (let [i, chunk] of details.requestBody.raw.entries()) {
+            const stream = i < details.requestBody.raw.length - 1;
+            rawBody += decoder.decode(chunk.bytes, { stream });
+          }
+          const body = JSON.parse(rawBody);
+          const request = { body };
+          browser.test.sendMessage("CSP_REPORT_PATH", request);
+        } catch (e) {
+          browser.test.fail(
+            `Failed to parse CSP report: ${e} :: ${JSON.stringify(details)}`
+          );
+        }
+      },
+      { urls: ["*://example.com/csp-report.sjs"], types: ["csp_report"] },
+      ["blocking", "requestBody"]
+    );
   },
 };
 
@@ -1300,11 +1328,6 @@ add_task(async function test_contentscript_triggeringPrincipals() {
  * content page.
  */
 add_task(async function test_contentscript_csp() {
-  // TODO bug 1408193: We currently don't get the full set of CSP reports when
-  // running in network scheduling chaos mode. It's not entirely clear why.
-  let chaosMode = parseInt(Services.env.get("MOZ_CHAOSMODE"), 16);
-  let checkCSPReports = !(chaosMode === 0 || chaosMode & 0x02);
-
   gContentSecurityPolicy = `default-src 'none' 'report-sample'; script-src 'nonce-deadbeef' 'unsafe-eval' 'report-sample'; report-uri ${CSP_REPORT_PATH};`;
 
   let extension = ExtensionTestUtils.loadExtension(EXTENSION_DATA);
@@ -1321,7 +1344,7 @@ add_task(async function test_contentscript_csp() {
 
   let finished = Promise.all([
     awaitLoads(urlsPromise, origins),
-    checkCSPReports && awaitCSP(urlsPromise),
+    awaitCSP(urlsPromise, extension),
   ]);
 
   let contentPage = await ExtensionTestUtils.loadContentPage(pageURL);
@@ -1338,13 +1361,6 @@ add_task(async function test_contentscript_csp() {
  * content page.
  */
 add_task(async function test_extension_contentscript_csp() {
-  Services.prefs.setBoolPref("extensions.manifestV3.enabled", true);
-
-  // TODO bug 1408193: We currently don't get the full set of CSP reports when
-  // running in network scheduling chaos mode. It's not entirely clear why.
-  let chaosMode = parseInt(Services.env.get("MOZ_CHAOSMODE"), 16);
-  let checkCSPReports = !(chaosMode === 0 || chaosMode & 0x02);
-
   gContentSecurityPolicy = `default-src 'none' 'report-sample'; script-src 'nonce-deadbeef' 'unsafe-eval' 'report-sample'; report-uri ${CSP_REPORT_PATH};`;
 
   let data = {
@@ -1352,10 +1368,7 @@ add_task(async function test_extension_contentscript_csp() {
     manifest: {
       ...EXTENSION_DATA.manifest,
       manifest_version: 3,
-      host_permissions: ["http://example.com/*"],
-      granted_host_permissions: true,
     },
-    temporarilyInstalled: true,
   };
 
   let extension = ExtensionTestUtils.loadExtension(data);
@@ -1372,7 +1385,7 @@ add_task(async function test_extension_contentscript_csp() {
 
   let finished = Promise.all([
     awaitLoads(urlsPromise, origins),
-    checkCSPReports && awaitCSP(urlsPromise),
+    awaitCSP(urlsPromise, extension),
   ]);
 
   let contentPage = await ExtensionTestUtils.loadContentPage(pageURL);
@@ -1381,5 +1394,4 @@ add_task(async function test_extension_contentscript_csp() {
 
   await extension.unload();
   await contentPage.close();
-  Services.prefs.clearUserPref("extensions.manifestV3.enabled");
 });

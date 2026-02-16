@@ -1,8 +1,5 @@
 "use strict";
 
-ChromeUtils.defineESModuleGetters(this, {
-  BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
-});
 // Create a uri for an https site
 const testPath = getRootDirectory(gTestPath).replace(
   "chrome://mochitests/content",
@@ -28,8 +25,8 @@ function promisePanelOpened() {
  * @param aDownload
  *        The Download object to wait upon.
  *
- * @return {Promise}
- * @resolves When the download has finished successfully.
+ * @returns {Promise<void>}
+ *   Resolves when the download has finished successfully.
  * @rejects JavaScript exception if the download failed.
  */
 function promiseDownloadStopped(aDownload) {

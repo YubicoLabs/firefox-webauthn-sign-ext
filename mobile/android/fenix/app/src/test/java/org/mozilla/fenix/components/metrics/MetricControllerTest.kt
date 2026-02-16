@@ -55,12 +55,12 @@ import org.mozilla.fenix.GleanMetrics.SitePermissions
 import org.mozilla.fenix.GleanMetrics.SyncedTabs
 import org.mozilla.fenix.components.metrics.ReleaseMetricController.Companion
 import org.mozilla.fenix.helpers.FenixGleanTestRule
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
 import org.mozilla.fenix.search.awesomebar.ShortcutsSuggestionProvider
 import org.mozilla.fenix.utils.Settings
+import org.robolectric.RobolectricTestRunner
 import mozilla.components.compose.browser.awesomebar.AwesomeBarFacts as ComposeAwesomeBarFacts
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class MetricControllerTest {
 
     @get:Rule
@@ -787,23 +787,39 @@ class MetricControllerTest {
 
         // Verify trending search suggestion action clicked
         assertNull(Awesomebar.trendingSearchSuggestionClicked.testGetValue())
-        fact = Fact(Component.FEATURE_AWESOMEBAR, Action.CANCEL, AwesomeBarFacts.Items.TRENDING_SEARCH_SUGGESTION_CLICKED)
+        fact = Fact(Component.FEATURE_AWESOMEBAR, Action.CANCEL, AwesomeBarFacts.Items.TRENDING_SEARCH_SUGGESTION_CLICKED, "3")
 
         with(controller) {
             fact.process()
         }
 
         assertNotNull(Awesomebar.trendingSearchSuggestionClicked.testGetValue())
+        assertNotNull(Awesomebar.trendingSearchSuggestionClicked.testGetValue()!![0].extra)
+        assertEquals("3", Awesomebar.trendingSearchSuggestionClicked.testGetValue()!![0].extra!!["position"])
 
         // Verify top site suggestion action clicked
         assertNull(Awesomebar.topSiteSuggestionClicked.testGetValue())
-        fact = Fact(Component.FEATURE_AWESOMEBAR, Action.CANCEL, AwesomeBarFacts.Items.TOP_SITE_SUGGESTION_CLICKED)
+        fact = Fact(Component.FEATURE_AWESOMEBAR, Action.CANCEL, AwesomeBarFacts.Items.TOP_SITE_SUGGESTION_CLICKED, "2")
 
         with(controller) {
             fact.process()
         }
 
         assertNotNull(Awesomebar.topSiteSuggestionClicked.testGetValue())
+        assertNotNull(Awesomebar.topSiteSuggestionClicked.testGetValue()!![0].extra)
+        assertEquals("2", Awesomebar.topSiteSuggestionClicked.testGetValue()!![0].extra!!["position"])
+
+        // Verify recent search suggestion action clicked
+        assertNull(Awesomebar.recentSearchSuggestionClicked.testGetValue())
+        fact = Fact(Component.FEATURE_AWESOMEBAR, Action.CANCEL, AwesomeBarFacts.Items.RECENT_SEARCH_SUGGESTION_CLICKED, "1")
+
+        with(controller) {
+            fact.process()
+        }
+
+        assertNotNull(Awesomebar.recentSearchSuggestionClicked.testGetValue())
+        assertNotNull(Awesomebar.recentSearchSuggestionClicked.testGetValue()!![0].extra)
+        assertEquals("1", Awesomebar.recentSearchSuggestionClicked.testGetValue()!![0].extra!!["position"])
 
         // Verify bookmark opened tab suggestion clicked
         assertNull(Awesomebar.openedTabSuggestionClicked.testGetValue())
@@ -824,6 +840,42 @@ class MetricControllerTest {
         }
 
         assertNotNull(Awesomebar.searchTermSuggestionClicked.testGetValue())
+
+        // Verify trending search suggestions displayed
+        assertNull(Awesomebar.trendingSearchSuggestionsDisplayed.testGetValue())
+        fact = Fact(Component.FEATURE_AWESOMEBAR, Action.CANCEL, AwesomeBarFacts.Items.TRENDING_SEARCH_SUGGESTIONS_DISPLAYED, "6")
+
+        with(controller) {
+            fact.process()
+        }
+
+        assertNotNull(Awesomebar.trendingSearchSuggestionsDisplayed.testGetValue())
+        assertNotNull(Awesomebar.trendingSearchSuggestionsDisplayed.testGetValue()!![0].extra)
+        assertEquals("6", Awesomebar.trendingSearchSuggestionsDisplayed.testGetValue()!![0].extra!!["count"])
+
+        // Verify top site suggestions displayed
+        assertNull(Awesomebar.topSiteSuggestionsDisplayed.testGetValue())
+        fact = Fact(Component.FEATURE_AWESOMEBAR, Action.CANCEL, AwesomeBarFacts.Items.TOP_SITE_SUGGESTIONS_DISPLAYED, "5")
+
+        with(controller) {
+            fact.process()
+        }
+
+        assertNotNull(Awesomebar.topSiteSuggestionsDisplayed.testGetValue())
+        assertNotNull(Awesomebar.topSiteSuggestionsDisplayed.testGetValue()!![0].extra)
+        assertEquals("5", Awesomebar.topSiteSuggestionsDisplayed.testGetValue()!![0].extra!!["count"])
+
+        // Verify recent site suggestions displayed
+        assertNull(Awesomebar.recentSearchSuggestionsDisplayed.testGetValue())
+        fact = Fact(Component.FEATURE_AWESOMEBAR, Action.CANCEL, AwesomeBarFacts.Items.RECENT_SEARCH_SUGGESTIONS_DISPLAYED, "4")
+
+        with(controller) {
+            fact.process()
+        }
+
+        assertNotNull(Awesomebar.recentSearchSuggestionsDisplayed.testGetValue())
+        assertNotNull(Awesomebar.recentSearchSuggestionsDisplayed.testGetValue()!![0].extra)
+        assertEquals("4", Awesomebar.recentSearchSuggestionsDisplayed.testGetValue()!![0].extra!!["count"])
     }
 
     @Test

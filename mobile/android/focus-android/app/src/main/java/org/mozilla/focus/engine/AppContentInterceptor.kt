@@ -10,9 +10,8 @@ import mozilla.components.browser.errorpages.ErrorType
 import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.request.RequestInterceptor
 import org.mozilla.focus.R
-import org.mozilla.focus.browser.LocalizedContent
 import org.mozilla.focus.ext.components
-import org.mozilla.focus.ext.showCrashReports
+import org.mozilla.focus.state.AppAction
 import org.mozilla.focus.utils.SupportUtils
 
 class AppContentInterceptor(
@@ -29,23 +28,10 @@ class AppContentInterceptor(
         isSubframeRequest: Boolean,
     ): RequestInterceptor.InterceptionResponse? {
         return when (uri) {
-            LocalizedContent.URL_RIGHTS -> RequestInterceptor.InterceptionResponse.Content(
-                LocalizedContent.loadRights(context),
-                encoding = "base64",
-            )
-
-            LocalizedContent.URL_GPL -> RequestInterceptor.InterceptionResponse.Content(
-                LocalizedContent.loadGPL(context),
-                encoding = "base64",
-            )
-
-            LocalizedContent.URL_LICENSES -> RequestInterceptor.InterceptionResponse.Content(
-                LocalizedContent.loadLicenses(context),
-                encoding = "base64",
-            )
-
             "about:crashes" -> {
-                context.showCrashReports()
+                context.components.appStore.dispatch(
+                    AppAction.OpenCrashList,
+                )
                 RequestInterceptor.InterceptionResponse.Url("about:blank")
             }
 

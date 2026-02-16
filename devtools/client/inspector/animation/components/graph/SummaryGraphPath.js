@@ -7,10 +7,10 @@
 const {
   Component,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const ReactDOM = require("resource://devtools/client/shared/vendor/react-dom.js");
+const ReactDOM = require("resource://devtools/client/shared/vendor/react-dom.mjs");
 
 const ComputedTimingPath = createFactory(
   require("resource://devtools/client/inspector/animation/components/graph/ComputedTimingPath.js")
@@ -146,7 +146,7 @@ class SummaryGraphPath extends Component {
    *
    * @param {Array} keyframes1
    * @param {Array} keyframes2
-   * @return {Boolean} true: equals
+   * @return {boolean} true: equals
    */
   isOffsetAndEasingKeyframesEqual(keyframes1, keyframes2) {
     if (keyframes1.length !== keyframes2.length) {

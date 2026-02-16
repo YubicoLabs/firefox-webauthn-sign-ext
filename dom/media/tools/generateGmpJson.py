@@ -32,9 +32,14 @@ def fetch_url_for_cdms(cdms, urlParams):
                     "{} expected https scheme '{}'".format(cdm["target"], redirectUrl)
                 )
 
-            sanitizedUrl = urlunparse(
-                (parsedUrl.scheme, parsedUrl.netloc, parsedUrl.path, None, None, None)
-            )
+            sanitizedUrl = urlunparse((
+                parsedUrl.scheme,
+                parsedUrl.netloc,
+                parsedUrl.path,
+                None,
+                None,
+                None,
+            ))
 
             # Note that here we modify the returned URL from the
             # component update service because it returns a preferred
@@ -163,14 +168,14 @@ def calculate_gmpopenh264_json(version: str, version_hash: str, url_base: str) -
         return (
             "{\n"
             + '  "hashFunction": "sha512",\n'
-            + '  "name": "OpenH264-{}",\n'.format(version)
+            + f'  "name": "OpenH264-{version}",\n'
             + '  "schema_version": 1000,\n'
             + '  "vendors": {\n'
             + '    "gmp-gmpopenh264": {\n'
             + '      "platforms": {\n'
             + generate_json_for_cdms(cdms)
             + "      },\n"
-            + '      "version": "{}"\n'.format(version)
+            + f'      "version": "{version}"\n'
             + "    }\n"
             + "  }\n"
             + "}"
@@ -203,14 +208,14 @@ def calculate_widevinecdm_json(version: str, url_base: str) -> str:
         return (
             "{\n"
             + '  "hashFunction": "sha512",\n'
-            + '  "name": "Widevine-{}",\n'.format(version)
+            + f'  "name": "Widevine-{version}",\n'
             + '  "schema_version": 1000,\n'
             + '  "vendors": {\n'
             + '    "gmp-widevinecdm": {\n'
             + '      "platforms": {\n'
             + generate_json_for_cdms(cdms)
             + "      },\n"
-            + '      "version": "{}"\n'.format(version)
+            + f'      "version": "{version}"\n'
             + "    }\n"
             + "  }\n"
             + "}"
@@ -232,14 +237,14 @@ def calculate_chrome_component_json(
         return (
             "{\n"
             + '  "hashFunction": "sha512",\n'
-            + '  "name": "{}-{}",\n'.format(name, version)
+            + f'  "name": "{name}-{version}",\n'
             + '  "schema_version": 1000,\n'
             + '  "vendors": {\n'
-            + '    "gmp-{}": {{\n'.format(altname)
+            + f'    "gmp-{altname}": {{\n'
             + '      "platforms": {\n'
             + generate_json_for_cdms(cdms)
             + "      },\n"
-            + '      "version": "{}"\n'.format(version)
+            + f'      "version": "{version}"\n'
             + "    }\n"
             + "  }\n"
             + "}"
@@ -313,7 +318,7 @@ def main():
     args = parser.parse_args()
 
     if args.plugin == "openh264":
-        url_base = "http://ciscobinary.openh264.org"
+        url_base = "https://ciscobinary.openh264.org"
         if args.version is None or args.revision is None:
             parser.error("openh264 requires version and revision")
     elif args.plugin == "widevine":

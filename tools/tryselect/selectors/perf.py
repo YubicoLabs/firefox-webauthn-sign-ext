@@ -44,16 +44,18 @@ PREVIEW_SCRIPT = pathlib.Path(
     build.topsrcdir, "tools/tryselect/selectors/perf_preview.py"
 )
 
-PERFHERDER_BASE_URL = (
-    "https://treeherder.mozilla.org/perfherder/"
-    "compare?originalProject=try&originalRevision=%s&newProject=try&newRevision=%s"
-    "&framework=%s"
-)
 PERFCOMPARE_BASE_URL = (
     "https://perf.compare/compare-results?"
     "baseRev=%s&newRev=%s&baseRepo=try&newRepo=try&framework=%s"
 )
+PERFCOMPARE_BASE_URL_LANDO = (
+    "https://perf.compare/compare-lando-results?"
+    "baseLando=%s&newLando=%s&baseRepo=try&newRepo=try&framework=%s"
+)
 TREEHERDER_TRY_BASE_URL = "https://treeherder.mozilla.org/jobs?repo=try&revision=%s"
+TREEHERDER_TRY_LANDO_BASE_URL = (
+    "https://treeherder.mozilla.org/jobs?repo=try&landoCommitID=%s"
+)
 TREEHERDER_ALERT_TASKS_URL = (
     "https://treeherder.mozilla.org/api/performance/alertsummary-tasks/?id=%s"
 )
@@ -100,6 +102,7 @@ class PerfParser(CompareParser):
     task_configs = [
         "artifact",
         "browsertime",
+        "build-car",
         "disable-pgo",
         "env",
         "gecko-profile",
@@ -126,14 +129,6 @@ class PerfParser(CompareParser):
             },
         ],
         [
-            ["--android"],
-            {
-                "action": "store_true",
-                "default": False,
-                "help": "Show android test categories (disabled by default).",
-            },
-        ],
-        [
             ["--chrome"],
             {
                 "action": "store_true",
@@ -147,8 +142,7 @@ class PerfParser(CompareParser):
             {
                 "action": "store_true",
                 "default": False,
-                "help": "Show tests available for Custom Chromium-as-Release (disabled by default). "
-                "Use with --android flag to select Custom CaR android tests (cstm-car-m)",
+                "help": "Show tests available for Custom Chromium-as-Release (disabled by default)",
             },
         ],
         [
@@ -213,7 +207,7 @@ class PerfParser(CompareParser):
                 "tests. If the Activity, Binary Path, or Intents required "
                 "change at all relative to the existing GeckoView, and Fenix "
                 "tasks, then you will need to make fixes in the associated "
-                "taskcluster files (e.g. taskcluster/kinds/test/browsertime-mobile.yml). "
+                "taskcluster files (e.g. taskcluster/kinds/browsertime/mobile.yml). "
                 "Alternatively, set MOZ_FIREFOX_ANDROID_APK_OUTPUT to a path to "
                 "an APK, and then run the command with --browsertime-upload-apk "
                 "firefox-android. This option will only copy the APK for browsertime, see "
@@ -283,8 +277,7 @@ class PerfParser(CompareParser):
                 "default": [],
                 "dest": "requested_platforms",
                 "choices": list(platforms.keys()),
-                "help": "Select specific platforms to target. Android only "
-                "available with --android. Available platforms: "
+                "help": "Select specific platforms to target. Available platforms: "
                 + ", ".join(list(platforms.keys())),
                 "metavar": "",
             },
@@ -571,9 +564,9 @@ class PerfParser(CompareParser):
 
                 # Disable the variant combination if none of them
                 # are found in the suite
-                disable_variant = not any(
-                    [variant.value in suite_variants for variant in variant_combination]
-                )
+                disable_variant = not any([
+                    variant.value in suite_variants for variant in variant_combination
+                ])
 
                 for platform in Platforms:
                     if disable_variant:
@@ -636,20 +629,18 @@ class PerfParser(CompareParser):
                 if BASE_CATEGORY_NAME not in variant_combination:
                     # Make sure that all portions of the variant combination
                     # target at least one of the suites in the category
-                    tmp_variant_combination = set(
-                        [v.value for v in variant_combination]
-                    )
+                    tmp_variant_combination = set([
+                        v.value for v in variant_combination
+                    ])
                     for suite in Suites:
                         if suite.value not in category_info["suites"]:
                             continue
-                        tmp_variant_combination = tmp_variant_combination - set(
-                            [
-                                variant.value
-                                for variant in variant_combination
-                                if variant.value
-                                in PerfParser.suites[suite.value]["variants"]
-                            ]
-                        )
+                        tmp_variant_combination = tmp_variant_combination - set([
+                            variant.value
+                            for variant in variant_combination
+                            if variant.value
+                            in PerfParser.suites[suite.value]["variants"]
+                        ])
                     if tmp_variant_combination:
                         # If it's not empty, then some variants
                         # are non-existent
@@ -1040,13 +1031,12 @@ class PerfParser(CompareParser):
 
         if len(mwu_task) > 1 or len(mwu_task) == 0:
             raise InvalidRegressionDetectorQuery(
-                f"Expected 1 task from change detector "
-                f"query, but found {len(mwu_task)}"
+                f"Expected 1 task from change detector query, but found {len(mwu_task)}"
             )
 
         selected_tasks |= set(mwu_task)
 
-    def check_cached_revision(selected_tasks, base_commit=None):
+    def check_cached_revision(selected_tasks, base_commit=None, push_to_vcs=True):
         """
         If the base_commit parameter does not exist, remove expired cache data.
         Cache data format:
@@ -1071,14 +1061,14 @@ class PerfParser(CompareParser):
 
         :param selected_tasks list: The list of tasks selected by the user
         :param base_commit str: The base commit to search
-        :return: The base_revision_treeherder if found, else None
+        :return: a tuple (base_revision_treeherder, date) if found, else (None, None))
         """
         today = datetime.now()
         expired_date = (today - timedelta(weeks=2)).strftime("%Y-%m-%d")
         today = today.strftime("%Y-%m-%d")
 
         if not cache_file.is_file():
-            return
+            return None
 
         with cache_file.open("r") as f:
             cache_data = json.load(f)
@@ -1107,10 +1097,14 @@ class PerfParser(CompareParser):
         cached_base_commit = cache_data.get(base_commit, None)
         if cached_base_commit:
             for push in cached_base_commit:
-                if set(selected_tasks) <= set(push["tasks"]):
+                # Check to make sure that the cache entry uses the same push
+                # mechanism to avoid mixing them up
+                if push.get("lando", False) == (not push_to_vcs) and set(
+                    selected_tasks
+                ) <= set(push["tasks"]):
                     return push["base_revision_treeherder"]
 
-    def save_revision_treeherder(selected_tasks, base_commit):
+    def save_revision_treeherder(selected_tasks, base_commit, push_to_vcs):
         """
         Save the base revision of treeherder to the cache.
         See "check_cached_revision" for more information about the data structure.
@@ -1122,10 +1116,16 @@ class PerfParser(CompareParser):
         """
         today = datetime.now().strftime("%Y-%m-%d")
         new_revision = {
-            "base_revision_treeherder": PerfParser.push_info.base_revision,
             "date": today,
             "tasks": list(selected_tasks),
+            "base_revision_treeherder": (
+                PerfParser.push_info.base_lando_commit_id
+                if not push_to_vcs
+                else PerfParser.push_info.base_revision
+            ),
+            "lando": not push_to_vcs,
         }
+
         cache_data = {}
 
         if cache_file.is_file():
@@ -1166,10 +1166,16 @@ class PerfParser(CompareParser):
         if extra_args:
             args = " ".join(extra_args)
             env["PERF_FLAGS"] = args
-        if PerfParser.push_info.base_revision:
+        if (
+            PerfParser.push_info.base_revision
+            or PerfParser.push_info.base_lando_commit_id
+        ):
             # Reset updated since we no longer need to worry
             # about failing while we're on a base commit
-            env["PERF_BASE_REVISION"] = PerfParser.push_info.base_revision
+            env["PERF_BASE_REVISION"] = str(
+                PerfParser.push_info.base_lando_commit_id
+                or PerfParser.push_info.base_revision
+            )
         if PerfParser.found_android_tasks(selected_tasks) and try_config.get(
             "use-artifact-builds", False
         ):
@@ -1210,6 +1216,8 @@ class PerfParser(CompareParser):
         comparator,
         comparator_args,
         alert_summary_id,
+        push_to_vcs,
+        metrics,
     ):
         """Perf-specific push to try method.
 
@@ -1228,12 +1236,12 @@ class PerfParser(CompareParser):
         selected_categories_msg = ", ".join(selected_categories)
         if len(selected_categories_msg) > 200:
             selected_categories_msg = f"{selected_categories_msg[:200]}...\n...{selected_categories_msg[200:]}"
-        msg = "Perf selections={} \nQueries={}".format(
-            selected_categories_msg,
-            json.dumps(queries, indent=4),
-        )
+        msg = f"Perf selections={selected_categories_msg} \nQueries={json.dumps(queries, indent=4)}"
         if alert_summary_id:
             msg = f"Perf alert summary id={alert_summary_id}"
+
+        new_commit_message = msg
+        base_commit_message = msg
 
         # Get the comparator to run
         comparator_klass = get_comparator(comparator)
@@ -1256,11 +1264,22 @@ class PerfParser(CompareParser):
             if base_comparator:
                 # Don't cache the base revision when a custom comparison is being performed
                 # since the base revision is now unique and not general to all pushes
-                PerfParser.push_info.base_revision = PerfParser.check_cached_revision(
-                    selected_tasks, compare_commit
-                )
+                if not push_to_vcs:
+                    PerfParser.push_info.base_lando_commit_id = (
+                        PerfParser.check_cached_revision(
+                            selected_tasks, compare_commit, push_to_vcs
+                        )
+                    )
+                    base_run_flag = PerfParser.push_info.base_lando_commit_id
+                else:
+                    PerfParser.push_info.base_revision = (
+                        PerfParser.check_cached_revision(
+                            selected_tasks, compare_commit, push_to_vcs
+                        )
+                    )
+                    base_run_flag = PerfParser.push_info.base_revision
 
-            if not (dry_run or single_run or PerfParser.push_info.base_revision):
+            if not (dry_run or single_run or base_run_flag):
                 # Setup the base revision, and try config. This lets us change the options
                 # we run the tests with through the PERF_FLAGS environment variable.
                 base_extra_args = list(extra_args)
@@ -1270,13 +1289,16 @@ class PerfParser(CompareParser):
                     base_try_config_params, base_extra_args, selected_tasks
                 )
 
-                with redirect_stdout(log_processor):
+                # When pushing to lando, capturing the log can trigger failures
+                # if the user has not logged in yet
+                if not push_to_vcs:
                     # XXX Figure out if we can use the `again` selector in some way
                     # Right now we would need to modify it to be able to do this.
                     # XXX Fix up the again selector for the perf selector (if it makes sense to)
-                    push_to_try(
+                    lando_commit_id = push_to_try(
                         "perf-again",
-                        "{msg}".format(msg=msg),
+                        f"{base_commit_message}",
+                        metrics,
                         try_task_config=generate_try_task_config(
                             "fuzzy", selected_tasks, params=base_try_config_params
                         ),
@@ -1284,12 +1306,34 @@ class PerfParser(CompareParser):
                         dry_run=dry_run,
                         closed_tree=False,
                         allow_log_capture=True,
-                        push_to_vcs=True,
+                        push_to_vcs=False,
                     )
 
-                PerfParser.push_info.base_revision = log_processor.revision
+                    if not lando_commit_id:
+                        return
+                    PerfParser.push_info.base_lando_commit_id = lando_commit_id
+                else:
+                    with redirect_stdout(log_processor):
+                        push_to_try(
+                            "perf-again",
+                            f"{base_commit_message}",
+                            metrics,
+                            try_task_config=generate_try_task_config(
+                                "fuzzy", selected_tasks, params=base_try_config_params
+                            ),
+                            stage_changes=False,
+                            dry_run=dry_run,
+                            closed_tree=False,
+                            allow_log_capture=True,
+                            push_to_vcs=True,
+                        )
+
+                    PerfParser.push_info.base_revision = log_processor.revision
+
                 if base_comparator:
-                    PerfParser.save_revision_treeherder(selected_tasks, compare_commit)
+                    PerfParser.save_revision_treeherder(
+                        selected_tasks, compare_commit, push_to_vcs
+                    )
 
                 comparator_obj.teardown_base_revision()
 
@@ -1301,10 +1345,11 @@ class PerfParser(CompareParser):
                 selected_tasks,
             )
 
-            with redirect_stdout(log_processor):
-                push_to_try(
+            if not push_to_vcs:
+                lando_commit_id = push_to_try(
                     "perf",
-                    "{msg}".format(msg=msg),
+                    f"{new_commit_message}",
+                    metrics,
                     # XXX Figure out if changing `fuzzy` to `perf` will break something
                     try_task_config=generate_try_task_config(
                         "fuzzy", selected_tasks, params=try_config_params
@@ -1313,11 +1358,29 @@ class PerfParser(CompareParser):
                     dry_run=dry_run,
                     closed_tree=False,
                     allow_log_capture=True,
-                    push_to_vcs=True,
+                    push_to_vcs=False,
                 )
+                if not lando_commit_id:
+                    return
+                PerfParser.push_info.new_lando_commit_id = lando_commit_id
+            else:
+                with redirect_stdout(log_processor):
+                    push_to_try(
+                        "perf",
+                        f"{new_commit_message}",
+                        metrics,
+                        # XXX Figure out if changing `fuzzy` to `perf` will break something
+                        try_task_config=generate_try_task_config(
+                            "fuzzy", selected_tasks, params=try_config_params
+                        ),
+                        stage_changes=False,
+                        dry_run=dry_run,
+                        closed_tree=False,
+                        allow_log_capture=True,
+                        push_to_vcs=True,
+                    )
 
-            PerfParser.push_info.new_revision = log_processor.revision
-            comparator_obj.teardown_new_revision()
+                PerfParser.push_info.new_revision = log_processor.revision
 
         finally:
             comparator_obj.teardown()
@@ -1333,6 +1396,7 @@ class PerfParser(CompareParser):
         detect_changes=False,
         rebuild=1,
         clear_cache=False,
+        push_to_vcs=False,
         **kwargs,
     ):
         # Setup fzf
@@ -1346,7 +1410,7 @@ class PerfParser(CompareParser):
             print(f"Removing cached {cache_file} file")
             cache_file.unlink(missing_ok=True)
 
-        all_tasks, dep_cache, cache_dir = setup_tasks_for_fzf(
+        all_tasks, cache_dir = setup_tasks_for_fzf(
             not dry_run,
             parameters,
             full=True,
@@ -1354,9 +1418,6 @@ class PerfParser(CompareParser):
         )
         base_cmd = build_base_cmd(
             fzf,
-            dep_cache,
-            cache_dir,
-            show_estimates=False,
             preview_script=PREVIEW_SCRIPT,
         )
         full_task_graph = pathlib.Path(cache_dir, "full_task_graph")
@@ -1436,6 +1497,8 @@ class PerfParser(CompareParser):
             kwargs.get("comparator", "BasePerfComparator"),
             kwargs.get("comparator_args", []),
             alert_summary_id,
+            push_to_vcs,
+            kwargs.get("metrics"),
         )
 
     def run_category_checks():
@@ -1533,8 +1596,8 @@ class PerfParser(CompareParser):
         subprocess.check_output(hg_cmd)
         print(
             "\nAPK is setup for uploading. Please commit the changes, "
-            "and re-run this command. \nEnsure you supply the --android, "
-            "and select the correct tasks (fenix, geckoview) or use "
+            "and re-run this command. \nEnsure you "
+            "select the correct tasks (fenix, geckoview) or use "
             "--show-all/--full for mozperftest task selection. \nFor Fenix, ensure "
             "you also provide the --fenix flag."
         )
@@ -1598,25 +1661,37 @@ def run(**kwargs):
         perfcompare_url = (
             PERFCOMPARE_BASE_URL % PerfParser.push_info.get_perfcompare_settings()
         )
-        compareview_url = (
-            PERFHERDER_BASE_URL % PerfParser.push_info.get_perfcompare_settings()
+        if not kwargs.get("push_to_vcs"):
+            perfcompare_url = (
+                PERFCOMPARE_BASE_URL_LANDO
+                % PerfParser.push_info.get_perfcompare_settings_lando()
+            )
+
+        print(
+            "\n!!!NOTE!!!\n You'll be able to find a performance comparison here "
+            "once the tests are complete (the autodetected framework selection may not "
+            f"show all of your tests):\n {perfcompare_url}\n"
         )
+
+        print("\n*******************************************************")
+        print("*          2 commits/try-runs were created...         *")
+        print("*******************************************************")
+
         original_try_url = TREEHERDER_TRY_BASE_URL % PerfParser.push_info.base_revision
         local_change_try_url = (
             TREEHERDER_TRY_BASE_URL % PerfParser.push_info.new_revision
         )
-
-        print(
-            "\n!!!NOTE!!!\n You'll be able to find a performance comparison here "
-            "once the tests are complete (ensure you select the right "
-            f"framework):\n {perfcompare_url}\n\n"
-            f" The old comparison tool is still available at this URL:\n {compareview_url}\n"
-        )
-        print("\n*******************************************************")
-        print("*          2 commits/try-runs are created...          *")
-        print("*******************************************************")
+        if not kwargs.get("push_to_vcs"):
+            original_try_url = (
+                TREEHERDER_TRY_LANDO_BASE_URL
+                % PerfParser.push_info.base_lando_commit_id
+            )
+            local_change_try_url = (
+                TREEHERDER_TRY_LANDO_BASE_URL % PerfParser.push_info.new_lando_commit_id
+            )
         print(f"Base revision's try run: {original_try_url}")
         print(f"Local revision's try run: {local_change_try_url}\n")
+
     print(
         "If you need any help, you can find us in the #perf-help Matrix channel:\n"
         "https://matrix.to/#/#perf-help:mozilla.org\n"

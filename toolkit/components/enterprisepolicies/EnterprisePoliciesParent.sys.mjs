@@ -38,9 +38,6 @@ const PREF_TEST_ROOT = "mochitest.testRoot";
 
 const PREF_LOGLEVEL = "browser.policies.loglevel";
 
-// To force disallowing enterprise-only policies during tests
-const PREF_DISALLOW_ENTERPRISE = "browser.policies.testing.disallowEnterprise";
-
 // To allow for cleaning up old policies
 const PREF_POLICIES_APPLIED = "browser.policies.applied";
 
@@ -78,6 +75,7 @@ export function EnterprisePoliciesManager() {
   Services.obs.addObserver(this, "final-ui-startup", true);
   Services.obs.addObserver(this, "sessionstore-windows-restored", true);
   Services.obs.addObserver(this, "EnterprisePolicies:Restart", true);
+  Services.obs.addObserver(this, "distribution-customization-complete", true);
 }
 
 EnterprisePoliciesManager.prototype = {
@@ -112,20 +110,33 @@ EnterprisePoliciesManager.prototype = {
 
     if (provider.failed) {
       this.status = Ci.nsIEnterprisePolicies.FAILED;
-      this._reportEnterpriseTelemetry();
       return;
     }
 
     if (!provider.hasPolicies) {
       this.status = Ci.nsIEnterprisePolicies.INACTIVE;
-      this._reportEnterpriseTelemetry();
+      return;
+    }
+
+    // Because security.enterprise_roots.enabled is true by default, we can
+    // ignore attempts by Antivirus to try to set it via policy.
+    // We have to explicitly check for true or 1 because this happens before
+    // policy is parsed against the schema, so the value could be coming
+    // from the registry.
+    if (
+      Object.keys(provider.policies).length === 1 &&
+      provider.policies.Certificates &&
+      Object.keys(provider.policies.Certificates).length === 1 &&
+      (provider.policies.Certificates.ImportEnterpriseRoots === true ||
+        provider.policies.Certificates.ImportEnterpriseRoots === 1)
+    ) {
+      this.status = Ci.nsIEnterprisePolicies.INACTIVE;
       return;
     }
 
     this.status = Ci.nsIEnterprisePolicies.ACTIVE;
     this._parsedPolicies = {};
     this._activatePolicies(provider.policies);
-    this._reportEnterpriseTelemetry();
 
     Services.prefs.setBoolPref(PREF_POLICIES_APPLIED, true);
   },
@@ -169,11 +180,6 @@ EnterprisePoliciesManager.prototype = {
         continue;
       }
 
-      if (policySchema.enterprise_only && !areEnterpriseOnlyPoliciesAllowed()) {
-        lazy.log.error(`Policy ${policyName} is only allowed on ESR`);
-        continue;
-      }
-
       let { valid: parametersAreValid, parsedValue: parsedParameters } =
         lazy.JsonSchemaValidator.validate(policyParameters, policySchema, {
           allowAdditionalProperties: true,
@@ -185,6 +191,13 @@ EnterprisePoliciesManager.prototype = {
       }
 
       let policyImpl = lazy.Policies[policyName];
+
+      if (!policyImpl) {
+        // This means there is an entry in the schema, but no implementaton.
+        // We only do this when we deprecate policies.
+        lazy.log.info(`${policyName} has been deprecated.`);
+        continue;
+      }
 
       if (policyImpl.validate && !policyImpl.validate(parsedParameters)) {
         lazy.log.error(
@@ -273,6 +286,7 @@ EnterprisePoliciesManager.prototype = {
     await notifyTopicOnIdle("profile-after-change");
     await notifyTopicOnIdle("final-ui-startup");
     await notifyTopicOnIdle("sessionstore-windows-restored");
+    await notifyTopicOnIdle("distribution-customization-complete");
   },
 
   // nsIObserver implementation
@@ -296,16 +310,22 @@ EnterprisePoliciesManager.prototype = {
 
       case "sessionstore-windows-restored":
         this._runPoliciesCallbacks("onAllWindowsRestored");
-
-        // After the last set of policy callbacks ran, notify the test observer.
-        Services.obs.notifyObservers(
-          null,
-          "EnterprisePolicies:AllPoliciesApplied"
-        );
         break;
 
       case "EnterprisePolicies:Restart":
         this._restart().then(null, console.error);
+        break;
+
+      case "distribution-customization-complete":
+        this._reportEnterpriseTelemetry();
+
+        // Notify the test observer when the last message
+        // is received.
+        Services.obs.notifyObservers(
+          null,
+          "EnterprisePolicies:AllPoliciesApplied"
+        );
+
         break;
     }
   },
@@ -466,11 +486,8 @@ EnterprisePoliciesManager.prototype = {
       // As we migrate folks to ESR for other reasons (deprecating an OS),
       // we need to add checks here for distribution IDs.
       (AppConstants.IS_ESR && !excludedDistributionIDs.includes(distroId)) ||
-      // If there are multiple policies then its enterprise.
-      policiesLength > 1 ||
-      // If ImportEnterpriseRoots isn't the only policy then it's enterprise.
-      (!!policiesLength &&
-        !this._parsedPolicies.Certificates?.ImportEnterpriseRoots);
+      // If there are policies then its enterprise.
+      policiesLength > 0;
 
     return isEnterprise;
   },
@@ -481,35 +498,6 @@ let SupportMenu = null;
 let ExtensionPolicies = null;
 let ExtensionSettings = null;
 let InstallSources = null;
-
-/**
- * areEnterpriseOnlyPoliciesAllowed
- *
- * Checks whether the policies marked as enterprise_only in the
- * schema are allowed to run on this browser.
- *
- * This is meant to only allow policies to run on ESR, but in practice
- * we allow it to run on channels different than release, to allow
- * these policies to be tested on pre-release channels.
- *
- * @returns {Bool} Whether the policy can run.
- */
-function areEnterpriseOnlyPoliciesAllowed() {
-  if (Cu.isInAutomation || isXpcshell) {
-    if (Services.prefs.getBoolPref(PREF_DISALLOW_ENTERPRISE, false)) {
-      // This is used as an override to test the "enterprise_only"
-      // functionality itself on tests.
-      return false;
-    }
-    return true;
-  }
-
-  return (
-    AppConstants.IS_ESR ||
-    AppConstants.MOZ_DEV_EDITION ||
-    AppConstants.NIGHTLY_BUILD
-  );
-}
 
 /*
  * JSON PROVIDER OF POLICIES

@@ -13,7 +13,6 @@ cat > $mozconfig <<EOF
 # Disable Keyfile Loading (and checks)
 # This overrides the settings in the common android mozconfig
 ac_add_options --without-mozilla-api-keyfile
-ac_add_options --without-google-location-service-api-keyfile
 ac_add_options --without-google-safebrowsing-api-keyfile
 
 ac_add_options --disable-nodejs
@@ -24,7 +23,12 @@ EOF
 export MOZCONFIG=$mozconfig
 GRADLE=$MOZ_FETCHES_DIR/android-gradle-dependencies/gradle-dist/bin/gradle
 
+export MOZ_OBJDIR=/builds/worker/workspace/obj-build
+
 ./mach configure
+
+# Partial build ensures that `moz.build` generated code is in place.
+./mach build pre-export export -v
 
 eval $PRE_GRADLEW
 

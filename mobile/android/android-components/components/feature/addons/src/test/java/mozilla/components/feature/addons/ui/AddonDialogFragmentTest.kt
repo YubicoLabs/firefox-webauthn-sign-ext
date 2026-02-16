@@ -4,20 +4,20 @@
 
 package mozilla.components.feature.addons.mozilla.components.feature.addons.ui
 
+import android.content.res.Resources
 import android.graphics.Bitmap
+import android.util.DisplayMetrics
 import androidx.appcompat.widget.AppCompatImageView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import mozilla.components.feature.addons.Addon
 import mozilla.components.feature.addons.ui.AddonDialogFragment
 import mozilla.components.feature.addons.ui.KEY_ICON
-import mozilla.components.feature.addons.ui.setIcon
+import mozilla.components.support.test.any
 import mozilla.components.support.test.mock
-import mozilla.components.support.test.rule.MainCoroutineRule
 import mozilla.components.support.test.whenever
 import mozilla.components.support.utils.ext.getParcelableCompat
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito
@@ -27,9 +27,6 @@ import org.mockito.Mockito.verify
 
 @RunWith(AndroidJUnit4::class)
 class AddonDialogFragmentTest {
-    @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
-    private val scope = coroutinesTestRule.scope
 
     @Test
     fun `loadIcon the add-on icon successfully`() {
@@ -51,15 +48,20 @@ class AddonDialogFragmentTest {
         val bitmap = mock<Bitmap>()
         val iconView = mock<AppCompatImageView>()
         val fragment = createAddonDialogFragment()
+        val resources = mock<Resources>()
+        val displayMetrics = mock<DisplayMetrics>()
 
         whenever(addon.provideIcon()).thenReturn(bitmap)
+        whenever(iconView.resources).thenReturn(resources)
+        whenever(resources.displayMetrics).thenReturn(displayMetrics)
+        doNothing().`when`(iconView).setImageDrawable(any())
 
         assertNull(fragment.arguments?.getParcelableCompat(KEY_ICON, Bitmap::class.java))
 
         fragment.loadIcon(addon, iconView)
 
         assertNotNull(fragment.arguments?.getParcelableCompat(KEY_ICON, Bitmap::class.java))
-        verify(iconView).setIcon(addon)
+        verify(iconView).setImageDrawable(any())
     }
 
     private fun createAddonDialogFragment(): AddonDialogFragment {

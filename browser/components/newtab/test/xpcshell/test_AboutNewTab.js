@@ -4,19 +4,16 @@
 
 "use strict";
 
+/* global AppConstants */
+
 /**
  * This file tests AboutNewTab  for its default URL values, as well as its
  * behaviour when overriding the default URL values.
  */
 
-const { AppConstants } = ChromeUtils.importESModule(
-  "resource://gre/modules/AppConstants.sys.mjs"
-);
 const { AboutNewTab } = ChromeUtils.importESModule(
   "resource:///modules/AboutNewTab.sys.mjs"
 );
-
-AboutNewTab.init();
 
 const IS_RELEASE_OR_BETA = AppConstants.RELEASE_OR_BETA;
 
@@ -84,6 +81,10 @@ function setBoolPrefAndWaitForChange(pref, value, testMessage) {
     Services.prefs.setBoolPref(pref, value);
   });
 }
+
+add_setup(() => {
+  AboutNewTab.init();
+});
 
 add_task(async function test_as_initial_values() {
   Assert.ok(

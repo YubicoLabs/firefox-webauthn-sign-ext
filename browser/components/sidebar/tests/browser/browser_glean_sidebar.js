@@ -7,7 +7,9 @@ requestLongerTimeout(10);
 
 const lazy = {};
 
-const TAB_DIRECTION_PREF = "sidebar.verticalTabs";
+const initialTabDirection = Services.prefs.getBoolPref(VERTICAL_TABS_PREF)
+  ? "vertical"
+  : "horizontal";
 
 ChromeUtils.defineESModuleGetters(lazy, {
   TabsSetupFlowManager:
@@ -16,12 +18,19 @@ ChromeUtils.defineESModuleGetters(lazy, {
 });
 
 add_setup(async () => {
-  SidebarController.init();
-  await TestUtils.waitForTick();
+  await SidebarController.init();
+  await SidebarController.promiseInitialized;
+  await SidebarController.sidebarMain?.updateComplete;
 });
+
 registerCleanupFunction(() => {
-  while (gBrowser.tabs.length > 1) {
-    BrowserTestUtils.removeTab(gBrowser.tabs[0]);
+  cleanUpExtraTabs();
+
+  // SidebarPopupNotifications is created when chat sidebar opens.
+  // Clean up here as sidebar may close before content fully loads.
+  if (window.SidebarPopupNotifications) {
+    window.SidebarPopupNotifications._currentAnchorElement = null;
+    delete window.SidebarPopupNotifications;
   }
 });
 
@@ -44,33 +53,44 @@ add_task(async function test_metrics_initialized() {
 add_task(async function test_sidebar_expand() {
   await SidebarController.initializeUIState({ launcherExpanded: false });
   await SpecialPowers.pushPrefEnv({
-    set: [[TAB_DIRECTION_PREF, true]],
+    set: [[VERTICAL_TABS_PREF, true]],
   });
-
+  await waitForTabstripOrientation("vertical");
   // Vertical tabs are expanded by default
-  await TestUtils.waitForCondition(
-    () => SidebarController.sidebarMain.expanded,
-    "Sidebar is expanded."
+  info("Waiting for sidebar main to be expanded");
+  await BrowserTestUtils.waitForMutationCondition(
+    SidebarController.sidebarMain,
+    { attributes: true, attributeFilter: ["expanded"] },
+    () => SidebarController.sidebarMain.expanded
   );
+  info("Sidebar is expanded.");
 
   info("Collapse the sidebar.");
+
   EventUtils.synthesizeMouseAtCenter(SidebarController.toolbarButton, {});
-  await TestUtils.waitForCondition(
-    () => !SidebarController.sidebarMain.expanded,
-    "Sidebar is collapsed."
+  info("Waiting for sidebar main to be collapsed");
+  await BrowserTestUtils.waitForMutationCondition(
+    SidebarController.sidebarMain,
+    { attributes: true, attributeFilter: ["expanded"] },
+    () => !SidebarController.sidebarMain.expanded
   );
+  info("Sidebar is collapsed.");
 
   info("Re-expand the sidebar.");
   EventUtils.synthesizeMouseAtCenter(SidebarController.toolbarButton, {});
-  await TestUtils.waitForCondition(
-    () => SidebarController.sidebarMain.expanded,
-    "Sidebar is expanded."
+  info("Waiting for sidebar main to be expanded");
+  await BrowserTestUtils.waitForMutationCondition(
+    SidebarController.sidebarMain,
+    { attributes: true, attributeFilter: ["expanded"] },
+    () => SidebarController.sidebarMain.expanded
   );
+  info("Sidebar is expanded.");
 
   const events = Glean.sidebar.expand.testGetValue();
   Assert.equal(events?.length, 2, "Two events were reported.");
 
   await SpecialPowers.popPrefEnv();
+  await waitForTabstripOrientation(initialTabDirection);
 });
 
 async function testSidebarToggle(commandID, gleanEvent, otherCommandID) {
@@ -100,9 +120,11 @@ async function testSidebarToggle(commandID, gleanEvent, otherCommandID) {
     "false",
     "Event indicates that the panel was closed."
   );
-  if (otherCommandID) {
-    SidebarController.hide();
-  }
+  await SidebarController.initializeUIState({
+    panelOpen: false,
+    command: "",
+    launcherVisible: true,
+  });
 }
 
 add_task(async function test_history_sidebar_toggle() {
@@ -166,6 +188,7 @@ async function test_synced_tabs_sidebar_toggle(revampEnabled) {
 
   sandbox.restore();
   await SpecialPowers.popPrefEnv();
+  await SidebarController.waitUntilStable();
   Services.fog.testResetFOG();
 }
 
@@ -216,9 +239,13 @@ add_task(async function test_extension_sidebar_toggle() {
   Assert.equal(events?.length, 2, "Two events were reported.");
 });
 
-add_task(async function test_review_checker_sidebar_toggle() {
-  const gleanEvent = Glean.shopping.sidebarToggle;
-  await testSidebarToggle("viewReviewCheckerSidebar", gleanEvent);
+add_task(async function test_contextual_manager_toggle() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.contextual-password-manager.enabled", true]],
+  });
+  await SidebarController.waitUntilStable();
+  const gleanEvent = Glean.contextualManager.sidebarToggle;
+  await testSidebarToggle("viewCPMSidebar", gleanEvent);
   for (const { extra } of gleanEvent.testGetValue()) {
     Assert.equal(
       extra.version,
@@ -226,18 +253,14 @@ add_task(async function test_review_checker_sidebar_toggle() {
       "Event has the correct sidebar version."
     );
   }
-});
-
-add_task(async function test_contextual_manager_toggle() {
-  await SpecialPowers.pushPrefEnv({
-    set: [
-      ["browser.contextual-password-manager.enabled", true],
-      ["sidebar.revamp", false],
-    ],
-  });
-  const gleanEvent = Glean.contextualManager.sidebarToggle;
-  await testSidebarToggle("viewCPMSidebar", gleanEvent);
+  await testCustomizeToggle(
+    "viewCPMSidebar",
+    Glean.contextualManager.passwordsEnabled,
+    false // Remove this in bug 1957425
+  );
   await SpecialPowers.popPrefEnv();
+  await SidebarController.waitUntilStable();
+  Services.fog.testResetFOG();
 });
 
 add_task(async function test_customize_panel_toggle() {
@@ -250,8 +273,14 @@ add_task(async function test_customize_panel_toggle() {
 add_task(async function test_customize_icon_click() {
   info("Click on the gear icon.");
   const { customizeButton } = SidebarController.sidebarMain;
+  Assert.ok(
+    BrowserTestUtils.isVisible(customizeButton),
+    "The customize button is visible to click on"
+  );
+  const sideShown = BrowserTestUtils.waitForEvent(document, "SidebarShown");
   EventUtils.synthesizeMouseAtCenter(customizeButton, {});
 
+  await sideShown;
   const events = Glean.sidebarCustomize.iconClick.testGetValue();
   Assert.equal(events?.length, 1, "One event was reported.");
 
@@ -313,6 +342,8 @@ add_task(async function test_customize_chatbot_enabled() {
     "viewGenaiChatSidebar",
     Glean.sidebarCustomize.chatbotEnabled
   );
+  await SpecialPowers.popPrefEnv();
+  await SidebarController.waitUntilStable();
 });
 
 add_task(async function test_customize_synced_tabs_enabled() {
@@ -332,19 +363,7 @@ add_task(async function test_customize_history_enabled() {
 add_task(async function test_customize_bookmarks_enabled() {
   await testCustomizeToggle(
     "viewBookmarksSidebar",
-    Glean.sidebarCustomize.bookmarksEnabled,
-    false
-  );
-});
-
-add_task(async function test_customize_review_checker_enabled() {
-  await SpecialPowers.pushPrefEnv({
-    set: [["browser.shopping.experience2023.integratedSidebar", true]],
-  });
-  await testCustomizeToggle(
-    "viewReviewCheckerSidebar",
-    Glean.sidebarCustomize.shoppingReviewCheckerEnabled,
-    false
+    Glean.sidebarCustomize.bookmarksEnabled
   );
 });
 
@@ -362,17 +381,18 @@ add_task(async function test_customize_extensions_clicked() {
     );
 
   info("Click on the extension link.");
-  const deferredEMLoaded = Promise.withResolvers();
-  Services.obs.addObserver(function observer(_, topic) {
-    Services.obs.removeObserver(observer, topic);
-    deferredEMLoaded.resolve();
-  }, "EM-loaded");
+  let browserLocationChanged = BrowserTestUtils.waitForLocationChange(
+    window.gBrowser,
+    "about:addons"
+  );
+  customizeComponent.extensionLink.focus();
+
   EventUtils.synthesizeMouseAtCenter(
-    customizeComponent.extensionLinks[0],
+    customizeComponent.extensionLink,
     {},
     SidebarController.browser.contentWindow
   );
-  await deferredEMLoaded.promise;
+  await browserLocationChanged;
 
   const events = Glean.sidebarCustomize.extensionsClicked.testGetValue();
   Assert.equal(events.length, 1, "One event was reported.");
@@ -419,8 +439,9 @@ async function testCustomizeSetting(
 
 add_task(async function test_customize_sidebar_display() {
   await SpecialPowers.pushPrefEnv({
-    set: [[TAB_DIRECTION_PREF, true]],
+    set: [[VERTICAL_TABS_PREF, true]],
   });
+  await waitForTabstripOrientation("vertical");
   await testCustomizeSetting(
     "visibilityInput",
     Glean.sidebarCustomize.sidebarDisplay,
@@ -428,6 +449,7 @@ add_task(async function test_customize_sidebar_display() {
     { preference: "always" }
   );
   await SpecialPowers.popPrefEnv();
+  await waitForTabstripOrientation(initialTabDirection);
 });
 
 add_task(async function test_customize_sidebar_position() {
@@ -464,8 +486,9 @@ add_task(async function test_customize_firefox_settings_clicked() {
 
 add_task(async function test_sidebar_resize() {
   await SpecialPowers.pushPrefEnv({
-    set: [[TAB_DIRECTION_PREF, true]],
+    set: [[VERTICAL_TABS_PREF, true]],
   });
+  await waitForTabstripOrientation("vertical");
   await SidebarController.show("viewHistorySidebar");
   const originalWidth = SidebarController._box.style.width;
   SidebarController._box.style.width = "500px";
@@ -489,12 +512,14 @@ add_task(async function test_sidebar_resize() {
   SidebarController._box.style.width = originalWidth;
   SidebarController.hide();
   await SpecialPowers.popPrefEnv();
+  await waitForTabstripOrientation(initialTabDirection);
 });
 
 add_task(async function test_sidebar_display_settings() {
   await SpecialPowers.pushPrefEnv({
-    set: [[TAB_DIRECTION_PREF, true]],
+    set: [[VERTICAL_TABS_PREF, true]],
   });
+  await waitForTabstripOrientation("vertical");
   await testCustomizeSetting(
     "visibilityInput",
     Glean.sidebar.displaySettings,
@@ -502,6 +527,7 @@ add_task(async function test_sidebar_display_settings() {
     "always"
   );
   await SpecialPowers.popPrefEnv();
+  await waitForTabstripOrientation(initialTabDirection);
 });
 
 add_task(async function test_sidebar_position_settings() {
@@ -523,9 +549,7 @@ add_task(async function test_sidebar_tabs_layout() {
 });
 
 add_task(async function test_sidebar_position_rtl_ui() {
-  const sandbox = sinon.createSandbox();
-  sandbox.stub(window, "RTL_UI").value(true);
-  await SpecialPowers.pushPrefEnv({ set: [["intl.l10n.pseudo", "bidi"]] });
+  await BrowserTestUtils.enableRtlLocale();
   Services.fog.testResetFOG();
 
   // When RTL is enabled, sidebar is shown on the right by default.
@@ -543,56 +567,112 @@ add_task(async function test_sidebar_position_rtl_ui() {
     "right"
   );
 
-  sandbox.restore();
-  await SpecialPowers.popPrefEnv();
+  await BrowserTestUtils.disableRtlLocale();
+  await SidebarController.waitUntilStable();
 });
 
 async function testIconClick(expanded) {
   await SpecialPowers.pushPrefEnv({
     set: [
       ["browser.ml.chat.enabled", true],
-      ["sidebar.main.tools", "aichat,syncedtabs,history,bookmarks"],
-      [TAB_DIRECTION_PREF, true],
+      [VERTICAL_TABS_PREF, true],
+      ["browser.contextual-password-manager.enabled", true],
     ],
   });
+  await waitForTabstripOrientation("vertical");
+
+  await SidebarController.waitUntilStable();
+  await SidebarController.show("viewCustomizeSidebar");
+  const customizeComponent =
+    SidebarController.browser.contentDocument.querySelector(
+      "sidebar-customize"
+    );
+  const checkbox =
+    customizeComponent.shadowRoot.querySelector(`#viewCPMSidebar`);
+
+  EventUtils.synthesizeMouseAtCenter(
+    checkbox,
+    {},
+    SidebarController.browser.contentWindow
+  );
+
+  await SidebarController.waitUntilStable();
 
   const { sidebarMain } = SidebarController;
-  const gleanEvents = [
-    Glean.sidebar.chatbotIconClick,
-    Glean.sidebar.syncedTabsIconClick,
-    Glean.sidebar.historyIconClick,
-    Glean.sidebar.bookmarksIconClick,
-  ];
-  for (const [i, button] of Array.from(sidebarMain.toolButtons).entries()) {
-    await SidebarController.initializeUIState({ launcherExpanded: expanded });
+  const gleanEvents = new Map([
+    ["viewGenaiChatSidebar", Glean.sidebar.chatbotIconClick],
+    ["viewTabsSidebar", Glean.sidebar.syncedTabsIconClick],
+    ["viewHistorySidebar", Glean.sidebar.historyIconClick],
+    ["viewBookmarksSidebar", Glean.sidebar.bookmarksIconClick],
+    ["viewCPMSidebar", Glean.sidebar.passwordsIconClick],
+  ]);
 
-    info(`Click the icon for: ${button.getAttribute("view")}`);
-    EventUtils.synthesizeMouseAtCenter(button, {});
+  sidebarMain.updateComplete;
 
-    if (gleanEvents[i]) {
-      const events = gleanEvents[i].testGetValue();
-      Assert.equal(events?.length, 1, "One event was reported.");
-      Assert.deepEqual(
-        events?.[0].extra,
-        { sidebar_open: `${expanded}` },
-        `Event indicates the sidebar was ${expanded ? "expanded" : "collapsed"}.`
+  for (const button of sidebarMain.toolButtons) {
+    await SidebarController.initializeUIState({
+      launcherExpanded: expanded,
+      command: "",
+    });
+    Assert.equal(
+      SidebarController.sidebarMain.expanded,
+      expanded,
+      `The launcher is ${expanded ? "expanded" : "collapsed"}`
+    );
+    Assert.ok(!SidebarController._state.panelOpen, "No panel is open");
+
+    let view = button.getAttribute("view");
+    if (view) {
+      info(`Click the icon for: ${view}`);
+
+      // The nodelist for sidebarMain may be out of date.
+      let buttonEl = sidebarMain.shadowRoot.querySelector(
+        `moz-button[view='${view}']`
       );
+      EventUtils.synthesizeMouseAtCenter(buttonEl, {});
+
+      let gleanEvent = gleanEvents.get(view);
+      if (gleanEvent) {
+        const events = gleanEvent.testGetValue();
+        if (events?.length) {
+          Assert.equal(events?.length, 1, "One event was reported.");
+          Assert.deepEqual(
+            events?.[0].extra,
+            { sidebar_open: `${expanded}` },
+            `Event indicates the sidebar was ${expanded ? "expanded" : "collapsed"}.`
+          );
+        }
+      }
     }
   }
 
   info("Load an extension.");
+  // The extensions's sidebar will open when it loads
   const extension = ExtensionTestUtils.loadExtension({ ...extData });
   await extension.startup();
   await extension.awaitMessage("sidebar");
 
-  await SidebarController.initializeUIState({ launcherExpanded: expanded });
+  await SidebarController.initializeUIState({
+    launcherExpanded: expanded,
+    panelOpen: false,
+    command: "",
+  });
+  Assert.equal(
+    SidebarController.sidebarMain.expanded,
+    expanded,
+    `The launcher is ${expanded ? "expanded" : "collapsed"}`
+  );
+  Assert.ok(!SidebarController._state.panelOpen, "No panel is open");
 
   info("Click the icon for the extension.");
-  const extensionButton = await TestUtils.waitForCondition(
-    () => sidebarMain.extensionButtons[0],
-    "Extension button is present"
+  info("Waiting for sidebar main to visible and extension button present");
+  await BrowserTestUtils.waitForMutationCondition(
+    sidebarMain,
+    { subTree: true, childList: true },
+    () =>
+      BrowserTestUtils.isVisible(sidebarMain) && sidebarMain.extensionButtons[0]
   );
-  EventUtils.synthesizeMouseAtCenter(extensionButton, {});
+  EventUtils.synthesizeMouseAtCenter(sidebarMain.extensionButtons[0], {});
 
   const events = Glean.sidebar.addonIconClick.testGetValue();
   Assert.equal(events?.length, 1, "One event was reported.");
@@ -607,37 +687,7 @@ async function testIconClick(expanded) {
   await extension.unload();
 
   await SpecialPowers.popPrefEnv();
-  Services.fog.testResetFOG();
-}
-
-async function testIconClickReviewChecker(expanded) {
-  await SpecialPowers.pushPrefEnv({
-    set: [
-      [
-        "sidebar.main.tools",
-        "aichat,syncedtabs,history,bookmarks,reviewchecker",
-      ],
-    ],
-  });
-
-  const { sidebarMain } = SidebarController;
-
-  await SidebarController.initializeUIState({ launcherExpanded: expanded });
-
-  let reviewCheckerButton = sidebarMain.shadowRoot.querySelector(
-    "moz-button[view='viewReviewCheckerSidebar']"
-  );
-  EventUtils.synthesizeMouseAtCenter(reviewCheckerButton, {});
-
-  let event = Glean.sidebar.shoppingReviewCheckerIconClick.testGetValue();
-  Assert.equal(event?.length, 1, "One event was reported.");
-  Assert.deepEqual(
-    event?.[0].extra,
-    { sidebar_open: `${expanded}` },
-    `Event indicates the sidebar was ${expanded ? "expanded" : "collapsed"}.`
-  );
-
-  await SpecialPowers.popPrefEnv();
+  await waitForTabstripOrientation(initialTabDirection);
   Services.fog.testResetFOG();
 }
 
@@ -649,10 +699,136 @@ add_task(async function test_icon_click_expanded_sidebar() {
   await testIconClick(true);
 });
 
-add_task(async function test_review_checker_icon_click_collapsed_sidebar() {
-  await testIconClickReviewChecker(false);
+async function test_pinned_tabs_activations(verticalTabs) {
+  await SpecialPowers.pushPrefEnv({
+    set: [[VERTICAL_TABS_PREF, verticalTabs]],
+  });
+
+  info("Switch to a pinned tab.");
+  const pinnedTab = BrowserTestUtils.addTab(gBrowser, "https://example.com/", {
+    pinned: true,
+  });
+  await BrowserTestUtils.switchTab(gBrowser, pinnedTab);
+
+  const counter = verticalTabs
+    ? Glean.pinnedTabs.activations.sidebar
+    : Glean.pinnedTabs.activations.horizontalBar;
+  Assert.equal(counter.testGetValue(), 1, "Pinned tab activation was counted.");
+
+  gBrowser.removeTab(pinnedTab);
+  await SpecialPowers.popPrefEnv();
+}
+
+add_task(async function test_pinned_tabs_activations_sidebar() {
+  await test_pinned_tabs_activations(true);
+
+  const pinEvent = Glean.pinnedTabs.pin.testGetValue()?.at(-1);
+  const closeEvent = Glean.pinnedTabs.close.testGetValue()?.at(-1);
+  Assert.deepEqual(
+    pinEvent?.extra,
+    { layout: "vertical", source: "unknown" },
+    "Pin event was recorded for vertical tabs."
+  );
+  Assert.deepEqual(
+    closeEvent?.extra,
+    { layout: "vertical" },
+    "Close event was recorded for vertical tabs."
+  );
 });
 
-add_task(async function test_review_checker_icon_click_expanded_sidebar() {
-  await testIconClickReviewChecker(true);
+add_task(async function test_pinned_tabs_activations_horizontal_bar() {
+  await test_pinned_tabs_activations(false);
+
+  const pinEvent = Glean.pinnedTabs.pin.testGetValue()?.at(-1);
+  const closeEvent = Glean.pinnedTabs.close.testGetValue()?.at(-1);
+  Assert.deepEqual(
+    pinEvent?.extra,
+    { layout: "horizontal", source: "unknown" },
+    "Pin event was recorded for horizontal tabs."
+  );
+  Assert.deepEqual(
+    closeEvent?.extra,
+    { layout: "horizontal" },
+    "Close event was recorded for horizontal tabs."
+  );
 });
+
+async function test_pinned_tabs_count(verticalTabs) {
+  await SpecialPowers.pushPrefEnv({
+    set: [[VERTICAL_TABS_PREF, verticalTabs]],
+  });
+
+  info("Add two pinned tabs.");
+  const firstTab = BrowserTestUtils.addTab(gBrowser, "https://example.com/", {
+    pinned: true,
+  });
+  const secondTab = BrowserTestUtils.addTab(gBrowser, "https://example.com/", {
+    pinned: true,
+  });
+
+  const quantity = verticalTabs
+    ? Glean.pinnedTabs.count.sidebar
+    : Glean.pinnedTabs.count.horizontalBar;
+  Assert.equal(quantity.testGetValue(), 2, "Both tabs were counted.");
+
+  gBrowser.unpinTab(firstTab);
+  Assert.equal(
+    quantity.testGetValue(),
+    1,
+    "Count was updated after unpinning a tab."
+  );
+
+  gBrowser.removeTab(secondTab);
+  Assert.equal(
+    quantity.testGetValue(),
+    0,
+    "Count was updated after removing a pinned tab."
+  );
+
+  gBrowser.removeTab(firstTab);
+  await SpecialPowers.popPrefEnv();
+}
+
+add_task(async function test_pinned_tabs_count_sidebar() {
+  await test_pinned_tabs_count(true);
+});
+
+add_task(async function test_pinned_tabs_count_horizontal_bar() {
+  await test_pinned_tabs_count(false);
+});
+
+add_task(async function test_pinned_tabs_pin_from_context_menu() {
+  info("Open a new tab.");
+  const newTab = BrowserTestUtils.addTab(gBrowser, "https://example.com/", {
+    skipAnimation: true,
+  });
+
+  info("Pin the new tab using context menu.");
+  const tabContextMenu = document.getElementById("tabContextMenu");
+  const promiseMenuShown = BrowserTestUtils.waitForEvent(
+    tabContextMenu,
+    "popupshown"
+  );
+  EventUtils.synthesizeMouseAtCenter(newTab, {
+    type: "contextmenu",
+    button: 2,
+  });
+  await promiseMenuShown;
+  const promiseTabPinned = BrowserTestUtils.waitForEvent(
+    window,
+    "TabPinned",
+    true
+  );
+  const pinTabMenuItem = document.getElementById("context_pinTab");
+  tabContextMenu.activateItem(pinTabMenuItem);
+  await promiseTabPinned;
+
+  const pinEvent = Glean.pinnedTabs.pin.testGetValue()?.at(-1);
+  Assert.deepEqual(
+    pinEvent?.extra,
+    { layout: "horizontal", source: "tab_menu" },
+    "Pin event was recorded with the correct telemetry source."
+  );
+});
+
+// TODO: Bug 1971584 - Add test coverage for pinning and unpinning a tab from the vertical grid

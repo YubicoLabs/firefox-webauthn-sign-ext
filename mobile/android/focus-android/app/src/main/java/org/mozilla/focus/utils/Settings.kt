@@ -4,20 +4,18 @@
 
 package org.mozilla.focus.utils
 
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Configuration
-import android.content.res.Resources
-import android.view.accessibility.AccessibilityManager
 import androidx.annotation.VisibleForTesting
+import androidx.core.content.edit
 import androidx.preference.PreferenceManager
 import mozilla.components.concept.engine.Engine
-import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.mediaquery.PreferredColorScheme
 import mozilla.components.support.ktx.android.content.PreferencesHolder
 import mozilla.components.support.ktx.android.content.booleanPreference
 import org.mozilla.focus.R
+import org.mozilla.focus.components.EngineProvider.NO_VALUE
 import org.mozilla.focus.cookiebanner.CookieBannerOption
 import org.mozilla.focus.nimbus.FocusNimbus
 import org.mozilla.focus.searchsuggestions.SearchSuggestionsPreferences
@@ -32,294 +30,240 @@ class Settings(
     private val context: Context,
 ) : PreferencesHolder {
 
-    companion object {
-        // Default value is block cross site cookies.
-        const val DEFAULT_COOKIE_OPTION_INDEX = 3
-        const val NO_VALUE = "no value"
-    }
-
-    private val accessibilityManager =
-        context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager?
-
-    /**
-     * Check each active accessibility service to see if it can perform gestures, if any can,
-     * then it is *likely* a switch service is enabled.
-     */
-    private val switchServiceIsEnabled: Boolean
-        get() {
-            accessibilityManager?.getEnabledAccessibilityServiceList(0)?.let { activeServices ->
-                for (service in activeServices) {
-                    if (service.capabilities.and(AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES) == 1) {
-                        return true
-                    }
-                }
-            }
-
-            return false
-        }
-
-    fun createTrackingProtectionPolicy(
-        shouldBlockCookiesValue: String = shouldBlockCookiesValue(),
-    ): EngineSession.TrackingProtectionPolicy {
-        val trackingCategories: MutableList<EngineSession.TrackingProtectionPolicy.TrackingCategory> =
-            mutableListOf(EngineSession.TrackingProtectionPolicy.TrackingCategory.SCRIPTS_AND_SUB_RESOURCES)
-
-        if (shouldBlockSocialTrackers()) {
-            trackingCategories.add(EngineSession.TrackingProtectionPolicy.TrackingCategory.SOCIAL)
-        }
-        if (shouldBlockAdTrackers()) {
-            trackingCategories.add(EngineSession.TrackingProtectionPolicy.TrackingCategory.AD)
-        }
-        if (shouldBlockAnalyticTrackers()) {
-            trackingCategories.add(EngineSession.TrackingProtectionPolicy.TrackingCategory.ANALYTICS)
-        }
-        if (shouldBlockOtherTrackers()) {
-            trackingCategories.add(EngineSession.TrackingProtectionPolicy.TrackingCategory.CONTENT)
-        }
-
-        val cookiePolicy = getCookiePolicy(shouldBlockCookiesValue)
-
-        return EngineSession.TrackingProtectionPolicy.select(
-            cookiePolicy = cookiePolicy,
-            trackingCategories = trackingCategories.toTypedArray(),
-            strictSocialTrackingProtection = shouldBlockSocialTrackers(),
-        )
-    }
-
-    private fun getCookiePolicy(shouldBlockCookiesValue: String) =
-        when (shouldBlockCookiesValue) {
-            context.getString(R.string.yes) ->
-                EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_NONE
-
-            context.getString(R.string.third_party_tracker) ->
-                EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_NON_TRACKERS
-
-            context.getString(R.string.third_party_only) ->
-                EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_ONLY_FIRST_PARTY
-
-            context.getString(R.string.cross_site) ->
-                EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_FIRST_PARTY_AND_ISOLATE_OTHERS
-
-            context.getString(R.string.no) -> {
-                EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_ALL
-            }
-
-            NO_VALUE -> {
-                // Ending up here means that the cookie preference has not been yet modified.
-                // We should set it to the default value.
-                setBlockCookiesValue(
-                    resources.getStringArray(R.array.cookies_options_entry_values)[DEFAULT_COOKIE_OPTION_INDEX],
-                )
-                EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_FIRST_PARTY_AND_ISOLATE_OTHERS
-            }
-
-            else -> {
-                // Ending up here means that the cookie preference has already been stored in another locale.
-                // We will have identify the existing option and set the preference to the corresponding value.
-                // See https://github.com/mozilla-mobile/focus-android/issues/5996.
-
-                val cookieOptionIndex =
-                    resources.getStringArray(R.array.cookies_options_entries)
-                        .asList().indexOf(shouldBlockCookiesValue())
-
-                val correspondingValue =
-                    resources.getStringArray(R.array.cookies_options_entry_values).getOrNull(cookieOptionIndex)
-                        ?: resources.getStringArray(R.array.cookies_options_entry_values)[DEFAULT_COOKIE_OPTION_INDEX]
-
-                setBlockCookiesValue(correspondingValue)
-
-                // Get the updated cookie policy for the corresponding value
-                when (shouldBlockCookiesValue) {
-                    context.getString(R.string.yes) ->
-                        EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_NONE
-
-                    context.getString(R.string.third_party_tracker) ->
-                        EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_NON_TRACKERS
-
-                    context.getString(R.string.third_party_only) ->
-                        EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_ONLY_FIRST_PARTY
-
-                    context.getString(R.string.cross_site) ->
-                        EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_FIRST_PARTY_AND_ISOLATE_OTHERS
-
-                    else -> {
-                        // Fallback to the default value.
-                        EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_ALL
-                    }
-                }
-            }
-        }
-
-    fun setupSafeBrowsing(engine: Engine, shouldUseSafeBrowsing: Boolean = shouldUseSafeBrowsing()) {
-        if (shouldUseSafeBrowsing) {
-            engine.settings.safeBrowsingPolicy = arrayOf(EngineSession.SafeBrowsingPolicy.RECOMMENDED)
-        } else {
-            engine.settings.safeBrowsingPolicy = arrayOf(EngineSession.SafeBrowsingPolicy.NONE)
-        }
-    }
-
-    private val resources: Resources = context.resources
-
     @Deprecated("This is no longer used. Read search engines from BrowserStore instead")
     val defaultSearchEngineName: String
         get() = preferences.getString(getPreferenceKey(R.string.pref_key_search_engine), "")!!
 
+    /**
+     * Determines whether the user has chosen to open supported links in external applications.
+     * Defaults to false.
+     */
     val openLinksInExternalApp: Boolean
         get() = preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_open_links_in_external_app),
             false,
         )
 
-    var isExperimentationEnabled: Boolean = false
-
+    /**
+     * Determines whether the call-for-reinforcement (CFR) message for the cookie banner
+     * should be displayed. Defaults to true.
+     */
     var shouldShowCookieBannerCfr: Boolean
         get() = preferences.getBoolean(
             getPreferenceKey(R.string.pref_cfr_visibility_for_cookie_banner),
             true,
         )
         set(value) {
-            preferences.edit()
-                .putBoolean(
+            preferences.edit {
+                putBoolean(
                     getPreferenceKey(R.string.pref_cfr_visibility_for_cookie_banner),
                     value,
                 )
-                .apply()
-        }
-
-    var shouldShowCfrForTrackingProtection: Boolean
-        get() = preferences.getBoolean(getPreferenceKey(R.string.pref_cfr_visibility_for_tracking_protection), true)
-        set(value) {
-            preferences.edit()
-                .putBoolean(getPreferenceKey(R.string.pref_cfr_visibility_for_tracking_protection), value)
-                .apply()
-        }
-
-    var shouldShowStartBrowsingCfr: Boolean
-        get() = preferences.getBoolean(getPreferenceKey(R.string.pref_cfr_visibility_for_start_browsing), true)
-        set(value) {
-            preferences.edit()
-                .putBoolean(getPreferenceKey(R.string.pref_cfr_visibility_for_start_browsing), value)
-                .apply()
-        }
-
-    var isFirstRun: Boolean
-        get() = preferences.getBoolean(getPreferenceKey(R.string.firstrun_shown), true)
-        set(value) {
-            preferences.edit()
-                .putBoolean(getPreferenceKey(R.string.firstrun_shown), value)
-                .apply()
+            }
         }
 
     /**
-     * This is needed for GUI Testing. If the value is not set in the sharePref
-     * the default value will be the one from Nimbus.
+     * Determines whether the call-for-reinforcement (CFR) message for tracking protection
+     * should be displayed. Defaults to true.
      */
-    var isNewOnboardingEnable: Boolean
-        get() = preferences.getBoolean(
-            getPreferenceKey(R.string.new_onboarding_enabled),
-            FocusNimbus.features.onboarding.value().isEnabled,
-        )
+    var shouldShowCfrForTrackingProtection: Boolean
+        get() = preferences.getBoolean(getPreferenceKey(R.string.pref_cfr_visibility_for_tracking_protection), true)
         set(value) {
-            preferences.edit()
-                .putBoolean(getPreferenceKey(R.string.new_onboarding_enabled), value)
-                .apply()
+            preferences.edit {
+                putBoolean(getPreferenceKey(R.string.pref_cfr_visibility_for_tracking_protection), value)
+            }
         }
 
+    /**
+     * Determines whether the call-for-reinforcement (CFR) message for "start browsing"
+     * should be displayed. Defaults to true.
+     */
+    var shouldShowStartBrowsingCfr: Boolean
+        get() = preferences.getBoolean(getPreferenceKey(R.string.pref_cfr_visibility_for_start_browsing), true)
+        set(value) {
+            preferences.edit {
+                putBoolean(getPreferenceKey(R.string.pref_cfr_visibility_for_start_browsing), value)
+            }
+        }
+
+    /**
+     * Determines if this is the first time the user is running the app.
+     * Defaults to true.
+     */
+    var isFirstRun: Boolean
+        get() = preferences.getBoolean(getPreferenceKey(R.string.firstrun_shown), true)
+        set(value) {
+            preferences.edit {
+                putBoolean(getPreferenceKey(R.string.firstrun_shown), value)
+            }
+        }
+
+    /**
+     * Determines whether the tooltip for the privacy and security settings should be shown.
+     * Defaults to true.
+     */
     var shouldShowPrivacySecuritySettingsToolTip: Boolean
         get() = preferences.getBoolean(getPreferenceKey(R.string.pref_tool_tip_privacy_security_settings), true)
         set(value) {
-            preferences.edit()
-                .putBoolean(getPreferenceKey(R.string.pref_tool_tip_privacy_security_settings), value)
-                .apply()
+            preferences.edit {
+                putBoolean(getPreferenceKey(R.string.pref_tool_tip_privacy_security_settings), value)
+            }
         }
 
+    /**
+     * Indicates whether or not to use remote server search configuration.
+     * The default value is controlled by a Nimbus feature flag.
+     */
+    var useRemoteSearchConfiguration by booleanPreference(
+        key = getPreferenceKey(R.string.pref_key_use_remote_search_configuration),
+        default = FocusNimbus.features.remoteSearchConfiguration.value().enabled,
+    )
+
+    /**
+     * Checks if remote debugging via USB is enabled.
+     * Defaults to false.
+     */
     fun shouldEnableRemoteDebugging(): Boolean =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_remote_debugging),
             false,
         )
 
+    /**
+     * Checks if search suggestions are enabled.
+     * Defaults to false.
+     */
     fun shouldShowSearchSuggestions(): Boolean =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_show_search_suggestions),
             false,
         )
 
+    /**
+     * Checks if web fonts should be blocked for performance.
+     * Defaults to false.
+     */
     fun shouldBlockWebFonts(): Boolean =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_performance_block_webfonts),
             false,
         )
 
+    /**
+     * Checks if JavaScript should be blocked.
+     * Defaults to false.
+     */
     fun shouldBlockJavaScript(): Boolean =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_performance_block_javascript),
             false,
         )
 
-    fun shouldBlockCookiesValue(): String =
-        preferences.getString(
-            getPreferenceKey(
-                R.string
-                    .pref_key_performance_enable_cookies,
-            ),
+    /**
+     * Gets or sets the raw string value for the cookie blocking preference.
+     * It is recommended to use a typed version of this where possible.
+     */
+    var shouldBlockCookiesValue: String
+        get() = preferences.getString(
+            getPreferenceKey(R.string.pref_key_performance_enable_cookies),
             NO_VALUE,
-        )!!
+        ) ?: NO_VALUE
+        set(value) {
+            preferences.edit {
+                putString(
+                    getPreferenceKey(R.string.pref_key_performance_enable_cookies),
+                    value,
+                )
+            }
+        }
 
-    private fun setBlockCookiesValue(newValue: String) {
-        preferences.edit()
-            .putString(getPreferenceKey(R.string.pref_key_performance_enable_cookies), newValue)
-            .apply()
-    }
-
+    /**
+     * Checks if the app should be secured using biometric authentication (fingerprint, face, etc.).
+     * Defaults to false.
+     */
     fun shouldUseBiometrics(): Boolean =
         preferences.getBoolean(getPreferenceKey(R.string.pref_key_biometric), false)
 
+    /**
+     * Checks if the app should be in "secure mode", preventing screenshots and hiding content
+     * in the recent apps switcher. Defaults to false.
+     */
     fun shouldUseSecureMode(): Boolean =
         preferences.getBoolean(getPreferenceKey(R.string.pref_key_secure), false)
 
+    /**
+     * Persists the name of the default search engine.
+     */
     fun setDefaultSearchEngineByName(name: String) {
-        preferences.edit()
-            .putString(getPreferenceKey(R.string.pref_key_search_engine), name)
-            .apply()
+        preferences.edit {
+            putString(getPreferenceKey(R.string.pref_key_search_engine), name)
+        }
     }
 
+    /**
+     * Checks if URL autocomplete should use the shipped (pre-installed) domain list.
+     * Defaults to true.
+     */
     fun shouldAutocompleteFromShippedDomainList() =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_autocomplete_preinstalled),
             true,
         )
 
+    /**
+     * Checks if URL autocomplete should use the custom (user-added) domain list.
+     * Defaults to true.
+     */
     fun shouldAutocompleteFromCustomDomainList() =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_autocomplete_custom),
             true,
         )
 
+    /**
+     * Checks if ad trackers should be blocked.
+     * Defaults to true.
+     */
     fun shouldBlockAdTrackers() =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_privacy_block_ads),
             true,
         )
 
-    private fun shouldUseSafeBrowsing() =
+    /**
+     * Determines whether safe browsing should be enabled based on the user's preference.
+     * Defaults to true.
+     */
+    fun shouldUseSafeBrowsing() =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_safe_browsing),
             true,
         )
 
+    /**
+     * Checks if analytic trackers should be blocked.
+     * Defaults to true.
+     */
     fun shouldBlockAnalyticTrackers() =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_privacy_block_analytics),
             true,
         )
 
+    /**
+     * Checks if social media trackers should be blocked.
+     * Defaults to true.
+     */
     fun shouldBlockSocialTrackers() =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_privacy_block_social),
             true,
         )
 
+    /**
+     * Checks if "other" trackers (e.g., content trackers) should be blocked.
+     * Defaults to false.
+     */
     fun shouldBlockOtherTrackers() =
         preferences.getBoolean(
             getPreferenceKey(R.string.pref_key_privacy_block_other3),
@@ -327,57 +271,52 @@ class Settings(
         )
 
     /**
-     * This is automatically inferred based on the current system status. Not a setting in our app.
+     * Checks if the user has ever manually toggled the search suggestions setting.
      */
-    fun isAccessibilityEnabled() =
-        accessibilityManager?.isTouchExplorationEnabled ?: false || switchServiceIsEnabled
-
     fun userHasToggledSearchSuggestions(): Boolean =
         preferences.getBoolean(SearchSuggestionsPreferences.TOGGLED_SUGGESTIONS_PREF, false)
 
+    /**
+     * Checks if the user has dismissed the "no suggestions" message in the search bar.
+     */
     fun userHasDismissedNoSuggestionsMessage(): Boolean =
         preferences.getBoolean(SearchSuggestionsPreferences.DISMISSED_NO_SUGGESTIONS_PREF, false)
 
-    fun hasRequestedDesktop() = preferences.getBoolean(
-        getPreferenceKey(R.string.has_requested_desktop),
-        false,
-    )
-
+    /**
+     * Gets the total number of times the application has been launched.
+     */
     fun getAppLaunchCount() = preferences.getInt(
         getPreferenceKey(R.string.app_launch_count),
         0,
     )
 
+    /**
+     * Gets the total number of trackers that have been blocked since installation.
+     */
     fun getTotalBlockedTrackersCount() = preferences.getInt(
         getPreferenceKey(R.string.pref_key_privacy_total_trackers_blocked_count),
         0,
     )
 
-    fun hasSocialBlocked() = preferences.getBoolean(
-        getPreferenceKey(R.string.pref_key_privacy_block_social),
-        true,
-    )
-
-    fun hasAdvertisingBlocked() = preferences.getBoolean(
-        getPreferenceKey(R.string.pref_key_privacy_block_ads),
-        true,
-    )
-
-    fun hasAnalyticsBlocked() = preferences.getBoolean(
-        getPreferenceKey(R.string.pref_key_privacy_block_analytics),
-        true,
-    )
-
+    /**
+     * Reflects the user's explicit choice to use the light theme.
+     */
     var lightThemeSelected by booleanPreference(
         getPreferenceKey(R.string.pref_key_light_theme),
         false,
     )
 
+    /**
+     * Reflects the user's explicit choice to use the dark theme.
+     */
     var darkThemeSelected by booleanPreference(
         getPreferenceKey(R.string.pref_key_dark_theme),
         false,
     )
 
+    /**
+     * Reflects the user's explicit choice to use the system's default theme setting.
+     */
     var useDefaultThemeSelected by booleanPreference(
         getPreferenceKey(R.string.pref_key_default_theme),
         false,
@@ -398,30 +337,44 @@ class Settings(
         }
     }
 
+    /**
+     * Determines if the Nimbus preview channel should be used for experiments.
+     * Requires a restart to take effect.
+     */
     var shouldUseNimbusPreview: Boolean
         get() = preferences.getBoolean(getPreferenceKey(R.string.pref_key_use_nimbus_preview), false)
         set(value) {
-            preferences.edit()
-                .putBoolean(getPreferenceKey(R.string.pref_key_use_nimbus_preview), value)
-                .commit()
+            preferences.edit(commit = true) {
+                putBoolean(getPreferenceKey(R.string.pref_key_use_nimbus_preview), value)
+            }
         }
 
+    /**
+     * Determines if the production server for remote settings should be used.
+     * Requires a restart to take effect.
+     */
     var useProductionRemoteSettingsServer: Boolean
         get() = preferences.getBoolean(getPreferenceKey(R.string.pref_key_remote_server_prod), true)
         set(value) {
-            preferences.edit()
-                .putBoolean(getPreferenceKey(R.string.pref_key_remote_server_prod), value)
-                .commit()
+            preferences.edit(commit = true) {
+                putBoolean(getPreferenceKey(R.string.pref_key_remote_server_prod), value)
+            }
         }
 
+    /**
+     * Increments the counter for how many times a search widget has been installed.
+     */
     fun addSearchWidgetInstalled(count: Int) {
         val key = getPreferenceKey(R.string.pref_key_search_widget_installed)
         val newValue = preferences.getInt(key, 0) + count
-        preferences.edit()
-            .putInt(key, newValue)
-            .apply()
+        preferences.edit {
+            putInt(key, newValue)
+        }
     }
 
+    /**
+     * Checks if a search widget has been installed at least once.
+     */
     val searchWidgetInstalled: Boolean
         get() = 0 < preferences.getInt(
             getPreferenceKey(R.string.pref_key_search_widget_installed),
@@ -435,16 +388,22 @@ class Settings(
     fun addClearBrowsingSessions(count: Int) {
         val key = getPreferenceKey(R.string.pref_key_clear_browsing_sessions)
         val newValue = preferences.getInt(key, 0) + count
-        preferences.edit()
-            .putInt(key, newValue)
-            .apply()
+        preferences.edit {
+            putInt(key, newValue)
+        }
     }
 
+    /**
+     * Gets the number of times the user has cleared their browsing session.
+     */
     fun getClearBrowsingSessions() = preferences.getInt(
         getPreferenceKey(R.string.pref_key_clear_browsing_sessions),
         0,
     )
 
+    /**
+     * Gets the current HTTPS-Only Mode setting for the browser engine.
+     */
     fun getHttpsOnlyMode(): Engine.HttpsOnlyMode {
         return if (preferences.getBoolean(getPreferenceKey(R.string.pref_key_https_only), true)) {
             Engine.HttpsOnlyMode.ENABLED
@@ -464,21 +423,28 @@ class Settings(
             FocusNimbus.features.cookieBanner.value().isCookieHandlingEnabled,
         )
         set(value) {
-            preferences.edit()
-                .putBoolean(getPreferenceKey(R.string.pref_key_cookie_banner_enabled), value)
-                .apply()
+            preferences.edit {
+                putBoolean(getPreferenceKey(R.string.pref_key_cookie_banner_enabled), value)
+            }
         }
 
+    /**
+     * Saves the user's selected option for handling cookie banners.
+     */
     fun saveCurrentCookieBannerOptionInSharePref(
         cookieBannerOption: CookieBannerOption,
     ) {
-        preferences.edit()
-            .putString(
+        preferences.edit {
+            putString(
                 context.getString(R.string.pref_key_cookie_banner_settings),
                 context.getString(cookieBannerOption.prefKeyId),
-            ).apply()
+            )
+        }
     }
 
+    /**
+     * Retrieves the user's currently selected option for handling cookie banners.
+     */
     fun getCurrentCookieBannerOptionFromSharePref(): CookieBannerOption {
         val optionValue = preferences.getString(
             context.getString(R.string.pref_key_cookie_banner_settings),
@@ -493,6 +459,9 @@ class Settings(
         }
     }
 
+    /**
+     * Determines whether the daily usage ping for telemetry is enabled.
+     */
     var isDailyUsagePingEnabled by booleanPreference(
         getPreferenceKey(R.string.pref_key_daily_usage_ping),
         default = GleanMetricsService.shouldTelemetryBeEnabledByDefault(context),

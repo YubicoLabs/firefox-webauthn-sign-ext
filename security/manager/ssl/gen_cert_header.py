@@ -8,7 +8,7 @@ from pyasn1_modules import pem
 
 
 def read_certificate(filename):
-    with open(filename, "r") as f:
+    with open(filename) as f:
         try:
             return pem.readPemFromFile(
                 f, "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----"
@@ -34,7 +34,7 @@ def write_header(output, array_name, certificates):
             output.write(f"    {line}\n")
         output.write("};\n")
     output.write(
-        f'const mozilla::Span<const uint8_t> {array_name}[] = {{ {", ".join(certificate_names)} }};\n'
+        f"const mozilla::Span<const uint8_t> {array_name}[] = {{ {', '.join(certificate_names)} }};\n"
     )
 
 

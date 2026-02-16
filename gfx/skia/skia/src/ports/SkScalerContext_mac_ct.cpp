@@ -20,7 +20,6 @@
 #endif
 
 #include "include/core/SkColor.h"
-#include "include/core/SkColorPriv.h"
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkFontTypes.h"
 #include "include/core/SkMatrix.h"
@@ -29,13 +28,14 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypeface.h"
-#include "include/private/SkColorData.h"
 #include "include/private/base/SkFixed.h"
 #include "include/private/base/SkTemplates.h"
 #include "include/private/base/SkTo.h"
 #include "src/base/SkAutoMalloc.h"
 #include "src/base/SkEndian.h"
 #include "src/base/SkMathPriv.h"
+#include "src/core/SkColorData.h"
+#include "src/core/SkColorPriv.h"
 #include "src/core/SkGlyph.h"
 #include "src/core/SkMask.h"
 #include "src/core/SkMaskGamma.h"
@@ -116,10 +116,10 @@ static CGAffineTransform MatrixToCGAffineTransform(const SkMatrix& matrix) {
                                   SkScalarToCGFloat(matrix[SkMatrix::kMTransY]));
 }
 
-SkScalerContext_Mac::SkScalerContext_Mac(sk_sp<SkTypeface_Mac> typeface,
+SkScalerContext_Mac::SkScalerContext_Mac(SkTypeface_Mac& typeface,
                                          const SkScalerContextEffects& effects,
                                          const SkDescriptor* desc)
-        : INHERITED(std::move(typeface), effects, desc)
+        : INHERITED(typeface, effects, desc)
         , fOffscreen(fRec.fForegroundColor)
         , fDoSubPosition(SkToBool(fRec.fFlags & kSubpixelPositioning_Flag))
 
@@ -552,7 +552,6 @@ void SkScalerContext_Mac::generateImage(const SkGlyph& glyph, void* imageBuffer)
 
 namespace {
 class SkCTPathGeometrySink {
-    SkPathBuilder fBuilder;
     bool fStarted;
     CGPoint fCurrent;
 
@@ -569,9 +568,9 @@ class SkCTPathGeometrySink {
     }
 
 public:
-    SkCTPathGeometrySink() : fStarted{false}, fCurrent{0,0} {}
+    SkPathBuilder fBuilder;
 
-    SkPath detach() { return fBuilder.detach(); }
+    SkCTPathGeometrySink() : fStarted{false}, fCurrent{0,0} {}
 
     static void ApplyElement(void *ctx, const CGPathElement *element) {
         SkCTPathGeometrySink& self = *(SkCTPathGeometrySink*)ctx;
@@ -631,7 +630,8 @@ public:
  */
 #define kScaleForSubPixelPositionHinting (4.0f)
 
-bool SkScalerContext_Mac::generatePath(const SkGlyph& glyph, SkPath* path, bool* modified) {
+std::optional<SkScalerContext::GeneratedPath>
+SkScalerContext_Mac::generatePath(const SkGlyph& glyph) {
     SkScalar scaleX = SK_Scalar1;
     SkScalar scaleY = SK_Scalar1;
 
@@ -668,20 +668,18 @@ bool SkScalerContext_Mac::generatePath(const SkGlyph& glyph, SkPath* path, bool*
     CGGlyph cgGlyph = SkTo<CGGlyph>(glyph.getGlyphID());
     SkUniqueCFRef<CGPathRef> cgPath(CTFontCreatePathForGlyph(fCTFont.get(), cgGlyph, &xform));
 
-    path->reset();
     if (!cgPath) {
-        return false;
+        return {};
     }
 
     SkCTPathGeometrySink sink;
     CGPathApply(cgPath.get(), &sink, SkCTPathGeometrySink::ApplyElement);
-    *path = sink.detach();
     if (fDoSubPosition) {
         SkMatrix m;
         m.setScale(SkScalarInvert(scaleX), SkScalarInvert(scaleY));
-        path->transform(m);
+        sink.fBuilder.transform(m);
     }
-    return true;
+    return {{sink.fBuilder.detach(), false}};
 }
 
 void SkScalerContext_Mac::generateFontMetrics(SkFontMetrics* metrics) {

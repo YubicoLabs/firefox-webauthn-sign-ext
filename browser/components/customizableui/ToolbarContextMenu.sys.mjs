@@ -7,7 +7,8 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
-  CustomizableUI: "resource:///modules/CustomizableUI.sys.mjs",
+  CustomizableUI:
+    "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
   ExtensionsUI: "resource:///modules/ExtensionsUI.sys.mjs",
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
 });
@@ -53,11 +54,10 @@ export var ToolbarContextMenu = {
         popup.triggerNode.id
       );
     checkbox.hidden = !isDownloads;
-    if (DownloadsButton.autoHideDownloadsButton) {
-      checkbox.setAttribute("checked", "true");
-    } else {
-      checkbox.removeAttribute("checked");
-    }
+    checkbox.toggleAttribute(
+      "checked",
+      DownloadsButton.autoHideDownloadsButton
+    );
   },
 
   /**
@@ -69,7 +69,7 @@ export var ToolbarContextMenu = {
    * @param {CommandEvent} event
    */
   onDownloadsAutoHideChange(event) {
-    let autoHide = event.target.getAttribute("checked") == "true";
+    let autoHide = event.target.hasAttribute("checked");
     Services.prefs.setBoolPref("browser.download.autohideButton", autoHide);
   },
 
@@ -98,9 +98,7 @@ export var ToolbarContextMenu = {
         popup.triggerNode.id
       );
     separator.hidden = checkbox.hidden = !isDownloads;
-    lazy.gAlwaysOpenPanel
-      ? checkbox.setAttribute("checked", "true")
-      : checkbox.removeAttribute("checked");
+    checkbox.toggleAttribute("checked", lazy.gAlwaysOpenPanel);
   },
 
   /**
@@ -112,7 +110,7 @@ export var ToolbarContextMenu = {
    * @param {CommandEvent} event
    */
   onDownloadsAlwaysOpenPanelChange(event) {
-    let alwaysOpen = event.target.getAttribute("checked") == "true";
+    let alwaysOpen = event.target.hasAttribute("checked");
     Services.prefs.setBoolPref("browser.download.alwaysOpenPanel", alwaysOpen);
   },
 
@@ -128,6 +126,7 @@ export var ToolbarContextMenu = {
    * @param {DOMNode} aInsertPoint
    *   The point within the menupopup to insert the controls for each toolbar.
    */
+  // eslint-disable-next-line complexity
   onViewToolbarsPopupShowing(aEvent, aInsertPoint) {
     var popup = aEvent.target;
     let window = popup.ownerGlobal;
@@ -214,14 +213,11 @@ export var ToolbarContextMenu = {
             toolbar.getAttribute("type") == "menubar"
               ? "autohide"
               : "collapsed";
-          menuItem.setAttribute(
+          menuItem.toggleAttribute(
             "checked",
-            toolbar.getAttribute(hidingAttribute) != "true"
+            !toolbar.hasAttribute(hidingAttribute)
           );
           menuItem.setAttribute("accesskey", toolbar.getAttribute("accesskey"));
-          if (popup.id != "toolbar-context-menu") {
-            menuItem.setAttribute("key", toolbar.getAttribute("key"));
-          }
 
           popup.insertBefore(menuItem, firstMenuItem);
           menuItem.addEventListener("command", onViewToolbarCommand);
@@ -233,6 +229,13 @@ export var ToolbarContextMenu = {
     let removeFromToolbar = popup.querySelector(
       ".customize-context-removeFromToolbar"
     );
+
+    let isTitlebarSpacer = toolbarItem?.classList.contains("titlebar-spacer");
+
+    let isMenuBarSpacer =
+      toolbarItem?.localName == "spacer" &&
+      toolbarItem?.parentElement?.id == "toolbar-menubar";
+
     // Show/hide fullscreen context menu items and set the
     // autohide item's checked state to mirror the autohide pref.
     showFullScreenViewContextMenuItems(popup);
@@ -241,7 +244,10 @@ export var ToolbarContextMenu = {
     let sidebarRevampEnabled = Services.prefs.getBoolPref("sidebar.revamp");
     let showSidebarActions =
       ["tabbrowser-tabs", "sidebar-button"].includes(toolbarItem?.id) ||
-      toolbarItem?.localName == "toolbarspring";
+      toolbarItem?.localName == "toolbarspring" ||
+      isTitlebarSpacer ||
+      isMenuBarSpacer;
+
     let toggleVerticalTabsItem = document.getElementById(
       "toolbar-context-toggle-vertical-tabs"
     );
@@ -259,10 +265,13 @@ export var ToolbarContextMenu = {
       (!["tabbrowser-tabs", "sidebar-button"].includes(toolbarItem?.id) &&
         gBrowser.tabContainer?.verticalMode);
     document.getElementById("sidebarRevampSeparator").hidden =
-      !showSidebarActions;
+      !showSidebarActions || isVerticalTabStripMenu;
     document.getElementById("customizationMenuSeparator").hidden =
       toolbarItem?.id == "tabbrowser-tabs" ||
-      toolbarItem?.localName == "toolbarspring";
+      (toolbarItem?.localName == "toolbarspring" &&
+        !CustomizationHandler.isCustomizing()) ||
+      isMenuBarSpacer ||
+      isTitlebarSpacer;
 
     // View -> Toolbars menu doesn't have the moveToPanel or removeFromToolbar items.
     if (!moveToPanel || !removeFromToolbar) {
@@ -297,13 +306,18 @@ export var ToolbarContextMenu = {
     document.getElementById("toolbarNavigatorItemsMenuSeparator").hidden =
       !showTabStripItems;
 
-    if (
-      !CustomizationHandler.isCustomizing() &&
-      (toolbarItem?.localName.includes("separator") ||
-        toolbarItem?.localName.includes("spring") ||
-        toolbarItem?.localName.includes("spacer") ||
-        toolbarItem?.id.startsWith("customizableui-special"))
-    ) {
+    let isSpacerItem =
+      toolbarItem?.localName.includes("separator") ||
+      toolbarItem?.localName.includes("spring") ||
+      toolbarItem?.localName.includes("spacer") ||
+      toolbarItem?.id.startsWith("customizableui-special");
+
+    // For spacer items, customization items should only appear
+    // when the user is actively customizing the toolbar.
+    let shouldHideCustomizationItems =
+      isSpacerItem && !CustomizationHandler.isCustomizing();
+
+    if (shouldHideCustomizationItems) {
       moveToPanel.hidden = true;
       removeFromToolbar.hidden = true;
       menuSeparator.hidden = !showTabStripItems;
@@ -328,7 +342,7 @@ export var ToolbarContextMenu = {
       let closedCount = lazy.SessionStore.getLastClosedTabCount(window);
       document
         .getElementById("History:UndoCloseTab")
-        .setAttribute("disabled", closedCount == 0);
+        .toggleAttribute("disabled", closedCount == 0);
       document.l10n.setArgs(
         document.getElementById("toolbar-context-undoCloseTab"),
         { tabCount: closedCount }
@@ -338,17 +352,14 @@ export var ToolbarContextMenu = {
 
     let movable =
       toolbarItem?.id && lazy.CustomizableUI.isWidgetRemovable(toolbarItem);
-    if (movable) {
-      if (lazy.CustomizableUI.isSpecialWidget(toolbarItem.id)) {
-        moveToPanel.setAttribute("disabled", true);
-      } else {
-        moveToPanel.removeAttribute("disabled");
-      }
-      removeFromToolbar.removeAttribute("disabled");
-    } else {
-      removeFromToolbar.setAttribute("disabled", true);
-      moveToPanel.setAttribute("disabled", true);
-    }
+    moveToPanel.toggleAttribute(
+      "disabled",
+      !movable || lazy.CustomizableUI.isSpecialWidget(toolbarItem.id)
+    );
+    removeFromToolbar.toggleAttribute(
+      "disabled",
+      !movable || shouldHideCustomizationItems
+    );
   },
 
   /**
@@ -404,18 +415,63 @@ export var ToolbarContextMenu = {
   },
 
   /**
+   * Updates the toolbar context menu items unique to gUnifiedExtensions.button.
+   *
+   * @param {Element} popup
+   *   The toolbar-context-menu element for a window.
+   */
+  updateExtensionsButtonContextMenu(popup) {
+    const isExtsButton = popup.triggerNode?.id === "unified-extensions-button";
+    const isCustomizingExtsButton =
+      popup.triggerNode?.id === "wrapper-unified-extensions-button";
+    const { gUnifiedExtensions } = popup.ownerGlobal;
+
+    const checkbox = popup.querySelector(
+      "#toolbar-context-always-show-extensions-button"
+    );
+    if (isCustomizingExtsButton) {
+      checkbox.hidden = false;
+      checkbox.toggleAttribute(
+        "checked",
+        gUnifiedExtensions.buttonAlwaysVisible
+      );
+    } else if (isExtsButton && !gUnifiedExtensions.buttonAlwaysVisible) {
+      // The button may be visible despite the user's preference, which could
+      // remind the user of the button's existence. Offer an option to unhide
+      // the button, in case the user is looking for a way to do so.
+      checkbox.hidden = false;
+      checkbox.removeAttribute("checked");
+    } else {
+      checkbox.hidden = true;
+    }
+
+    // removeFromToolbar is shown but disabled by default, via an earlier call
+    // to ToolbarContextMenu.onViewToolbarsPopupShowing. Enable/hide if needed.
+    if (isExtsButton) {
+      const removeFromToolbar = popup.querySelector(
+        ".customize-context-removeFromToolbar"
+      );
+      if (gUnifiedExtensions.buttonAlwaysVisible) {
+        removeFromToolbar.removeAttribute("disabled");
+      } else {
+        // No need to show "Remove from Toolbar" even if disabled, because the
+        // "Always Show in Toolbar" checkbox is already shown above.
+        removeFromToolbar.hidden = true;
+      }
+    }
+  },
+
+  /**
    * Updates the toolbar context menu to show the right state if an
    * extension-provided widget acted as the triggerNode. This will, for example,
    * show or hide items for managing the underlying addon.
    *
    * @param {DOMNode} popup
    *   The menupopup for the toolbar context menu.
-   * @param {Event} event
-   *   The popupshowing event for the menupopup.
    * @returns {Promise<undefined>}
    *   Resolves once the menupopup state has been set.
    */
-  async updateExtension(popup, event) {
+  async updateExtension(popup) {
     let removeExtension = popup.querySelector(
       ".customize-context-removeExtension"
     );
@@ -449,7 +505,7 @@ export var ToolbarContextMenu = {
         if (widgetId) {
           let area = lazy.CustomizableUI.getPlacementOfWidget(widgetId).area;
           let inToolbar = area != lazy.CustomizableUI.AREA_ADDONS;
-          pinToToolbar.setAttribute("checked", inToolbar);
+          pinToToolbar.toggleAttribute("checked", inToolbar);
         }
       }
 
@@ -457,7 +513,7 @@ export var ToolbarContextMenu = {
         addon.permissions & lazy.AddonManager.PERM_CAN_UNINSTALL
       );
 
-      if (event?.target?.id === "toolbar-context-menu") {
+      if (popup.id === "toolbar-context-menu") {
         lazy.ExtensionsUI.originControlsMenu(popup, id);
       }
     }
@@ -507,5 +563,57 @@ export var ToolbarContextMenu = {
     let { BrowserAddonUI } = popup.ownerGlobal;
     let id = this._getExtensionId(popup);
     await BrowserAddonUI.manageAddon(id, "browserAction");
+  },
+
+  /**
+   * Hides the first visible menu separator if it would appear at the top of the
+   * toolbar context menu (i.e., when all preceding menu items are hidden). This
+   * prevents a separator from appearing at the top of the menu with no items above it.
+   *
+   * Fix for Bug 1955241.
+   *
+   * @param {Element} popup
+   *   The toolbar-context-menu element for a window.
+   */
+  hideLeadingSeparatorIfNeeded(popup) {
+    // Find the first non-hidden element in the menu
+    let firstVisibleElement = popup.firstElementChild;
+    while (firstVisibleElement && firstVisibleElement.hidden) {
+      firstVisibleElement = firstVisibleElement.nextElementSibling;
+    }
+
+    // If the first visible element is a separator, hide it
+    if (
+      firstVisibleElement &&
+      firstVisibleElement.localName === "menuseparator"
+    ) {
+      firstVisibleElement.hidden = true;
+    }
+  },
+
+  /**
+   * Hides the "Move to Panel" and "Remove from Toolbar" items if both are
+   * disabled. This prevents showing a menu with no useful items. If at least
+   * one of the items is enabled, both items are shown for consistency.
+   *
+   * This is its own method to allow it to be called after other methods
+   * that may change the disabled state of either menu item.
+   *
+   * @param {Element} popup
+   *   The toolbar-context-menu element for a window.
+   */
+  updateCustomizationItemsVisibility(popup) {
+    let moveToPanel = popup.querySelector(".customize-context-moveToPanel");
+    let removeFromToolbar = popup.querySelector(
+      ".customize-context-removeFromToolbar"
+    );
+
+    if (
+      removeFromToolbar?.hasAttribute("disabled") &&
+      moveToPanel.hasAttribute("disabled")
+    ) {
+      removeFromToolbar.hidden = true;
+      moveToPanel.hidden = true;
+    }
   },
 };

@@ -7,9 +7,7 @@ from . import document_dimensions
 def take_full_screenshot(session):
     return session.transport.send(
         "GET",
-        "/session/{session_id}/moz/screenshot/full".format(
-            session_id=session.session_id
-        ),
+        f"/session/{session.session_id}/moz/screenshot/full",
     )
 
 
@@ -49,3 +47,12 @@ def test_document_extends_beyond_viewport(session, inline):
     value = assert_success(response)
     assert_png(value)
     assert png_dimensions(value) == document_dimensions(session)
+
+
+def test_huge_full_screenshot(session, inline):
+    session.url = inline(
+        "<div style='width: 32768px; height: 32768px; background-color: black;'></div>"
+    )
+
+    response = take_full_screenshot(session)
+    assert_error(response, "unsupported operation")

@@ -100,22 +100,12 @@ export class LoginCSVImport {
 
     return vanillaLogin;
   }
-  static _recordHistogramTelemetry(histogram, report) {
-    for (let reportRow of report) {
-      let { result } = reportRow;
-      if (result.includes("error")) {
-        histogram.add("error");
-      } else {
-        histogram.add(result);
-      }
-    }
-  }
   /**
    * Imports logins from a CSV file (comma-separated values file).
    * Existing logins may be updated in the process.
    *
    * @param {string} filePath
-   * @returns {Object[]} An array of rows where each is mapped to a row in the CSV and it's import information.
+   * @returns {object[]} An array of rows where each is mapped to a row in the CSV and it's import information.
    */
   static async importFromCSV(filePath) {
     let csvColumnToFieldMap = LoginCSVImport._getCSVColumnToFieldMap();
@@ -186,10 +176,12 @@ export class LoginCSVImport {
 
     // Record quantity and duration telemetry.
     try {
-      let histogram = Services.telemetry.getHistogramById(
-        "PWMGR_IMPORT_LOGINS_FROM_FILE_CATEGORICAL"
-      );
-      this._recordHistogramTelemetry(histogram, report);
+      for (let reportRow of report) {
+        let { result } = reportRow;
+        Glean.pwmgr.importLoginsFromFileCategorical[
+          result.includes("error") ? "error" : result
+        ].add(1);
+      }
     } catch (ex) {
       console.error(ex);
     }

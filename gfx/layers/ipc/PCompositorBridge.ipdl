@@ -52,7 +52,6 @@ struct FrameStats {
   TimeStamp compositeEnd;
   int32_t contentFrameTime;
   double resourceUploadTime;
-  double gpuCacheUploadTime;
   TimeStamp transactionStart;
   TimeStamp refreshStart;
   TimeStamp fwdTime;
@@ -189,6 +188,10 @@ parent:
 
   sync SyncWithCompositor();
 
+  // Check if WebRender rasterized any tiles in the last frame, and clear the state.
+  // Used by reftest to verify no rasterization occurred.
+  sync CheckAndClearWRDidRasterize(LayersId id) returns (bool didRasterize);
+
   // The pipelineId is the same as the layersId
   async PWebRenderBridge(PipelineId pipelineId, LayoutDeviceIntSize aSize, WindowKind aKind);
 
@@ -203,6 +206,8 @@ parent:
 
   // To set up sharing the composited output to Firefox Reality on Desktop
   async RequestFxrOutput();
+
+  async DynamicToolbarOffsetChanged(int32_t aOffset);
 };
 
 } // layers

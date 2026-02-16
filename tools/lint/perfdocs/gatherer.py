@@ -28,7 +28,7 @@ frameworks = {
 ALLOWED_STATIC_FILETYPES = ("rst", "png")
 
 
-class Gatherer(object):
+class Gatherer:
     """
     Gatherer produces the tree of the perfdoc's entries found
     and can obtain manifest-based test lists. Used by the Verifier.
@@ -94,7 +94,7 @@ class Gatherer(object):
 
             for file in files:
                 # Add the yml/rst/static file to its key if re finds the searched file
-                if file == "config.yml" or file == "config.yaml":
+                if file in {"config.yml", "config.yaml"}:
                     matched["yml"] = file
                 elif file == "index.rst":
                     matched["rst"] = file

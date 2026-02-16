@@ -38,7 +38,7 @@ add_task(async function test_tabGroupsUndo() {
     tabGroup,
     "TabGroupRemoved"
   );
-  gBrowser.removeTabGroup(tabGroup);
+  await gBrowser.removeTabGroup(tabGroup);
   await removePromise;
 
   await TabStateFlusher.flushWindow(window);
@@ -54,7 +54,7 @@ add_task(async function test_tabGroupsUndo() {
     "SessionStore saves the ID of the last closed tab group"
   );
 
-  undoCloseTab();
+  SessionWindowUI.undoCloseTab(window);
 
   Assert.equal(window.gBrowser.tabGroups.length, 1, "Tab group was restored");
   Assert.equal(
@@ -97,7 +97,7 @@ add_task(async function test_tabGroupsUndo() {
     savedTabGroup,
     "TabGroupRemoved"
   );
-  gBrowser.removeTabGroup(savedTabGroup);
+  await gBrowser.removeTabGroup(savedTabGroup);
   await removePromise;
 
   await TabStateFlusher.flushWindow(window);

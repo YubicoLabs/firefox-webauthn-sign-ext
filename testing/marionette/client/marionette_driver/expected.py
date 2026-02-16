@@ -16,7 +16,7 @@ of times until they are either successfully met, or they time out.
 """
 
 
-class element_present(object):
+class element_present:
     """Checks that a web element is present in the DOM of the current
     context.  This does not necessarily mean that the element is
     visible.
@@ -29,7 +29,8 @@ class element_present(object):
     Or by using a function/lambda returning an element::
 
         el = Wait(marionette).until(
-            expected.element_present(lambda m: m.find_element(By.ID, "foo")))
+            expected.element_present(lambda m: m.find_element(By.ID, "foo"))
+        )
 
     :param args: locator or function returning web element
     :returns: the web element once it is located, or False
@@ -58,7 +59,8 @@ class element_not_present(element_present):
     Or by using a function/lambda returning an element::
 
         r = Wait(marionette).until(
-            expected.element_present(lambda m: m.find_element(By.ID, "foo")))
+            expected.element_present(lambda m: m.find_element(By.ID, "foo"))
+        )
 
     :param args: locator or function returning web element
     :returns: True if element is not present, or False if it is present
@@ -66,13 +68,13 @@ class element_not_present(element_present):
     """
 
     def __init__(self, *args):
-        super(element_not_present, self).__init__(*args)
+        super().__init__(*args)
 
     def __call__(self, marionette):
-        return not super(element_not_present, self).__call__(marionette)
+        return not super().__call__(marionette)
 
 
-class element_stale(object):
+class element_stale:
     """Check that the given element is no longer attached to DOM of the
     current context.
 
@@ -105,7 +107,7 @@ class element_stale(object):
             return True
 
 
-class elements_present(object):
+class elements_present:
     """Checks that web elements are present in the DOM of the current
     context.  This does not necessarily mean that the elements are
     visible.
@@ -118,7 +120,8 @@ class elements_present(object):
     Or by using a function/lambda returning a list of elements::
 
         els = Wait(marionette).until(
-            expected.elements_present(lambda m: m.find_elements(By.TAG_NAME, "a")))
+            expected.elements_present(lambda m: m.find_elements(By.TAG_NAME, "a"))
+        )
 
     :param args: locator or function returning a list of web elements
     :returns: list of web elements once they are located, or False
@@ -147,7 +150,8 @@ class elements_not_present(elements_present):
     Or by using a function/lambda returning a list of elements::
 
         r = Wait(marionette).until(
-            expected.elements_not_present(lambda m: m.find_elements(By.TAG_NAME, "a")))
+            expected.elements_not_present(lambda m: m.find_elements(By.TAG_NAME, "a"))
+        )
 
     :param args: locator or function returning a list of web elements
     :returns: True if elements are missing, False if one or more are
@@ -156,13 +160,13 @@ class elements_not_present(elements_present):
     """
 
     def __init__(self, *args):
-        super(elements_not_present, self).__init__(*args)
+        super().__init__(*args)
 
     def __call__(self, marionette):
-        return not super(elements_not_present, self).__call__(marionette)
+        return not super().__call__(marionette)
 
 
-class element_displayed(object):
+class element_displayed:
     """An expectation for checking that an element is visible.
 
     Visibility means that the element is not only displayed, but also
@@ -235,13 +239,13 @@ class element_not_displayed(element_displayed):
     """
 
     def __init__(self, *args):
-        super(element_not_displayed, self).__init__(*args)
+        super().__init__(*args)
 
     def __call__(self, marionette):
-        return not super(element_not_displayed, self).__call__(marionette)
+        return not super().__call__(marionette)
 
 
-class element_selected(object):
+class element_selected:
     """An expectation for checking that the given element is selected.
 
     :param element: the element to be selected
@@ -266,13 +270,13 @@ class element_not_selected(element_selected):
     """
 
     def __init__(self, element):
-        super(element_not_selected, self).__init__(element)
+        super().__init__(element)
 
     def __call__(self, marionette):
-        return not super(element_not_selected, self).__call__(marionette)
+        return not super().__call__(marionette)
 
 
-class element_enabled(object):
+class element_enabled:
     """An expectation for checking that the given element is enabled.
 
     :param element: the element to check if enabled
@@ -296,10 +300,10 @@ class element_not_enabled(element_enabled):
     """
 
     def __init__(self, element):
-        super(element_not_enabled, self).__init__(element)
+        super().__init__(element)
 
     def __call__(self, marionette):
-        return not super(element_not_enabled, self).__call__(marionette)
+        return not super().__call__(marionette)
 
 
 def _find(marionette, func):

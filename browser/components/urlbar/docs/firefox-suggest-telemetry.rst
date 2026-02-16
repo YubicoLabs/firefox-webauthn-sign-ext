@@ -5,6 +5,9 @@ This document describes the telemetry that Firefox records for the Firefox
 Suggest feature. That is, it describes Firefox Suggest telemetry recorded on the
 client. It also discusses the data that Firefox sends to the Merino service.
 
+This document only covers Legacy telemetry, not Glean telemetry.
+Glean metrics are self-documenting and can be looked up in the Glean dictionary.
+
 For information on other telemetry related to the address bar, see the general
 address bar :doc:`telemetry` document. For information on all telemetry in
 Firefox, see the toolkit :doc:`/toolkit/components/telemetry/index` document.
@@ -158,11 +161,16 @@ The following scalars are recorded for Firefox Suggest. For general information
 on scalar telemetry in Firefox, see the
 :doc:`/toolkit/components/telemetry/collection/scalars` document.
 
-browser.ui.interaction.preferences_panePrivacy
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+browser.ui.interaction.preferences_paneSearch
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This keyed scalar is incremented each time the user clicks a Firefox Suggest
-checkbox or toggle switch in the preferences UI. Keys are the following:
+checkbox or toggle switch in the preferences UI.
+
+Note: These are also recorded in different forms under the
+``contextual.services.quicksuggest.*`` telemetry described below.
+
+Keys are the following:
 
 :firefoxSuggestBestMatch:
   This key is incremented when the "Top pick" checkbox is clicked. In 120 this
@@ -173,10 +181,10 @@ checkbox or toggle switch in the preferences UI. Keys are the following:
 :firefoxSuggestDataCollectionToggle:
   This key is incremented when the toggle switch for data collection
   is clicked.
-:firefoxSuggestNonsponsoredToggle:
+:firefoxSuggestNonsponsored:
   This key is incremented when the toggle switch for non-sponsored suggestions
   is clicked.
-:firefoxSuggestSponsoredToggle:
+:firefoxSuggestSponsored:
   This key is incremented when the toggle switch for sponsored suggestions
   is clicked.
 
@@ -194,10 +202,18 @@ Changelog
     Removed ``firefoxSuggestBestMatch`` and
     ``firefoxSuggestBestMatchLearnMore``. [Bug 1857391_]
 
+  Firefox 123.0
+    Recording moved from ``browser.ui.interaction.preferences_panePrivacy`` to
+    ``browser.ui.interaction.preferences_paneSearch``. [Bug 1852048_]
+    ``firefoxSuggestNonsponsoredToggle`` was renamed to ``firefoxSuggestNonsponsored``
+    ``firefoxSuggestSponsoredToggle`` was renamed to ``firefoxSuggestSponsored``
+    ``
+
 .. _1735976: https://bugzilla.mozilla.org/show_bug.cgi?id=1735976
 .. _1755100: https://bugzilla.mozilla.org/show_bug.cgi?id=1755100
 .. _1756917: https://bugzilla.mozilla.org/show_bug.cgi?id=1756917
 .. _1857391: https://bugzilla.mozilla.org/show_bug.cgi?id=1857391
+.. _1852048: https://bugzilla.mozilla.org/show_bug.cgi?id=1852048
 
 contextual.services.quicksuggest.block_dynamic_wikipedia
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1315,7 +1331,11 @@ Changelog
   Firefox 94.0.2
     Introduced. [Bug 1735976_]
 
+  Firefox 146.0
+    Removed. [Bug 1995362_]
+
 .. _1735976: https://bugzilla.mozilla.org/show_bug.cgi?id=1735976
+.. _1995362: https://bugzilla.mozilla.org/show_bug.cgi?id=1995362
 
 browser.urlbar.suggest.quicksuggest
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1355,8 +1375,12 @@ Changelog
     all other users, it will default to true when/if they are enrolled in
     online. [Bug 1740965_]
 
+  Firefox 146.0
+    Removed. [Bug 1995574_]
+
 .. _1735976: https://bugzilla.mozilla.org/show_bug.cgi?id=1735976
 .. _1740965: https://bugzilla.mozilla.org/show_bug.cgi?id=1740965
+.. _1995574: https://bugzilla.mozilla.org/show_bug.cgi?id=1995574
 
 browser.urlbar.suggest.quicksuggest.sponsored
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -27,6 +27,7 @@
 #include "js/Wrapper.h"
 
 #include "mozilla/ContentPrincipal.h"
+#include "mozilla/ExtensionPolicyService.h"
 #include "mozilla/dom/ScriptLoader.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/ProfilerMarkers.h"
@@ -34,9 +35,9 @@
 #include "mozilla/SystemPrincipal.h"
 #include "mozilla/scache/StartupCache.h"
 #include "mozilla/scache/StartupCacheUtils.h"
-#include "mozilla/Unused.h"
 #include "mozilla/Utf8.h"  // mozilla::Utf8Unit
 #include "nsContentUtils.h"
+#include "nsContentSecurityUtils.h"
 #include "nsString.h"
 
 using namespace mozilla::scache;
@@ -68,8 +69,6 @@ class MOZ_STACK_CLASS LoadSubScriptOptions : public OptionsBase {
 /* load() error msgs, XXX localize? */
 #define LOAD_ERROR_NOSERVICE "Error creating IO Service."
 #define LOAD_ERROR_NOURI "Error creating URI (invalid URL scheme?)"
-#define LOAD_ERROR_NOSCHEME "Failed to get URI scheme.  This is bad."
-#define LOAD_ERROR_URI_NOT_LOCAL "Trying to load a non-local URI."
 #define LOAD_ERROR_NOSTREAM "Error opening input stream (invalid filename?)"
 #define LOAD_ERROR_NOCONTENT "ContentLength not available (not a local URL?)"
 #define LOAD_ERROR_BADCHARSET "Error converting to specified charset"
@@ -87,13 +86,16 @@ NS_IMPL_ISUPPORTS(mozJSSubScriptLoader, mozIJSSubScriptLoader)
 
 static void SubscriptCachePath(JSContext* cx, nsIURI* uri,
                                JS::HandleObject targetObj,
-                               nsACString& cachePath) {
+                               nsACString& cachePath,
+                               scache::ResourceType* aResourceType) {
   // StartupCache must distinguish between non-syntactic vs global when
   // computing the cache key.
   if (!JS_IsGlobalObject(targetObj)) {
-    PathifyURI(JSSUB_CACHE_PREFIX("non-syntactic", "script"), uri, cachePath);
+    PathifyURI(JSSUB_CACHE_PREFIX("non-syntactic", "script"), uri, cachePath,
+               aResourceType);
   } else {
-    PathifyURI(JSSUB_CACHE_PREFIX("global", "script"), uri, cachePath);
+    PathifyURI(JSSUB_CACHE_PREFIX("global", "script"), uri, cachePath,
+               aResourceType);
   }
 }
 
@@ -188,7 +190,8 @@ static bool EvalStencil(JSContext* cx, HandleObject targetObj,
 
   if (script && (storeIntoStartupCache || storeIntoPreloadCache)) {
     nsAutoCString cachePath;
-    SubscriptCachePath(cx, uri, targetObj, cachePath);
+    scache::ResourceType resourceType;
+    SubscriptCachePath(cx, uri, targetObj, cachePath, &resourceType);
 
     nsCString uriStr;
     if (storeIntoPreloadCache && NS_SUCCEEDED(uri->GetSpec(uriStr))) {
@@ -315,6 +318,28 @@ mozJSSubScriptLoader::LoadSubScriptWithOptions(const nsAString& url,
   return DoLoadSubScriptWithOptions(url, options, cx, retval);
 }
 
+static bool CheckAllowedURI(JSContext* aCx, nsIURI* aURI) {
+  // Trusted schemes like moz-src: are always ok.
+  if (nsContentSecurityUtils::IsTrustedScheme(aURI)) {
+    return true;
+  }
+
+  // TODO(Bug 1974213) Block file: and jar: schemes.
+  // TODO(Bug 1976115) experiment_apis scripts are run from jar:file: URL
+  // instead of moz-extension:-URL
+  if (aURI->SchemeIs("file") || aURI->SchemeIs("jar")) {
+    return true;
+  }
+
+  // TODO(Bug 1974691) Don't load subscripts from un-privileged moz-extension:
+  if (aURI->SchemeIs("moz-extension")) {
+    return true;
+  }
+
+  ReportError(aCx, "Trying to load untrusted URI.", aURI);
+  return false;
+}
+
 nsresult mozJSSubScriptLoader::DoLoadSubScriptWithOptions(
     const nsAString& url, LoadSubScriptOptions& options, JSContext* cx,
     MutableHandleValue retval) {
@@ -387,14 +412,11 @@ nsresult mozJSSubScriptLoader::DoLoadSubScriptWithOptions(
     return NS_OK;
   }
 
-  rv = uri->GetScheme(scheme);
-  if (NS_FAILED(rv)) {
-    ReportError(cx, LOAD_ERROR_NOSCHEME, uri);
+  if (!CheckAllowedURI(cx, uri)) {
     return NS_OK;
   }
 
-  // Suppress caching if we're compiling as content or if we're loading a
-  // blob: URI.
+  // Suppress caching if we're compiling as content
   bool useCompilationScope = false;
   auto* principal = BasePrincipal::Cast(GetObjectPrincipal(targetObj));
   bool isSystem = principal->Is<SystemPrincipal>();
@@ -414,19 +436,26 @@ nsresult mozJSSubScriptLoader::DoLoadSubScriptWithOptions(
       isSystem = true;
     }
   }
-  bool ignoreCache =
-      options.ignoreCache || !isSystem || scheme.EqualsLiteral("blob");
+  bool ignoreCache = options.ignoreCache || !isSystem;
 
   StartupCache* cache = ignoreCache ? nullptr : StartupCache::GetSingleton();
 
   nsAutoCString cachePath;
-  SubscriptCachePath(cx, uri, targetObj, cachePath);
+  scache::ResourceType resourceType;
+  SubscriptCachePath(cx, uri, targetObj, cachePath, &resourceType);
 
   JS::DecodeOptions decodeOptions;
   ScriptPreloader::FillDecodeOptionsForCachedStencil(decodeOptions);
 
+  // Skip all caching for scripts not from omni.ja to avoid serving stale
+  // bytecode when JAR files from built-in add-ons installed in the profile
+  // directory are updated.
+  bool shouldUseCache =
+      !ignoreCache && (resourceType == scache::ResourceType::Gre ||
+                       resourceType == scache::ResourceType::App);
+
   RefPtr<JS::Stencil> stencil;
-  if (!options.ignoreCache) {
+  if (shouldUseCache) {
     if (!options.wantReturnValue) {
       // NOTE: If we need the return value, we cannot use ScriptPreloader.
       stencil = ScriptPreloader::GetSingleton().GetCachedStencil(
@@ -444,7 +473,7 @@ nsresult mozJSSubScriptLoader::DoLoadSubScriptWithOptions(
   bool storeIntoStartupCache = false;
   if (!stencil) {
     // Store into startup cache only when the script isn't come from any cache.
-    storeIntoStartupCache = cache;
+    storeIntoStartupCache = cache && shouldUseCache;
 
     JS::CompileOptions compileOptions(cx);
     ScriptPreloader::FillCompileOptionsForCachedStencil(compileOptions);
@@ -469,9 +498,9 @@ nsresult mozJSSubScriptLoader::DoLoadSubScriptWithOptions(
 
   // As a policy choice, we don't store scripts that want return values
   // into the preload cache.
-  bool storeIntoPreloadCache = !ignoreCache && !options.wantReturnValue;
+  bool storeIntoPreloadCache = shouldUseCache && !options.wantReturnValue;
 
-  Unused << EvalStencil(cx, targetObj, loadScope, retval, uri,
-                        storeIntoStartupCache, storeIntoPreloadCache, stencil);
+  (void)EvalStencil(cx, targetObj, loadScope, retval, uri,
+                    storeIntoStartupCache, storeIntoPreloadCache, stencil);
   return NS_OK;
 }

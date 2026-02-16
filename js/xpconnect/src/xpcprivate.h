@@ -65,13 +65,10 @@
 
 /* All the XPConnect private declarations - only include locally. */
 
-#ifndef xpcprivate_h___
-#define xpcprivate_h___
+#ifndef xpcprivate_h_
+#define xpcprivate_h_
 
-#include "mozilla/Alignment.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/Assertions.h"
-#include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/CycleCollectedJSContext.h"
@@ -82,6 +79,7 @@
 #include "mozilla/LinkedList.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/PodOperations.h"
 #include "mozilla/mozalloc.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/TimeStamp.h"
@@ -93,7 +91,6 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "xpcpublic.h"
 #include "js/HashTable.h"
@@ -229,12 +226,10 @@ class nsXPConnect final : public nsIXPConnect {
 
   void RecordTraversal(void* p, nsISupports* s);
 
- protected:
+ private:
+  nsXPConnect() = default;
   virtual ~nsXPConnect();
 
-  nsXPConnect();
-
- private:
   // Singleton instance
   static nsXPConnect* gSelf;
   static bool gOnceAliveNowDead;
@@ -506,7 +501,7 @@ class XPCJSRuntime final : public mozilla::CycleCollectedJSRuntime {
   }
 
   virtual bool UsefulToMergeZones() const override;
-  void TraceNativeBlackRoots(JSTracer* trc) override;
+  void TraceAdditionalNativeBlackRoots(JSTracer* trc) override;
   void TraceAdditionalNativeGrayRoots(JSTracer* aTracer) override;
   void TraverseAdditionalNativeRoots(
       nsCycleCollectionNoteRootCallback& cb) override;
@@ -2097,7 +2092,7 @@ class XPCVariant : public nsIVariant {
 
   // We #define and iid so that out module local code can use QI to detect
   // if a given nsIVariant is in fact an XPCVariant.
-  NS_DECLARE_STATIC_IID_ACCESSOR(XPCVARIANT_IID)
+  NS_INLINE_DECL_STATIC_IID(XPCVARIANT_IID)
 
   static already_AddRefed<XPCVariant> newVariant(JSContext* cx,
                                                  const JS::Value& aJSVal);
@@ -2148,8 +2143,6 @@ class XPCVariant : public nsIVariant {
   bool mReturnRawObject;
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(XPCVariant, XPCVARIANT_IID)
-
 /***************************************************************************/
 // Utilities
 
@@ -2186,6 +2179,7 @@ struct GlobalProperties {
   bool Blob : 1;
   bool ChromeUtils : 1;
   bool CSS : 1;
+  bool CSSPositionTryDescriptors : 1;
   bool CSSRule : 1;
   bool CustomStateSet : 1;
   bool Directory : 1;
@@ -2214,6 +2208,9 @@ struct GlobalProperties {
   bool Selection : 1;
   bool TextDecoder : 1;
   bool TextEncoder : 1;
+  bool TrustedHTML : 1;
+  bool TrustedScript : 1;
+  bool TrustedScriptURL : 1;
   bool URL : 1;
   bool URLSearchParams : 1;
   bool XMLHttpRequest : 1;
@@ -2447,6 +2444,14 @@ nsresult GetSandboxMetadata(JSContext* cx, JS::HandleObject sandboxArg,
 [[nodiscard]] nsresult SetSandboxMetadata(JSContext* cx,
                                           JS::HandleObject sandboxArg,
                                           JS::HandleValue metadata);
+
+[[nodiscard]] nsresult SetSandboxLocaleOverride(JSContext* cx,
+                                                JS::HandleObject sandboxArg,
+                                                const char* locale);
+
+[[nodiscard]] nsresult SetSandboxTimezoneOverride(JSContext* cx,
+                                                  JS::HandleObject sandboxArg,
+                                                  const char* timezone);
 
 bool CreateObjectIn(JSContext* cx, JS::HandleValue vobj,
                     CreateObjectInOptions& options,
@@ -2829,4 +2834,4 @@ void xpc_DelocalizeRuntime(JSRuntime* rt);
 
 /***************************************************************************/
 
-#endif /* xpcprivate_h___ */
+#endif /* xpcprivate_h_ */

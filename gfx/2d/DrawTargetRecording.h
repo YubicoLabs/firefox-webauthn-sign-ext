@@ -10,8 +10,16 @@
 #include "2D.h"
 #include "DrawEventRecorder.h"
 
+class nsICanvasRenderingContextInternal;
+
 namespace mozilla {
+
+namespace ipc {
+class IProtocol;
+}  // namespace ipc
+
 namespace layers {
+class CanvasChild;
 class CanvasDrawEventRecorder;
 class RecordedTextureData;
 struct RemoteTextureOwnerId;
@@ -357,6 +365,11 @@ class DrawTargetRecording final : public DrawTarget {
 
   virtual already_AddRefed<FilterNode> CreateFilter(FilterType aType) override;
 
+  virtual already_AddRefed<FilterNode> DeferFilterInput(
+      const Path* aPath, const Pattern& aPattern, const IntRect& aSourceRect,
+      const IntPoint& aDestOffset, const DrawOptions& aOptions = DrawOptions(),
+      const StrokeOptions* aStrokeOptions = nullptr) override;
+
   /*
    * Set a transform on the surface, this transform is applied at drawing time
    * to both the mask and source of the operation.
@@ -391,6 +404,17 @@ class DrawTargetRecording final : public DrawTarget {
   }
 
   layers::RecordedTextureData* mTextureData = nullptr;
+
+  friend class layers::CanvasChild;
+
+  already_AddRefed<SourceSurface> CreateExternalSourceSurface(
+      const IntSize& aSize, SurfaceFormat aFormat);
+
+  friend class ::nsICanvasRenderingContextInternal;
+
+  already_AddRefed<SourceSurface> SnapshotExternalCanvas(
+      nsICanvasRenderingContextInternal* aCanvas,
+      mozilla::ipc::IProtocol* aActor);
 
  private:
   /**

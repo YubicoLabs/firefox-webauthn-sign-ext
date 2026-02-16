@@ -61,12 +61,19 @@ class EditTransactionBase : public nsITransaction {
   NS_DECL_GETASTRANSACTION_BASE(InsertTextTransaction)
   NS_DECL_GETASTRANSACTION_BASE(JoinNodesTransaction)
   NS_DECL_GETASTRANSACTION_BASE(MoveNodeTransaction)
+  NS_DECL_GETASTRANSACTION_BASE(MoveNodeTransactionBase)
+  NS_DECL_GETASTRANSACTION_BASE(MoveSiblingsTransaction)
   NS_DECL_GETASTRANSACTION_BASE(PlaceholderTransaction)
   NS_DECL_GETASTRANSACTION_BASE(ReplaceTextTransaction)
   NS_DECL_GETASTRANSACTION_BASE(SplitNodeTransaction)
 
  protected:
   virtual ~EditTransactionBase() = default;
+
+  NS_DECL_GETASTRANSACTION_BASE(CompositionInTextNodeTransaction)
+  NS_DECL_GETASTRANSACTION_BASE(DeleteTextFromTextNodeTransaction)
+  NS_DECL_GETASTRANSACTION_BASE(InsertTextIntoTextNodeTransaction)
+  NS_DECL_GETASTRANSACTION_BASE(ReplaceTextInTextNodeTransaction)
 
   static LogModule* GetLogModule();
 };

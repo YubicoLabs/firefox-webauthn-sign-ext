@@ -27,6 +27,8 @@ const nodeTypes = {
   ParamList: "ParamList",
   Spread: "Spread",
   Number: "Number",
+  Script: "Script",
+  Block: "Block",
 };
 
 const functionsSet = new Set([
@@ -61,17 +63,30 @@ const nodeTypeSets = {
     nodeTypes.VariableDeclaration,
     nodeTypes.AssignmentExpression,
   ]),
+  functionsVarDecl: new Set([
+    ...functionsSet,
+    // For anonymous functions we are using the variable name where the function is stored. See `getFunctionName`.
+    nodeTypes.VariableDeclaration,
+  ]),
   paramList: new Set([nodeTypes.ParamList]),
   variableDefinition: new Set([nodeTypes.VariableDefinition]),
   numberAndProperty: new Set([nodeTypes.PropertyDefinition, nodeTypes.Number]),
   memberExpression: new Set([nodeTypes.MemberExpression]),
   classes: new Set([nodeTypes.ClassDeclaration, nodeTypes.ClassExpression]),
+  bindingReferences: new Set([
+    nodeTypes.VariableDefinition,
+    nodeTypes.VariableName,
+    nodeTypes.PropertyName,
+  ]),
+  expressionProperty: new Set([nodeTypes.PropertyName]),
 };
+
+const ast = new Map();
 
 /**
  * Checks if a node has children with any of the node types specified
  *
- * @param {Object} node
+ * @param {object} node
  * @param {Set} types
  * @returns
  */
@@ -89,7 +104,7 @@ function hasChildNodeOfType(node, types) {
 /**
  * Checks if a node has children with any of the node types specified
  *
- * @param {Object} node
+ * @param {object} node
  * @param {Set} types
  * @returns
  */
@@ -105,12 +120,149 @@ function findChildNodeOfType(node, types) {
 }
 
 /**
+ * Gets a cached tree or parses the the source content
+ *
+ * @param {object} parserLanguage - The language parser used to parse the source
+ * @param {string} id - A unique identifier for the source
+ * @param {string} content - The source text
+ * @returns {Tree} - https://lezer.codemirror.net/docs/ref/#common.Tree
+ */
+function getTree(parserLanguage, id, content) {
+  if (ast.has(id)) {
+    return ast.get(id);
+  }
+  const tree = parserLanguage.parser.parse(content);
+  ast.set(id, tree);
+  return tree;
+}
+
+function clear() {
+  ast.clear();
+}
+
+/**
+ * Gets the node and the function name which immediately encloses the node (representing a location)
+ *
+ * @param {object} doc - The codemirror document used to retrive the part of content
+ * @param {object} node - The parser syntax node https://lezer.codemirror.net/docs/ref/#common.SyntaxNode
+ * @param {object} options
+ * @param {boolean} options.includeAnonymousFunctions - if true, allow matching anonymous functions
+ * @returns
+ */
+function getEnclosingFunction(
+  doc,
+  node,
+  options = { includeAnonymousFunctions: false }
+) {
+  let parentNode = node.parent;
+  while (parentNode !== null) {
+    if (nodeTypeSets.functionsVarDecl.has(parentNode.name)) {
+      // For anonymous functions, we use variable declarations, but we only care about variable declarations which are part of function expressions
+      if (
+        parentNode.name == nodeTypes.VariableDeclaration &&
+        !hasChildNodeOfType(parentNode.node, nodeTypeSets.functionExpressions)
+      ) {
+        parentNode = parentNode.parent;
+        continue;
+      }
+      const funcName = getFunctionName(doc, parentNode);
+      if (funcName || options.includeAnonymousFunctions) {
+        return {
+          node: parentNode,
+          funcName,
+        };
+      }
+    }
+    parentNode = parentNode.parent;
+  }
+  return null;
+}
+
+/**
+ * Gets the parent scope node for the specified node.
+ * If neither is found then we fallback to the script node for the source.
+ *
+ * @param {object} node
+ * @param {string} scopeType - The scope type specifies what kind of scope node to look for.
+ * The types are defined by the platform. See https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Environment.html#type
+ * @returns {object | null} scope node or null if none is found
+ */
+function getParentScopeOfType(node, scopeType) {
+  let parentNode = node.parent;
+  let lastParentNode = parentNode;
+  while (parentNode !== null) {
+    if (scopeType == "block" || scopeType == "object") {
+      if (parentNode.name == nodeTypes.Block) {
+        return parentNode;
+      }
+    } else if (nodeTypeSets.functionsVarDecl.has(parentNode.name)) {
+      if (
+        parentNode.name == nodeTypes.VariableDeclaration &&
+        !hasChildNodeOfType(parentNode.node, nodeTypeSets.functionExpressions)
+      ) {
+        parentNode = parentNode.parent;
+        continue;
+      }
+      return parentNode;
+    }
+    lastParentNode = parentNode;
+    parentNode = parentNode.parent;
+  }
+  // If no function node was found up to the root node
+  if (lastParentNode?.name == nodeTypes.Script) {
+    return lastParentNode;
+  }
+  return null;
+}
+
+/**
+ * Gets the node at the specified location
+ *
+ * @param {object} doc - https://codemirror.net/docs/ref/#state.EditorState.doc
+ * @param {object} tree - https://lezer.codemirror.net/docs/ref/#common.Tree
+ * @param {object} location
+ * @returns {object} node - https://lezer.codemirror.net/docs/ref/#common.SyntaxNodeRef
+ */
+function getTreeNodeAtLocation(doc, tree, location) {
+  try {
+    const line = doc.line(location.line);
+    const pos = line.from + location.column;
+    return tree.resolve(pos, 1);
+  } catch (e) {
+    // if the line is not found in the document doc.line() will throw
+    console.warn(e.message);
+  }
+  return null;
+}
+
+/**
+ * Converts Codemirror position to valid source location. Used only for CM6
+ *
+ * @param {object} doc - The Codemirror document used to retrive the part of content
+ * @param {number} pos - Codemirror offset
+ * @returns
+ */
+function positionToLocation(doc, pos) {
+  if (pos == null) {
+    return {
+      line: null,
+      column: null,
+    };
+  }
+  const line = doc.lineAt(pos);
+  return {
+    line: line.number,
+    column: pos - line.from,
+  };
+}
+
+/**
  * Gets the name of the function if any exists, returns null
  * for anonymous functions.
  *
- * @param {Object} doc - The codemirror document used to retrive the part of content
- * @param {Object} node - The parser syntax node https://lezer.codemirror.net/docs/ref/#common.SyntaxNode
- * @returns {String|null}
+ * @param {object} doc - The codemirror document used to retrive the part of content
+ * @param {object} node - The parser syntax node https://lezer.codemirror.net/docs/ref/#common.SyntaxNode
+ * @returns {string | null}
  */
 function getFunctionName(doc, node) {
   /**
@@ -223,8 +375,8 @@ function getFunctionName(doc, node) {
 /**
  * Gets the parameter names of the function as an array
  *
- * @param {Object} doc - The codemirror document used to retrieve the part of content
- * @param {Object} node - The parser syntax node https://lezer.codemirror.net/docs/ref/#common.SyntaxNode
+ * @param {object} doc - The codemirror document used to retrieve the part of content
+ * @param {object} node - The parser syntax node https://lezer.codemirror.net/docs/ref/#common.SyntaxNode
  * @returns {Array}
  */
 function getFunctionParameterNames(doc, node) {
@@ -287,11 +439,33 @@ function getFunctionClass(doc, node) {
 }
 
 /**
+ * Gets the meta data for member expression nodes
+ *
+ * @param {object} doc - The codemirror document used to retrieve the part of content
+ * @param {object} node - The parser syntax node https://lezer.codemirror.net/docs/ref/#common.SyntaxNode
+ * @returns
+ */
+function getMetaBindings(doc, node) {
+  if (!node || node.name !== nodeTypes.MemberExpression) {
+    return null;
+  }
+
+  const memExpr = doc.sliceString(node.from, node.to).split(".");
+  return {
+    type: "member",
+    start: positionToLocation(doc, node.from),
+    end: positionToLocation(doc, node.to),
+    property: memExpr.at(-1),
+    parent: getMetaBindings(doc, node.parent),
+  };
+}
+
+/**
  * Walk the syntax tree of the langauge provided
  *
- * @param {Object}   view - Codemirror view (https://codemirror.net/docs/ref/#view)
- * @param {Object}   language - Codemirror Language (https://codemirror.net/docs/ref/#language)
- * @param {Object}   options
+ * @param {object}   view - Codemirror view (https://codemirror.net/docs/ref/#view)
+ * @param {object}   language - Codemirror Language (https://codemirror.net/docs/ref/#language)
+ * @param {object}   options
  *        {Boolean}  options.forceParseTo - Force parsing the document up to a certain point
  *        {Function} options.enterVisitor - A function that is called when a node is entered
  *        {Set}      options.filterSet - A set of node types which should be visited, all others should be ignored
@@ -317,11 +491,63 @@ async function walkTree(view, language, options) {
   });
 }
 
+/**
+ * This enables walking a specific part of the syntax tree using the cursor
+ * provided by the node (which is the parent)
+ *
+ * @param {object} cursor - https://lezer.codemirror.net/docs/ref/#common.TreeCursor
+ * @param {object} options
+ *        {Function} options.enterVisitor - A function that is called when a node is entered
+ *        {Set}      options.filterSet - A set of node types which should be visited, all others should be ignored
+ */
+async function walkCursor(cursor, options) {
+  await cursor.iterate(node => {
+    if (options.filterSet?.has(node.name)) {
+      options.enterVisitor(node);
+    }
+  });
+}
+
+/**
+ * Merge variables, arguments and child properties of member expressions
+ * into a unique "bindings" objects where arguments overrides variables.
+ *
+ * @param {object} scopeBindings
+ * @returns {object} bindings
+ */
+function getScopeBindings(scopeBindings) {
+  const bindings = { ...scopeBindings.variables };
+  scopeBindings.arguments.forEach(argument => {
+    Object.keys(argument).forEach(key => {
+      bindings[key] = argument[key];
+    });
+  });
+  // Find and add child properties of member expressions as bindings
+  for (const v in scopeBindings.variables) {
+    const ownProps = scopeBindings.variables[v]?.value?.preview?.ownProperties;
+    if (ownProps) {
+      Object.keys(ownProps).forEach(k => {
+        bindings[k] = ownProps[k];
+      });
+    }
+  }
+  return bindings;
+}
+
 module.exports = {
   getFunctionName,
   getFunctionParameterNames,
   getFunctionClass,
+  getEnclosingFunction,
+  getTreeNodeAtLocation,
+  getMetaBindings,
   nodeTypes,
   nodeTypeSets,
   walkTree,
+  getTree,
+  clear,
+  walkCursor,
+  positionToLocation,
+  getParentScopeOfType,
+  getScopeBindings,
 };

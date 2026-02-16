@@ -4,21 +4,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsCSPService_h___
-#define nsCSPService_h___
+#ifndef nsCSPService_h_
+#define nsCSPService_h_
 
-#include "nsXPCOM.h"
-#include "nsIContentPolicy.h"
 #include "nsIChannel.h"
 #include "nsIChannelEventSink.h"
+#include "nsIContentPolicy.h"
+#include "nsXPCOM.h"
 
 #define CSPSERVICE_CONTRACTID "@mozilla.org/cspservice;1"
-#define CSPSERVICE_CID                               \
-  {                                                  \
-    0x8d2f40b2, 0x4875, 0x4c95, {                    \
-      0x97, 0xd9, 0x3f, 0x7d, 0xca, 0x2c, 0xb4, 0x60 \
-    }                                                \
-  }
+#define CSPSERVICE_CID \
+  {0x8d2f40b2, 0x4875, 0x4c95, {0x97, 0xd9, 0x3f, 0x7d, 0xca, 0x2c, 0xb4, 0x60}}
 class CSPService : public nsIContentPolicy, public nsIChannelEventSink {
  public:
   NS_DECL_ISUPPORTS
@@ -43,4 +39,4 @@ class CSPService : public nsIContentPolicy, public nsIChannelEventSink {
  protected:
   virtual ~CSPService();
 };
-#endif /* nsCSPService_h___ */
+#endif /* nsCSPService_h_ */

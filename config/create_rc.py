@@ -4,10 +4,11 @@
 
 import io
 import os
-import sys
+from argparse import ArgumentParser
 from datetime import datetime
 
 import buildconfig
+from mozbuild.makeutil import Makefile
 from mozbuild.preprocessor import Preprocessor
 from variables import get_buildid
 
@@ -80,7 +81,7 @@ def preprocess(path, defines):
     pp.context.update(defines)
     pp.out = io.StringIO()
     pp.do_filter("substitution")
-    pp.do_include(io.open(path, "r", encoding="latin1"))
+    pp.do_include(open(path, encoding="latin1"))
     pp.out.seek(0)
     return pp.out
 
@@ -225,8 +226,22 @@ def has_manifest(module_rc, manifest_id):
     return False
 
 
-def generate_module_rc(binary="", rcinclude=None):
+def generate_module_rc():
+
+    parser = ArgumentParser()
+    parser.add_argument(
+        "binary", help="Binary for which the resource file is generated"
+    )
+    parser.add_argument("--include", help="Included resources")
+    parser.add_argument("--dep-file", help="Path to the dependency file")
+    args = parser.parse_args()
+
+    binary = args.binary
+    rcinclude = args.include
+    dep_file = args.dep_file
+
     deps = set()
+    extra_deps = set()
     buildid = get_buildid()
     milestone = buildconfig.substs["GRE_MILESTONE"]
     app_version = buildconfig.substs.get("MOZ_APP_VERSION") or milestone
@@ -265,9 +280,7 @@ def generate_module_rc(binary="", rcinclude=None):
         overrides = {}
 
     if rcinclude:
-        include = "// From included resource {}\n{}".format(
-            rcinclude, preprocess(rcinclude, defines).read()
-        )
+        include = f"// From included resource {rcinclude}\n{preprocess(rcinclude, defines).read()}"
     else:
         include = ""
 
@@ -303,11 +316,23 @@ def generate_module_rc(binary="", rcinclude=None):
         manifest_path = os.path.join(srcdir, binary + ".manifest")
         if os.path.exists(manifest_path):
             manifest_path = manifest_path.replace("\\", "\\\\")
-            data += '\n{} RT_MANIFEST "{}"\n'.format(manifest_id, manifest_path)
+            data += f'\n{manifest_id} RT_MANIFEST "{manifest_path}"\n'
+            extra_deps.add(manifest_path)
 
-    with io.open("{}.rc".format(binary or "module"), "w", encoding="latin1") as fh:
+    target = binary or "module"
+    with open(f"{target}.rc", "w", encoding="latin1") as fh:
         fh.write(data)
+
+    if dep_file is not None and extra_deps:
+        dep_dirname = os.path.dirname(dep_file)
+        os.makedirs(dep_dirname, exist_ok=True)
+
+        mk = Makefile()
+        rule = mk.create_rule([target, f"{target}.rc"])
+        rule.add_dependencies(sorted(extra_deps))
+        with open(dep_file, "w") as dep_fd:
+            mk.dump(dep_fd)
 
 
 if __name__ == "__main__":
-    generate_module_rc(*sys.argv[1:])
+    generate_module_rc()

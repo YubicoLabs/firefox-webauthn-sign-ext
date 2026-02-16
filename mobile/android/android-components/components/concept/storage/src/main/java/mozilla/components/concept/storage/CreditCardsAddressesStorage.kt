@@ -8,9 +8,9 @@ import android.annotation.SuppressLint
 import android.os.Parcelable
 import androidx.annotation.VisibleForTesting
 import kotlinx.parcelize.Parcelize
-import mozilla.components.concept.storage.CreditCard.Companion.ellipsesEnd
-import mozilla.components.concept.storage.CreditCard.Companion.ellipsesStart
-import mozilla.components.concept.storage.CreditCard.Companion.ellipsis
+import mozilla.components.concept.storage.CreditCard.Companion.ELLIPSES_END
+import mozilla.components.concept.storage.CreditCard.Companion.ELLIPSES_START
+import mozilla.components.concept.storage.CreditCard.Companion.ELLIPSIS
 import mozilla.components.support.ktx.kotlin.last4Digits
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -19,7 +19,7 @@ import java.util.Locale
 /**
  * An interface which defines read/write methods for credit card and address data.
  */
-interface CreditCardsAddressesStorage {
+interface CreditCardsAddressesStorage : Storage, StorageMaintenanceRegistry {
 
     /**
      * Inserts the provided credit card into the database, and returns
@@ -52,6 +52,13 @@ interface CreditCardsAddressesStorage {
      * @return A list of all [CreditCard].
      */
     suspend fun getAllCreditCards(): List<CreditCard>
+
+    /**
+     * Counts all of the credit cards.
+     *
+     * @return A count of all [CreditCard].
+     */
+    suspend fun countAllCreditCards(): Long
 
     /**
      * Deletes the credit card with the given [guid].
@@ -93,6 +100,13 @@ interface CreditCardsAddressesStorage {
     suspend fun getAllAddresses(): List<Address>
 
     /**
+     * Counts all of the addresses.
+     *
+     * @return A count of all [Address].
+     */
+    suspend fun countAllAddresses(): Long
+
+    /**
      * Updates the fields in the provided address.
      *
      * @param guid Unique identifier for the desired address.
@@ -126,6 +140,22 @@ interface CreditCardsAddressesStorage {
      * Removes any encrypted data from this storage. Useful after encountering key loss.
      */
     suspend fun scrubEncryptedData()
+
+    override suspend fun runMaintenance(dbSizeLimit: UInt) {
+        // Implemented by concrete implementation of `CreditCardsAddressesStorage`
+    }
+
+    override suspend fun warmUp() {
+        // Implemented by concrete implementation of `CreditCardsAddressesStorage`
+    }
+
+    override fun registerStorageMaintenanceWorker() {
+        // Implemented by concrete implementation of `CreditCardsAddressesStorage`
+    }
+
+    override fun unregisterStorageMaintenanceWorker(uniqueWorkName: String) {
+        // Implemented by concrete implementation of `CreditCardsAddressesStorage`
+    }
 }
 
 /**
@@ -210,20 +240,20 @@ data class CreditCard(
     val timesUsed: Long = 0L,
 ) : Parcelable {
     val obfuscatedCardNumber: String
-        get() = ellipsesStart +
-            ellipsis + ellipsis + ellipsis + ellipsis +
+        get() = ELLIPSES_START +
+            ELLIPSIS + ELLIPSIS + ELLIPSIS + ELLIPSIS +
             cardNumberLast4 +
-            ellipsesEnd
+            ELLIPSES_END
 
     companion object {
         // Left-To-Right Embedding (LTE) mark
-        const val ellipsesStart = "\u202A"
+        const val ELLIPSES_START = "\u202A"
 
         // One dot ellipsis
-        const val ellipsis = "\u2022\u2060\u2006\u2060"
+        const val ELLIPSIS = "\u2022\u2060\u2006\u2060"
 
         // Pop Directional Formatting (PDF) mark
-        const val ellipsesEnd = "\u202C"
+        const val ELLIPSES_END = "\u202C"
     }
 }
 
@@ -249,10 +279,10 @@ data class CreditCardEntry(
     val cardType: String,
 ) : Parcelable {
     val obfuscatedCardNumber: String
-        get() = ellipsesStart +
-            ellipsis + ellipsis + ellipsis + ellipsis +
+        get() = ELLIPSES_START +
+            ELLIPSIS + ELLIPSIS + ELLIPSIS + ELLIPSIS +
             number.last4Digits() +
-            ellipsesEnd
+            ELLIPSES_END
 
     /**
      * Credit card expiry date formatted according to the locale. Returns an empty string if either
@@ -374,6 +404,7 @@ data class Address(
      */
     val addressLabel: String
         get() = listOf(
+            name,
             streetAddress.toOneLineAddress(),
             addressLevel3,
             addressLevel2,

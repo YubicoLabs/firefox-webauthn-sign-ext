@@ -3,7 +3,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::CodeType;
-use crate::backend::{Literal, Type};
+use crate::{
+    bail,
+    interface::{DefaultValue, Literal, Type},
+    Result,
+};
 
 #[derive(Debug)]
 pub struct OptionalCodeType {
@@ -28,11 +32,13 @@ impl CodeType for OptionalCodeType {
         )
     }
 
-    fn literal(&self, literal: &Literal) -> String {
-        match literal {
-            Literal::None => "nil".into(),
-            Literal::Some { inner } => super::SwiftCodeOracle.find(&self.inner).literal(inner),
-            _ => panic!("Invalid literal for Optional type: {literal:?}"),
+    fn default(&self, default: &DefaultValue) -> Result<String> {
+        match default {
+            DefaultValue::Default | DefaultValue::Literal(Literal::None) => Ok("nil".into()),
+            DefaultValue::Literal(Literal::Some { inner }) => {
+                super::SwiftCodeOracle.find(&self.inner).default(inner)
+            }
+            _ => bail!("Invalid literal for Optional type: {default:?}"),
         }
     }
 }
@@ -63,10 +69,12 @@ impl CodeType for SequenceCodeType {
         )
     }
 
-    fn literal(&self, literal: &Literal) -> String {
-        match literal {
-            Literal::EmptySequence => "[]".into(),
-            _ => unreachable!(),
+    fn default(&self, default: &DefaultValue) -> Result<String> {
+        match default {
+            DefaultValue::Default | DefaultValue::Literal(Literal::EmptySequence) => {
+                Ok("[]".into())
+            }
+            _ => bail!("Invalid literal for sequence type: {default:?}"),
         }
     }
 }
@@ -100,10 +108,10 @@ impl CodeType for MapCodeType {
         )
     }
 
-    fn literal(&self, literal: &Literal) -> String {
-        match literal {
-            Literal::EmptyMap => "[:]".into(),
-            _ => unreachable!(),
+    fn default(&self, default: &DefaultValue) -> Result<String> {
+        match default {
+            DefaultValue::Default | DefaultValue::Literal(Literal::EmptyMap) => Ok("[:]".into()),
+            _ => bail!("Invalid literal for map type: {default:?}"),
         }
     }
 }

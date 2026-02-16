@@ -33,8 +33,6 @@ AddonTestUtils.overrideCertDB();
 AddonTestUtils.usePrivilegedSignatures = id => id.startsWith("privileged");
 createAppInfo("xpcshell@tests.mozilla.org", "XPCShell", "1", "42");
 
-Services.prefs.setBoolPref("extensions.manifestV3.enabled", true);
-
 async function getManifestPermissions(extensionData) {
   let extension = ExtensionTestCommon.generate(extensionData);
   // Some tests contain invalid permissions; ignore the warnings about their invalidity.
@@ -445,6 +443,7 @@ add_task(async function api_permissions() {
     {
       origins: ["http://x/", "http://*.x/", "http://*.tld/"],
       permissions: ["activeTab", "webNavigation", "tabs", "nativeMessaging"],
+      data_collection: [],
     },
     "Expected origins and permissions"
   );
@@ -481,13 +480,13 @@ add_task(async function nativeMessaging_permission() {
     // mobile/shared/components/extensions/test/xpcshell/test_ext_native_messaging_permissions.js
     deepEqual(
       manifestPermissions,
-      { origins: [], permissions: [] },
+      { origins: [], permissions: [], data_collection: [] },
       "nativeMessaging perm ignored for unprivileged extensions on Android"
     );
   } else {
     deepEqual(
       manifestPermissions,
-      { origins: [], permissions: ["nativeMessaging"] },
+      { origins: [], permissions: ["nativeMessaging"], data_collection: [] },
       "nativeMessaging permission recognized for unprivileged extensions"
     );
   }
@@ -508,6 +507,7 @@ add_task(
       {
         origins: [],
         permissions: ["declarativeNetRequest", "declarativeNetRequestFeedback"],
+        data_collection: [],
       },
       "Expected origins and permissions"
     );
@@ -535,7 +535,11 @@ add_task(
 
     deepEqual(
       manifestPermissions,
-      { origins: [], permissions: ["declarativeNetRequestWithHostAccess"] },
+      {
+        origins: [],
+        permissions: ["declarativeNetRequestWithHostAccess"],
+        data_collection: [],
+      },
       "Expected origins and permissions"
     );
 
@@ -569,6 +573,7 @@ add_task(async function privileged_with_mozillaAddons() {
     {
       origins: ["resource://x/*", "http://a/", "about:reader*"],
       permissions: ["mozillaAddons"],
+      data_collection: [],
     },
     "Expected origins and permissions for privileged add-on with mozillaAddons"
   );
@@ -600,6 +605,7 @@ add_task(async function unprivileged_with_mozillaAddons() {
     {
       origins: ["http://a/"],
       permissions: [],
+      data_collection: [],
     },
     "Expected origins and permissions for unprivileged add-on with mozillaAddons"
   );

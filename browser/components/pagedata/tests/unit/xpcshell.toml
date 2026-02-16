@@ -1,6 +1,8 @@
 [DEFAULT]
+run-if = [
+  "os != 'android'",
+]
 firefox-appdir = "browser"
-skip-if = ["os == 'android'"] # bug 1730213
 support-files = ["head.js"]
 head = "head.js"
 

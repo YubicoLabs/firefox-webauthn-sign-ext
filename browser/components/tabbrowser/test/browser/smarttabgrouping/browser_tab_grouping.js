@@ -108,12 +108,13 @@ add_task(async function testClustering() {
 
 /**
  * Run tests for finding similar items for a single item or cluster of items with label anchorLabel
- * @param {Number[][]} embeddings Embeddings for each item
- * @param {String} anchorLabel String representing the ID of the anchor cluster
- * @param {Object[]} labels Dict representing each document (unused )
- * @param {String[]} labelClusterList List of items, with id of cluster for each (unused in)
- * @param {String} testName Name of the test dataset
- * @returns {Object[]}
+ *
+ * @param {number[][]} embeddings Embeddings for each item
+ * @param {string} anchorLabel String representing the ID of the anchor cluster
+ * @param {object[]} labels Dict representing each document (unused )
+ * @param {string[]} labelClusterList List of items, with id of cluster for each (unused in)
+ * @param {string} testName Name of the test dataset
+ * @returns {object[]}
  */
 async function anchorTestsForCluster(
   embeddings,
@@ -202,4 +203,61 @@ add_task(async function testAnchorClustering() {
   );
   // Print / log score info here when testing
   SimpleTest.waitForExplicitFinish();
+});
+
+add_task(function processTopicModelResult() {
+  const smartTabGroupingManager = new SmartTabGroupingManager();
+  const input_phrases = [
+    "",
+    "None", // Target of model if uncertain
+    " Adult Content", // This is a common target of the model on inapproprate content
+    " Zoom Room zoom",
+    " Cats are great",
+    " Cats",
+    "Dogs!!!",
+  ];
+  const output_phrases = [
+    "",
+    "",
+    "",
+    "Zoom Room",
+    "Cats are great",
+    "Cats",
+    "Dogs!!!",
+  ];
+  for (let i = 0; i < input_phrases.length; i++) {
+    Assert.equal(
+      smartTabGroupingManager.processTopicModelResult(input_phrases[i]),
+      output_phrases[i]
+    );
+  }
+});
+
+add_task(function testDuplicateWords() {
+  const input_phrases = [
+    "",
+    " ",
+    "Ask me about my cat",
+    "Ask me about my cat cats cat",
+    "Zoom Room zoom",
+    "Zoom zooms",
+    "Event events",
+    "Events event",
+  ];
+  const output_phrases = [
+    "",
+    "",
+    "Ask me about my cat",
+    "Ask me about my cat",
+    "Zoom Room",
+    "Zoom",
+    "Event",
+    "Events",
+  ];
+  for (let i = 0; i < input_phrases.length; i++) {
+    Assert.equal(
+      SmartTabGroupingManager.cutAtDuplicateWords(input_phrases[i]),
+      output_phrases[i]
+    );
+  }
 });

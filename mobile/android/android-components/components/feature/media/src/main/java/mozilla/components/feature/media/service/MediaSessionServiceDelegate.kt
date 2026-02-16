@@ -69,6 +69,7 @@ internal class MediaSessionServiceDelegate(
     @get:VisibleForTesting internal val store: BrowserStore,
     @get:VisibleForTesting internal val crashReporter: CrashReporting?,
     @get:VisibleForTesting internal val notificationsDelegate: NotificationsDelegate,
+    @get:VisibleForTesting internal val mainScope: CoroutineScope = MainScope(),
 ) : MediaSessionDelegate {
     private val logger = Logger("MediaSessionService")
 
@@ -104,7 +105,7 @@ internal class MediaSessionServiceDelegate(
     fun onCreate() {
         logger.debug("Service created")
         mediaSession.setCallback(MediaSessionCallback(store))
-        notificationScope = MainScope()
+        notificationScope = mainScope
     }
 
     fun onDestroy() {
@@ -131,7 +132,7 @@ internal class MediaSessionServiceDelegate(
     }
 
     fun onTaskRemoved() {
-        /* no need to do this for custom tabs */
+        // no need to do this for custom tabs
         store.state.tabs.forEach {
             it.mediaSessionState?.controller?.stop()
         }

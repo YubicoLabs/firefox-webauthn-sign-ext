@@ -7,12 +7,15 @@
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
 
 // List of Features
+#include "UrlClassifierFeatureAntiFraudAnnotation.h"
 #include "UrlClassifierFeatureCryptominingAnnotation.h"
 #include "UrlClassifierFeatureCryptominingProtection.h"
+#include "UrlClassifierFeatureConsentManagerAnnotation.h"
 #include "UrlClassifierFeatureEmailTrackingDataCollection.h"
 #include "UrlClassifierFeatureEmailTrackingProtection.h"
 #include "UrlClassifierFeatureFingerprintingAnnotation.h"
 #include "UrlClassifierFeatureFingerprintingProtection.h"
+#include "UrlClassifierFeatureHarmfulAddonProtection.h"
 #include "UrlClassifierFeaturePhishingProtection.h"
 #include "UrlClassifierFeatureSocialTrackingAnnotation.h"
 #include "UrlClassifierFeatureSocialTrackingProtection.h"
@@ -35,6 +38,8 @@ void UrlClassifierFeatureFactory::Shutdown() {
 
   UrlClassifierFeatureCryptominingAnnotation::MaybeShutdown();
   UrlClassifierFeatureCryptominingProtection::MaybeShutdown();
+  UrlClassifierFeatureConsentManagerAnnotation::MaybeShutdown();
+  UrlClassifierFeatureAntiFraudAnnotation::MaybeShutdown();
   UrlClassifierFeatureEmailTrackingDataCollection::MaybeShutdown();
   UrlClassifierFeatureEmailTrackingProtection::MaybeShutdown();
   UrlClassifierFeatureFingerprintingAnnotation::MaybeShutdown();
@@ -44,6 +49,7 @@ void UrlClassifierFeatureFactory::Shutdown() {
   UrlClassifierFeatureSocialTrackingProtection::MaybeShutdown();
   UrlClassifierFeatureTrackingAnnotation::MaybeShutdown();
   UrlClassifierFeatureTrackingProtection::MaybeShutdown();
+  UrlClassifierFeatureHarmfulAddonProtection::MaybeShutdown();
 }
 
 /* static */
@@ -70,6 +76,22 @@ void UrlClassifierFeatureFactory::GetFeaturesFromChannel(
     aFeatures.AppendElement(feature);
   }
 
+  // Consent Manager Annotation
+  // This must be run before any blocking features because the annotation will
+  // affect whether the channel should be blocked.
+  feature = UrlClassifierFeatureConsentManagerAnnotation::MaybeCreate(aChannel);
+  if (feature) {
+    aFeatures.AppendElement(feature);
+  }
+
+  // Anti-fraud Annotation
+  // This must be run before any blocking features because the annotation will
+  // affect whether the channel should be blocked.
+  feature = UrlClassifierFeatureAntiFraudAnnotation::MaybeCreate(aChannel);
+  if (feature) {
+    aFeatures.AppendElement(feature);
+  }
+
   // Email Tracking Protection
   feature = UrlClassifierFeatureEmailTrackingProtection::MaybeCreate(aChannel);
   if (feature) {
@@ -90,6 +112,12 @@ void UrlClassifierFeatureFactory::GetFeaturesFromChannel(
 
   // SocialTracking Protection
   feature = UrlClassifierFeatureSocialTrackingProtection::MaybeCreate(aChannel);
+  if (feature) {
+    aFeatures.AppendElement(feature);
+  }
+
+  // Addon Protection
+  feature = UrlClassifierFeatureHarmfulAddonProtection::MaybeCreate(aChannel);
   if (feature) {
     aFeatures.AppendElement(feature);
   }
@@ -140,6 +168,12 @@ UrlClassifierFeatureFactory::GetFeatureByName(const nsACString& aName) {
 
   nsCOMPtr<nsIUrlClassifierFeature> feature;
 
+  // Anti-fraud Annotation
+  feature = UrlClassifierFeatureAntiFraudAnnotation::GetIfNameMatches(aName);
+  if (feature) {
+    return feature.forget();
+  }
+
   // Cryptomining Annotation
   feature = UrlClassifierFeatureCryptominingAnnotation::GetIfNameMatches(aName);
   if (feature) {
@@ -148,6 +182,13 @@ UrlClassifierFeatureFactory::GetFeatureByName(const nsACString& aName) {
 
   // Cryptomining Protection
   feature = UrlClassifierFeatureCryptominingProtection::GetIfNameMatches(aName);
+  if (feature) {
+    return feature.forget();
+  }
+
+  // Consent Manager Annotation
+  feature =
+      UrlClassifierFeatureConsentManagerAnnotation::GetIfNameMatches(aName);
   if (feature) {
     return feature.forget();
   }
@@ -212,6 +253,12 @@ UrlClassifierFeatureFactory::GetFeatureByName(const nsACString& aName) {
     return feature.forget();
   }
 
+  // Addon Protection
+  feature = UrlClassifierFeatureHarmfulAddonProtection::GetIfNameMatches(aName);
+  if (feature) {
+    return feature.forget();
+  }
+
   return nullptr;
 }
 
@@ -223,6 +270,12 @@ void UrlClassifierFeatureFactory::GetFeatureNames(nsTArray<nsCString>& aArray) {
 
   nsAutoCString name;
 
+  // Anti-fraud Annotation
+  name.Assign(UrlClassifierFeatureAntiFraudAnnotation::Name());
+  if (!name.IsEmpty()) {
+    aArray.AppendElement(name);
+  }
+
   // Cryptomining Annotation
   name.Assign(UrlClassifierFeatureCryptominingAnnotation::Name());
   if (!name.IsEmpty()) {
@@ -231,6 +284,12 @@ void UrlClassifierFeatureFactory::GetFeatureNames(nsTArray<nsCString>& aArray) {
 
   // Cryptomining Protection
   name.Assign(UrlClassifierFeatureCryptominingProtection::Name());
+  if (!name.IsEmpty()) {
+    aArray.AppendElement(name);
+  }
+
+  // Consent Manager Annotation
+  name.Assign(UrlClassifierFeatureConsentManagerAnnotation::Name());
   if (!name.IsEmpty()) {
     aArray.AppendElement(name);
   }
@@ -283,6 +342,12 @@ void UrlClassifierFeatureFactory::GetFeatureNames(nsTArray<nsCString>& aArray) {
     aArray.AppendElement(name);
   }
 
+  // Addon Protection
+  name.Assign(UrlClassifierFeatureHarmfulAddonProtection::Name());
+  if (!name.IsEmpty()) {
+    aArray.AppendElement(name);
+  }
+
   // PhishingProtection features
   {
     nsTArray<nsCString> features;
@@ -314,19 +379,19 @@ struct BlockingErrorCode {
 static constexpr BlockingErrorCode sBlockingErrorCodes[] = {
     {NS_ERROR_TRACKING_URI,
      nsIWebProgressListener::STATE_BLOCKED_TRACKING_CONTENT,
-     "TrackerUriBlocked", "Tracking Protection"_ns},
+     "TrackerUriBlockedByETP", "Tracking Protection"_ns},
     {NS_ERROR_FINGERPRINTING_URI,
      nsIWebProgressListener::STATE_BLOCKED_FINGERPRINTING_CONTENT,
-     "TrackerUriBlocked", "Tracking Protection"_ns},
+     "TrackerUriBlockedByETP", "Tracking Protection"_ns},
     {NS_ERROR_CRYPTOMINING_URI,
      nsIWebProgressListener::STATE_BLOCKED_CRYPTOMINING_CONTENT,
-     "TrackerUriBlocked", "Tracking Protection"_ns},
+     "TrackerUriBlockedByETP", "Tracking Protection"_ns},
     {NS_ERROR_SOCIALTRACKING_URI,
      nsIWebProgressListener::STATE_BLOCKED_SOCIALTRACKING_CONTENT,
-     "TrackerUriBlocked", "Tracking Protection"_ns},
+     "TrackerUriBlockedByETP", "Tracking Protection"_ns},
     {NS_ERROR_EMAILTRACKING_URI,
      nsIWebProgressListener::STATE_BLOCKED_EMAILTRACKING_CONTENT,
-     "TrackerUriBlocked", "Tracking Protection"_ns},
+     "TrackerUriBlockedByETP", "Tracking Protection"_ns},
 };
 
 }  // namespace

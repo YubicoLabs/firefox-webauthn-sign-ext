@@ -4,18 +4,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import assert from 'assert';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-import {BrowserPlatform} from '../../../lib/cjs/browser-data/browser-data.js';
+import {BrowserPlatform} from '../../../lib/esm/browser-data/browser-data.js';
 import {
   compareVersions,
   createProfile,
   relativeExecutablePath,
   resolveDownloadUrl,
-} from '../../../lib/cjs/browser-data/firefox.js';
+} from '../../../lib/esm/browser-data/firefox.js';
 
 describe('Firefox', () => {
   it('should resolve download URLs for Nightly', () => {

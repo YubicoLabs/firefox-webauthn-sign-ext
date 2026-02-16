@@ -16,6 +16,7 @@
 #include "PlatformDecoderModule.h"
 #include "ReorderQueue.h"
 #include "TimeUnits.h"
+#include "apple/AppleUtils.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/DefineEnum.h"
 #include "mozilla/ProfilerUtils.h"
@@ -78,6 +79,18 @@ class AppleVTDecoder final : public MediaDataDecoder,
       return ConversionRequired::kNeedHVCC;
     }
     return ConversionRequired::kNeedNone;
+  }
+
+  Maybe<PropertyValue> GetDecodeProperty(PropertyName aName) const override {
+    // Some Intel GPU has long decoding time and needs more frames queued to
+    // play smoothly. See bug 1230641.
+    static constexpr uint32_t kMinNumOutputBuffers = 10;
+    switch (aName) {
+      case PropertyName::MinNumVideoBuffers:
+        return Some(PropertyValue(kMinNumOutputBuffers));
+      default:
+        return MediaDataDecoder::GetDecodeProperty(aName);
+    }
   }
 
   // Access from the taskqueue and the decoder's thread.
@@ -147,8 +160,8 @@ class AppleVTDecoder final : public MediaDataDecoder,
   // safe to access it in OutputFrame without protecting.
   Maybe<media::TimeUnit> mSeekTargetThreshold;
 
-  CMVideoFormatDescriptionRef mFormat;
-  VTDecompressionSessionRef mSession;
+  AutoCFTypeRef<CMVideoFormatDescriptionRef> mFormat;
+  AutoCFTypeRef<VTDecompressionSessionRef> mSession;
   Atomic<bool> mIsHardwareAccelerated;
   PerformanceRecorderMulti<DecodeStage> mPerformanceRecorder;
 };

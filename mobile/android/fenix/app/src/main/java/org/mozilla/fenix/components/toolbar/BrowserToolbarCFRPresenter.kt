@@ -11,20 +11,21 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.Icon
-import androidx.compose.material.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat.getColor
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.transformWhile
 import mozilla.components.browser.state.selector.findCustomTabOrSelectedTab
 import mozilla.components.browser.state.selector.selectedNormalTab
 import mozilla.components.browser.state.store.BrowserStore
@@ -37,14 +38,13 @@ import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingStatu
 import mozilla.components.lib.state.ext.flowScoped
 import mozilla.components.support.ktx.kotlinx.coroutines.flow.ifAnyChanged
 import mozilla.telemetry.glean.private.NoExtras
-import org.mozilla.fenix.GleanMetrics.AddressToolbar
 import org.mozilla.fenix.GleanMetrics.CookieBanners
-import org.mozilla.fenix.GleanMetrics.TrackingProtection
+import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.R
-import org.mozilla.fenix.browser.tabstrip.isTabStripEnabled
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.utils.Settings
+import mozilla.components.browser.toolbar.R as toolbarR
 
 /**
  * Vertical padding needed to improve the visual alignment of the popup and respect the UX design.
@@ -61,6 +61,7 @@ private const val TAB_SWIPE_CFR_ARROW_OFFSET = 160
  * @param toolbar will serve as anchor for the CFRs
  * @param isPrivate Whether or not the session is private.
  * @param customTabId Optional custom tab id used to identify the custom tab in which to show a CFR.
+ * @param mainDispatcher The [CoroutineDispatcher] to be used for observing the browser store.
  */
 @Suppress("LongParameterList")
 class BrowserToolbarCFRPresenter(
@@ -70,6 +71,7 @@ class BrowserToolbarCFRPresenter(
     private val toolbar: BrowserToolbar,
     private val isPrivate: Boolean,
     private val customTabId: String? = null,
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
 ) {
     @VisibleForTesting
     internal var scope: CoroutineScope? = null
@@ -84,9 +86,9 @@ class BrowserToolbarCFRPresenter(
     fun start() {
         @Suppress("ComplexCondition")
         if (!isPrivate && !settings.hasShownTabSwipeCFR &&
-            !context.isTabStripEnabled() && settings.isSwipeToolbarToSwitchTabsEnabled
+            !settings.isTabStripEnabled && settings.isSwipeToolbarToSwitchTabsEnabled
         ) {
-            scope = browserStore.flowScoped { flow ->
+            scope = browserStore.flowScoped(dispatcher = mainDispatcher) { flow ->
                 flow
                     .distinctUntilChangedBy { it.selectedNormalTab?.id }
                     .collect {
@@ -102,7 +104,7 @@ class BrowserToolbarCFRPresenter(
 
         when (getCFRToShow()) {
             ToolbarCFR.COOKIE_BANNERS -> {
-                scope = browserStore.flowScoped { flow ->
+                scope = browserStore.flowScoped(dispatcher = mainDispatcher) { flow ->
                     flow.mapNotNull { it.findCustomTabOrSelectedTab(customTabId) }
                         .ifAnyChanged { tab ->
                             arrayOf(
@@ -120,25 +122,6 @@ class BrowserToolbarCFRPresenter(
                 }
             }
 
-            ToolbarCFR.ERASE -> {
-                scope = browserStore.flowScoped { flow ->
-                    flow
-                        .mapNotNull { it.findCustomTabOrSelectedTab(customTabId) }
-                        .filter { it.content.private }
-                        .map { it.content.progress }
-                        // The "transformWhile" below ensures that the 100% progress is only collected once.
-                        .transformWhile { progress ->
-                            emit(progress)
-                            progress != 100
-                        }
-                        .filter { popup == null && it == 100 }
-                        .collect {
-                            scope?.cancel()
-                            showEraseCfr()
-                        }
-                }
-            }
-
             ToolbarCFR.NONE -> {
                 // no-op
             }
@@ -146,10 +129,6 @@ class BrowserToolbarCFRPresenter(
     }
 
     private fun getCFRToShow(): ToolbarCFR = when {
-        settings.shouldShowEraseActionCFR && isPrivate -> {
-            ToolbarCFR.ERASE
-        }
-
         isPrivate && settings.shouldShowCookieBannersCFR && settings.shouldUseCookieBannerPrivateMode -> {
             ToolbarCFR.COOKIE_BANNERS
         }
@@ -166,53 +145,10 @@ class BrowserToolbarCFRPresenter(
     }
 
     @VisibleForTesting
-    internal fun showEraseCfr() {
-        CFRPopup(
-            anchor = toolbar.findViewById(
-                R.id.mozac_browser_toolbar_navigation_actions,
-            ),
-            properties = CFRPopupProperties(
-                popupAlignment = INDICATOR_CENTERED_IN_ANCHOR,
-                popupBodyColors = listOf(
-                    getColor(context, R.color.fx_mobile_layer_color_gradient_end),
-                    getColor(context, R.color.fx_mobile_layer_color_gradient_start),
-                ),
-                popupVerticalOffset = CFR_TO_ANCHOR_VERTICAL_PADDING.dp,
-                dismissButtonColor = getColor(context, R.color.fx_mobile_icon_color_oncolor),
-                indicatorDirection = if (settings.toolbarPosition == ToolbarPosition.TOP) {
-                    CFRPopup.IndicatorDirection.UP
-                } else {
-                    CFRPopup.IndicatorDirection.DOWN
-                },
-            ),
-            onDismiss = {
-                when (it) {
-                    true -> TrackingProtection.tcpCfrExplicitDismissal.record(NoExtras())
-                    false -> TrackingProtection.tcpCfrImplicitDismissal.record(NoExtras())
-                }
-            },
-            text = {
-                FirefoxTheme {
-                    Text(
-                        text = context.getString(R.string.erase_action_cfr_message),
-                        color = FirefoxTheme.colors.textOnColorPrimary,
-                        style = FirefoxTheme.typography.body2,
-                    )
-                }
-            },
-        ).run {
-            settings.shouldShowEraseActionCFR = false
-            popup = this
-            show()
-        }
-    }
-
-    @VisibleForTesting
-    @Suppress("LongMethod")
     internal fun showCookieBannersCFR() {
         CFRPopup(
             anchor = toolbar.findViewById(
-                R.id.mozac_browser_toolbar_site_info_indicator,
+                toolbarR.id.mozac_browser_toolbar_site_info_indicator,
             ),
             properties = CFRPopupProperties(
                 popupAlignment = INDICATOR_CENTERED_IN_ANCHOR,
@@ -240,9 +176,11 @@ class BrowserToolbarCFRPresenter(
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_cookies_disabled),
                                 contentDescription = null,
-                                tint = FirefoxTheme.colors.iconPrimary,
+                                tint = MaterialTheme.colorScheme.onSurface,
                             )
+
                             Spacer(modifier = Modifier.width(8.dp))
+
                             Text(
                                 text = context.getString(
                                     R.string.cookie_banner_cfr_title,
@@ -269,11 +207,10 @@ class BrowserToolbarCFRPresenter(
     }
 
     @VisibleForTesting
-    @Suppress("LongMethod")
     internal fun showTabSwipeCFR() {
         CFRPopup(
             anchor = toolbar.findViewById(
-                R.id.mozac_browser_toolbar_background,
+                toolbarR.id.mozac_browser_toolbar_background,
             ),
             properties = CFRPopupProperties(
                 popupAlignment = BODY_TO_ANCHOR_CENTER,
@@ -290,23 +227,14 @@ class BrowserToolbarCFRPresenter(
                 indicatorArrowStartOffset = TAB_SWIPE_CFR_ARROW_OFFSET.dp,
             ),
             onDismiss = {
-                AddressToolbar.swipeCfrDismissed.record(NoExtras())
+                Events.toolbarTabSwipeCfrDismissed.record(NoExtras())
                 popup = null
             },
             text = {
                 FirefoxTheme {
                     Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = context.getString(R.string.address_bar_swipe_cfr_title),
-                                color = FirefoxTheme.colors.textOnColorPrimary,
-                                style = FirefoxTheme.typography.subtitle2,
-                            )
-                        }
                         Text(
-                            text = context.getString(R.string.address_bar_swipe_cfr_message),
+                            text = context.getString(R.string.address_bar_swipe_cfr_message_2),
                             color = FirefoxTheme.colors.textOnColorPrimary,
                             style = FirefoxTheme.typography.body2,
                             modifier = Modifier.padding(top = 2.dp),
@@ -315,7 +243,7 @@ class BrowserToolbarCFRPresenter(
                 }
             },
         ).run {
-            AddressToolbar.swipeCfrShown.record(NoExtras())
+            Events.toolbarTabSwipeCfrShown.record(NoExtras())
             popup = this
             show()
         }
@@ -326,5 +254,5 @@ class BrowserToolbarCFRPresenter(
  * The CFR to be shown in the toolbar.
  */
 private enum class ToolbarCFR {
-    ERASE, COOKIE_BANNERS, NONE
+    COOKIE_BANNERS, NONE
 }

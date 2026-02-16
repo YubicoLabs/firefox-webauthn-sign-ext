@@ -12,7 +12,6 @@
 #include <stddef.h>
 
 #include "jsfriendapi.h"
-#include "jsmath.h"
 
 #include "builtin/WrappedFunctionObject.h"
 #include "debugger/DebugAPI.h"
@@ -25,12 +24,15 @@
 #include "js/Proxy.h"
 #include "js/RootingAPI.h"
 #include "js/Wrapper.h"
+#include "util/RandomSeed.h"
 #include "vm/Compartment.h"
 #include "vm/DateTime.h"
 #include "vm/Iteration.h"
 #include "vm/JSContext.h"
+#include "wasm/WasmInstance.h"
 
 #include "gc/Marking-inl.h"
+#include "gc/WeakMap-inl.h"
 #include "vm/JSObject-inl.h"
 
 using namespace js;
@@ -147,7 +149,7 @@ ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
   MOZ_ASSERT(&ObjectRealm::get(enclosing) == this);
 
   if (!nonSyntacticLexicalEnvironments_) {
-    auto map = cx->make_unique<ObjectWeakMap>(cx);
+    auto map = cx->make_unique<NonSyntacticLexialEnvironmentsMap>(cx->zone());
     if (!map) {
       return nullptr;
     }
@@ -155,22 +157,26 @@ ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
     nonSyntacticLexicalEnvironments_ = std::move(map);
   }
 
-  RootedObject lexicalEnv(cx, nonSyntacticLexicalEnvironments_->lookup(key));
-
-  if (!lexicalEnv) {
-    MOZ_ASSERT(key->is<NonSyntacticVariablesObject>() ||
-               !key->is<EnvironmentObject>());
-    lexicalEnv =
-        NonSyntacticLexicalEnvironmentObject::create(cx, enclosing, thisv);
-    if (!lexicalEnv) {
-      return nullptr;
-    }
-    if (!nonSyntacticLexicalEnvironments_->add(cx, key, lexicalEnv)) {
-      return nullptr;
-    }
+  JSObject* obj = nonSyntacticLexicalEnvironments_->get(key);
+  if (obj) {
+    return &obj->as<NonSyntacticLexicalEnvironmentObject>();
   }
 
-  return &lexicalEnv->as<NonSyntacticLexicalEnvironmentObject>();
+  MOZ_ASSERT(key->is<NonSyntacticVariablesObject>() ||
+             !key->is<EnvironmentObject>());
+
+  NonSyntacticLexicalEnvironmentObject* lexicalEnv =
+      NonSyntacticLexicalEnvironmentObject::create(cx, enclosing, thisv);
+  if (!lexicalEnv) {
+    return nullptr;
+  }
+
+  if (!nonSyntacticLexicalEnvironments_->put(key, lexicalEnv)) {
+    ReportOutOfMemory(cx);
+    return nullptr;
+  }
+
+  return lexicalEnv;
 }
 
 NonSyntacticLexicalEnvironmentObject*
@@ -230,7 +236,7 @@ ObjectRealm::getNonSyntacticLexicalEnvironment(JSObject* key) const {
     MOZ_ASSERT(!key->as<WithEnvironmentObject>().isSyntactic());
     key = &key->as<WithEnvironmentObject>().object();
   }
-  JSObject* lexicalEnv = nonSyntacticLexicalEnvironments_->lookup(key);
+  JSObject* lexicalEnv = nonSyntacticLexicalEnvironments_->get(key);
   if (!lexicalEnv) {
     return nullptr;
   }
@@ -244,6 +250,12 @@ void Realm::traceGlobalData(JSTracer* trc) {
   savedStacks_.trace(trc);
 
   DebugAPI::traceFromRealm(trc, this);
+}
+
+void Realm::traceGlobalRoot(JSTracer* trc, const char* name) {
+  if (global_) {
+    TraceRoot(trc, global_.unbarrieredAddress(), name);
+  }
 }
 
 void ObjectRealm::trace(JSTracer* trc) {
@@ -268,8 +280,8 @@ void Realm::traceRoots(JSTracer* trc,
     //
     // If a realm is on-stack, we mark its global so that JSContext::global()
     // remains valid.
-    if (shouldTraceGlobal() && global_) {
-      TraceRoot(trc, global_.unbarrieredAddress(), "on-stack realm global");
+    if (shouldTraceGlobal()) {
+      traceGlobalRoot(trc, "on-stack realm global");
     }
 
     // If the realm is still being initialized we set a flag so that it doesn't
@@ -353,7 +365,6 @@ void Realm::purge() {
   newPlainObjectWithPropsCache.purge();
   plainObjectAssignCache.purge();
   objects_.iteratorCache.clearAndCompact();
-  promiseLookup.purge();
 }
 
 void Realm::removeFromCompileQueue(JSScript* script) {
@@ -378,6 +389,9 @@ void Realm::setAllocationMetadataBuilder(
     }
   }
 
+  for (wasm::Instance* instance : wasm.instances()) {
+    instance->setAllocationMetadataBuilder(builder);
+  }
   allocationMetadataBuilder_ = builder;
 }
 
@@ -395,6 +409,9 @@ void Realm::forgetAllocationMetadataBuilder() {
 
   zone()->decNumRealmsWithAllocMetadataBuilder();
 
+  for (wasm::Instance* instance : wasm.instances()) {
+    instance->setAllocationMetadataBuilder(nullptr);
+  }
   allocationMetadataBuilder_ = nullptr;
 }
 
@@ -409,7 +426,8 @@ void Realm::setNewObjectMetadata(JSContext* cx, HandleObject obj) {
     cx->check(metadata);
 
     if (!objects_.objectMetadataTable) {
-      auto table = cx->make_unique<ObjectWeakMap>(cx);
+      auto table =
+          cx->make_unique<ObjectRealm::ObjectMetadataTable>(cx->zone());
       if (!table) {
         oomUnsafe.crash("setNewObjectMetadata");
       }
@@ -417,7 +435,7 @@ void Realm::setNewObjectMetadata(JSContext* cx, HandleObject obj) {
       objects_.objectMetadataTable = std::move(table);
     }
 
-    if (!objects_.objectMetadataTable->add(cx, obj, metadata)) {
+    if (!objects_.objectMetadataTable->put(obj, metadata)) {
       oomUnsafe.crash("setNewObjectMetadata");
     }
   }
@@ -473,6 +491,22 @@ void Realm::unsetIsDebuggee() {
   }
 }
 
+void Realm::restoreDebugModeBitsOnOOM(uint32_t bits) {
+  // This is called from Debugger::addDebuggeeGlobal after calling
+  // Realm::setIsDebuggee. If the realm was not a debuggee realm before, we need
+  // to call unsetIsDebuggee to update counters on the JSRuntime.
+
+  MOZ_RELEASE_ASSERT(isDebuggee());
+
+  if (!(bits & IsDebuggee)) {
+    MOZ_ASSERT(bits == 0);
+    unsetIsDebuggee();
+    MOZ_ASSERT(debugModeBits_ == 0);
+  } else {
+    debugModeBits_ = bits;
+  }
+}
+
 void Realm::updateDebuggerObservesCoverage() {
   bool previousState = debuggerObservesCoverage();
   updateDebuggerObservesFlag(DebuggerObservesCoverage);
@@ -520,11 +554,46 @@ void Realm::clearScriptCounts() { zone()->clearScriptCounts(this); }
 void Realm::clearScriptLCov() { zone()->clearScriptLCov(this); }
 
 const char* Realm::getLocale() const {
-  if (RefPtr<LocaleString> locale = creationOptions_.locale()) {
+  if (RefPtr<LocaleString> locale = behaviors_.localeOverride()) {
     return locale->chars();
   }
-
   return runtime_->getDefaultLocale();
+}
+
+void Realm::setLocaleOverride(const char* locale) {
+  // Clear any jitcode in the runtime, because compiled code doesn't handle
+  // updates to a realm's locale override.
+  ReleaseAllJITCode(runtime_->gcContext());
+
+  behaviors_.setLocaleOverride(locale);
+}
+
+js::DateTimeInfo* Realm::getDateTimeInfo() {
+#if JS_HAS_INTL_API
+  if (RefPtr<TimeZoneString> timeZone = behaviors_.timeZoneOverride()) {
+    if (!dateTimeInfo_) {
+      AutoEnterOOMUnsafeRegion oomUnsafe;
+
+      // Crash on OOM because we don't have a good way to handle it here.
+      dateTimeInfo_ = js::MakeUnique<js::DateTimeInfo>(timeZone);
+      if (!dateTimeInfo_) {
+        oomUnsafe.crash("getDateTimeInfo");
+      }
+    } else {
+      dateTimeInfo_->updateTimeZoneOverride(timeZone);
+    }
+    return dateTimeInfo_.get();
+  }
+#endif
+  return nullptr;
+}
+
+void Realm::setTimeZoneOverride(const char* timeZone) {
+  // Clear any jitcode in the runtime, because compiled code doesn't handle
+  // updates to a realm's time zone override.
+  ReleaseAllJITCode(runtime_->gcContext());
+
+  behaviors_.setTimeZoneOverride(timeZone);
 }
 
 void ObjectRealm::addSizeOfExcludingThis(
@@ -535,12 +604,13 @@ void ObjectRealm::addSizeOfExcludingThis(
 
   if (objectMetadataTable) {
     *objectMetadataTablesArg +=
-        objectMetadataTable->sizeOfIncludingThis(mallocSizeOf);
+        mallocSizeOf(objectMetadataTable.get()) +
+        objectMetadataTable->shallowSizeOfExcludingThis(mallocSizeOf);
   }
 
   if (auto& map = nonSyntacticLexicalEnvironments_) {
     *nonSyntacticLexicalEnvironmentsArg +=
-        map->sizeOfIncludingThis(mallocSizeOf);
+        mallocSizeOf(map.get()) + map->shallowSizeOfExcludingThis(mallocSizeOf);
   }
 }
 
@@ -626,16 +696,16 @@ void AutoSetNewObjectMetadata::setPendingMetadata() {
   (void)SetNewObjectMetadata(cx_, obj);
 }
 
-JS_PUBLIC_API void gc::TraceRealm(JSTracer* trc, JS::Realm* realm,
-                                  const char* name) {
-  // The way GC works with compartments is basically incomprehensible.
-  // For Realms, what we want is very simple: each Realm has a strong
-  // reference to its GlobalObject, and vice versa.
+JS_PUBLIC_API void gc::TraceRealmRoot(JSTracer* trc, JS::Realm* realm,
+                                      const char* name) {
+  // Trace the realm's global object to keep the realm alive.
   //
-  // Here we simply trace our side of that edge. During GC,
-  // GCRuntime::traceRuntimeCommon() marks all other realm roots, for
-  // all realms.
-  realm->traceGlobalData(trc);
+  // Note: this is called for Rooted<Realm*>. If a realm has been entered with
+  // AutoRealm, the global object is traced in Realm::traceRoots.
+  MOZ_RELEASE_ASSERT(realm->hasLiveGlobal(),
+                     "we need to have a global to keep the realm alive");
+  gc::AssertRootMarkingPhase(trc);
+  realm->traceGlobalRoot(trc, "rooted realm");
 }
 
 JS_PUBLIC_API JS::Realm* JS::GetCurrentRealmOrNull(JSContext* cx) {
@@ -648,6 +718,10 @@ JS_PUBLIC_API JS::Realm* JS::GetObjectRealmOrNull(JSObject* obj) {
 
 JS_PUBLIC_API void* JS::GetRealmPrivate(JS::Realm* realm) {
   return realm->realmPrivate();
+}
+
+JS_PUBLIC_API bool JS::HasRealmInitializedGlobal(JS::Realm* realm) {
+  return realm->hasInitializedGlobal();
 }
 
 JS_PUBLIC_API void JS::SetRealmPrivate(JS::Realm* realm, void* data) {

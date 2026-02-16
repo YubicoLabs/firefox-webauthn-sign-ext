@@ -6,7 +6,7 @@
 
 use self::Token::*;
 use crate::cow_rc_str::CowRcStr;
-use crate::parser::ParserState;
+use crate::parser::{ArbitrarySubstitutionFunctions, ParserState};
 use std::char;
 use std::ops::Range;
 
@@ -190,7 +190,7 @@ pub enum Token<'a> {
     CloseCurlyBracket,
 }
 
-impl<'a> Token<'a> {
+impl Token<'_> {
     /// Return whether this token represents a parse error.
     ///
     /// `BadUrl` and `BadString` are tokenizer-level parse errors.
@@ -215,50 +215,53 @@ pub struct Tokenizer<'a> {
     /// of UTF-16 characters.
     current_line_start_position: usize,
     current_line_number: u32,
-    var_or_env_functions: SeenStatus,
+    arbitrary_substitution_functions: SeenStatus<'a>,
     source_map_url: Option<&'a str>,
     source_url: Option<&'a str>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-enum SeenStatus {
+enum SeenStatus<'a> {
     DontCare,
-    LookingForThem,
+    LookingForThem(ArbitrarySubstitutionFunctions<'a>),
     SeenAtLeastOne,
 }
 
 impl<'a> Tokenizer<'a> {
     #[inline]
-    pub fn new(input: &str) -> Tokenizer {
+    pub fn new(input: &'a str) -> Self {
         Tokenizer {
             input,
             position: 0,
             current_line_start_position: 0,
             current_line_number: 0,
-            var_or_env_functions: SeenStatus::DontCare,
+            arbitrary_substitution_functions: SeenStatus::DontCare,
             source_map_url: None,
             source_url: None,
         }
     }
 
     #[inline]
-    pub fn look_for_var_or_env_functions(&mut self) {
-        self.var_or_env_functions = SeenStatus::LookingForThem;
+    pub fn look_for_arbitrary_substitution_functions(
+        &mut self,
+        fns: ArbitrarySubstitutionFunctions<'a>,
+    ) {
+        self.arbitrary_substitution_functions = SeenStatus::LookingForThem(fns);
     }
 
     #[inline]
-    pub fn seen_var_or_env_functions(&mut self) -> bool {
-        let seen = self.var_or_env_functions == SeenStatus::SeenAtLeastOne;
-        self.var_or_env_functions = SeenStatus::DontCare;
+    pub fn seen_arbitrary_substitution_functions(&mut self) -> bool {
+        let seen = self.arbitrary_substitution_functions == SeenStatus::SeenAtLeastOne;
+        self.arbitrary_substitution_functions = SeenStatus::DontCare;
         seen
     }
 
     #[inline]
     pub fn see_function(&mut self, name: &str) {
-        if self.var_or_env_functions == SeenStatus::LookingForThem
-            && (name.eq_ignore_ascii_case("var") || name.eq_ignore_ascii_case("env"))
-        {
-            self.var_or_env_functions = SeenStatus::SeenAtLeastOne;
+        if let SeenStatus::LookingForThem(fns) = self.arbitrary_substitution_functions {
+            if fns.iter().any(|a| name.eq_ignore_ascii_case(a)) {
+                self.arbitrary_substitution_functions = SeenStatus::SeenAtLeastOne;
+            }
         }
     }
 
@@ -324,11 +327,11 @@ impl<'a> Tokenizer<'a> {
         let current = self.position();
         let start = self
             .slice(SourcePosition(0)..current)
-            .rfind(|c| matches!(c, '\r' | '\n' | '\x0C'))
+            .rfind(['\r', '\n', '\x0C'])
             .map_or(0, |start| start + 1);
         let end = self
             .slice(current..SourcePosition(self.input.len()))
-            .find(|c| matches!(c, '\r' | '\n' | '\x0C'))
+            .find(['\r', '\n', '\x0C'])
             .map_or(self.input.len(), |end| current.0 + end);
         self.slice(SourcePosition(start)..SourcePosition(end))
     }
@@ -533,6 +536,9 @@ impl<'a> Tokenizer<'a> {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
 pub struct SourcePosition(pub(crate) usize);
 
+#[cfg(feature = "malloc_size_of")]
+malloc_size_of::malloc_size_of_is_0!(SourcePosition);
+
 impl SourcePosition {
     /// Returns the current byte index in the original input.
     #[inline]
@@ -542,7 +548,7 @@ impl SourcePosition {
 }
 
 /// The line and column number for a given position within the input.
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
 pub struct SourceLocation {
     /// The line number, starting at 0 for the first line.
     pub line: u32,
@@ -551,6 +557,9 @@ pub struct SourceLocation {
     /// Column numbers are counted in UTF-16 code units.
     pub column: u32,
 }
+
+#[cfg(feature = "malloc_size_of")]
+malloc_size_of::malloc_size_of_is_0!(SourceLocation);
 
 fn next_token<'a>(tokenizer: &mut Tokenizer<'a>) -> Result<Token<'a>, ()> {
     if tokenizer.is_eof() {
@@ -720,9 +729,7 @@ fn check_for_source_map<'a>(tokenizer: &mut Tokenizer<'a>, contents: &'a str) {
     // If there is a source map directive, extract the URL.
     if contents.starts_with(directive) || contents.starts_with(directive_old) {
         let contents = &contents[directive.len()..];
-        tokenizer.source_map_url = contents
-            .split(|c| c == ' ' || c == '\t' || c == '\x0C' || c == '\r' || c == '\n')
-            .next()
+        tokenizer.source_map_url = contents.split([' ', '\t', '\x0C', '\r', '\n']).next();
     }
 
     let directive = "# sourceURL=";
@@ -731,9 +738,7 @@ fn check_for_source_map<'a>(tokenizer: &mut Tokenizer<'a>, contents: &'a str) {
     // If there is a source map directive, extract the URL.
     if contents.starts_with(directive) || contents.starts_with(directive_old) {
         let contents = &contents[directive.len()..];
-        tokenizer.source_url = contents
-            .split(|c| c == ' ' || c == '\t' || c == '\x0C' || c == '\r' || c == '\n')
-            .next()
+        tokenizer.source_url = contents.split([' ', '\t', '\x0C', '\r', '\n']).next()
     }
 }
 
@@ -889,7 +894,7 @@ fn consume_quoted_string<'a>(
 }
 
 #[inline]
-fn is_ident_start(tokenizer: &mut Tokenizer) -> bool {
+fn is_ident_start(tokenizer: &Tokenizer) -> bool {
     !tokenizer.is_eof()
         && match_byte! { tokenizer.next_byte_unchecked(),
             b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\0' => true,

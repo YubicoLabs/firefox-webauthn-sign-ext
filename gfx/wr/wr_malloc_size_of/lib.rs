@@ -10,9 +10,12 @@
 
 //! A reduced fork of Firefox's malloc_size_of crate, for bundling with WebRender.
 
+#[cfg(feature = "app_units")]
 extern crate app_units;
+#[cfg(feature = "euclid")]
 extern crate euclid;
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{BuildHasher, Hash};
 use std::mem::size_of;
 use std::ops::Range;
@@ -304,6 +307,58 @@ macro_rules! malloc_size_of_hash_map {
 
 malloc_size_of_hash_map!(std::collections::HashMap<K, V, S>);
 
+impl<K, V> MallocShallowSizeOf for BTreeMap<K, V> {
+    fn shallow_size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        if ops.has_malloc_enclosing_size_of() {
+            self.values()
+                .next()
+                .map_or(0, |v| unsafe { ops.malloc_enclosing_size_of(v) })
+        } else {
+            self.len() * (size_of::<V>() + size_of::<K>() + size_of::<usize>())
+        }
+    }
+}
+
+impl<K, V> MallocSizeOf for BTreeMap<K, V>
+where
+    K: MallocSizeOf,
+    V: MallocSizeOf,
+{
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        let mut n = self.shallow_size_of(ops);
+        for (k, v) in self.iter() {
+            n += k.size_of(ops);
+            n += v.size_of(ops);
+        }
+        n
+    }
+}
+
+impl<T> MallocShallowSizeOf for BTreeSet<T> {
+    fn shallow_size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        if ops.has_malloc_enclosing_size_of() {
+            self.iter()
+                .next()
+                .map_or(0, |v| unsafe { ops.malloc_enclosing_size_of(v) })
+        } else {
+            self.len() * (size_of::<T>() + size_of::<usize>())
+        }
+    }
+}
+
+impl<T> MallocSizeOf for BTreeSet<T>
+where
+    T: MallocSizeOf,
+{
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        let mut n = self.shallow_size_of(ops);
+        for v in self.iter() {
+            n += v.size_of(ops);
+        }
+        n
+    }
+}
+
 // PhantomData is always 0.
 impl<T> MallocSizeOf for std::marker::PhantomData<T> {
     fn size_of(&self, _ops: &mut MallocSizeOfOps) -> usize {
@@ -320,36 +375,42 @@ impl MallocSizeOf for PathBuf {
     }
 }
 
+#[cfg(feature = "euclid")]
 impl<T: MallocSizeOf, Unit> MallocSizeOf for euclid::Length<T, Unit> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.0.size_of(ops)
     }
 }
 
+#[cfg(feature = "euclid")]
 impl<T: MallocSizeOf, Src, Dst> MallocSizeOf for euclid::Scale<T, Src, Dst> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.0.size_of(ops)
     }
 }
 
+#[cfg(feature = "euclid")]
 impl<T: MallocSizeOf, U> MallocSizeOf for euclid::Point2D<T, U> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.x.size_of(ops) + self.y.size_of(ops)
     }
 }
 
+#[cfg(feature = "euclid")]
 impl<T: MallocSizeOf, U> MallocSizeOf for euclid::Rect<T, U> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.origin.size_of(ops) + self.size.size_of(ops)
     }
 }
 
+#[cfg(feature = "euclid")]
 impl<T: MallocSizeOf, U> MallocSizeOf for euclid::Box2D<T, U> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.min.size_of(ops) + self.max.size_of(ops)
     }
 }
 
+#[cfg(feature = "euclid")]
 impl<T: MallocSizeOf, U> MallocSizeOf for euclid::SideOffsets2D<T, U> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.top.size_of(ops) +
@@ -359,12 +420,14 @@ impl<T: MallocSizeOf, U> MallocSizeOf for euclid::SideOffsets2D<T, U> {
     }
 }
 
+#[cfg(feature = "euclid")]
 impl<T: MallocSizeOf, U> MallocSizeOf for euclid::Size2D<T, U> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.width.size_of(ops) + self.height.size_of(ops)
     }
 }
 
+#[cfg(feature = "euclid")]
 impl<T: MallocSizeOf, Src, Dst> MallocSizeOf for euclid::Transform2D<T, Src, Dst> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.m11.size_of(ops) +
@@ -376,6 +439,7 @@ impl<T: MallocSizeOf, Src, Dst> MallocSizeOf for euclid::Transform2D<T, Src, Dst
     }
 }
 
+#[cfg(feature = "euclid")]
 impl<T: MallocSizeOf, Src, Dst> MallocSizeOf for euclid::Transform3D<T, Src, Dst> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.m11.size_of(ops) +
@@ -397,6 +461,7 @@ impl<T: MallocSizeOf, Src, Dst> MallocSizeOf for euclid::Transform3D<T, Src, Dst
     }
 }
 
+#[cfg(feature = "euclid")]
 impl<T: MallocSizeOf, U> MallocSizeOf for euclid::Vector2D<T, U> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.x.size_of(ops) + self.y.size_of(ops)
@@ -436,6 +501,18 @@ malloc_size_of_is_0!(f32, f64);
 malloc_size_of_is_0!(std::sync::atomic::AtomicBool);
 malloc_size_of_is_0!(std::sync::atomic::AtomicIsize);
 malloc_size_of_is_0!(std::sync::atomic::AtomicUsize);
+malloc_size_of_is_0!(
+    std::sync::atomic::AtomicU8,
+    std::sync::atomic::AtomicU16,
+    std::sync::atomic::AtomicU32,
+    std::sync::atomic::AtomicU64
+);
+malloc_size_of_is_0!(
+    std::sync::atomic::AtomicI8,
+    std::sync::atomic::AtomicI16,
+    std::sync::atomic::AtomicI32,
+    std::sync::atomic::AtomicI64
+);
 
 malloc_size_of_is_0!(std::num::NonZeroUsize);
 malloc_size_of_is_0!(std::num::NonZeroU32);
@@ -448,4 +525,26 @@ malloc_size_of_is_0!(Range<u8>, Range<u16>, Range<u32>, Range<u64>, Range<usize>
 malloc_size_of_is_0!(Range<i8>, Range<i16>, Range<i32>, Range<i64>, Range<isize>);
 malloc_size_of_is_0!(Range<f32>, Range<f64>);
 
+#[cfg(feature = "app_units")]
 malloc_size_of_is_0!(app_units::Au);
+
+#[cfg(feature = "once_cell")]
+impl<T: MallocSizeOf, F: FnOnce() -> T> MallocSizeOf for once_cell::sync::Lazy<T, F> {
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        once_cell::sync::Lazy::get(self).map(|obj| obj.size_of(ops)).unwrap_or(0)
+    }
+}
+
+#[cfg(feature = "once_cell")]
+impl<T: MallocSizeOf> MallocSizeOf for once_cell::sync::OnceCell<T> {
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        once_cell::sync::OnceCell::get(self).map(|obj| obj.size_of(ops)).unwrap_or(0)
+    }
+}
+
+#[cfg(feature = "once_cell")]
+impl<T: MallocSizeOf, F: FnOnce() -> T> MallocSizeOf for &'static once_cell::sync::Lazy<T, F> {
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        once_cell::sync::Lazy::get(self).map(|obj| obj.size_of(ops)).unwrap_or(0)
+    }
+}

@@ -1,6 +1,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 package org.mozilla.focus.open
 
 import android.content.Context
@@ -15,8 +16,10 @@ import androidx.recyclerview.widget.RecyclerView
  * This will display browser apps and an item that can be used for installing Firefox,
  * if it is not already installed on the device.
  *
- * @param infoArray List of browser apps.
- * @param store Store app for installing Firefox.
+ * @param context The context used to access resources.
+ * @param infoArray List of browser apps represented by [ActivityInfo].
+ * @param store Store app for installing Firefox, represented by [ActivityInfo].
+ *              This can be null if no store app is available.
  */
 class AppAdapter(context: Context, infoArray: Array<ActivityInfo>, store: ActivityInfo?) :
     RecyclerView.Adapter<RecyclerView.ViewHolder>() {
@@ -49,15 +52,10 @@ class AppAdapter(context: Context, infoArray: Array<ActivityInfo>, store: Activi
         fun onAppSelected(app: App)
     }
 
-    private val apps: List<App>
-    private val store: App?
+    private val apps: List<App> = infoArray.map { App(context, it) }
+        .sortedWith { app1, app2 -> app1.label.compareTo(app2.label) }
+    private val store: App? = if (store != null) App(context, store) else null
     private var listener: OnAppSelectedListener? = null
-
-    init {
-        this.apps = infoArray.map { App(context, it) }
-            .sortedWith { app1, app2 -> app1.label.compareTo(app2.label) }
-        this.store = if (store != null) App(context, store) else null
-    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)

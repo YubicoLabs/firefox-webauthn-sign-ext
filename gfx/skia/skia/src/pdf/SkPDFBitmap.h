@@ -13,10 +13,8 @@
 
 #include <cstdint>
 
-class SkCodec;
 class SkImage;
 class SkPDFDocument;
-struct SkEncodedInfo;
 struct SkPDFIndirectReference;
 
 /**
@@ -25,12 +23,9 @@ struct SkPDFIndirectReference;
  */
 SkPDFIndirectReference SkPDFSerializeImage(const SkImage* img,
                                            SkPDFDocument* doc,
-                                           int encodingQuality = 101);
+                                           int encodingQuality);
 
-class SkPDFBitmap {
-public:
-    static const SkEncodedInfo& GetEncodedInfo(SkCodec&);
-};
+size_t SkPDFSerializeImageSize(const SkImage* img, SkPDFDocument* doc, int encodingQuality);
 
 struct SkPDFIccProfileKey {
     sk_sp<SkData> fData;

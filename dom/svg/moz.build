@@ -17,7 +17,7 @@ EXPORTS.mozilla += [
     "SVGFragmentIdentifier.h",
     "SVGPreserveAspectRatio.h",
     "SVGStringList.h",
-    "SVGTagList.h",
+    "SVGTagList.inc",
 ]
 
 EXPORTS.mozilla.dom += [
@@ -38,7 +38,6 @@ EXPORTS.mozilla.dom += [
     "SVGComponentTransferFunctionElement.h",
     "SVGDefsElement.h",
     "SVGDescElement.h",
-    "SVGDiscardElement.h",
     "SVGDocument.h",
     "SVGElement.h",
     "SVGElementFactory.h",
@@ -72,7 +71,8 @@ EXPORTS.mozilla.dom += [
     "SVGGradientElement.h",
     "SVGGraphicsElement.h",
     "SVGImageElement.h",
-    "SVGLengthUnits.h",
+    "SVGLength.h",
+    "SVGLengthUnits.inc",
     "SVGLineElement.h",
     "SVGMarkerElement.h",
     "SVGMaskElement.h",
@@ -163,7 +163,6 @@ UNIFIED_SOURCES += [
     "SVGDataParser.cpp",
     "SVGDefsElement.cpp",
     "SVGDescElement.cpp",
-    "SVGDiscardElement.cpp",
     "SVGDocument.cpp",
     "SVGElement.cpp",
     "SVGElementFactory.cpp",
@@ -272,5 +271,4 @@ LOCAL_INCLUDES += [
     "/layout/generic",
     "/layout/style",
     "/layout/svg",
-    "/layout/xul",
 ]

@@ -4,9 +4,7 @@
  */
 
 /*---
-includes: [sm/non262-shell.js, sm/non262-strict-shell.js, sm/non262.js]
-flags:
-- noStrict
+includes: [sm/non262-strict-shell.js]
 description: |
   pending
 esid: pending

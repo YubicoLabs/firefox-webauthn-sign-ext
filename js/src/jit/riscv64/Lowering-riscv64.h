@@ -40,9 +40,8 @@ class LIRGeneratorRiscv64 : public LIRGeneratorShared {
                         MDefinition* rhs);
 
   void lowerForFPU(LInstructionHelper<1, 1, 0>* ins, MDefinition* mir,
-                   MDefinition* src);
-  template <size_t Temps>
-  void lowerForFPU(LInstructionHelper<1, 2, Temps>* ins, MDefinition* mir,
+                   MDefinition* input);
+  void lowerForFPU(LInstructionHelper<1, 2, 0>* ins, MDefinition* mir,
                    MDefinition* lhs, MDefinition* rhs);
 
   // Returns a box allocation. reg2 is ignored on 64-bit platforms.
@@ -63,8 +62,6 @@ class LIRGeneratorRiscv64 : public LIRGeneratorShared {
   void lowerInt64PhiInput(MPhi*, uint32_t, LBlock*, size_t);
   void defineInt64Phi(MPhi*, size_t);
 
-  void lowerNegI(MInstruction* ins, MDefinition* input);
-  void lowerNegI64(MInstruction* ins, MDefinition* input);
   void lowerMulI(MMul* mul, MDefinition* lhs, MDefinition* rhs);
   void lowerDivI(MDiv* div);
   void lowerDivI64(MDiv* div);
@@ -85,6 +82,11 @@ class LIRGeneratorRiscv64 : public LIRGeneratorShared {
   void lowerWasmBuiltinTruncateToInt32(MWasmBuiltinTruncateToInt32* ins);
   void lowerWasmBuiltinDivI64(MWasmBuiltinDivI64* div);
   void lowerWasmBuiltinModI64(MWasmBuiltinModI64* mod);
+
+  void lowerBigIntPtrLsh(MBigIntPtrLsh* ins);
+  void lowerBigIntPtrRsh(MBigIntPtrRsh* ins);
+  void lowerBigIntPtrDiv(MBigIntPtrDiv* ins);
+  void lowerBigIntPtrMod(MBigIntPtrMod* ins);
 
   void lowerAtomicLoad64(MLoadUnboxedScalar* ins);
   void lowerAtomicStore64(MStoreUnboxedScalar* ins);

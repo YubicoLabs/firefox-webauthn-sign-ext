@@ -13,7 +13,6 @@ import sqlite3
 import subprocess
 
 import requests
-import six
 from mach.util import get_state_dir
 from mozbuild.base import MozbuildObject
 from mozpack.files import FileFinder
@@ -37,9 +36,10 @@ def setup_globals():
     build = MozbuildObject.from_environment(cwd=here)
     vcs = get_repository_object(build.topsrcdir)
 
-    root_hash = hashlib.sha256(
-        six.ensure_binary(os.path.abspath(build.topsrcdir))
-    ).hexdigest()
+    topsrcdir = build.topsrcdir
+    if isinstance(topsrcdir, str):
+        topsrcdir = topsrcdir.encode()
+    root_hash = hashlib.sha256(os.path.abspath(topsrcdir)).hexdigest()
     cache_dir = os.path.join(get_state_dir(), "cache", root_hash, "chunk_mapping")
     if not os.path.isdir(cache_dir):
         os.makedirs(cache_dir)
@@ -142,13 +142,11 @@ def download_coverage_mapping(base_revision):
     delta = datetime.timedelta(days=PUSH_HISTORY_DAYS)
     start_time = (datetime.datetime.now() - delta).strftime("%Y-%m-%d")
     pushes_url = JSON_PUSHES_URL_TEMPLATE.format(start_time)
-    pushes_data = requests.get(pushes_url + "&tochange={}".format(base_revision)).json()
+    pushes_data = requests.get(pushes_url + f"&tochange={base_revision}").json()
     if "error" in pushes_data:
         if "unknown revision" in pushes_data["error"]:
             print(
-                "unknown revision {}, trying with latest mozilla-central".format(
-                    base_revision
-                )
+                f"unknown revision {base_revision}, trying with latest mozilla-central"
             )
             pushes_data = requests.get(pushes_url).json()
 
@@ -162,7 +160,7 @@ def download_coverage_mapping(base_revision):
     for push_id in sorted(pushes.keys())[::-1]:
         rev = pushes[push_id]["changesets"][0]
         url = CHUNK_MAPPING_URL_TEMPLATE.format(rev)
-        print("push id: {},\trevision: {}".format(push_id, rev))
+        print(f"push id: {push_id},\trevision: {rev}")
 
         r = requests.head(url)
         if not r.ok:
@@ -176,15 +174,13 @@ def download_coverage_mapping(base_revision):
             r.raw.decode_content = True
             shutil.copyfileobj(r.raw, f)
 
-        subprocess.check_call(
-            [
-                "tar",
-                "-xJf",
-                CHUNK_MAPPING_ARCHIVE,
-                "-C",
-                os.path.dirname(CHUNK_MAPPING_FILE),
-            ]
-        )
+        subprocess.check_call([
+            "tar",
+            "-xJf",
+            CHUNK_MAPPING_ARCHIVE,
+            "-C",
+            os.path.dirname(CHUNK_MAPPING_FILE),
+        ])
         os.remove(CHUNK_MAPPING_ARCHIVE)
         assert os.path.isfile(CHUNK_MAPPING_FILE)
         with open(CHUNK_MAPPING_TAG_FILE, "w") as f:
@@ -313,20 +309,12 @@ def _print_found_tests(files_covered, files_no_coverage, test_files, test_chunks
     test_chunks = sorted(test_chunks)
 
     if files_covered:
-        print(
-            "Found {} modified source files with test coverage:".format(
-                len(files_covered)
-            )
-        )
+        print(f"Found {len(files_covered)} modified source files with test coverage:")
         for covered in files_covered:
             print("\t", covered)
 
     if files_no_coverage:
-        print(
-            "Found {} modified source files with no coverage:".format(
-                len(files_no_coverage)
-            )
-        )
+        print(f"Found {len(files_no_coverage)} modified source files with no coverage:")
         for f in files_no_coverage:
             print("\t", f)
 
@@ -336,12 +324,12 @@ def _print_found_tests(files_covered, files_no_coverage, test_files, test_chunks
         print("All modified source files are covered by tests.")
 
     if test_files:
-        print("Running {} individual test files.".format(len(test_files)))
+        print(f"Running {len(test_files)} individual test files.")
     else:
         print("Could not find any individual tests to run.")
 
     if test_chunks:
-        print("Running {} test chunks.".format(len(test_chunks)))
+        print(f"Running {len(test_chunks)} test chunks.")
         for platform, chunk in test_chunks:
             print("\t", platform, chunk)
     else:
@@ -364,10 +352,10 @@ def filter_tasks_by_chunks(tasks, chunks):
             ):
                 continue
 
-            assert (
-                selected_task is None
-            ), "Only one task should be selected for a given platform-chunk couple ({} - {}), {} and {} were selected".format(  # noqa
-                platform, chunk, selected_task, task
+            assert selected_task is None, (
+                "Only one task should be selected for a given platform-chunk couple ({} - {}), {} and {} were selected".format(  # noqa
+                    platform, chunk, selected_task, task
+                )
             )
             selected_task = task
 
@@ -387,6 +375,7 @@ def is_opt_task(task):
 
 
 def run(
+    metrics,
     try_config_params={},
     full=False,
     parameters=None,
@@ -394,9 +383,9 @@ def run(
     dry_run=False,
     message="{msg}",
     closed_tree=False,
-    push_to_lando=False,
     push_to_vcs=False,
 ):
+    metrics.mach_try.remote_data_fetching_duration.start()
     setup_globals()
     download_coverage_mapping(vcs.base_ref)
 
@@ -406,14 +395,21 @@ def run(
         print("ERROR Could not find any tests or chunks to run.")
         return 1
 
+    metrics.mach_try.remote_data_fetching_duration.stop()
+
+    metrics.mach_try.taskgraph_generation_duration.start()
     tg = generate_tasks(parameters, full)
     all_tasks = tg.tasks
+    metrics.mach_try.taskgraph_generation_duration.stop()
 
+    metrics.mach_try.task_filtering_duration.start()
     tasks_by_chunks = filter_tasks_by_chunks(all_tasks, test_chunks)
     tasks_by_path = filter_tasks_by_paths(all_tasks, test_files)
     tasks = filter(is_opt_task, set(tasks_by_path) | set(tasks_by_chunks))
     tasks = list(tasks)
+    metrics.mach_try.task_filtering_duration.stop()
 
+    metrics.mach_try.task_config_generation_duration.start()
     if not tasks:
         print("ERROR Did not find any matching tasks after filtering.")
         return 1
@@ -431,24 +427,21 @@ def run(
     print("Found " + test_count_message)
 
     # Set the test paths to be run by setting MOZHARNESS_TEST_PATHS.
-    path_env = {
-        "MOZHARNESS_TEST_PATHS": six.ensure_text(
-            json.dumps(resolve_tests_by_suite(test_files))
-        )
-    }
+    path_env = {"MOZHARNESS_TEST_PATHS": json.dumps(resolve_tests_by_suite(test_files))}
     try_config_params.setdefault("try_task_config", {}).setdefault("env", {}).update(
         path_env
     )
 
+    metrics.mach_try.task_config_generation_duration.stop()
     # Build commit message.
     msg = "try coverage - " + test_count_message
     return push_to_try(
         "coverage",
         message.format(msg=msg),
+        metrics,
         try_task_config=generate_try_task_config("coverage", tasks, try_config_params),
         stage_changes=stage_changes,
         dry_run=dry_run,
         closed_tree=closed_tree,
-        push_to_lando=push_to_lando,
         push_to_vcs=push_to_vcs,
     )

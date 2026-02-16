@@ -33,7 +33,7 @@ class MachRegistrar:
 
         if not handler.category:
             raise MachError(
-                "Cannot register a mach command without a " "category: %s" % name
+                "Cannot register a mach command without a category: %s" % name
             )
 
         if handler.category not in self.categories:
@@ -196,10 +196,10 @@ class MachRegistrar:
 
             if unknown:
                 if subcommand:
-                    name = "{} {}".format(name, subcommand)
+                    name = f"{name} {subcommand}"
                 parser.error(
                     "unrecognized arguments for {}: {}".format(
-                        name, ", ".join(["'{}'".format(arg) for arg in unknown])
+                        name, ", ".join([f"'{arg}'" for arg in unknown])
                     )
                 )
 

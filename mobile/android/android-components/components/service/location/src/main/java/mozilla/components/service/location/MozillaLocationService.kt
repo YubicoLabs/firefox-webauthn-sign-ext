@@ -8,7 +8,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.annotation.VisibleForTesting
 import androidx.annotation.VisibleForTesting.Companion.NONE
+import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import mozilla.components.Build
 import mozilla.components.concept.fetch.Client
@@ -27,7 +30,7 @@ import java.util.concurrent.TimeUnit
 private const val GEOIP_SERVICE_URL = "https://location.services.mozilla.com/v1/"
 private const val CONNECT_TIMEOUT_SECONDS = 10L
 private const val READ_TIMEOUT_SECONDS = 10L
-private const val USER_AGENT = "MozAC/" + Build.version
+private const val USER_AGENT = "MozAC/" + Build.VERSION
 private const val EMPTY_REQUEST_BODY = "{}"
 private const val CACHE_FILE = "mozac.service.location.region"
 private const val KEY_COUNTRY_CODE = "country_code"
@@ -59,6 +62,7 @@ class MozillaLocationService(
     private val currentTime: () -> Long = { System.currentTimeMillis() },
 ) : LocationService {
     private val regionServiceUrl = (serviceUrl + "country?key=%s").format(apiKey)
+    private val fetchMutex = Mutex()
 
     /**
      * Determines the current [LocationService.Region] based on the IP address used to access the service.
@@ -71,12 +75,23 @@ class MozillaLocationService(
     override suspend fun fetchRegion(
         readFromCache: Boolean,
     ): LocationService.Region? = withContext(Dispatchers.IO) {
-        if (readFromCache && isCacheValid()) {
-            context.loadCachedRegion()?.let { return@withContext it }
-        }
+        cachedRegionIfValid(readFromCache)?.let { return@withContext it }
 
-        client.fetchRegion(regionServiceUrl)?.also {
-            context.cacheRegion(it)
+        fetchMutex.withLock {
+            cachedRegionIfValid(readFromCache)?.let { return@withLock it }
+
+            client.fetchRegion(regionServiceUrl)?.also {
+                context.cacheRegion(it)
+            }
+        }
+    }
+
+    @VisibleForTesting
+    internal fun cachedRegionIfValid(readFromCache: Boolean): LocationService.Region? {
+        return if (readFromCache && isCacheValid()) {
+            context.loadCachedRegion()
+        } else {
+            null
         }
     }
 
@@ -97,12 +112,11 @@ class MozillaLocationService(
     }
 
     private fun Context.cacheRegion(region: LocationService.Region) {
-        regionCache()
-            .edit()
-            .putString(KEY_COUNTRY_CODE, region.countryCode)
-            .putString(KEY_COUNTRY_NAME, region.countryName)
-            .putLong(KEY_CACHED_AT, currentTime())
-            .apply()
+        regionCache().edit {
+            putString(KEY_COUNTRY_CODE, region.countryCode)
+            putString(KEY_COUNTRY_NAME, region.countryName)
+            putLong(KEY_CACHED_AT, currentTime())
+        }
     }
 }
 
@@ -131,10 +145,7 @@ private fun Context.hasCachedRegion(): Boolean {
 
 @VisibleForTesting(otherwise = NONE)
 internal fun Context.clearRegionCache() {
-    regionCache()
-        .edit()
-        .clear()
-        .apply()
+    regionCache().edit { clear() }
 }
 
 private fun Context.regionCache(): SharedPreferences {

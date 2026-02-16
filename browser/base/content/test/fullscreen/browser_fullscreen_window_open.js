@@ -3,11 +3,6 @@
 
 "use strict";
 
-// This test tends to trigger a race in the fullscreen time telemetry,
-// where the fullscreen enter and fullscreen exit events (which use the
-// same histogram ID) overlap. That causes TelemetryStopwatch to log an
-// error.
-SimpleTest.ignoreAllUncaughtExceptions(true);
 SimpleTest.requestLongerTimeout(2);
 
 const IFRAME_ID = "testIframe";
@@ -51,6 +46,7 @@ async function testWindowOpenExistingWindow(funToOpenExitingWindow, iframeID) {
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
     set: [
+      ["test.wait300msAfterTabSwitch", true],
       ["dom.disable_open_during_load", false], // Allow window.open calls without user interaction
       ["browser.link.open_newwindow.disabled_in_fullscreen", false],
     ],

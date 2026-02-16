@@ -3,11 +3,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef HttpConnectionBase_h__
-#define HttpConnectionBase_h__
+#ifndef HttpConnectionBase_h_
+#define HttpConnectionBase_h_
 
 #include "nsHttpConnectionInfo.h"
-#include "nsHttpResponseHead.h"
 #include "nsAHttpTransaction.h"
 #include "nsCOMPtr.h"
 #include "nsProxyRelease.h"
@@ -18,6 +17,7 @@
 #include "HttpTrafficAnalyzer.h"
 
 #include "mozilla/net/DNS.h"
+#include "mozilla/WeakPtr.h"
 #include "nsIAsyncInputStream.h"
 #include "nsIAsyncOutputStream.h"
 #include "nsIInterfaceRequestor.h"
@@ -29,9 +29,11 @@ class nsITLSSocketControl;
 namespace mozilla {
 namespace net {
 
+class ConnectionEntry;
 class nsHttpHandler;
 class ASpdySession;
-class Http3WebTransportSession;
+class WebTransportSessionBase;
+class nsHttpResponseHead;
 
 enum class ConnectionState : uint32_t {
   HALF_OPEN = 0,
@@ -64,7 +66,7 @@ MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(ConnectionExperienceState);
 
 class HttpConnectionBase : public nsSupportsWeakReference {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(HTTPCONNECTIONBASE_IID)
+  NS_INLINE_DECL_STATIC_IID(HTTPCONNECTIONBASE_IID)
 
   HttpConnectionBase();
 
@@ -97,7 +99,7 @@ class HttpConnectionBase : public nsSupportsWeakReference {
                                                nsIAsyncInputStream**,
                                                nsIAsyncOutputStream**) = 0;
 
-  Http3WebTransportSession* GetWebTransportSession(
+  virtual WebTransportSessionBase* GetWebTransportSession(
       nsAHttpTransaction* aTransaction) {
     return nullptr;
   }
@@ -136,7 +138,6 @@ class HttpConnectionBase : public nsSupportsWeakReference {
   [[nodiscard]] virtual nsresult ForceSend() = 0;
   [[nodiscard]] virtual nsresult ForceRecv() = 0;
   virtual HttpVersion Version() = 0;
-  virtual bool IsProxyConnectInProgress() = 0;
   virtual bool LastTransactionExpectedNoContent() = 0;
   virtual void SetLastTransactionExpectedNoContent(bool) = 0;
   virtual int64_t BytesWritten() = 0;  // includes TLS
@@ -163,6 +164,7 @@ class HttpConnectionBase : public nsSupportsWeakReference {
   virtual PRIntervalTime LastWriteTime() = 0;
 
   void ChangeConnectionState(ConnectionState aState);
+  ConnectionCloseReason CloseReason() const { return mCloseReason; }
   void SetCloseReason(ConnectionCloseReason aReason) {
     if (mCloseReason == ConnectionCloseReason::UNSET) {
       mCloseReason = aReason;
@@ -170,12 +172,26 @@ class HttpConnectionBase : public nsSupportsWeakReference {
   }
 
   void RecordConnectionCloseTelemetry(nsresult aReason);
+  void RecordConnectionAddressType();
+
+  bool IsProxyConnectInProgress() { return mState == SETTING_UP_TUNNEL; }
+
+  virtual nsresult CreateTunnelStream(nsAHttpTransaction* httpTransaction,
+                                      HttpConnectionBase** aHttpConnection,
+                                      bool aIsExtendedCONNECT = false) = 0;
+  virtual void SetInTunnel() {};
+
+  void SetOwner(ConnectionEntry* aEntry);
+  ConnectionEntry* OwnerEntry() const;
 
  protected:
   // The capabailities associated with the most recent transaction
   uint32_t mTransactionCaps{0};
 
   RefPtr<nsHttpConnectionInfo> mConnInfo;
+  // Set when this connection is added to the active connections list,
+  // cleared when it is removed.
+  WeakPtr<ConnectionEntry> mOwnerEntry;
 
   bool mExperienced{false};
   // Used to track whether this connection is serving the first request.
@@ -198,9 +214,21 @@ class HttpConnectionBase : public nsSupportsWeakReference {
       ConnectionExperienceState::Not_Experienced;
 
   ConnectionCloseReason mCloseReason = ConnectionCloseReason::UNSET;
-};
 
-NS_DEFINE_STATIC_IID_ACCESSOR(HttpConnectionBase, HTTPCONNECTIONBASE_IID)
+  bool mAddressTypeReported{false};
+
+  // Tunnel retated functions:
+  enum HttpConnectionState {
+    UNINITIALIZED,
+    SETTING_UP_TUNNEL,
+    REQUEST,
+  } mState{HttpConnectionState::UNINITIALIZED};
+  void ChangeState(HttpConnectionState newState);
+  bool TunnelSetupInProgress() { return mState == SETTING_UP_TUNNEL; }
+  virtual void SetTunnelSetupDone() {}
+  virtual nsresult SetupProxyConnectStream() { return NS_OK; }
+  nsresult CheckTunnelIsNeeded(nsAHttpTransaction* aTransaction);
+};
 
 #define NS_DECL_HTTPCONNECTIONBASE                                             \
   [[nodiscard]] nsresult Activate(nsAHttpTransaction*, uint32_t, int32_t)      \
@@ -226,7 +254,6 @@ NS_DEFINE_STATIC_IID_ACCESSOR(HttpConnectionBase, HTTPCONNECTIONBASE_IID)
   [[nodiscard]] nsresult ForceSend() override;                                 \
   [[nodiscard]] nsresult ForceRecv() override;                                 \
   HttpVersion Version() override;                                              \
-  bool IsProxyConnectInProgress() override;                                    \
   bool LastTransactionExpectedNoContent() override;                            \
   void SetLastTransactionExpectedNoContent(bool val) override;                 \
   bool IsPersistent() override;                                                \
@@ -239,4 +266,4 @@ NS_DEFINE_STATIC_IID_ACCESSOR(HttpConnectionBase, HTTPCONNECTIONBASE_IID)
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // HttpConnectionBase_h__
+#endif  // HttpConnectionBase_h_

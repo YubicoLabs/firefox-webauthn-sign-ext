@@ -7,6 +7,7 @@
 #ifndef mozilla_EffectCompositor_h
 #define mozilla_EffectCompositor_h
 
+#include "NonCustomCSSPropertyId.h"
 #include "mozilla/AnimationPerformanceWarning.h"
 #include "mozilla/AnimationTarget.h"
 #include "mozilla/EnumeratedArray.h"
@@ -16,10 +17,10 @@
 #include "mozilla/PseudoElementHashEntry.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/ServoTypes.h"
-#include "nsCSSPropertyID.h"
+#include "mozilla/dom/EndpointBehavior.h"
 #include "nsCycleCollectionParticipant.h"
-#include "nsTHashMap.h"
 #include "nsTArray.h"
+#include "nsTHashMap.h"
 
 class nsCSSPropertyIDSet;
 class nsAtom;
@@ -133,7 +134,9 @@ class EffectCompositor {
   // committing the computed style of a removed Animation.
   bool ComposeServoAnimationRuleForEffect(
       dom::KeyframeEffect& aEffect, CascadeLevel aCascadeLevel,
-      StyleAnimationValueMap* aAnimationValues);
+      StyleAnimationValueMap* aAnimationValues,
+      dom::EndpointBehavior aEndpointBehavior =
+          dom::EndpointBehavior::Exclusive);
 
   bool HasPendingStyleUpdates() const;
 

@@ -105,7 +105,7 @@ pub trait Unwinder: Clone {
 ///  - `'u`: The lifetime of the [`Unwinder`].
 ///  - `'c`: The lifetime of the unwinder cache.
 ///  - `'r`: The lifetime of the exclusive access to the `read_stack` callback.
-pub struct UnwindIterator<'u, 'c, 'r, U: Unwinder + ?Sized, F: FnMut(u64) -> Result<u64, ()>> {
+pub struct UnwindIterator<'u, 'c, 'r, U: Unwinder, F: FnMut(u64) -> Result<u64, ()>> {
     unwinder: &'u U,
     state: UnwindIteratorState,
     regs: U::UnwindRegs,
@@ -119,9 +119,7 @@ enum UnwindIteratorState {
     Done,
 }
 
-impl<'u, 'c, 'r, U: Unwinder + ?Sized, F: FnMut(u64) -> Result<u64, ()>>
-    UnwindIterator<'u, 'c, 'r, U, F>
-{
+impl<'u, 'c, 'r, U: Unwinder, F: FnMut(u64) -> Result<u64, ()>> UnwindIterator<'u, 'c, 'r, U, F> {
     /// Create a new iterator. You'd usually use [`Unwinder::iter_frames`] instead.
     pub fn new(
         unwinder: &'u U,
@@ -140,9 +138,7 @@ impl<'u, 'c, 'r, U: Unwinder + ?Sized, F: FnMut(u64) -> Result<u64, ()>>
     }
 }
 
-impl<'u, 'c, 'r, U: Unwinder + ?Sized, F: FnMut(u64) -> Result<u64, ()>>
-    UnwindIterator<'u, 'c, 'r, U, F>
-{
+impl<U: Unwinder, F: FnMut(u64) -> Result<u64, ()>> UnwindIterator<'_, '_, '_, U, F> {
     /// Yield the next frame in the stack.
     ///
     /// The first frame is `Ok(Some(FrameAddress::InstructionPointer(...)))`.
@@ -179,8 +175,8 @@ impl<'u, 'c, 'r, U: Unwinder + ?Sized, F: FnMut(u64) -> Result<u64, ()>>
     }
 }
 
-impl<'u, 'c, 'r, U: Unwinder + ?Sized, F: FnMut(u64) -> Result<u64, ()>> FallibleIterator
-    for UnwindIterator<'u, 'c, 'r, U, F>
+impl<U: Unwinder, F: FnMut(u64) -> Result<u64, ()>> FallibleIterator
+    for UnwindIterator<'_, '_, '_, U, F>
 {
     type Item = FrameAddress;
     type Error = Error;
@@ -265,14 +261,7 @@ impl<D: Deref<Target = [u8]>, A: Unwinding, P: AllocationPolicy> UnwinderInterna
             .modules
             .binary_search_by_key(&module.avma_range.start, |module| module.avma_range.start)
         {
-            Ok(i) => {
-                #[cfg(feature = "std")]
-                eprintln!(
-                    "Now we have two modules at the same start address 0x{:x}. This can't be good.",
-                    module.avma_range.start
-                );
-                i
-            }
+            Ok(i) => i, // unexpected
             Err(i) => i,
         };
         self.modules.insert(insertion_index, module);
@@ -932,51 +921,6 @@ where
         match name {
             b"__TEXT" => self.text_segment.take(),
             _ => None,
-        }
-    }
-}
-
-#[cfg(feature = "object")]
-mod object {
-    use super::{ModuleSectionInfo, Range};
-    use object::read::{Object, ObjectSection, ObjectSegment};
-
-    impl<'data: 'file, 'file, O, D> ModuleSectionInfo<D> for &'file O
-    where
-        O: Object<'data>,
-        D: From<&'data [u8]>,
-    {
-        fn base_svma(&self) -> u64 {
-            if let Some(text_segment) = self.segments().find(|s| s.name() == Ok(Some("__TEXT"))) {
-                // This is a mach-O image. "Relative addresses" are relative to the
-                // vmaddr of the __TEXT segment.
-                return text_segment.address();
-            }
-
-            // For PE binaries, relative_address_base() returns the image base address.
-            // Otherwise it returns zero. This gives regular ELF images a base address of zero,
-            // which is what we want.
-            self.relative_address_base()
-        }
-
-        fn section_svma_range(&mut self, name: &[u8]) -> Option<Range<u64>> {
-            let section = self.section_by_name_bytes(name)?;
-            Some(section.address()..section.address() + section.size())
-        }
-
-        fn section_data(&mut self, name: &[u8]) -> Option<D> {
-            let section = self.section_by_name_bytes(name)?;
-            section.data().ok().map(|data| data.into())
-        }
-
-        fn segment_svma_range(&mut self, name: &[u8]) -> Option<Range<u64>> {
-            let segment = self.segments().find(|s| s.name_bytes() == Ok(Some(name)))?;
-            Some(segment.address()..segment.address() + segment.size())
-        }
-
-        fn segment_data(&mut self, name: &[u8]) -> Option<D> {
-            let segment = self.segments().find(|s| s.name_bytes() == Ok(Some(name)))?;
-            segment.data().ok().map(|data| data.into())
         }
     }
 }

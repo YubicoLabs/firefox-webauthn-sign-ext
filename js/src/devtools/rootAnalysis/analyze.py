@@ -13,12 +13,8 @@ import argparse
 import os
 import subprocess
 import sys
+from shlex import quote
 from subprocess import Popen
-
-try:
-    from shlex import quote
-except ImportError:
-    from pipes import quote
 
 
 def execfile(thefile, globals):
@@ -266,7 +262,7 @@ def run_job(name, config):
                 raise
 
     if final_status != 0:
-        raise Exception("job {} returned status {}".format(name, final_status))
+        raise Exception(f"job {name} returned status {final_status}")
 
 
 def spawn_command(cmdspec, job, name, config):
@@ -362,7 +358,7 @@ parser.add_argument(
     "--expect-file",
     type=str,
     nargs="?",
-    help="deprecated option, temporarily still present for backwards " "compatibility",
+    help="deprecated option, temporarily still present for backwards compatibility",
 )
 parser.add_argument(
     "--verbose",
@@ -438,12 +434,13 @@ for step in steps:
             # Trim the {curly brackets} off of the output keys.
             data[name[1:-1]] = outfiles[i]
             num_outputs += 1
-        assert (
-            len(outfiles) == num_outputs
-        ), 'step "%s": mismatched number of output files (%d) and params (%d)' % (
-            step,
-            num_outputs,
-            len(outfiles),
+        assert len(outfiles) == num_outputs, (
+            'step "%s": mismatched number of output files (%d) and params (%d)'
+            % (
+                step,
+                num_outputs,
+                len(outfiles),
+            )
         )  # NOQA: E501
 
 if args.step:

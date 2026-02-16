@@ -3,17 +3,22 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+include CrashReporterInitArgs;
 include MemoryReportTypes;
 include PrefsTypes;
 
 include protocol PProfiler;
-include protocol PUtilityAudioDecoder;
+include protocol PUtilityMediaService;
 include protocol PJSOracle;
 
 #if defined(XP_WIN)
 include protocol PWindowsUtils;
 include protocol PWinFileDialog;
 #endif
+
+#if defined(NIGHTLY_BUILD) && !defined(MOZ_NO_SMART_CARDS)
+include protocol PPKCS11Module;
+#endif  // NIGHTLY_BUILD && !MOZ_NO_SMART_CARDS
 
 #if defined(MOZ_SANDBOX) && defined(MOZ_DEBUG) && defined(ENABLE_TESTS)
 include protocol PSandboxTesting;
@@ -51,7 +56,7 @@ namespace ipc {
 protocol PUtilityProcess
 {
 parent:
-  async InitCrashReporter(NativeThreadId threadId);
+  async InitCrashReporter(CrashReporterInitArgs aInitArgs);
 
   async AddMemoryReport(MemoryReport aReport);
 
@@ -59,6 +64,8 @@ parent:
   // Buffer contains bincoded Rust structs.
   // https://firefox-source-docs.mozilla.org/toolkit/components/glean/dev/ipc.html
   async FOGData(ByteBuf buf);
+
+  async GeckoTraceExport(ByteBuf aBuf);
 
 #if defined(XP_WIN)
   async GetModulesTrust(ModulePaths aModPaths, bool aRunAtNormalPriority)
@@ -100,9 +107,13 @@ child:
 
   async TestTelemetryProbes();
 
-  async StartUtilityAudioDecoderService(Endpoint<PUtilityAudioDecoderParent> aEndpoint, GfxVarUpdate[] updates);
+  async StartUtilityMediaService(Endpoint<PUtilityMediaServiceParent> aEndpoint, GfxVarUpdate[] updates);
 
   async StartJSOracleService(Endpoint<PJSOracleChild> aEndpoint);
+
+#if defined(NIGHTLY_BUILD) && !defined(MOZ_NO_SMART_CARDS)
+  async StartPKCS11ModuleService(Endpoint<PPKCS11ModuleChild> aEndpoint);
+#endif  // NIGHTLY_BUILD && !MOZ_NO_SMART_CARDS
 
 #if defined(XP_WIN)
   async StartWindowsUtilsService(Endpoint<PWindowsUtilsChild> aEndpoint);

@@ -5,7 +5,7 @@ Installer Build
 How to build the installers
 ---------------------------
 
-The easiest way to build an installer in your local tree is to run ``mach package``. The finished installers will be in ``$OBJDIR/dist/install/sea/``. You have to have a build of the application already done before that will work, but `artifact builds <https://developer.mozilla.org/en-US/docs/Mozilla/Developer_guide/Build_Instructions/Artifact_builds>`_ are supported, so that can save you a lot of time if you're only doing installer work.
+The easiest way to build an installer in your local tree is to run ``mach package``. The finished installers will be in ``$OBJDIR/dist``. You have to have a build of the application already done before that will work, but `artifact builds <https://developer.mozilla.org/en-US/docs/Mozilla/Developer_guide/Build_Instructions/Artifact_builds>`_ are supported, so that can save you a lot of time if you're only doing installer work.
 
 You'll also need to be on a Windows machine; the installer build depends on tools that aren't available for other platforms.
 
@@ -17,7 +17,7 @@ The stub installer probably won't be built by default in a local tree; normally 
 Uninstaller
 ~~~~~~~~~~~
 
-The uninstaller is built as part of the main application build, not the installer target, so ``mach build`` is what will get you an uninstaller. You'll find it at ``$OBJDIR/dist/bin/uninstaller/helper.exe``.
+The uninstaller is built as part of the main application build, not the installer target, so ``mach build`` is what will get you an uninstaller. You'll find it at ``$OBJDIR/dist/bin/uninstall/helper.exe``.
 
 Branding
 ~~~~~~~~

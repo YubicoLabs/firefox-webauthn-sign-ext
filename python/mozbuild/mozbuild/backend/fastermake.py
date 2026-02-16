@@ -6,7 +6,6 @@ from collections import defaultdict
 from operator import itemgetter
 
 import mozpack.path as mozpath
-import six
 from mozpack.manifests import InstallManifest
 
 from mozbuild.backend.base import PartialBackend
@@ -27,7 +26,7 @@ from mozbuild.makeutil import Makefile
 
 class FasterMakeBackend(MakeBackend, PartialBackend):
     def _init(self):
-        super(FasterMakeBackend, self)._init()
+        super()._init()
 
         self._manifest_entries = defaultdict(set)
 
@@ -65,7 +64,7 @@ class FasterMakeBackend(MakeBackend, PartialBackend):
         elif isinstance(
             obj, (FinalTargetFiles, FinalTargetPreprocessedFiles)
         ) and obj.install_target.startswith("dist/bin"):
-            ab_cd = self.environment.substs["MOZ_UI_LOCALE"][0]
+            ab_cd = self.environment.substs["MOZ_UI_LOCALE"]
             localized = isinstance(obj, (LocalizedFiles, LocalizedPreprocessedFiles))
             defines = obj.defines or {}
             if defines:
@@ -87,9 +86,11 @@ class FasterMakeBackend(MakeBackend, PartialBackend):
                                     f,
                                 )
                             )
-                            self._l10n_dependencies[dep_target].append(
-                                (merge, f.full_path, src)
-                            )
+                            self._l10n_dependencies[dep_target].append((
+                                merge,
+                                f.full_path,
+                                src,
+                            ))
                             src = merge
                     else:
                         src = f.full_path
@@ -189,7 +190,7 @@ class FasterMakeBackend(MakeBackend, PartialBackend):
         # Add information for chrome manifest generation
         manifest_targets = []
 
-        for target, entries in six.iteritems(self._manifest_entries):
+        for target, entries in self._manifest_entries.items():
             manifest_targets.append(target)
             install_target = mozpath.basedir(target, install_manifests_bases)
             self._install_manifests[install_target].add_content(
@@ -203,17 +204,17 @@ class FasterMakeBackend(MakeBackend, PartialBackend):
         )
 
         # Add dependencies we inferred:
-        for target, deps in sorted(six.iteritems(self._dependencies)):
+        for target, deps in sorted(self._dependencies.items()):
             mk.create_rule([target]).add_dependencies(
                 "$(TOPOBJDIR)/%s" % d for d in sorted(deps)
             )
 
         # This is not great, but it's better to have some dependencies on this Python file.
         python_deps = [
-            "$(TOPSRCDIR)/third_party/python/moz.l10n/moz/l10n/bin/build_file.py",
+            "$(TOPSRCDIR)/third_party/python/moz_l10n/moz/l10n/bin/build_file.py",
         ]
         # Add l10n dependencies we inferred:
-        for target, deps in sorted(six.iteritems(self._l10n_dependencies)):
+        for target, deps in sorted(self._l10n_dependencies.items()):
             mk.create_rule([target]).add_dependencies(
                 "%s" % d[0] for d in sorted(deps, key=itemgetter(0))
             )
@@ -221,18 +222,16 @@ class FasterMakeBackend(MakeBackend, PartialBackend):
                 rule = mk.create_rule([merge]).add_dependencies(
                     [ref_file, l10n_file] + python_deps
                 )
-                rule.add_commands(
-                    [
-                        "$(PYTHON3) -m moz.l10n.bin.build_file "
-                        f"--source {ref_file} --l10n {l10n_file} --target {merge}"
-                    ]
-                )
+                rule.add_commands([
+                    "$(PYTHON3) -m moz.l10n.bin.build_file "
+                    f"--source {ref_file} --l10n {l10n_file} --target {merge}"
+                ])
                 # Add a dummy rule for the l10n file since it might not exist.
                 mk.create_rule([l10n_file])
 
         mk.add_statement("include $(TOPSRCDIR)/config/faster/rules.mk")
 
-        for base, install_manifest in six.iteritems(self._install_manifests):
+        for base, install_manifest in self._install_manifests.items():
             with self._write_file(
                 mozpath.join(
                     self.environment.topobjdir,
@@ -245,7 +244,7 @@ class FasterMakeBackend(MakeBackend, PartialBackend):
         # Write a single unified manifest for consumption by |mach watch|.
         # Since this doesn't start 'install_', it's not processed by the build.
         unified_manifest = InstallManifest()
-        for base, install_manifest in six.iteritems(self._install_manifests):
+        for base, install_manifest in self._install_manifests.items():
             # Expect 'dist/bin/**', which includes 'dist/bin' with no trailing slash.
             assert base.startswith("dist/bin")
             base = base[len("dist/bin") :]

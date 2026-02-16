@@ -14,6 +14,7 @@ import java.util.List;
 import org.mozilla.gecko.annotation.RobocopTarget;
 import org.mozilla.gecko.util.ThreadUtils;
 
+/** Controller for managing compositor-related functionality. */
 @UiThread
 public final class CompositorController {
   private final GeckoSession.Compositor mCompositor;
@@ -79,6 +80,15 @@ public final class CompositorController {
     if (mDrawCallbacks.remove(callback) && mDrawCallbacks.isEmpty() && mCompositor.isReady()) {
       mCompositor.enableLayerUpdateNotifications(false);
     }
+  }
+
+  /**
+   * Should be called when the system informs you of changes to and from picture-in-picture mode.
+   *
+   * @param enabled True if the activity is in picture-in-picture mode.
+   */
+  public void onPipModeChanged(final boolean enabled) {
+    mCompositor.onPipModeChanged(enabled);
   }
 
   /**

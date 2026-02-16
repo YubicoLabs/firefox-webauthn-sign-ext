@@ -2,8 +2,6 @@
 // called LICENSE at the top level of the ICU4X source tree
 // (online at: https://github.com/unicode-org/icu4x/blob/main/LICENSE ).
 
-mod fixtures;
-
 use criterion::{
     black_box, criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion,
 };
@@ -14,13 +12,13 @@ fn bench_calendar<C: Clone + Calendar>(
     name: &str,
     calendar: C,
 ) {
-    let iso = Date::try_new_iso_date(2023, 8, 16).unwrap();
+    let iso = Date::try_new_iso(2023, 8, 16).unwrap();
     group.bench_function(name, |b| {
         b.iter(|| {
             let converted = black_box(iso).to_calendar(Ref(&calendar));
-            let year = black_box(converted.year().number);
-            let month = black_box(converted.month().ordinal);
-            let day = black_box(converted.day_of_month().0);
+            let year = black_box(converted.year());
+            let month = black_box(converted.month());
+            let day = black_box(converted.day_of_month());
             black_box((converted, year, month, day))
         })
     });
@@ -29,81 +27,68 @@ fn bench_calendar<C: Clone + Calendar>(
 fn convert_benches(c: &mut Criterion) {
     let mut group = c.benchmark_group("convert");
 
-    bench_calendar(&mut group, "calendar/iso", icu::calendar::iso::Iso);
+    bench_calendar(&mut group, "calendar/iso", icu::calendar::cal::Iso);
 
-    #[cfg(feature = "bench")]
     bench_calendar(
         &mut group,
         "calendar/buddhist",
-        icu::calendar::buddhist::Buddhist,
+        icu::calendar::cal::Buddhist,
     );
 
-    #[cfg(feature = "bench")]
-    bench_calendar(&mut group, "calendar/coptic", icu::calendar::coptic::Coptic);
+    bench_calendar(&mut group, "calendar/coptic", icu::calendar::cal::Coptic);
 
-    #[cfg(feature = "bench")]
     bench_calendar(
         &mut group,
         "calendar/ethiopic",
-        icu::calendar::ethiopian::Ethiopian::new(),
+        icu::calendar::cal::Ethiopian::new(),
     );
 
-    #[cfg(feature = "bench")]
-    bench_calendar(&mut group, "calendar/indian", icu::calendar::indian::Indian);
+    bench_calendar(&mut group, "calendar/indian", icu::calendar::cal::Indian);
 
-    #[cfg(feature = "bench")]
-    bench_calendar(&mut group, "calendar/julian", icu::calendar::julian::Julian);
+    bench_calendar(&mut group, "calendar/julian", icu::calendar::cal::Julian);
 
-    #[cfg(feature = "bench")]
-    bench_calendar(
-        &mut group,
-        "calendar/chinese_calculating",
-        icu::calendar::chinese::Chinese::new_always_calculating(),
-    );
-
-    #[cfg(feature = "bench")]
     bench_calendar(
         &mut group,
         "calendar/chinese_cached",
-        icu::calendar::chinese::Chinese::new(),
+        icu::calendar::cal::ChineseTraditional::new(),
     );
 
-    #[cfg(feature = "bench")]
     bench_calendar(
         &mut group,
         "calendar/gregorian",
-        icu::calendar::gregorian::Gregorian,
+        icu::calendar::cal::Gregorian,
     );
 
-    #[cfg(feature = "bench")]
-    bench_calendar(&mut group, "calendar/hebrew", icu::calendar::hebrew::Hebrew);
+    bench_calendar(&mut group, "calendar/hebrew", icu::calendar::cal::Hebrew);
 
-    #[cfg(feature = "bench")]
     bench_calendar(
         &mut group,
         "calendar/islamic/observational",
-        icu::calendar::islamic::IslamicObservational::new_always_calculating(),
+        icu::calendar::cal::Hijri::new_simulated_mecca(),
     );
 
-    #[cfg(feature = "bench")]
     bench_calendar(
         &mut group,
         "calendar/islamic/civil",
-        icu::calendar::islamic::IslamicCivil::new(),
+        icu::calendar::cal::Hijri::new_tabular(
+            icu::calendar::cal::hijri::TabularAlgorithmLeapYears::TypeII,
+            icu::calendar::cal::hijri::TabularAlgorithmEpoch::Friday,
+        ),
     );
 
-    #[cfg(feature = "bench")]
     bench_calendar(
         &mut group,
         "calendar/islamic/ummalqura",
-        icu::calendar::islamic::IslamicUmmAlQura::new_always_calculating(),
+        icu::calendar::cal::Hijri::new_umm_al_qura(),
     );
 
-    #[cfg(feature = "bench")]
     bench_calendar(
         &mut group,
         "calendar/islamic/tabular",
-        icu::calendar::islamic::IslamicTabular::new(),
+        icu::calendar::cal::Hijri::new_tabular(
+            icu::calendar::cal::hijri::TabularAlgorithmLeapYears::TypeII,
+            icu::calendar::cal::hijri::TabularAlgorithmEpoch::Thursday,
+        ),
     );
 
     group.finish();

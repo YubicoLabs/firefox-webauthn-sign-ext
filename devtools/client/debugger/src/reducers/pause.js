@@ -2,10 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at <http://mozilla.org/MPL/2.0/>. */
 
-/* eslint complexity: ["error", 36]*/
+/* eslint complexity: ["error", 38]*/
 
 /**
  * Pause reducer
+ *
  * @module reducers/pause
  */
 
@@ -145,20 +146,21 @@ function update(state = initialPauseState(), action) {
     }
 
     case "REMOVE_THREAD": {
+      const { threadActorID } = action;
       if (
-        action.threadActorID in state.threads ||
-        action.threadActorID == state.threadcx.thread
+        threadActorID in state.threads ||
+        threadActorID == state.threadcx.thread
       ) {
         // Remove the thread from the cached list
         const threads = { ...state.threads };
-        delete threads[action.threadActorID];
+        delete threads[threadActorID];
         let threadcx = state.threadcx;
 
         // And also switch to another thread if this was the currently selected one.
         // As we don't store thread objects in this reducer, and only store thread actor IDs,
         // we can't try to find the top level thread. So we pick the first available thread,
         // and hope that's the top level one.
-        if (state.threadcx.thread == action.threadActorID) {
+        if (state.threadcx.thread == threadActorID) {
           threadcx = {
             ...threadcx,
             thread: Object.keys(threads)[0],
@@ -223,6 +225,11 @@ function update(state = initialPauseState(), action) {
       return updateThreadState({ frames, selectedFrameId });
     }
 
+    case "UPDATE_FRAMES": {
+      const { frames } = action;
+      return updateThreadState({ frames });
+    }
+
     case "ADD_SCOPES": {
       const { status, value } = action;
       const selectedFrameId = action.selectedFrame.id;
@@ -231,6 +238,8 @@ function update(state = initialPauseState(), action) {
         ...threadState().frameScopes.generated,
         [selectedFrameId]: {
           pending: status !== "done",
+          // Environment Scope information from the platform.
+          // See https://searchfox.org/mozilla-central/rev/b0e8e4ceb46cb3339cdcb90310fcc161ef4b9e3e/devtools/server/actors/environment.js#42-81
           scope: value,
         },
       };

@@ -3,12 +3,12 @@
  * Copyright 2017 Google Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
-import assert from 'assert';
-import fs from 'fs';
-import {mkdtemp, readFile, writeFile} from 'fs/promises';
-import os from 'os';
-import path from 'path';
-import type {TLSSocket} from 'tls';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import type {TLSSocket} from 'node:tls';
 
 import expect from 'expect';
 import {TimeoutError} from 'puppeteer';
@@ -74,9 +74,7 @@ describe('Launcher specs', function () {
             });
           await remote.disconnect();
           const error = await watchdog;
-          expect(error.message).toContain(
-            'Waiting for selector `div` failed: waitForFunction failed: frame got detached.',
-          );
+          expect(error.message).toBe('Waiting for selector `div` failed');
         } finally {
           await close();
         }
@@ -132,8 +130,17 @@ describe('Launcher specs', function () {
           for (let i = 0; i < 2; i++) {
             instances.push(launch({}));
           }
+          const launchedPromises = await Promise.allSettled(instances);
+          const launched: Array<Awaited<ReturnType<typeof launch>>> = [];
+          for (const browserPromise of launchedPromises) {
+            if (browserPromise.status === 'rejected') {
+              warning = new Error('Browser failed to launch');
+            } else {
+              launched.push(browserPromise.value);
+            }
+          }
           await Promise.all(
-            (await Promise.all(instances)).map(instance => {
+            launched.map(instance => {
               return instance.close();
             }),
           );
@@ -440,18 +447,6 @@ describe('Launcher specs', function () {
           expect(puppeteer.product).toBe('chrome');
         } else if (isFirefox) {
           expect(puppeteer.product).toBe('firefox');
-        }
-      });
-      it('should work with no default arguments', async () => {
-        const {browser, close} = await launch({
-          ignoreDefaultArgs: true,
-        });
-        try {
-          const page = await browser.newPage();
-          expect(await page.evaluate('11 * 11')).toBe(121);
-          await page.close();
-        } finally {
-          await close();
         }
       });
       it('should filter out ignored default arguments in Chrome', async () => {

@@ -5,14 +5,16 @@
 import argparse
 import logging
 import os
+import platform
+import shutil
 import sys
-import tarfile
 import time
+import zipfile
 
 import mozpack.path as mozpath
 from mach.decorators import Command, CommandArgument, SubCommand
 from mozbuild.base import MachCommandConditions as conditions
-from mozbuild.shellutil import split as shell_split
+from mozshellutil import split as shell_split
 
 # Mach's conditions facility doesn't support subcommands.  Print a
 # deprecation message ourselves instead.
@@ -161,11 +163,11 @@ def create_maven_archive(topobjdir):
     # files which cannot be significantly compressed; attempting to compress
     # the archive is usually expensive in time and results in minimal
     # reduction in size.
-    # Even though the archive is not compressed, use the .xz file extension
-    # so that the taskcluster worker also skips compression.
-    with tarfile.open(os.path.join(gradle_folder, "target.maven.tar.xz"), "w") as tar:
+    with zipfile.ZipFile(
+        os.path.join(gradle_folder, "target.maven.zip"), "w"
+    ) as target_zip:
         for abs_path in get_maven_archive_paths(maven_folder):
-            tar.add(
+            target_zip.write(
                 abs_path,
                 arcname=os.path.join(
                     "geckoview", os.path.relpath(abs_path, maven_folder)
@@ -236,9 +238,7 @@ def install_app_bundle(command_context, bundle):
     bundletool = mozpath.join(command_context._mach_context.state_dir, "bundletool.jar")
     device = ADBDeviceFactory(verbose=True)
     bundle_path = mozpath.join(command_context.topobjdir, bundle)
-    java_home = java_home = os.path.dirname(
-        os.path.dirname(command_context.substs["JAVA"])
-    )
+    java_home = os.path.dirname(os.path.dirname(command_context.substs["JAVA"]))
     device.install_app_bundle(bundletool, bundle_path, java_home, timeout=120)
 
 
@@ -264,7 +264,40 @@ def android_install_geckoview_example(command_context, args):
 def android_install_fenix(command_context, args):
     gradle(
         command_context,
-        ["fenix:installFenixDebug"] + args,
+        ["fenix:installDebug"] + args,
+        verbose=True,
+    )
+    return 0
+
+
+@SubCommand("android", "install-fenix-nightly", """Install fenix Nightly""")
+@CommandArgument("args", nargs=argparse.REMAINDER)
+def android_install_fenix_nightly(command_context, args):
+    gradle(
+        command_context,
+        ["fenix:installNightly"] + args,
+        verbose=True,
+    )
+    return 0
+
+
+@SubCommand("android", "install-fenix-beta", """Install fenix Beta""")
+@CommandArgument("args", nargs=argparse.REMAINDER)
+def android_install_fenix_beta(command_context, args):
+    gradle(
+        command_context,
+        ["fenix:installBeta"] + args,
+        verbose=True,
+    )
+    return 0
+
+
+@SubCommand("android", "install-fenix-release", """Install fenix Release""")
+@CommandArgument("args", nargs=argparse.REMAINDER)
+def android_install_fenix_release(command_context, args):
+    gradle(
+        command_context,
+        ["fenix:installRelease"] + args,
         verbose=True,
     )
     return 0
@@ -291,21 +324,6 @@ def android_install_geckoview_test_runner(command_context, args):
         command_context.substs["GRADLE_ANDROID_INSTALL_GECKOVIEW_TEST_RUNNER_TASKS"]
         + args,
         verbose=True,
-    )
-    return 0
-
-
-@SubCommand("android", "installFenixRelease", """Install fenix Release""")
-@CommandArgument("args", nargs=argparse.REMAINDER)
-def android_install_fenix_release(command_context, args):
-    gradle(
-        command_context,
-        ["installFenixRelease"] + args,
-        verbose=True,
-        gradle_path=mozpath.join(
-            command_context.topsrcdir, "mobile", "android", "fenix", "gradlew"
-        ),
-        topsrcdir=mozpath.join(command_context.topsrcdir, "mobile", "android", "fenix"),
     )
     return 0
 
@@ -551,19 +569,18 @@ def gradle(command_context, args, verbose=False, gradle_path=None, topsrcdir=Non
 
     env = os.environ.copy()
 
-    env.update(
-        {
-            "GRADLE_OPTS": "-Dfile.encoding=utf-8",
-            "JAVA_HOME": java_home,
-            "JAVA_TOOL_OPTIONS": "-Dfile.encoding=utf-8",
-            # Let Gradle get the right Python path on Windows
-            "GRADLE_MACH_PYTHON": sys.executable,
-        }
-    )
+    env.update({
+        "GRADLE_OPTS": "-Dfile.encoding=utf-8",
+        "JAVA_HOME": java_home,
+        "JAVA_TOOL_OPTIONS": "-Dfile.encoding=utf-8",
+        # Let Gradle get the right Python path on Windows
+        "GRADLE_MACH_PYTHON": sys.executable,
+    })
     # Set ANDROID_SDK_ROOT if --with-android-sdk was set.
     # See https://bugzilla.mozilla.org/show_bug.cgi?id=1576471
     android_sdk_root = command_context.substs.get("ANDROID_SDK_ROOT", "")
     if android_sdk_root:
+        env["ANDROID_HOME"] = android_sdk_root
         env["ANDROID_SDK_ROOT"] = android_sdk_root
 
     should_print_status = env.get("MACH") and not env.get("NO_BUILDSTATUS_MESSAGES")
@@ -660,8 +677,7 @@ def emulator(
             logging.WARN,
             "emulator",
             {},
-            "Emulator binary not found.\n"
-            "Install the Android SDK and make sure 'emulator' is in your PATH.",
+            "Emulator binary not found. Try |mach bootstrap|\n",
         )
         return 2
 
@@ -722,6 +738,96 @@ def emulator(
                 "Unable to retrieve Android emulator return code.",
             )
     return 0
+
+
+@SubCommand(
+    command="android-emulator",
+    subcommand="reset",
+    description="Resets the emulator and Android Virtual Device (AVD) by removing the "
+    "'ANDROID_AVD_HOME' directory and re-bootstrapping the emulator and AVD.",
+)
+def emulator_reset(command_context):
+    from mozboot import android
+
+    os_arch = platform.machine()
+    os_name = None
+    if platform.system() == "Windows":
+        os_name = "windows"
+    elif platform.system() == "Linux":
+        os_name = "linux"
+    elif platform.system() == "Darwin":
+        os_name = "macosx"
+    else:
+        raise Exception("Can't reset AVD on an unknown system")
+
+    avd_home_path = android.AVD_HOME_PATH
+
+    if avd_home_path.exists():
+        command_context.log(
+            logging.INFO, "emulator", {}, f"Removing AVD directory: '{avd_home_path}'"
+        )
+        try:
+            shutil.rmtree(avd_home_path)
+            command_context.log(
+                logging.INFO,
+                "emulator",
+                {},
+                f"Successfully removed AVD directory: '{avd_home_path}'",
+            )
+        except FileNotFoundError:
+            pass  # Directory doesn't exist, do nothing
+        except Exception as e:
+            command_context.log(
+                logging.ERROR,
+                "emulator",
+                {},
+                f"Failed to remove the AVD directory: '{avd_home_path}': {e}",
+            )
+
+    sdk_manager_tool_path = android.get_sdkmanager_tool_path(
+        android.get_sdk_path(os_name)
+    )
+    if not sdk_manager_tool_path.exists():
+        command_context.log(
+            logging.ERROR,
+            "emulator",
+            {},
+            f"Unable to proceed - 'sdkmanager' not found at {sdk_manager_tool_path}. "
+            f"Please run './mach bootstrap' to reinstall your Android SDK.",
+        )
+        return 1
+
+    normalized_arch = os_arch.lower()
+
+    if "x86" in normalized_arch or "amd64" in normalized_arch:
+        avd_manifest_path_for_arch = android.AVD_MANIFEST_X86_64
+    else:
+        avd_manifest_path_for_arch = android.AVD_MANIFEST_ARM64
+
+    command_context.log(
+        logging.INFO,
+        "emulator",
+        {},
+        f"Resetting emulator and AVD. AVD_MANIFEST_PATH='{avd_manifest_path_for_arch}'",
+    )
+
+    packages = android.get_android_packages(android.AndroidPackageList.EMULATOR)
+    avd_manifest = android.get_avd_manifest(avd_manifest_path_for_arch)
+
+    android.ensure_android_packages(
+        os_name,
+        os_arch,
+        packages,
+        no_interactive=True,
+        avd_manifest=avd_manifest,
+    )
+
+    android.ensure_android_avd(
+        os_name,
+        os_arch,
+        no_interactive=True,
+        avd_manifest=avd_manifest,
+    )
 
 
 @Command(

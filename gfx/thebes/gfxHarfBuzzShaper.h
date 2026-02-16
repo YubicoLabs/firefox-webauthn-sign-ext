@@ -95,7 +95,8 @@ class gfxHarfBuzzShaper : public gfxFontShaper {
   // bounds, etc; if not, the built-in hb_ot font functions will be used.
   static hb_font_t* CreateHBFont(gfxFont* aFont,
                                  hb_font_funcs_t* aFontFuncs = nullptr,
-                                 FontCallbackData* aCallbackData = nullptr);
+                                 FontCallbackData* aCallbackData = nullptr,
+                                 bool aCreateSubfont = false);
 
   hb_font_t* GetHBFont() const { return mHBFont; }
   hb_face_t* GetHBFace() const { return hb_font_get_face(mHBFont); }
@@ -211,6 +212,9 @@ class gfxHarfBuzzShaper : public gfxFontShaper {
   // Default y-coordinate for glyph vertical origin, used if the font
   // does not actually have vertical-layout metrics.
   mutable gfxFloat mDefaultVOrg;
+
+  // Number of glyphs in the font (set from 'maxp' during initialization).
+  uint32_t mNumGlyphs = 0;
 
   // Whether the font implements GetGlyph, or we should read tables
   // directly

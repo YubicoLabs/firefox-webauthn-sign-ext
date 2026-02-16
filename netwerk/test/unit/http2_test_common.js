@@ -64,6 +64,14 @@ Http2CheckListener.prototype = {
     }
 
     Assert.ok(request instanceof Ci.nsIHttpChannel);
+    if (this.noResponseStatus) {
+      Assert.throws(
+        () => request.responseStatus,
+        /NS_ERROR_NOT_AVAILABLE/,
+        "getting response status should throw"
+      );
+      return;
+    }
     Assert.equal(request.requestSucceeded, this.shouldSucceed);
     if (this.shouldSucceed) {
       Assert.equal(request.responseStatus, 200);
@@ -86,7 +94,7 @@ Http2CheckListener.prototype = {
     if (this.shouldSucceed) {
       Assert.ok(Components.isSuccessCode(status));
       Assert.ok(this.onDataAvailableFired);
-      Assert.ok(this.isHttp2Connection == this.shouldBeHttp2);
+      Assert.equal(this.isHttp2Connection, this.shouldBeHttp2);
     } else {
       Assert.ok(!Components.isSuccessCode(status));
     }
@@ -127,7 +135,7 @@ Http2MultiplexListener.prototype.onStopRequest = function (request) {
   Assert.ok(this.onStartRequestFired);
   Assert.ok(this.onDataAvailableFired);
   Assert.ok(this.isHttp2Connection);
-  Assert.ok(this.buffer == multiplexContent);
+  Assert.equal(this.buffer, multiplexContent);
 
   request.QueryInterface(Ci.nsIProxiedChannel);
   // This is what does most of the hard work for us
@@ -159,35 +167,6 @@ Http2HeaderListener.prototype.onDataAvailable = function (
   read_stream(stream, cnt);
 };
 
-var Http2PushListener = function (shouldBePushed) {
-  this.shouldBePushed = shouldBePushed;
-};
-
-Http2PushListener.prototype = new Http2CheckListener();
-
-Http2PushListener.prototype.onDataAvailable = function (
-  request,
-  stream,
-  off,
-  cnt
-) {
-  this.onDataAvailableFired = true;
-  this.isHttp2Connection = checkIsHttp2(request);
-  if (
-    request.originalURI.spec ==
-      `https://localhost:${this.serverPort}/push.js` ||
-    request.originalURI.spec ==
-      `https://localhost:${this.serverPort}/push2.js` ||
-    request.originalURI.spec == `https://localhost:${this.serverPort}/push5.js`
-  ) {
-    Assert.equal(
-      request.getResponseHeader("pushed"),
-      this.shouldBePushed ? "yes" : "no"
-    );
-  }
-  read_stream(stream, cnt);
-};
-
 const pushHdrTxt =
   "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const pullHdrTxt = pushHdrTxt.split("").reverse().join("");
@@ -197,78 +176,6 @@ function checkContinuedHeaders(getHeader, headerPrefix, headerText) {
     Assert.equal(getHeader(headerPrefix + 1), headerText);
   }
 }
-
-var Http2ContinuedHeaderListener = function () {};
-
-Http2ContinuedHeaderListener.prototype = new Http2CheckListener();
-
-Http2ContinuedHeaderListener.prototype.onStopsLeft = 2;
-
-Http2ContinuedHeaderListener.prototype.QueryInterface = ChromeUtils.generateQI([
-  "nsIHttpPushListener",
-  "nsIStreamListener",
-]);
-
-Http2ContinuedHeaderListener.prototype.getInterface = function (aIID) {
-  return this.QueryInterface(aIID);
-};
-
-Http2ContinuedHeaderListener.prototype.onDataAvailable = function (
-  request,
-  stream,
-  off,
-  cnt
-) {
-  this.onDataAvailableFired = true;
-  this.isHttp2Connection = checkIsHttp2(request);
-  if (
-    request.originalURI.spec ==
-    `https://localhost:${this.serverPort}/continuedheaders`
-  ) {
-    // This is the original request, so the only one where we'll have continued response headers
-    checkContinuedHeaders(
-      request.getResponseHeader,
-      "X-Pull-Test-Header-",
-      pullHdrTxt
-    );
-  }
-  read_stream(stream, cnt);
-};
-
-Http2ContinuedHeaderListener.prototype.onStopRequest = function (
-  request,
-  status
-) {
-  Assert.ok(this.onStartRequestFired);
-  Assert.ok(Components.isSuccessCode(status));
-  Assert.ok(this.onDataAvailableFired);
-  Assert.ok(this.isHttp2Connection);
-
-  --this.onStopsLeft;
-  if (this.onStopsLeft === 0) {
-    request.QueryInterface(Ci.nsIProxiedChannel);
-    var httpProxyConnectResponseCode = request.httpProxyConnectResponseCode;
-    this.finish({ httpProxyConnectResponseCode });
-  }
-};
-
-Http2ContinuedHeaderListener.prototype.onPush = function (
-  associatedChannel,
-  pushChannel
-) {
-  Assert.equal(
-    associatedChannel.originalURI.spec,
-    "https://localhost:" + this.serverPort + "/continuedheaders"
-  );
-  Assert.equal(pushChannel.getRequestHeader("x-pushed-request"), "true");
-  checkContinuedHeaders(
-    pushChannel.getRequestHeader,
-    "X-Push-Test-Header-",
-    pushHdrTxt
-  );
-
-  pushChannel.asyncOpen(this);
-};
 
 // Does the appropriate checks for a large GET response
 var Http2BigListener = function () {};
@@ -296,7 +203,7 @@ Http2BigListener.prototype.onStopRequest = function (request) {
   Assert.ok(this.isHttp2Connection);
 
   // Don't want to flood output, so don't use do_check_eq
-  Assert.ok(this.buffer == bigListenerData);
+  Assert.equal(this.buffer, bigListenerData);
 
   request.QueryInterface(Ci.nsIProxiedChannel);
   var httpProxyConnectResponseCode = request.httpProxyConnectResponseCode;
@@ -383,7 +290,7 @@ ResumeStalledChannelListener.prototype = {
     Assert.ok(this.onStartRequestFired);
     Assert.ok(Components.isSuccessCode(status));
     Assert.ok(this.onDataAvailableFired);
-    Assert.ok(this.isHttp2Connection == this.shouldBeHttp2);
+    Assert.equal(this.isHttp2Connection, this.shouldBeHttp2);
     this.resumable.resume();
   },
 };
@@ -415,8 +322,8 @@ async function test_http2_blocking_download(serverPort) {
 }
 
 // Make sure we make a HTTP2 connection and both us and the server mark it as such
-async function test_http2_basic(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/`);
+async function test_http2_basic(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/`);
   var p = new Promise(resolve => {
     var listener = new Http2CheckListener();
     listener.finish = resolve;
@@ -425,9 +332,12 @@ async function test_http2_basic(serverPort) {
   return p;
 }
 
-async function test_http2_basic_unblocked_dep(serverPort) {
+async function test_http2_basic_unblocked_dep(
+  serverPort,
+  origin = "localhost"
+) {
   var chan = makeHTTPChannel(
-    `https://localhost:${serverPort}/basic_unblocked_dep`
+    `https://${origin}:${serverPort}/basic_unblocked_dep`
   );
   var cos = chan.QueryInterface(Ci.nsIClassOfService);
   cos.addClassFlags(Ci.nsIClassOfService.Unblocked);
@@ -439,8 +349,8 @@ async function test_http2_basic_unblocked_dep(serverPort) {
 }
 
 // make sure we don't use h2 when disallowed
-async function test_http2_nospdy(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/`);
+async function test_http2_nospdy(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/`);
   return new Promise(resolve => {
     var listener = new Http2CheckListener();
     listener.finish = resolve;
@@ -463,10 +373,10 @@ function checkXhr(xhr, finish) {
 }
 
 // Fires off an XHR request over h2
-async function test_http2_xhr(serverPort) {
+async function test_http2_xhr(serverPort, origin = "localhost") {
   return new Promise(resolve => {
     var req = new XMLHttpRequest();
-    req.open("GET", `https://localhost:${serverPort}/`, true);
+    req.open("GET", `https://${origin}:${serverPort}/`, true);
     req.addEventListener("readystatechange", function () {
       checkXhr(req, resolve);
     });
@@ -502,7 +412,11 @@ Http2ConcurrentListener.prototype.onStopRequest = function (request) {
   }
 };
 
-async function test_http2_concurrent(concurrent_channels, serverPort) {
+async function test_http2_concurrent(
+  concurrent_channels,
+  serverPort,
+  origin = "localhost"
+) {
   var p = new Promise(resolve => {
     var concurrent_listener = new Http2ConcurrentListener();
     concurrent_listener.finish = resolve;
@@ -514,7 +428,7 @@ async function test_http2_concurrent(concurrent_channels, serverPort) {
 
     for (var i = 0; i < concurrent_listener.target; i++) {
       concurrent_channels[i] = makeHTTPChannel(
-        `https://localhost:${serverPort}/750ms`
+        `https://${origin}:${serverPort}/750ms`
       );
       concurrent_channels[i].loadFlags = Ci.nsIRequest.LOAD_BYPASS_CACHE;
       concurrent_channels[i].asyncOpen(concurrent_listener);
@@ -523,7 +437,11 @@ async function test_http2_concurrent(concurrent_channels, serverPort) {
   return p;
 }
 
-async function test_http2_concurrent_post(concurrent_channels, serverPort) {
+async function test_http2_concurrent_post(
+  concurrent_channels,
+  serverPort,
+  origin = "localhost"
+) {
   return new Promise(resolve => {
     var concurrent_listener = new Http2ConcurrentListener();
     concurrent_listener.finish = resolve;
@@ -536,7 +454,7 @@ async function test_http2_concurrent_post(concurrent_channels, serverPort) {
 
     for (var i = 0; i < concurrent_listener.target; i++) {
       concurrent_channels[i] = makeHTTPChannel(
-        `https://localhost:${serverPort}/750msPost`
+        `https://${origin}:${serverPort}/750msPost`
       );
       concurrent_channels[i].loadFlags = Ci.nsIRequest.LOAD_BYPASS_CACHE;
       var stream = Cc["@mozilla.org/io/string-input-stream;1"].createInstance(
@@ -574,8 +492,8 @@ async function test_http2_multiplex(serverPort) {
 }
 
 // Test to make sure we gateway non-standard headers properly
-async function test_http2_header(serverPort) {
-  let chan = makeHTTPChannel(`https://localhost:${serverPort}/header`);
+async function test_http2_header(serverPort, origin = "localhost") {
+  let chan = makeHTTPChannel(`https://${origin}:${serverPort}/header`);
   let hvalue = "Headers are fun";
   chan.setRequestHeader("X-Test-Header", hvalue, false);
   return new Promise(resolve => {
@@ -590,22 +508,26 @@ async function test_http2_header(serverPort) {
 }
 
 // Test to make sure headers with invalid characters in the name are rejected
-async function test_http2_invalid_response_header(serverPort, invalid_kind) {
+async function test_http2_invalid_response_header(
+  serverPort,
+  invalid_kind,
+  origin = "localhost"
+) {
   return new Promise(resolve => {
     var listener = new Http2CheckListener();
     listener.finish = resolve;
     listener.shouldSucceed = false;
     var chan = makeHTTPChannel(
-      `https://localhost:${serverPort}/invalid_response_header/${invalid_kind}`
+      `https://${origin}:${serverPort}/invalid_response_header/${invalid_kind}`
     );
     chan.asyncOpen(listener);
   });
 }
 
 // Test to make sure cookies are split into separate fields before compression
-async function test_http2_cookie_crumbling(serverPort) {
+async function test_http2_cookie_crumbling(serverPort, origin = "localhost") {
   var chan = makeHTTPChannel(
-    `https://localhost:${serverPort}/cookie_crumbling`
+    `https://${origin}:${serverPort}/cookie_crumbling`
   );
   var cookiesSent = ["a=b", "c=d01234567890123456789", "e=f"].sort();
   chan.setRequestHeader("Cookie", cookiesSent.join("; "), false);
@@ -631,76 +553,10 @@ async function test_http2_cookie_crumbling(serverPort) {
   });
 }
 
-async function test_http2_push1(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push`);
-  chan.loadGroup = loadGroup;
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(true);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_push2(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push.js`);
-  chan.loadGroup = loadGroup;
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(true);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_push3(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push2`);
-  chan.loadGroup = loadGroup;
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(true);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_push4(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push2.js`);
-  chan.loadGroup = loadGroup;
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(true);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_push5(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push5`);
-  chan.loadGroup = loadGroup;
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(true);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_push6(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push5.js`);
-  chan.loadGroup = loadGroup;
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(true);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
 // this is a basic test where the server sends a simple document with 2 header
 // blocks. bug 1027364
-async function test_http2_doubleheader(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/doubleheader`);
+async function test_http2_doubleheader(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/doubleheader`);
   return new Promise(resolve => {
     var listener = new Http2CheckListener();
     listener.finish = resolve;
@@ -709,8 +565,8 @@ async function test_http2_doubleheader(serverPort) {
 }
 
 // Make sure we handle GETs that cover more than 2 frames properly
-async function test_http2_big(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/big`);
+async function test_http2_big(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/big`);
   return new Promise(resolve => {
     var listener = new Http2BigListener();
     listener.finish = resolve;
@@ -718,8 +574,8 @@ async function test_http2_big(serverPort) {
   });
 }
 
-async function test_http2_huge_suspended(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/huge`);
+async function test_http2_huge_suspended(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/huge`);
   return new Promise(resolve => {
     var listener = new Http2HugeSuspendedListener();
     listener.finish = resolve;
@@ -745,8 +601,8 @@ function do_post(content, chan, listener, method) {
 }
 
 // Make sure we can do a simple POST
-async function test_http2_post(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/post`);
+async function test_http2_post(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/post`);
   var p = new Promise(resolve => {
     var listener = new Http2PostListener(md5s[0]);
     listener.finish = resolve;
@@ -755,8 +611,8 @@ async function test_http2_post(serverPort) {
   return p;
 }
 
-async function test_http2_empty_post(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/post`);
+async function test_http2_empty_post(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/post`);
   var p = new Promise(resolve => {
     var listener = new Http2PostListener("0");
     listener.finish = resolve;
@@ -766,8 +622,8 @@ async function test_http2_empty_post(serverPort) {
 }
 
 // Make sure we can do a simple PATCH
-async function test_http2_patch(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/patch`);
+async function test_http2_patch(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/patch`);
   return new Promise(resolve => {
     var listener = new Http2PostListener(md5s[0]);
     listener.finish = resolve;
@@ -776,8 +632,8 @@ async function test_http2_patch(serverPort) {
 }
 
 // Make sure we can do a POST that covers more than 2 frames
-async function test_http2_post_big(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/post`);
+async function test_http2_post_big(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/post`);
   return new Promise(resolve => {
     var listener = new Http2PostListener(md5s[1]);
     listener.finish = resolve;
@@ -916,120 +772,6 @@ async function test_http2_altsvc(httpserv, httpserv2, withProxy) {
   });
 }
 
-var Http2PushApiListener = function (finish, serverPort) {
-  this.finish = finish;
-  this.serverPort = serverPort;
-};
-
-Http2PushApiListener.prototype = {
-  checksPending: 9, // 4 onDataAvailable and 5 onStop
-
-  getInterface(aIID) {
-    return this.QueryInterface(aIID);
-  },
-
-  QueryInterface: ChromeUtils.generateQI([
-    "nsIHttpPushListener",
-    "nsIStreamListener",
-  ]),
-
-  // nsIHttpPushListener
-  onPush: function onPush(associatedChannel, pushChannel) {
-    Assert.equal(
-      associatedChannel.originalURI.spec,
-      "https://localhost:" + this.serverPort + "/pushapi1"
-    );
-    Assert.equal(pushChannel.getRequestHeader("x-pushed-request"), "true");
-
-    pushChannel.asyncOpen(this);
-    if (
-      pushChannel.originalURI.spec ==
-      "https://localhost:" + this.serverPort + "/pushapi1/2"
-    ) {
-      pushChannel.cancel(Cr.NS_ERROR_ABORT);
-    } else if (
-      pushChannel.originalURI.spec ==
-      "https://localhost:" + this.serverPort + "/pushapi1/3"
-    ) {
-      Assert.ok(pushChannel.getRequestHeader("Accept-Encoding").includes("br"));
-    }
-  },
-
-  // normal Channel listeners
-  onStartRequest: function pushAPIOnStart() {},
-
-  onDataAvailable: function pushAPIOnDataAvailable(
-    request,
-    stream,
-    offset,
-    cnt
-  ) {
-    Assert.notEqual(
-      request.originalURI.spec,
-      `https://localhost:${this.serverPort}/pushapi1/2`
-    );
-
-    var data = read_stream(stream, cnt);
-
-    if (
-      request.originalURI.spec ==
-      `https://localhost:${this.serverPort}/pushapi1`
-    ) {
-      Assert.equal(data[0], "0");
-      --this.checksPending;
-    } else if (
-      request.originalURI.spec ==
-      `https://localhost:${this.serverPort}/pushapi1/1`
-    ) {
-      Assert.equal(data[0], "1");
-      --this.checksPending; // twice
-    } else if (
-      request.originalURI.spec ==
-      `https://localhost:${this.serverPort}/pushapi1/3`
-    ) {
-      Assert.equal(data[0], "3");
-      --this.checksPending;
-    } else {
-      Assert.equal(true, false);
-    }
-  },
-
-  onStopRequest: function test_onStopR(request) {
-    if (
-      request.originalURI.spec ==
-      `https://localhost:${this.serverPort}/pushapi1/2`
-    ) {
-      Assert.equal(request.status, Cr.NS_ERROR_ABORT);
-    } else {
-      Assert.equal(request.status, Cr.NS_OK);
-    }
-
-    --this.checksPending; // 5 times - one for each push plus the pull
-    if (!this.checksPending) {
-      request.QueryInterface(Ci.nsIProxiedChannel);
-      var httpProxyConnectResponseCode = request.httpProxyConnectResponseCode;
-      this.finish({ httpProxyConnectResponseCode });
-    }
-  },
-};
-
-// pushAPI testcase 1 expects
-// 1 to pull /pushapi1 with 0
-// 2 to see /pushapi1/1 with 1
-// 3 to see /pushapi1/1 with 1 (again)
-// 4 to see /pushapi1/2 that it will cancel
-// 5 to see /pushapi1/3 with 3 with brotli
-
-async function test_http2_pushapi_1(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/pushapi1`);
-  chan.loadGroup = loadGroup;
-  return new Promise(resolve => {
-    var listener = new Http2PushApiListener(resolve, serverPort);
-    chan.notificationCallbacks = listener;
-    chan.asyncOpen(listener);
-  });
-}
-
 var WrongSuiteListener = function () {};
 
 WrongSuiteListener.prototype = new Http2CheckListener();
@@ -1045,13 +787,13 @@ WrongSuiteListener.prototype.onStopRequest = function (request, status) {
 
 // test that we use h1 without the mandatory cipher suite available when
 // offering at most tls1.2
-async function test_http2_wrongsuite_tls12(serverPort) {
+async function test_http2_wrongsuite_tls12(serverPort, origin = "localhost") {
   Services.prefs.setBoolPref(
     "security.ssl3.ecdhe_rsa_aes_128_gcm_sha256",
     false
   );
   Services.prefs.setIntPref("security.tls.version.max", 3);
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/wrongsuite`);
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/wrongsuite`);
   chan.loadFlags =
     Ci.nsIRequest.LOAD_FRESH_CONNECTION |
     Ci.nsIChannel.LOAD_INITIAL_DOCUMENT_URI;
@@ -1064,12 +806,12 @@ async function test_http2_wrongsuite_tls12(serverPort) {
 
 // test that we use h2 when offering tls1.3 or higher regardless of if the
 // mandatory cipher suite is available
-async function test_http2_wrongsuite_tls13(serverPort) {
+async function test_http2_wrongsuite_tls13(serverPort, origin = "localhost") {
   Services.prefs.setBoolPref(
     "security.ssl3.ecdhe_rsa_aes_128_gcm_sha256",
     false
   );
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/wrongsuite`);
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/wrongsuite`);
   chan.loadFlags =
     Ci.nsIRequest.LOAD_FRESH_CONNECTION |
     Ci.nsIChannel.LOAD_INITIAL_DOCUMENT_URI;
@@ -1081,9 +823,9 @@ async function test_http2_wrongsuite_tls13(serverPort) {
   });
 }
 
-async function test_http2_h11required_stream(serverPort) {
+async function test_http2_h11required_stream(serverPort, origin = "localhost") {
   var chan = makeHTTPChannel(
-    `https://localhost:${serverPort}/h11required_stream`
+    `https://${origin}:${serverPort}/h11required_stream`
   );
   return new Promise(resolve => {
     var listener = new Http2CheckListener();
@@ -1103,16 +845,19 @@ H11RequiredSessionListener.prototype.onStopRequest = function (request) {
 
   Assert.ok(this.onStartRequestFired);
   Assert.ok(this.onDataAvailableFired);
-  Assert.ok(this.isHttp2Connection == this.shouldBeHttp2);
+  Assert.equal(this.isHttp2Connection, this.shouldBeHttp2);
 
   request.QueryInterface(Ci.nsIProxiedChannel);
   var httpProxyConnectResponseCode = request.httpProxyConnectResponseCode;
   this.finish({ httpProxyConnectResponseCode });
 };
 
-async function test_http2_h11required_session(serverPort) {
+async function test_http2_h11required_session(
+  serverPort,
+  origin = "localhost"
+) {
   var chan = makeHTTPChannel(
-    `https://localhost:${serverPort}/h11required_session`
+    `https://${origin}:${serverPort}/h11required_session`
   );
   return new Promise(resolve => {
     var listener = new H11RequiredSessionListener();
@@ -1122,41 +867,29 @@ async function test_http2_h11required_session(serverPort) {
   });
 }
 
-async function test_http2_retry_rst(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/rstonce`);
+async function test_http2_retry_rst(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/rstonce`);
   return new Promise(resolve => {
     var listener = new Http2CheckListener();
     listener.finish = resolve;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_continuations(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(
-    `https://localhost:${serverPort}/continuedheaders`
-  );
-  chan.loadGroup = loadGroup;
-  return new Promise(resolve => {
-    var listener = new Http2ContinuedHeaderListener();
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.notificationCallbacks = listener;
     chan.asyncOpen(listener);
   });
 }
 
 async function test_http2_continuations_over_max_response_limit(
   loadGroup,
-  serverPort
+  serverPort,
+  origin = "localhost"
 ) {
   var chan = makeHTTPChannel(
-    `https://localhost:${serverPort}/hugecontinuedheaders?size=385`
+    `https://${origin}:${serverPort}/hugecontinuedheaders?size=385`
   );
   chan.loadGroup = loadGroup;
   return new Promise(resolve => {
     var listener = new Http2CheckListener();
     listener.finish = resolve;
     listener.shouldSucceed = false;
+    listener.noResponseStatus = true;
     chan.asyncOpen(listener);
   });
 }
@@ -1174,7 +907,7 @@ Http2IllegalHpackValidationListener.prototype.onStopRequest = function (
 
   Assert.ok(this.onStartRequestFired);
   Assert.ok(this.onDataAvailableFired);
-  Assert.ok(this.isHttp2Connection == this.shouldBeHttp2);
+  Assert.equal(this.isHttp2Connection, this.shouldBeHttp2);
 
   request.QueryInterface(Ci.nsIProxiedChannel);
   var httpProxyConnectResponseCode = request.httpProxyConnectResponseCode;
@@ -1187,7 +920,7 @@ Http2IllegalHpackListener.prototype.shouldGoAway = false;
 
 Http2IllegalHpackListener.prototype.onStopRequest = function () {
   var chan = makeHTTPChannel(
-    `https://localhost:${this.serverPort}/illegalhpack_validate`
+    `https://${this.origin}:${this.serverPort}/illegalhpack_validate`
   );
   var listener = new Http2IllegalHpackValidationListener();
   listener.finish = this.finish;
@@ -1195,36 +928,42 @@ Http2IllegalHpackListener.prototype.onStopRequest = function () {
   chan.asyncOpen(listener);
 };
 
-async function test_http2_illegalhpacksoft(serverPort) {
+async function test_http2_illegalhpacksoft(serverPort, origin = "localhost") {
   var chan = makeHTTPChannel(
-    `https://localhost:${serverPort}/illegalhpacksoft`
+    `https://${origin}:${serverPort}/illegalhpacksoft`
   );
   return new Promise(resolve => {
     var listener = new Http2IllegalHpackListener();
     listener.finish = resolve;
     listener.serverPort = serverPort;
+    listener.origin = origin;
     listener.shouldGoAway = false;
     listener.shouldSucceed = false;
     chan.asyncOpen(listener);
   });
 }
 
-async function test_http2_illegalhpackhard(serverPort) {
+async function test_http2_illegalhpackhard(serverPort, origin = "localhost") {
   var chan = makeHTTPChannel(
-    `https://localhost:${serverPort}/illegalhpackhard`
+    `https://${origin}:${serverPort}/illegalhpackhard`
   );
   return new Promise(resolve => {
     var listener = new Http2IllegalHpackListener();
     listener.finish = resolve;
     listener.serverPort = serverPort;
+    listener.origin = origin;
     listener.shouldGoAway = true;
     listener.shouldSucceed = false;
     chan.asyncOpen(listener);
   });
 }
 
-async function test_http2_folded_header(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/foldedheader`);
+async function test_http2_folded_header(
+  loadGroup,
+  serverPort,
+  origin = "localhost"
+) {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/foldedheader`);
   chan.loadGroup = loadGroup;
   return new Promise(resolve => {
     var listener = new Http2CheckListener();
@@ -1234,8 +973,8 @@ async function test_http2_folded_header(loadGroup, serverPort) {
   });
 }
 
-async function test_http2_empty_data(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/emptydata`);
+async function test_http2_empty_data(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/emptydata`);
   return new Promise(resolve => {
     var listener = new Http2CheckListener();
     listener.finish = resolve;
@@ -1243,80 +982,8 @@ async function test_http2_empty_data(serverPort) {
   });
 }
 
-async function test_http2_push_firstparty1(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push`);
-  chan.loadGroup = loadGroup;
-  chan.loadInfo.originAttributes = { firstPartyDomain: "foo.com" };
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(true);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_push_firstparty2(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push.js`);
-  chan.loadGroup = loadGroup;
-  chan.loadInfo.originAttributes = { firstPartyDomain: "bar.com" };
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(false);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_push_firstparty3(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push.js`);
-  chan.loadGroup = loadGroup;
-  chan.loadInfo.originAttributes = { firstPartyDomain: "foo.com" };
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(true);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_push_userContext1(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push`);
-  chan.loadGroup = loadGroup;
-  chan.loadInfo.originAttributes = { userContextId: 1 };
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(true);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_push_userContext2(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push.js`);
-  chan.loadGroup = loadGroup;
-  chan.loadInfo.originAttributes = { userContextId: 2 };
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(false);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_push_userContext3(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/push.js`);
-  chan.loadGroup = loadGroup;
-  chan.loadInfo.originAttributes = { userContextId: 1 };
-  return new Promise(resolve => {
-    var listener = new Http2PushListener(true);
-    listener.finish = resolve;
-    listener.serverPort = serverPort;
-    chan.asyncOpen(listener);
-  });
-}
-
-async function test_http2_status_phrase(serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/statusphrase`);
+async function test_http2_status_phrase(serverPort, origin = "localhost") {
+  var chan = makeHTTPChannel(`https://${origin}:${serverPort}/statusphrase`);
   return new Promise(resolve => {
     var listener = new Http2CheckListener();
     listener.finish = resolve;
@@ -1393,121 +1060,3 @@ FromDiskCacheListener.prototype = {
     });
   },
 };
-
-var Http2DiskCachePushListener = function () {};
-Http2DiskCachePushListener.prototype = new Http2CheckListener();
-
-Http2DiskCachePushListener.onStopRequest = function (request, status) {
-  Assert.ok(this.onStartRequestFired);
-  Assert.ok(Components.isSuccessCode(status));
-  Assert.ok(this.onDataAvailableFired);
-  Assert.ok(this.isHttp2Connection == this.shouldBeHttp2);
-
-  // Now we need to open a channel to ensure we get data from the disk cache
-  // for the pushed item, instead of from the push cache.
-  var chan = makeHTTPChannel(`https://localhost:${this.serverPort}/diskcache`);
-  var listener = new FromDiskCacheListener(
-    this.finish,
-    this.loadGroup,
-    this.serverPort
-  );
-  chan.loadGroup = this.loadGroup;
-  chan.asyncOpen(listener);
-};
-
-function continue_test_http2_disk_cache_push(
-  status,
-  entry,
-  finish,
-  loadGroup,
-  serverPort
-) {
-  // TODO - store stuff in cache entry, then open an h2 channel that will push
-  // this, once that completes, open a channel for the cache entry we made and
-  // ensure it came from disk cache, not the push cache.
-  var outputStream = entry.openOutputStream(0, -1);
-  outputStream.write(DISK_CACHE_DATA, DISK_CACHE_DATA.length);
-
-  // Now we open our URL that will push data for the URL above
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/pushindisk`);
-  var listener = new Http2DiskCachePushListener();
-  listener.finish = finish;
-  listener.loadGroup = loadGroup;
-  listener.serverPort = serverPort;
-  chan.loadGroup = loadGroup;
-  chan.asyncOpen(listener);
-}
-
-async function test_http2_disk_cache_push(loadGroup, serverPort) {
-  return new Promise(resolve => {
-    asyncOpenCacheEntry(
-      `https://localhost:${serverPort}/diskcache`,
-      "disk",
-      Ci.nsICacheStorage.OPEN_NORMALLY,
-      null,
-      function (status, entry) {
-        continue_test_http2_disk_cache_push(
-          status,
-          entry,
-          resolve,
-          loadGroup,
-          serverPort
-        );
-      },
-      false
-    );
-  });
-}
-
-var Http2DoublepushListener = function () {};
-Http2DoublepushListener.prototype = new Http2CheckListener();
-Http2DoublepushListener.prototype.onStopRequest = function (request, status) {
-  Assert.ok(this.onStartRequestFired);
-  Assert.ok(Components.isSuccessCode(status));
-  Assert.ok(this.onDataAvailableFired);
-  Assert.ok(this.isHttp2Connection == this.shouldBeHttp2);
-
-  var chan = makeHTTPChannel(
-    `https://localhost:${this.serverPort}/doublypushed`
-  );
-  var listener = new Http2DoublypushedListener();
-  listener.finish = this.finish;
-  chan.loadGroup = this.loadGroup;
-  chan.asyncOpen(listener);
-};
-
-var Http2DoublypushedListener = function () {};
-Http2DoublypushedListener.prototype = new Http2CheckListener();
-Http2DoublypushedListener.prototype.readData = "";
-Http2DoublypushedListener.prototype.onDataAvailable = function (
-  request,
-  stream,
-  off,
-  cnt
-) {
-  this.onDataAvailableFired = true;
-  this.accum += cnt;
-  this.readData += read_stream(stream, cnt);
-};
-Http2DoublypushedListener.prototype.onStopRequest = function (request, status) {
-  Assert.ok(this.onStartRequestFired);
-  Assert.ok(Components.isSuccessCode(status));
-  Assert.ok(this.onDataAvailableFired);
-  Assert.equal(this.readData, "pushed");
-
-  request.QueryInterface(Ci.nsIProxiedChannel);
-  let httpProxyConnectResponseCode = request.httpProxyConnectResponseCode;
-  this.finish({ httpProxyConnectResponseCode });
-};
-
-function test_http2_doublepush(loadGroup, serverPort) {
-  var chan = makeHTTPChannel(`https://localhost:${serverPort}/doublepush`);
-  return new Promise(resolve => {
-    var listener = new Http2DoublepushListener();
-    listener.finish = resolve;
-    listener.loadGroup = loadGroup;
-    listener.serverPort = serverPort;
-    chan.loadGroup = loadGroup;
-    chan.asyncOpen(listener);
-  });
-}

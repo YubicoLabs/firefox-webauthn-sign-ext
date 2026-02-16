@@ -31,17 +31,10 @@ tree[is="places-tree"] > treechildren::-moz-tree-cell {
   border: 0;
 }
 
-/* Apply crisp rendering for favicons at exactly 2dppx resolution */
-@media (resolution: 2dppx) {
-  #bookmarksChildren,
-  .sidebar-placesTreechildren,
-  .placesTree > treechildren {
-    image-rendering: -moz-crisp-edges;
-  }
-}
-
 #searchFilter {
+  flex: 1;
   max-width: 23em;
+  margin: var(--space-small);
 }
 
 .places-tooltip-box {

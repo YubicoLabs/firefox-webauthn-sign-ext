@@ -141,6 +141,17 @@ pdfjs:
     notification_emails:
       - cdenizet@mozilla.com
       - mcastelluccio@mozilla.com
+  tagged:
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997134
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997134
+    description: >
+      How many times PDF Viewer was used for tagged pdf.
+    expires: never
+    type: counter
+    notification_emails:
+      - pdfjs-team@mozilla.com
 pdfjs.editing.highlight:
     kind:
       type: labeled_counter
@@ -895,3 +906,63 @@ pdfjs.signature:
       notification_emails:
         - pdfjs-team@mozilla.com
       expires: never
+
+pdfjs.comment:
+    edit:
+      type: labeled_counter
+      description: >
+        Counts the number of times the user edits or deletes comments.
+      labels:
+        - deleted
+        - edited
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1991172
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1991172#c1
+      data_sensitivity:
+        - interaction
+      notification_emails:
+        - pdfjs-team@mozilla.com
+      expires: never
+
+    sidebar:
+      type: event
+      description: >
+        Recorded when the comment sidebar is opened.
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1991172
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1991172#c1
+      data_sensitivity:
+        - interaction
+      notification_emails:
+        - pdfjs-team@mozilla.com
+      expires: never
+      extra_keys:
+        comments_count:
+          type: quantity
+          description: >
+            Number of comments in the sidebar.
+
+    save:
+      type: event
+      description: >
+        Recorded when the user saves a PDF with some deleted/edited comments.
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1991172
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1991172#c1
+      data_sensitivity:
+        - interaction
+      notification_emails:
+        - pdfjs-team@mozilla.com
+      expires: never
+      extra_keys:
+        edited:
+          type: quantity
+          description: >
+            Number of edited comments.
+        deleted:
+          type: quantity
+          description: >
+            Number of deleted comments.

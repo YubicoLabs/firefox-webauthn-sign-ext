@@ -1,15 +1,15 @@
 [[repos]]
 name = 'spec'
-commit = '1e1010249'
+commit = '6e4c4bcaf'
 
 [[repos]]
-name = 'memory64'
-commit = '179566900'
+name = 'threads'
+commit = '3635ca51a'
 
 [[repos]]
-name = 'exception-handling'
-commit = 'da1e90701'
+name = 'custom-page-sizes'
+commit = 'cad80dc2c'
 
 [[repos]]
-name = 'gc'
-commit = '88463e822'
+name = 'compact-import-section'
+commit = 'bebcdeff9'

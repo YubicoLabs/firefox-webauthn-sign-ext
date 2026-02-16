@@ -24,6 +24,11 @@ mod openssl;
 #[cfg(feature = "crypto_openssl")]
 use self::openssl as backend;
 
+#[cfg(feature = "crypto_rust")]
+mod rustcrypto;
+#[cfg(feature = "crypto_rust")]
+use rustcrypto as backend;
+
 #[cfg(feature = "crypto_dummy")]
 mod dummy;
 #[cfg(feature = "crypto_dummy")]
@@ -83,7 +88,6 @@ impl Clone for PinUvAuthProtocol {
 /// CTAP 2.1, Section 6.5.4. PIN/UV Auth Protocol Abstract Definition
 trait PinProtocolImpl: ClonablePinProtocolImpl {
     fn protocol_id(&self) -> u64;
-    fn initialize(&self);
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError>;
     fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError>;
     fn authenticate(&self, key: &[u8], message: &[u8]) -> Result<Vec<u8>, CryptoError>;
@@ -116,9 +120,7 @@ trait PinProtocolImpl: ClonablePinProtocolImpl {
             _ => return Err(CryptoError::UnsupportedKeyType),
         };
 
-        let peer_spki = peer_cose_ec2_key.der_spki()?;
-
-        let (shared_point, client_public_sec1) = ecdhe_p256_raw(&peer_spki)?;
+        let (shared_point, client_public_sec1) = ecdhe_p256_raw(peer_cose_ec2_key)?;
 
         let client_cose_ec2_key =
             COSEEC2Key::from_sec1_uncompressed(Curve::SECP256R1, &client_public_sec1)?;
@@ -158,12 +160,13 @@ impl TryFrom<&AuthenticatorInfo> for PinUvAuthProtocol {
                 .ok_or(CommandError::UnsupportedPinProtocol)
         } else {
             match info.max_supported_version() {
-                AuthenticatorVersion::U2F_V2 => Err(CommandError::UnsupportedPinProtocol),
+                AuthenticatorVersion::U2F_V2 | AuthenticatorVersion::Unknown => {
+                    Err(CommandError::UnsupportedPinProtocol)
+                }
                 AuthenticatorVersion::FIDO_2_0 => Ok(PinUvAuthProtocol(Box::new(PinUvAuth1 {}))),
                 AuthenticatorVersion::FIDO_2_1_PRE
                 | AuthenticatorVersion::FIDO_2_1
                 | AuthenticatorVersion::FIDO_2_2 => Ok(PinUvAuthProtocol(Box::new(PinUvAuth2 {}))),
-                AuthenticatorVersion::Unknown => Err(CommandError::UnsupportedPinProtocol),
             }
         }
     }
@@ -185,8 +188,6 @@ impl PinProtocolImpl for PinUvAuth1 {
     fn protocol_id(&self) -> u64 {
         1
     }
-
-    fn initialize(&self) {}
 
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         // [CTAP 2.1]
@@ -230,8 +231,6 @@ impl PinProtocolImpl for PinUvAuth2 {
     fn protocol_id(&self) -> u64 {
         2
     }
-
-    fn initialize(&self) {}
 
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         // [CTAP 2.1]
@@ -1560,8 +1559,8 @@ mod test {
         // We are using `test_cose_ec2_p256_ecdh_sha256()` here, because we need a way to hand in
         // the private key which would be generated on the fly otherwise (ephemeral keys),
         // to predict the outputs
-        let peer_spki = peer_ec2_key.der_spki().unwrap();
-        let shared_point = test_ecdh_p256_raw(&peer_spki, &EC_PUB_X, &EC_PUB_Y, &EC_PRIV).unwrap();
+        let shared_point =
+            test_ecdh_p256_raw(&peer_ec2_key, &EC_PUB_X, &EC_PUB_Y, &EC_PRIV).unwrap();
         let shared_secret = SharedSecret {
             pin_protocol: PinUvAuthProtocol(Box::new(PinUvAuth1 {})),
             key: sha256(&shared_point).unwrap(),

@@ -92,7 +92,7 @@ body,
 
 #toolbar :is(select, button):focus-visible {
   /* Adjust the outline otherwise it's clipped at the top */
-  outline-offset: -1px
+  outline-offset: -1px;
 }
 
 #toolbar-center-controls,
@@ -118,7 +118,7 @@ body,
     [separator]
     max-content
     [dpr]
-    minmax(auto, 60px)
+    max-content
     [separator]
     max-content
     [throttling]
@@ -142,7 +142,7 @@ body,
     [separator]
     max-content
     [dpr]
-    minmax(auto, 60px)
+    max-content
     [separator]
     max-content
     [throttling]
@@ -174,7 +174,6 @@ body,
   display: flex;
   align-items: center;
   margin-inline-start: 3px;
-  margin-inline-end: 3px;
 }
 
 #user-agent-input {
@@ -182,13 +181,42 @@ body,
   flex: 1;
 }
 
-@media (max-width: 520px) {
+/* Override the styles of .devtools-dropdown-button
+ * to center the arrow icons while not having any label displayed on the button */
+#user-agent-selector {
+  padding-inline: 0;
+  border-radius: 0;
+  background-position: center center !important;
+  width: 2em;
+}
+
+.user-agent-selector-item .label::before {
+  /* Dim the color of user agent icons */
+  color: var(--theme-icon-dimmed-color);
+}
+.user-agent-selector-item.separator {
+  padding-bottom: 0.5em !important;
+  border-block-end: 1px solid var(--theme-toolbar-separator) !important;
+  margin-bottom: 0.25em !important;
+}
+
+/* Display the browser version in a light way */
+.user-agent-browser-version {
+  color: var(--theme-text-color-alt);
+  font-family: var(--monospace-font-family);
+  margin-inline-start: 4px;
+  font-size: 0.8em;
+}
+
+@media (max-width: 800px) {
   /* When room becomes scarce, no need to constrain the selectors with a minmax like we
-     do in larger viewports, here they can occupy 1fr */
+     do in larger viewports, here they can occupy 1fr. We should also make sure to keep
+     the max-width value of the media-query in sync with the resizeToolbarObserver
+     in devtools/client/responsive/ui.js */
   #toolbar.user-agent #toolbar-center-controls {
     grid-template-columns:
       [device-selector]
-      .8fr
+      0.8fr
       [separator]
       max-content
       [size-selector]
@@ -198,7 +226,7 @@ body,
       [separator]
       max-content
       [dpr]
-      .6fr
+      max-content
       [separator]
       max-content
       [throttling]
@@ -224,11 +252,13 @@ body,
   /* When the UA label is here and it's on a second line, draw a separator between the
      2 lines*/
   #toolbar.user-agent {
-    background-image: linear-gradient(to bottom,
+    background-image: linear-gradient(
+      to bottom,
       transparent var(--toolbar-row-height),
       var(--theme-splitter-color) var(--toolbar-row-height),
       var(--theme-splitter-color) calc(var(--toolbar-row-height) + 1px),
-      transparent 0);
+      transparent 0
+    );
   }
 }
 
@@ -390,8 +420,9 @@ body,
 /* On screens that are >750px*/
 @media (min-width: 750px) {
   #device-form {
-    grid-template-areas: "name size dpr"
-                         "user-agent touch buttons";
+    grid-template-areas:
+      "name size dpr"
+      "user-agent touch buttons";
   }
 
   #device-form-name input,
@@ -401,9 +432,10 @@ body,
 
   .device-modal-content {
     grid-template-columns: 1fr 1fr;
-    grid-template-areas: "phone phone"
-                         "tablet laptop"
-                         "tv custom";
+    grid-template-areas:
+      "phone phone"
+      "tablet laptop"
+      "tv custom";
   }
 
   .device-type-phones .device-list {
@@ -414,9 +446,10 @@ body,
 /* On screens that are between 450px and 749px */
 @media (min-width: 450px) and (max-width: 749px) {
   #device-form {
-    grid-template-areas: "name size"
-                         "user-agent dpr"
-                         "touch buttons";
+    grid-template-areas:
+      "name size"
+      "user-agent dpr"
+      "touch buttons";
     grid-template-columns: 2fr 1fr;
   }
 
@@ -433,12 +466,13 @@ body,
 /* On screens that are <450px */
 @media (max-width: 449px) {
   #device-form {
-    grid-template-areas: "name"
-                         "size"
-                         "dpr"
-                         "user-agent"
-                         "touch"
-                         "buttons";
+    grid-template-areas:
+      "name"
+      "size"
+      "dpr"
+      "user-agent"
+      "touch"
+      "buttons";
   }
 
   #device-form-name input,
@@ -453,12 +487,13 @@ body,
 
 @media (max-width: 749px) {
   .device-modal-content {
-    grid-template-areas: "phone"
-                         "phone"
-                         "tablet"
-                         "laptop"
-                         "tv"
-                         "custom";
+    grid-template-areas:
+      "phone"
+      "phone"
+      "tablet"
+      "laptop"
+      "tv"
+      "custom";
   }
 
   .device-modal-header {
@@ -679,9 +714,9 @@ body,
 }
 
 #device-form #device-form-save {
-  background-color: #0060DF;
+  background-color: #0060df;
   color: #fff;
-  border: 1px solid #0060DF;
+  border: 1px solid #0060df;
   width: 60px;
 
   &:focus-visible {

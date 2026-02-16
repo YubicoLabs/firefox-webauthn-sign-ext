@@ -8,8 +8,8 @@
 #define mozilla_dom_MLSGroup_h
 
 #include "mozilla/DOMEventTargetHelper.h"
-#include "mozilla/dom/Promise.h"
 #include "mozilla/dom/MLS.h"
+#include "mozilla/dom/Promise.h"
 
 class nsIGlobalObject;
 
@@ -56,6 +56,15 @@ class MLSGroupView final : public nsISupports, public nsWrapperCache {
 
   already_AddRefed<mozilla::dom::Promise> Receive(
       const MLSBytesOrUint8Array& aJsMessage, ErrorResult& aRv);
+
+  already_AddRefed<mozilla::dom::Promise> HasPendingProposals(ErrorResult& aRv);
+
+  already_AddRefed<mozilla::dom::Promise> ClearPendingProposals(
+      ErrorResult& aRv);
+
+  already_AddRefed<mozilla::dom::Promise> HasPendingCommit(ErrorResult& aRv);
+
+  already_AddRefed<mozilla::dom::Promise> ClearPendingCommit(ErrorResult& aRv);
 
   already_AddRefed<mozilla::dom::Promise> ApplyPendingCommit(ErrorResult& aRv);
 

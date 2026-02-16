@@ -28,13 +28,13 @@ class CodeGeneratorX86Shared : public CodeGeneratorShared {
 
  protected:
   CodeGeneratorX86Shared(MIRGenerator* gen, LIRGraph* graph,
-                         MacroAssembler* masm);
+                         MacroAssembler* masm,
+                         const wasm::CodeMetadata* wasmCodeMeta);
 
   NonAssertingLabel deoptLabel_;
 
   Operand ToOperand(const LAllocation& a);
   Operand ToOperand(const LAllocation* a);
-  Operand ToOperand(const LDefinition* def);
 
 #ifdef JS_PUNBOX64
   Operand ToOperandOrRegister64(const LInt64Allocation& input);
@@ -53,11 +53,6 @@ class CodeGeneratorX86Shared : public CodeGeneratorShared {
   void bailoutCmpPtr(Assembler::Condition c, T1 lhs, T2 rhs,
                      LSnapshot* snapshot) {
     masm.cmpPtr(lhs, rhs);
-    bailoutIf(c, snapshot);
-  }
-  void bailoutTestPtr(Assembler::Condition c, Register lhs, Register rhs,
-                      LSnapshot* snapshot) {
-    masm.testPtr(lhs, rhs);
     bailoutIf(c, snapshot);
   }
   template <typename T1, typename T2>
@@ -89,9 +84,12 @@ class CodeGeneratorX86Shared : public CodeGeneratorShared {
   void emitTableSwitchDispatch(MTableSwitch* mir, Register index,
                                Register base);
 
-  void generateInvalidateEpilogue();
+  // Emit out-of-line code to zero |output| if |rhs| is zero. Used for truncated
+  // division and modulus instructions.
+  OutOfLineCode* emitOutOfLineZeroForDivideByZero(Register rhs,
+                                                  Register output);
 
-  void canonicalizeIfDeterministic(Scalar::Type type, const LAllocation* value);
+  void generateInvalidateEpilogue();
 
   template <typename T>
   Operand toMemoryAccessOperand(T* lir, int32_t disp);

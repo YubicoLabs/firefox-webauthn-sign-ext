@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -9,17 +8,15 @@ from marionette_harness.marionette_test import MarionetteTestCase
 
 class TestPingSubmitted(MarionetteTestCase):
     def setUp(self):
-        super(TestPingSubmitted, self).setUp()
+        super().setUp()
 
         self.marionette.set_context(self.marionette.CONTEXT_CHROME)
 
-        self.marionette.enforce_gecko_prefs(
-            {
-                "datareporting.healthreport.uploadEnabled": True,
-                "telemetry.fog.test.localhost_port": 3000,
-                "browser.search.log": True,
-            }
-        )
+        self.marionette.enforce_gecko_prefs({
+            "datareporting.healthreport.uploadEnabled": True,
+            "telemetry.fog.test.localhost_port": 3000,
+            "browser.search.log": True,
+        })
         # The categorization ping is submitted on startup. If anything delays
         # its initialization, turning the preference on and immediately
         # attaching a categorization event could result in the ping being

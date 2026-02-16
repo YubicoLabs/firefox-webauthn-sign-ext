@@ -5,6 +5,7 @@
 """
 Set up a browser environment before running a test.
 """
+
 import json
 import os
 import shutil
@@ -13,7 +14,6 @@ import tempfile
 import mozfile
 import mozinfo
 import mozrunner
-import six
 from mozlog import get_proxy_logger
 from mozprofile.profile import Profile
 
@@ -26,7 +26,7 @@ here = os.path.abspath(os.path.dirname(__file__))
 LOG = get_proxy_logger()
 
 
-class FFSetup(object):
+class FFSetup:
     """
     Initialize the browser environment before running a test.
 
@@ -52,8 +52,14 @@ class FFSetup(object):
 
     def __init__(self, browser_config, test_config):
         self.browser_config, self.test_config = browser_config, test_config
-        self._tmp_dir = tempfile.mkdtemp()
         self.env = None
+
+        if "MOZ_AUTOMATION" in os.environ:
+            # Bug 1893092 - Windows is deleting temporary dirs during the test runs in CI
+            self._tmp_dir = os.path.join(os.environ["TASK_WORKDIR"], "temp")
+        else:
+            self._tmp_dir = tempfile.mkdtemp()
+
         # The profile dir must be named 'profile' because of xperf analysis
         # (in etlparser.py). TODO fix that ?
         self.profile_dir = os.path.join(self._tmp_dir, "profile")
@@ -70,7 +76,7 @@ class FFSetup(object):
 
     def _init_env(self):
         self.env = dict(os.environ)
-        for k, v in six.iteritems(self.browser_config["env"]):
+        for k, v in self.browser_config["env"].items():
             self.env[k] = str(v)
         self.env["MOZ_CRASHREPORTER_NO_REPORT"] = "1"
         if self.browser_config["symbols_path"]:
@@ -123,23 +129,21 @@ class FFSetup(object):
         }
 
         # merge base profiles
-        with open(os.path.join(self.profile_data_dir, "profiles.json"), "r") as fh:
+        with open(os.path.join(self.profile_data_dir, "profiles.json")) as fh:
             base_profiles = json.load(fh)["talos"]
 
         for name in base_profiles:
             path = os.path.join(self.profile_data_dir, name)
-            LOG.info("Merging profile: {}".format(path))
+            LOG.info(f"Merging profile: {path}")
             profile.merge(path, interpolation=interpolation)
 
         # set test preferences
         preferences = self.browser_config.get("preferences", {}).copy()
         if self.test_config.get("preferences"):
-            test_prefs = dict(
-                [
-                    (i, utils.parse_pref(j))
-                    for i, j in self.test_config["preferences"].items()
-                ]
-            )
+            test_prefs = dict([
+                (i, utils.parse_pref(j))
+                for i, j in self.test_config["preferences"].items()
+            ])
             preferences.update(test_prefs)
 
         for name, value in preferences.items():
@@ -156,14 +160,14 @@ class FFSetup(object):
         # installing webextensions
         webextensions_to_install = []
         webextensions_folder = self.test_config.get("webextensions_folder", None)
-        if isinstance(webextensions_folder, six.string_types):
+        if isinstance(webextensions_folder, str):
             folder = utils.interpolate(webextensions_folder)
             for file in os.listdir(folder):
                 if file.endswith(".xpi"):
                     webextensions_to_install.append(os.path.join(folder, file))
 
         webextensions = self.test_config.get("webextensions", None)
-        if isinstance(webextensions, six.string_types):
+        if isinstance(webextensions, str):
             webextensions_to_install.append(webextensions)
 
         if webextensions_to_install is not None:
@@ -211,7 +215,7 @@ class FFSetup(object):
     def _init_gecko_profile(self):
         upload_dir = os.getenv("MOZ_UPLOAD_DIR")
         if self.test_config.get("gecko_profile") and not upload_dir:
-            LOG.critical("Profiling ignored because MOZ_UPLOAD_DIR was not" " set")
+            LOG.critical("Profiling ignored because MOZ_UPLOAD_DIR was not set")
         if upload_dir and self.test_config.get("gecko_profile"):
             self.gecko_profile = GeckoProfile(
                 upload_dir, self.browser_config, self.test_config

@@ -22,13 +22,13 @@ repository = "https://hg.mozilla.org/mozilla-central/file/tip/testing/geckodrive
 
 [dependencies]
 anyhow = "1"
-base64 = "0.21"
+base64 = "0.22"
 chrono = "0.4.6"
 clap = { version = "4", default-features = false, features = ["cargo", "std", "suggestions", "wrap_help", "string"] }
 # Depend on flate2 to enable the rust backend (the default) for flate2 used by the zip crate.
 flate2 = "1"
 hyper = "0.14"
-icu_segmenter = { version = "1.5", default-features = false, features = ["auto", "compiled_data"] }
+icu_segmenter = { version = "2.0", default-features = false, features = ["auto", "compiled_data"] }
 lazy_static = "1.0"
 log = { version = "0.4", features = ["std"] }
 marionette = { path = "./marionette", version="0.7.0" }
@@ -44,8 +44,8 @@ tempfile = "3"
 thiserror = "1"
 url = "2.4"
 uuid = { version = "1.0", features = ["v4"] }
-webdriver = { path = "../webdriver", version="0.52.0" }
-yaml-rust = "0.4.5"
+webdriver = { path = "../webdriver", version="0.53.0" }
+yaml-rust = { version = "0.10", package = "yaml-rust2" }
 zip = { version = "2.1.2", default-features = false, features = ["deflate-flate2", "flate2"] }
 mozilla-central-workspace-hack = { version = "0.1", features = ["geckodriver"], optional = true }
 

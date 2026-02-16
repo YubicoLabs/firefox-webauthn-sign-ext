@@ -16,7 +16,7 @@ add_task(async function () {
     );
     const {
       getFontPreviewData,
-    } = require("resource://devtools/server/actors/utils/style-utils.js");
+    } = require("resource://devtools/server/actors/stylesheets/style-utils.js");
 
     const font = Services.appinfo.OS === "WINNT" ? "Arial" : "Liberation Sans";
     let fontPreviewData = getFontPreviewData(font, content.document);
@@ -157,6 +157,41 @@ add_task(async function () {
     is(
       getFontPreviewData(`'Font Awesome 5 Brands'`, content.document).ctx.font,
       `40px "Font Awesome 5 Brands", serif`,
+      "Expected font style was used in the canvas"
+    );
+
+    // Check multiple font
+    is(
+      getFontPreviewData(`Menlo, monospace`, content.document).ctx.font,
+      `40px Menlo, monospace, serif`,
+      "Expected font style was used in the canvas"
+    );
+
+    // Check multiple font some with quotes, some not
+    is(
+      getFontPreviewData(
+        `Menlo Bold, "Fira Code", 'Mono Lisa', monospace`,
+        content.document
+      ).ctx.font,
+      `40px "Menlo Bold", "Fira Code", "Mono Lisa", monospace, serif`,
+      "Expected font style was used in the canvas"
+    );
+
+    // Check font-weight value
+    is(
+      getFontPreviewData(`monospace`, content.document, { fontWeight: "200" })
+        .ctx.font,
+      `200 40px monospace, serif`,
+      "Expected font style was used in the canvas"
+    );
+
+    // Check font-style value
+    is(
+      getFontPreviewData(`monospace`, content.document, {
+        fontWeight: "200",
+        fontStyle: "italic",
+      }).ctx.font,
+      `italic 200 40px monospace, serif`,
       "Expected font style was used in the canvas"
     );
   });

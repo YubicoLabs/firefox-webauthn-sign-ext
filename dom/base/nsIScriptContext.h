@@ -4,26 +4,21 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsIScriptContext_h__
-#define nsIScriptContext_h__
+#ifndef nsIScriptContext_h_
+#define nsIScriptContext_h_
 
-#include "nscore.h"
-#include "nsString.h"
-#include "nsISupports.h"
-#include "nsCOMPtr.h"
-#include "jspubtd.h"
 #include "js/experimental/JSStencil.h"
-#include "mozilla/RefPtr.h"
+#include "jspubtd.h"
+#include "nsCOMPtr.h"
+#include "nsISupports.h"
+#include "nsString.h"
+#include "nscore.h"
 
 class nsIScriptGlobalObject;
 
 // Must be kept in sync with xpcom/rust/xpcom/src/interfaces/nonidl.rs
-#define NS_ISCRIPTCONTEXT_IID                        \
-  {                                                  \
-    0x54cbe9cf, 0x7282, 0x421a, {                    \
-      0x91, 0x6f, 0xd0, 0x70, 0x73, 0xde, 0xb8, 0xc0 \
-    }                                                \
-  }
+#define NS_ISCRIPTCONTEXT_IID \
+  {0x54cbe9cf, 0x7282, 0x421a, {0x91, 0x6f, 0xd0, 0x70, 0x73, 0xde, 0xb8, 0xc0}}
 
 class nsIOffThreadScriptReceiver;
 
@@ -33,7 +28,7 @@ class nsIOffThreadScriptReceiver;
  */
 class nsIScriptContext : public nsISupports {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ISCRIPTCONTEXT_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_ISCRIPTCONTEXT_IID)
 
   /**
    * Return the global object.
@@ -65,18 +60,12 @@ class nsIScriptContext : public nsISupports {
   virtual JSObject* GetWindowProxy() = 0;
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIScriptContext, NS_ISCRIPTCONTEXT_IID)
-
-#define NS_IOFFTHREADSCRIPTRECEIVER_IID              \
-  {                                                  \
-    0x3a980010, 0x878d, 0x46a9, {                    \
-      0x93, 0xad, 0xbc, 0xfd, 0xd3, 0x8e, 0xa0, 0xc2 \
-    }                                                \
-  }
+#define NS_IOFFTHREADSCRIPTRECEIVER_IID \
+  {0x3a980010, 0x878d, 0x46a9, {0x93, 0xad, 0xbc, 0xfd, 0xd3, 0x8e, 0xa0, 0xc2}}
 
 class nsIOffThreadScriptReceiver : public nsISupports {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IOFFTHREADSCRIPTRECEIVER_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_IOFFTHREADSCRIPTRECEIVER_IID)
 
   /**
    * Notify this object that a previous Compile call specifying this as
@@ -87,7 +76,4 @@ class nsIOffThreadScriptReceiver : public nsISupports {
                                      nsresult aStatus) = 0;
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIOffThreadScriptReceiver,
-                              NS_IOFFTHREADSCRIPTRECEIVER_IID)
-
-#endif  // nsIScriptContext_h__
+#endif  // nsIScriptContext_h_

@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import functools
 import re
 import sys
 import traceback
@@ -46,7 +47,7 @@ __all__ = ["parse", "ParseError", "ExpressionParser"]
 # - rbp: right binding power
 
 
-class ident_token(object):
+class ident_token:
     def __init__(self, scanner, value):
         self.value = value
 
@@ -56,7 +57,7 @@ class ident_token(object):
         return parser.value(self.value)
 
 
-class literal_token(object):
+class literal_token:
     def __init__(self, scanner, value):
         self.value = value
 
@@ -64,56 +65,56 @@ class literal_token(object):
         return self.value
 
 
-class eq_op_token(object):
+class eq_op_token:
     "=="
 
     def led(self, parser, left):
         return left == parser.expression(self.lbp)
 
 
-class neq_op_token(object):
+class neq_op_token:
     "!="
 
     def led(self, parser, left):
         return left != parser.expression(self.lbp)
 
 
-class lt_op_token(object):
+class lt_op_token:
     "<"
 
     def led(self, parser, left):
         return left < parser.expression(self.lbp)
 
 
-class gt_op_token(object):
+class gt_op_token:
     ">"
 
     def led(self, parser, left):
         return left > parser.expression(self.lbp)
 
 
-class le_op_token(object):
+class le_op_token:
     "<="
 
     def led(self, parser, left):
         return left <= parser.expression(self.lbp)
 
 
-class ge_op_token(object):
+class ge_op_token:
     ">="
 
     def led(self, parser, left):
         return left >= parser.expression(self.lbp)
 
 
-class not_op_token(object):
+class not_op_token:
     "!"
 
     def nud(self, parser):
         return not parser.expression(100)
 
 
-class and_op_token(object):
+class and_op_token:
     "&&"
 
     def led(self, parser, left):
@@ -121,7 +122,7 @@ class and_op_token(object):
         return left and right
 
 
-class or_op_token(object):
+class or_op_token:
     "||"
 
     def led(self, parser, left):
@@ -129,7 +130,7 @@ class or_op_token(object):
         return left or right
 
 
-class lparen_token(object):
+class lparen_token:
     "("
 
     def nud(self, parser):
@@ -138,11 +139,11 @@ class lparen_token(object):
         return expr
 
 
-class rparen_token(object):
+class rparen_token:
     ")"
 
 
-class end_token(object):
+class end_token:
     """always ends parsing"""
 
 
@@ -181,7 +182,35 @@ class ParseError(Exception):
     """error parsing conditional expression"""
 
 
-class ExpressionParser(object):
+# ignore warnings about using `cache` instead; this code
+# runs on python versions that don't support that
+@functools.lru_cache(maxsize=None)  # noqa: UP033
+def scan(text):
+    if not ExpressionParser.scanner:
+        ExpressionParser.scanner = re.Scanner([
+            # Note: keep these in sync with the class docstring above.
+            (r"true|false", bool_token),
+            (r"[a-zA-Z_]\w*", ident_token),
+            (r"[0-9]+", int_token),
+            (r'("[^"]*")|(\'[^\']*\')', string_token),
+            (r"==", eq_op_token()),
+            (r"!=", neq_op_token()),
+            (r"<=", le_op_token()),
+            (r">=", ge_op_token()),
+            (r"<", lt_op_token()),
+            (r">", gt_op_token()),
+            (r"\|\|", or_op_token()),
+            (r"!", not_op_token()),
+            (r"&&", and_op_token()),
+            (r"\(", lparen_token()),
+            (r"\)", rparen_token()),
+            (r"\s+", None),  # skip whitespace
+        ])
+    tokens, _ = ExpressionParser.scanner.scan(text)
+    return tokens
+
+
+class ExpressionParser:
     r"""
     A parser for a simple expression language.
 
@@ -230,31 +259,7 @@ class ExpressionParser(object):
         """
         Lex the input text into tokens and yield them in sequence.
         """
-        if not ExpressionParser.scanner:
-            ExpressionParser.scanner = re.Scanner(
-                [
-                    # Note: keep these in sync with the class docstring above.
-                    (r"true|false", bool_token),
-                    (r"[a-zA-Z_]\w*", ident_token),
-                    (r"[0-9]+", int_token),
-                    (r'("[^"]*")|(\'[^\']*\')', string_token),
-                    (r"==", eq_op_token()),
-                    (r"!=", neq_op_token()),
-                    (r"<=", le_op_token()),
-                    (r">=", ge_op_token()),
-                    (r"<", lt_op_token()),
-                    (r">", gt_op_token()),
-                    (r"\|\|", or_op_token()),
-                    (r"!", not_op_token()),
-                    (r"&&", and_op_token()),
-                    (r"\(", lparen_token()),
-                    (r"\)", rparen_token()),
-                    (r"\s+", None),  # skip whitespace
-                ]
-            )
-        tokens, remainder = ExpressionParser.scanner.scan(self.text)
-        for t in tokens:
-            yield t
+        yield from scan(self.text)
         yield end_token()
 
     def value(self, ident):
@@ -312,6 +317,9 @@ class ExpressionParser(object):
     __call__ = parse
 
 
+# ignore warnings about using `cache` instead; this code
+# runs on python versions that don't support that
+@functools.lru_cache(maxsize=None)  # noqa: UP033
 def parse(text, strict=False, **values):
     """
     Parse and evaluate a boolean expression.

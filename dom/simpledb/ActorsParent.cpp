@@ -11,11 +11,12 @@
 
 // Global includes
 #include <cstdint>
-#include <cstdlib>
 #include <new>
 #include <utility>
+
 #include "ErrorList.h"
 #include "MainThreadUtils.h"
+#include "NotifyUtils.h"
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Atomics.h"
@@ -28,17 +29,14 @@
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/SpinEventLoopUntil.h"
 #include "mozilla/StaticPtr.h"
-#include "mozilla/Unused.h"
-#include "mozilla/Variant.h"
 #include "mozilla/dom/PBackgroundSDBConnection.h"
 #include "mozilla/dom/PBackgroundSDBConnectionParent.h"
 #include "mozilla/dom/PBackgroundSDBRequestParent.h"
 #include "mozilla/dom/ipc/IdType.h"
 #include "mozilla/dom/quota/Client.h"
 #include "mozilla/dom/quota/ClientDirectoryLock.h"
+#include "mozilla/dom/quota/ClientDirectoryLockHandle.h"
 #include "mozilla/dom/quota/ClientImpl.h"
-#include "mozilla/dom/quota/DirectoryLock.h"
-#include "mozilla/dom/quota/DirectoryLockInlines.h"
 #include "mozilla/dom/quota/FileStreams.h"
 #include "mozilla/dom/quota/PrincipalUtils.h"
 #include "mozilla/dom/quota/QuotaCommon.h"
@@ -51,7 +49,6 @@
 #include "mozilla/ipc/PBackgroundParent.h"
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
 #include "mozilla/ipc/ProtocolUtils.h"
-#include "NotifyUtils.h"
 #include "nsCOMPtr.h"
 #include "nsDebug.h"
 #include "nsError.h"
@@ -117,7 +114,7 @@ class StreamHelper final : public Runnable {
 };
 
 class Connection final : public PBackgroundSDBConnectionParent {
-  RefPtr<ClientDirectoryLock> mDirectoryLock;
+  ClientDirectoryLockHandle mDirectoryLockHandle;
   nsCOMPtr<nsIFileRandomAccessStream> mFileRandomAccessStream;
   const PrincipalInfo mPrincipalInfo;
   nsCString mOrigin;
@@ -138,7 +135,7 @@ class Connection final : public PBackgroundSDBConnectionParent {
   Maybe<ClientDirectoryLock&> MaybeDirectoryLockRef() const {
     AssertIsOnBackgroundThread();
 
-    return ToMaybeRef(mDirectoryLock.get());
+    return ToMaybeRef(mDirectoryLockHandle.get());
   }
 
   nsIFileRandomAccessStream* GetFileRandomAccessStream() const {
@@ -175,7 +172,7 @@ class Connection final : public PBackgroundSDBConnectionParent {
 
   void OnOpen(
       const nsACString& aOrigin, const nsAString& aName,
-      already_AddRefed<ClientDirectoryLock> aDirectoryLock,
+      ClientDirectoryLockHandle aDirectoryLockHandle,
       already_AddRefed<nsIFileRandomAccessStream> aFileRandomAccessStream);
 
   void OnClose();
@@ -336,7 +333,7 @@ class OpenOp final : public ConnectionOperationBase {
   };
 
   const SDBRequestOpenParams mParams;
-  RefPtr<ClientDirectoryLock> mDirectoryLock;
+  ClientDirectoryLockHandle mDirectoryLockHandle;
   nsCOMPtr<nsIFileRandomAccessStream> mFileRandomAccessStream;
   // XXX Consider changing this to ClientMetadata.
   quota::OriginMetadata mOriginMetadata;
@@ -374,7 +371,7 @@ class OpenOp final : public ConnectionOperationBase {
   NS_IMETHOD
   Run() override;
 
-  void DirectoryLockAcquired(ClientDirectoryLock* aLock);
+  void DirectoryLockAcquired(ClientDirectoryLockHandle aLockHandle);
 
   void DirectoryLockFailed();
 };
@@ -631,7 +628,7 @@ void StreamHelper::RunOnIOThread() {
   MOZ_ASSERT(inputStream);
 
   nsresult rv = inputStream->Close();
-  Unused << NS_WARN_IF(NS_FAILED(rv));
+  (void)NS_WARN_IF(NS_FAILED(rv));
 
   MOZ_ALWAYS_SUCCEEDS(mOwningEventTarget->Dispatch(this, NS_DISPATCH_NORMAL));
 }
@@ -689,20 +686,20 @@ void Connection::OnRequestFinished() {
 
 void Connection::OnOpen(
     const nsACString& aOrigin, const nsAString& aName,
-    already_AddRefed<ClientDirectoryLock> aDirectoryLock,
+    ClientDirectoryLockHandle aDirectoryLockHandle,
     already_AddRefed<nsIFileRandomAccessStream> aFileRandomAccessStream) {
   AssertIsOnBackgroundThread();
   MOZ_ASSERT(!aOrigin.IsEmpty());
   MOZ_ASSERT(!aName.IsEmpty());
   MOZ_ASSERT(mOrigin.IsEmpty());
   MOZ_ASSERT(mName.IsEmpty());
-  MOZ_ASSERT(!mDirectoryLock);
+  MOZ_ASSERT(!mDirectoryLockHandle);
   MOZ_ASSERT(!mFileRandomAccessStream);
   MOZ_ASSERT(!mOpen);
 
   mOrigin = aOrigin;
   mName = aName;
-  mDirectoryLock = aDirectoryLock;
+  mDirectoryLockHandle = std::move(aDirectoryLockHandle);
   mFileRandomAccessStream = aFileRandomAccessStream;
   mOpen = true;
 
@@ -712,7 +709,7 @@ void Connection::OnOpen(
 
   gOpenConnections->AppendElement(WrapNotNullUnchecked(this));
 
-  if (mDirectoryLock->Invalidated()) {
+  if (mDirectoryLockHandle->Invalidated()) {
     AllowToClose();
   }
 }
@@ -720,14 +717,16 @@ void Connection::OnOpen(
 void Connection::OnClose() {
   AssertIsOnBackgroundThread();
   MOZ_ASSERT(!mOrigin.IsEmpty());
-  MOZ_ASSERT(mDirectoryLock);
+  MOZ_ASSERT(mDirectoryLockHandle);
   MOZ_ASSERT(mFileRandomAccessStream);
   MOZ_ASSERT(mOpen);
 
   mOrigin.Truncate();
   mName.Truncate();
 
-  DropDirectoryLock(mDirectoryLock);
+  {
+    auto destroyingDirectoryLockHandle = std::move(mDirectoryLockHandle);
+  }
 
   mFileRandomAccessStream = nullptr;
   mOpen = false;
@@ -740,7 +739,7 @@ void Connection::OnClose() {
   }
 
   if (mAllowedToClose && !mActorDestroyed) {
-    Unused << SendClosed();
+    (void)SendClosed();
   }
 }
 
@@ -754,7 +753,7 @@ void Connection::AllowToClose() {
   mAllowedToClose = true;
 
   if (!mActorDestroyed) {
-    Unused << SendAllowToClose();
+    (void)SendAllowToClose();
   }
 
   MaybeCloseStream();
@@ -995,7 +994,7 @@ void ConnectionOperationBase::SendResults() {
       response = mResultCode;
     }
 
-    Unused << PBackgroundSDBRequestParent::Send__delete__(this, response);
+    (void)PBackgroundSDBRequestParent::Send__delete__(this, response);
   }
 
   Cleanup();
@@ -1052,7 +1051,7 @@ OpenOp::OpenOp(Connection* aConnection, const SDBRequestParams& aParams)
 }
 
 OpenOp::~OpenOp() {
-  MOZ_ASSERT(!mDirectoryLock);
+  MOZ_ASSERT(mDirectoryLockHandle.IsInert());
   MOZ_ASSERT(!mFileRandomAccessStream);
   MOZ_ASSERT(!mFileRandomAccessStreamOpen);
   MOZ_ASSERT_IF(OperationMayProceed(),
@@ -1087,7 +1086,7 @@ nsresult OpenOp::Open() {
 nsresult OpenOp::FinishOpen() {
   AssertIsOnOwningThread();
   MOZ_ASSERT(mOriginMetadata.mOrigin.IsEmpty());
-  MOZ_ASSERT(!mDirectoryLock);
+  MOZ_ASSERT(!mDirectoryLockHandle);
   MOZ_ASSERT(mState == State::FinishOpen);
 
   if (NS_WARN_IF(QuotaClient::IsShuttingDownOnBackgroundThread()) ||
@@ -1131,10 +1130,10 @@ nsresult OpenOp::FinishOpen() {
       ->OpenClientDirectory({mOriginMetadata, mozilla::dom::quota::Client::SDB})
       ->Then(
           GetCurrentSerialEventTarget(), __func__,
-          [self = RefPtr(this)](
-              const ClientDirectoryLockPromise::ResolveOrRejectValue& aValue) {
+          [self = RefPtr(this)](QuotaManager::ClientDirectoryLockHandlePromise::
+                                    ResolveOrRejectValue&& aValue) {
             if (aValue.IsResolve()) {
-              self->DirectoryLockAcquired(aValue.ResolveValue());
+              self->DirectoryLockAcquired(std::move(aValue.ResolveValue()));
             } else {
               self->DirectoryLockFailed();
             }
@@ -1268,11 +1267,13 @@ nsresult OpenOp::DatabaseWork() {
 void OpenOp::StreamClosedCallback() {
   AssertIsOnOwningThread();
   MOZ_ASSERT(NS_FAILED(ResultCode()));
-  MOZ_ASSERT(mDirectoryLock);
+  MOZ_ASSERT(mDirectoryLockHandle);
   MOZ_ASSERT(mFileRandomAccessStream);
   MOZ_ASSERT(mFileRandomAccessStreamOpen);
 
-  DropDirectoryLock(mDirectoryLock);
+  {
+    auto destroyingDirectoryLockHandle = std::move(mDirectoryLockHandle);
+  }
 
   mFileRandomAccessStream = nullptr;
   mFileRandomAccessStreamOpen = false;
@@ -1298,19 +1299,19 @@ void OpenOp::OnSuccess() {
   AssertIsOnOwningThread();
   MOZ_ASSERT(NS_SUCCEEDED(ResultCode()));
   MOZ_ASSERT(!mOriginMetadata.mOrigin.IsEmpty());
-  MOZ_ASSERT(mDirectoryLock);
+  MOZ_ASSERT(mDirectoryLockHandle);
   MOZ_ASSERT(mFileRandomAccessStream);
   MOZ_ASSERT(mFileRandomAccessStreamOpen);
 
-  RefPtr<ClientDirectoryLock> directoryLock;
+  ClientDirectoryLockHandle directoryLockHandle;
   nsCOMPtr<nsIFileRandomAccessStream> fileRandomAccessStream;
 
-  mDirectoryLock.swap(directoryLock);
+  directoryLockHandle = std::move(mDirectoryLockHandle);
   mFileRandomAccessStream.swap(fileRandomAccessStream);
   mFileRandomAccessStreamOpen = false;
 
   GetConnection()->OnOpen(mOriginMetadata.mOrigin, mParams.name(),
-                          directoryLock.forget(),
+                          std::move(directoryLockHandle),
                           fileRandomAccessStream.forget());
 }
 
@@ -1322,7 +1323,7 @@ void OpenOp::Cleanup() {
     // If we have an initialized file stream then the operation must have failed
     // and there must be a directory lock too.
     MOZ_ASSERT(NS_FAILED(ResultCode()));
-    MOZ_ASSERT(mDirectoryLock);
+    MOZ_ASSERT(mDirectoryLockHandle);
 
     // We must close the stream on the I/O thread before releasing it on this
     // thread. The directory lock can't be released either.
@@ -1334,7 +1335,9 @@ void OpenOp::Cleanup() {
         new StreamHelper(mFileRandomAccessStream, callback);
     helper->AsyncClose();
   } else {
-    SafeDropDirectoryLock(mDirectoryLock);
+    {
+      auto destroyingDirectoryLockHandle = std::move(mDirectoryLockHandle);
+    }
 
     mFileRandomAccessStream = nullptr;
     MOZ_ASSERT(!mFileRandomAccessStreamOpen);
@@ -1386,12 +1389,12 @@ OpenOp::Run() {
   return NS_OK;
 }
 
-void OpenOp::DirectoryLockAcquired(ClientDirectoryLock* aLock) {
+void OpenOp::DirectoryLockAcquired(ClientDirectoryLockHandle aLockHandle) {
   AssertIsOnOwningThread();
   MOZ_ASSERT(mState == State::DirectoryOpenPending);
-  MOZ_ASSERT(!mDirectoryLock);
+  MOZ_ASSERT(!mDirectoryLockHandle);
 
-  mDirectoryLock = aLock;
+  mDirectoryLockHandle = std::move(aLockHandle);
 
   auto cleanupAndReturn = [self = RefPtr(this)](const nsresult rv) {
     self->MaybeSetFailureCode(rv);
@@ -1403,7 +1406,7 @@ void OpenOp::DirectoryLockAcquired(ClientDirectoryLock* aLock) {
     MOZ_ALWAYS_SUCCEEDS(self->Run());
   };
 
-  if (mDirectoryLock->Invalidated()) {
+  if (mDirectoryLockHandle->Invalidated()) {
     return cleanupAndReturn(NS_ERROR_ABORT);
   }
 
@@ -1413,7 +1416,7 @@ void OpenOp::DirectoryLockAcquired(ClientDirectoryLock* aLock) {
 void OpenOp::DirectoryLockFailed() {
   AssertIsOnOwningThread();
   MOZ_ASSERT(mState == State::DirectoryOpenPending);
-  MOZ_ASSERT(!mDirectoryLock);
+  MOZ_ASSERT(!mDirectoryLockHandle);
 
   MaybeSetFailureCode(NS_ERROR_FAILURE);
 
@@ -1707,7 +1710,7 @@ Result<UsageInfo, nsresult> QuotaClient::GetUsageForOrigin(
                        MOZ_TO_RESULT_INVOKE_MEMBER(file, IsDirectory));
 
         if (isDirectory) {
-          Unused << WARN_IF_FILE_IS_UNKNOWN(*file);
+          (void)WARN_IF_FILE_IS_UNKNOWN(*file);
           return usageInfo;
         }
 
@@ -1724,7 +1727,7 @@ Result<UsageInfo, nsresult> QuotaClient::GetUsageForOrigin(
                  UsageInfo{DatabaseUsageType(Some(uint64_t(fileSize)))};
         }
 
-        Unused << WARN_IF_FILE_IS_UNKNOWN(*file);
+        (void)WARN_IF_FILE_IS_UNKNOWN(*file);
 
         return usageInfo;
       }));

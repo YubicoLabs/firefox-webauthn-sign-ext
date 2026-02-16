@@ -40,12 +40,9 @@ add_setup(() => {
   server = new HttpServer();
   server.start(-1);
 
-  // Pretend we are in nightly channel to make sure all telemetry events are sent.
-  let oldGetChannel = Policy.getChannel;
-  Policy.getChannel = () => "nightly";
-
   registerCleanupFunction(() => {
-    Policy.getChannel = oldGetChannel;
+    Services.prefs.clearUserPref("services.settings.loglevel");
+    Services.prefs.clearUserPref(PREF_SETTINGS_SERVER);
     server.stop(() => {});
   });
 });
@@ -85,6 +82,121 @@ add_task(async function test_check_signatures() {
       Ci.nsIX509CertDB.AppXPCShellRoot
     )
   );
+});
+
+add_task(async function test_bad_signature_does_not_lead_to_empty_list() {
+  Services.prefs.setStringPref(
+    PREF_SETTINGS_SERVER,
+    `http://localhost:${server.identity.primaryPort}/v1`
+  );
+  const x5u = `http://localhost:${server.identity.primaryPort}/x5u.pem`;
+
+  const networkCalls = [];
+
+  server.registerPathHandler(
+    "/v1/buckets/monitor/collections/changes/changeset",
+    (request, response) => {
+      response.write(
+        JSON.stringify({
+          changes: [
+            {
+              bucket: "main",
+              collection: "no-dump-no-local-data",
+              last_modified: 42,
+            },
+          ],
+        })
+      );
+      response.setHeader("Content-Type", "application/json; charset=UTF-8");
+      response.setStatusLine(null, 200, "OK");
+    }
+  );
+  server.registerPathHandler(
+    "/v1/buckets/monitor/collections/changes/changeset",
+    (request, response) => {
+      networkCalls.push(request);
+      response.write(
+        JSON.stringify({
+          changes: [
+            {
+              bucket: "main",
+              collection: "no-dump-no-local-data",
+              last_modified: 42,
+            },
+          ],
+        })
+      );
+      response.setHeader("Content-Type", "application/json; charset=UTF-8");
+      response.setStatusLine(null, 200, "OK");
+    }
+  );
+  server.registerPathHandler(
+    "/v1/buckets/main/collections/no-dump-no-local-data/changeset",
+    (request, response) => {
+      response.write(
+        JSON.stringify({
+          timestamp: 42,
+          changes: [],
+          metadata: {
+            signatures: [
+              {
+                signature: "bad-signature",
+                x5u,
+              },
+            ],
+          },
+        })
+      );
+      response.setHeader("Content-Type", "application/json; charset=UTF-8");
+      response.setStatusLine(null, 200, "OK");
+    }
+  );
+  server.registerPathHandler("/x5u.pem", (request, response) => {
+    response.write(getCertChain()); // At least cert will be valid.
+    response.setHeader("Content-Type", "text/plain; charset=UTF-8");
+    response.setStatusLine(null, 200, "OK");
+  });
+
+  const clientEmpty = RemoteSettings("no-dump-no-local-data");
+  clientEmpty.verifySignature = true; // default
+
+  // Check that client.get() will initiate a sync,
+  // and that it will throw since the signature is bad,
+  // and not return an empty list (`emptyListFallback: false`)
+  let error;
+  try {
+    await clientEmpty.get({
+      emptyListFallback: false,
+      syncIfEmpty: true, // default value
+    });
+  } catch (exc) {
+    error = exc;
+  }
+  equal(error.name, "InvalidSignatureError");
+
+  // Even running client.sync() will throw and won't leave
+  // anything in the database.
+  error = null;
+  try {
+    await clientEmpty.sync();
+  } catch (exc) {
+    error = exc;
+  }
+  equal(error.name, "InvalidSignatureError");
+  equal(await clientEmpty.db.getLastModified(), null);
+
+  // Call .get() again will initiate another sync.
+  networkCalls.length = 0;
+  try {
+    await clientEmpty.get({
+      emptyListFallback: false,
+      syncIfEmpty: true, // default value
+    });
+  } catch (exc) {
+    error = exc;
+  }
+  Assert.greater(networkCalls.length, 0, "Network calls were made");
+  equal(error.name, "InvalidSignatureError");
 });
 
 add_task(async function test_check_synchronization_with_signatures() {
@@ -242,11 +354,13 @@ add_task(async function test_check_synchronization_with_signatures() {
     responseBody: JSON.stringify({
       timestamp: 1000,
       metadata: {
-        signature: {
-          x5u,
-          signature:
-            "vxuAg5rDCB-1pul4a91vqSBQRXJG_j7WOYUTswxRSMltdYmbhLRH8R8brQ9YKuNDF56F-w6pn4HWxb076qgKPwgcEBtUeZAO_RtaHXRkRUUgVzAr86yQL4-aJTbv3D6u",
-        },
+        signatures: [
+          {
+            x5u,
+            signature:
+              "vxuAg5rDCB-1pul4a91vqSBQRXJG_j7WOYUTswxRSMltdYmbhLRH8R8brQ9YKuNDF56F-w6pn4HWxb076qgKPwgcEBtUeZAO_RtaHXRkRUUgVzAr86yQL4-aJTbv3D6u",
+          },
+        ],
       },
       changes: [],
     }),
@@ -289,7 +403,10 @@ add_task(async function test_check_synchronization_with_signatures() {
   );
 
   // ensure that a success histogram is tracked when a succesful sync occurs.
-  let expectedIncrements = { [UptakeTelemetry.STATUS.SUCCESS]: 1 };
+  let expectedIncrements = {
+    [UptakeTelemetry.STATUS.SYNC_START]: 1,
+    [UptakeTelemetry.STATUS.SUCCESS]: 1,
+  };
   checkUptakeTelemetry(startSnapshot, endSnapshot, expectedIncrements);
 
   //
@@ -311,18 +428,20 @@ add_task(async function test_check_synchronization_with_signatures() {
     responseBody: JSON.stringify({
       timestamp: 3000,
       metadata: {
-        signature: {
-          x5u,
-          signature:
-            "dwhJeypadNIyzGj3QdI0KMRTPnHhFPF_j73mNrsPAHKMW46S2Ftf4BzsPMvPMB8h0TjDus13wo_R4l432DHe7tYyMIWXY0PBeMcoe5BREhFIxMxTsh9eGVXBD1e3UwRy",
-        },
+        signatures: [
+          {
+            x5u,
+            signature:
+              "dwhJeypadNIyzGj3QdI0KMRTPnHhFPF_j73mNrsPAHKMW46S2Ftf4BzsPMvPMB8h0TjDus13wo_R4l432DHe7tYyMIWXY0PBeMcoe5BREhFIxMxTsh9eGVXBD1e3UwRy",
+          },
+        ],
       },
       changes: [RECORD2, RECORD1],
     }),
   };
 
   const twoItemsResponses = {
-    "GET:/v1/buckets/main/collections/signed/changeset?_expected=3000&_since=%221000%22":
+    "GET:/v1/buckets/main/collections/signed/changeset?_expected=3000&_since=1000":
       [RESPONSE_TWO_ADDED],
   };
   registerHandlers(twoItemsResponses);
@@ -351,17 +470,19 @@ add_task(async function test_check_synchronization_with_signatures() {
     responseBody: JSON.stringify({
       timestamp: 4000,
       metadata: {
-        signature: {
-          x5u,
-          signature: THREE_ITEMS_SIG,
-        },
+        signatures: [
+          {
+            x5u,
+            signature: THREE_ITEMS_SIG,
+          },
+        ],
       },
       changes: [RECORD3, RECORD1_DELETION],
     }),
   };
 
   const oneAddedOneRemovedResponses = {
-    "GET:/v1/buckets/main/collections/signed/changeset?_expected=4000&_since=%223000%22":
+    "GET:/v1/buckets/main/collections/signed/changeset?_expected=4000&_since=3000":
       [RESPONSE_ONE_ADDED_ONE_REMOVED],
   };
   registerHandlers(oneAddedOneRemovedResponses);
@@ -387,17 +508,19 @@ add_task(async function test_check_synchronization_with_signatures() {
     responseBody: JSON.stringify({
       timestamp: 4000,
       metadata: {
-        signature: {
-          x5u,
-          signature: THREE_ITEMS_SIG,
-        },
+        signatures: [
+          {
+            x5u,
+            signature: THREE_ITEMS_SIG,
+          },
+        ],
       },
       changes: [],
     }),
   };
 
   const noOpResponses = {
-    "GET:/v1/buckets/main/collections/signed/changeset?_expected=4100&_since=%224000%22":
+    "GET:/v1/buckets/main/collections/signed/changeset?_expected=4100&_since=4000":
       [RESPONSE_EMPTY_NO_UPDATE],
   };
   registerHandlers(noOpResponses);
@@ -405,7 +528,6 @@ add_task(async function test_check_synchronization_with_signatures() {
 
   equal((await client.get()).length, 2);
 
-  console.info("---------------------------------------------------------");
   //
   // 5.
   // - collection: [RECORD2, RECORD3] -> [RECORD2, RECORD3]
@@ -428,10 +550,12 @@ add_task(async function test_check_synchronization_with_signatures() {
     responseBody: JSON.stringify({
       timestamp: 4000,
       metadata: {
-        signature: {
-          x5u,
-          signature: THREE_ITEMS_SIG,
-        },
+        signatures: [
+          {
+            x5u,
+            signature: THREE_ITEMS_SIG,
+          },
+        ],
       },
       changes: [RECORD2, RECORD3],
     }),
@@ -442,10 +566,12 @@ add_task(async function test_check_synchronization_with_signatures() {
     responseBody: JSON.stringify({
       timestamp: 4000,
       metadata: {
-        signature: {
-          x5u,
-          signature: "aW52YWxpZCBzaWduYXR1cmUK",
-        },
+        signatures: [
+          {
+            x5u,
+            signature: "aW52YWxpZCBzaWduYXR1cmUK",
+          },
+        ],
       },
       changes: [],
     }),
@@ -455,7 +581,7 @@ add_task(async function test_check_synchronization_with_signatures() {
     // The first collection state is the three item collection (since
     // there was sync with no updates before) - but, since the signature is wrong,
     // another request will be made...
-    "GET:/v1/buckets/main/collections/signed/changeset?_expected=5000&_since=%224000%22":
+    "GET:/v1/buckets/main/collections/signed/changeset?_expected=5000&_since=4000":
       [RESPONSE_EMPTY_NO_UPDATE_BAD_SIG],
     // Subsequent signature returned is a valid one for the three item
     // collection.
@@ -492,7 +618,10 @@ add_task(async function test_check_synchronization_with_signatures() {
   // ensure that the failure count is incremented for a succesful sync with an
   // (initial) bad signature - only SERVICES_SETTINGS_SYNC_SIG_FAIL should
   // increment.
-  expectedIncrements = { [UptakeTelemetry.STATUS.SIGNATURE_ERROR]: 1 };
+  expectedIncrements = {
+    [UptakeTelemetry.STATUS.SYNC_START]: -2,
+    [UptakeTelemetry.STATUS.SIGNATURE_ERROR]: 1,
+  };
   checkUptakeTelemetry(startSnapshot, endSnapshot, expectedIncrements);
 
   //
@@ -510,7 +639,7 @@ add_task(async function test_check_synchronization_with_signatures() {
   const badSigGoodOldResponses = {
     // The first collection state is the current state (since there's no update
     // - but, since the signature is wrong, another request will be made)
-    "GET:/v1/buckets/main/collections/signed/changeset?_expected=5000&_since=%224000%22":
+    "GET:/v1/buckets/main/collections/signed/changeset?_expected=5000&_since=4000":
       [RESPONSE_EMPTY_NO_UPDATE_BAD_SIG],
     // The next request is for the full collection. This will be
     // checked against the valid signature and last_modified times will be
@@ -550,18 +679,21 @@ add_task(async function test_check_synchronization_with_signatures() {
     responseBody: JSON.stringify({
       timestamp: 5000,
       metadata: {
-        signature: {
-          x5u,
-          signature: "aW52YWxpZCBzaWduYXR1cmUK",
-        },
+        signatures: [
+          {
+            x5u,
+            signature: "aW52YWxpZCBzaWduYXR1cmUK",
+          },
+        ],
       },
       changes: [RECORD2, RECORD3],
     }),
   };
 
   const badLocalContentGoodSigResponses = {
+    "GET:/v1/buckets/main/collections/signed/changeset?_expected=5000&_since=3900":
+      [RESPONSE_COMPLETE_BAD_SIG],
     "GET:/v1/buckets/main/collections/signed/changeset?_expected=5000": [
-      RESPONSE_COMPLETE_BAD_SIG,
       RESPONSE_COMPLETE_INITIAL,
     ],
   };
@@ -574,8 +706,8 @@ add_task(async function test_check_synchronization_with_signatures() {
   // the final server collection contains RECORD2 and RECORD3
   const localId = "0602b1b2-12ab-4d3a-b6fb-593244e7b035";
   await client.db.importChanges(
-    { signature: { x5u, signature: "abc" } },
-    null,
+    { signatures: [{ x5u, signature: "abc" }] },
+    3900,
     [
       { ...RECORD2, last_modified: 1234567890, serialNumber: "abc" },
       { id: localId },
@@ -604,6 +736,16 @@ add_task(async function test_check_synchronization_with_signatures() {
   // We should report a corruption_error.
   TelemetryTestUtils.assertEvents(
     [
+      [
+        "uptake.remotecontent.result",
+        "uptake",
+        "remotesettings",
+        UptakeTelemetry.STATUS.SYNC_START,
+        {
+          source: client.identifier,
+          trigger: "manual",
+        },
+      ],
       [
         "uptake.remotecontent.result",
         "uptake",
@@ -651,10 +793,12 @@ add_task(async function test_check_synchronization_with_signatures() {
     responseBody: JSON.stringify({
       timestamp: 6000,
       metadata: {
-        signature: {
-          x5u,
-          signature: "aaaaaaaaaaaaaaaaaaaaaaaa", // sig verifier wants proper length or will crash.
-        },
+        signatures: [
+          {
+            x5u,
+            signature: "aaaaaaaaaaaaaaaaaaaaaaaa", // sig verifier wants proper length or will crash.
+          },
+        ],
       },
       changes: [
         {
@@ -669,16 +813,18 @@ add_task(async function test_check_synchronization_with_signatures() {
     responseBody: JSON.stringify({
       timestamp: 6000,
       metadata: {
-        signature: {
-          x5u,
-          signature: "aW52YWxpZCBzaWduYXR1cmUK",
-        },
+        signatures: [
+          {
+            x5u,
+            signature: "aW52YWxpZCBzaWduYXR1cmUK",
+          },
+        ],
       },
       changes: [],
     }),
   };
   const allBadSigResponses = {
-    "GET:/v1/buckets/main/collections/signed/changeset?_expected=6000&_since=%224000%22":
+    "GET:/v1/buckets/main/collections/signed/changeset?_expected=6000&_since=4000":
       [RESPONSE_EMPTY_NO_UPDATE_BAD_SIG_6000],
     "GET:/v1/buckets/main/collections/signed/changeset?_expected=6000": [
       RESPONSE_ONLY_RECORD4_BAD_SIG,
@@ -701,7 +847,10 @@ add_task(async function test_check_synchronization_with_signatures() {
     TELEMETRY_COMPONENT,
     TELEMETRY_SOURCE
   );
-  expectedIncrements = { [UptakeTelemetry.STATUS.SIGNATURE_RETRY_ERROR]: 1 };
+  expectedIncrements = {
+    [UptakeTelemetry.STATUS.SYNC_START]: 1,
+    [UptakeTelemetry.STATUS.SIGNATURE_RETRY_ERROR]: 1,
+  };
   checkUptakeTelemetry(startSnapshot, endSnapshot, expectedIncrements);
 
   // When signature fails after retry, the local data present before sync
@@ -783,7 +932,7 @@ add_task(async function test_check_synchronization_with_signatures() {
   // thanks to the verifier mock.
   await client.db.importChanges(
     {
-      signature: { x5u, signature: "aa" },
+      signatures: [{ x5u, signature: "aa" }],
     },
     4000,
     [

@@ -5,12 +5,11 @@
 
 "use strict";
 
-/* exported attachUpdateHandler, detachUpdateHandler,
- *          getBrowserElement, installAddonsFromFilePicker,
- *          isCorrectlySigned, isDisabledUnsigned, isDiscoverEnabled,
- *          isPending, loadReleaseNotes, openOptionsInTab, promiseEvent,
- *          shouldShowPermissionsPrompt, showPermissionsPrompt,
- *          PREF_UI_LASTCATEGORY */
+/* exported attachUpdateHandler, detachUpdateHandler, getBrowserElement,
+     installAddonsFromFilePicker, isCorrectlySigned, isDisabledUnsigned,
+     isDiscoverEnabled, isPending, loadReleaseNotes, openOptionsInTab,
+     promiseEvent, shouldShowPermissionsPrompt, showPermissionsPrompt,
+     PREF_UI_LASTCATEGORY */
 
 const { AddonSettings } = ChromeUtils.importESModule(
   "resource://gre/modules/addons/AddonSettings.sys.mjs"
@@ -30,6 +29,15 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "XPINSTALL_ENABLED",
   "xpinstall.enabled",
   true
+);
+
+// When this pref is set and the add-on is already installed, we use the
+// "update" flow instead of the "install" (over) flow in `about:addons`.
+XPCOMUtils.defineLazyPreferenceGetter(
+  this,
+  "PREFER_UPDATE_OVER_INSTALL_FOR_EXISTING_ADDON",
+  "extensions.webextensions.prefer-update-over-install-for-existing-addon",
+  false
 );
 
 const PREF_DISCOVER_ENABLED = "extensions.getAddons.showPane";
@@ -59,6 +67,14 @@ function promiseEvent(event, target, capture = false) {
   });
 }
 
+// This is similar to `AddonManagerInternal.updatePromptHandler()` except it
+// notifies "webextension-permission-prompt" because we want to show the
+// permissions prompt directly. The `updatePromptHandler()` will notify a
+// different topic and the outcome will be a notification created on the app
+// menu button.
+//
+// TODO: Bug 1974732 - Refactor install prompt handler used in `about:addons`
+// to use the logic in the `AddonManager`.
 function installPromptHandler(info) {
   const install = this;
 
@@ -68,12 +84,30 @@ function installPromptHandler(info) {
     return Promise.resolve();
   }
 
+  if (info.existingAddon.isInstalledByEnterprisePolicy) {
+    return Promise.resolve();
+  }
+
+  // When an update for an existing add-on includes data collection
+  // permissions, which the add-ons didn't have so far, and the manifest
+  // contains a flag to indicate that there was a previous consent, then we
+  // allow the update to just proceed, unless there are other new required
+  // permissions.
+  const updateIsMigratingToDataCollectionPerms =
+    !info.existingAddon.hasDataCollectionPermissions &&
+    info.install.addonHasPreviousConsent;
+
   let newPerms = info.addon.userPermissions;
 
   let difference = Extension.comparePermissions(oldPerms, newPerms);
 
   // If there are no new permissions, just proceed
-  if (!difference.origins.length && !difference.permissions.length) {
+  if (
+    !difference.origins.length &&
+    !difference.permissions.length &&
+    (updateIsMigratingToDataCollectionPerms ||
+      !difference.data_collection.length)
+  ) {
     return Promise.resolve();
   }
 
@@ -251,10 +285,14 @@ async function installAddonsFromFilePicker() {
           null,
           installTelemetryInfo
         );
-        AddonManager.installAddonFromAOM(
+        AddonManager.installAddonFromAOMWithOptions(
           browser,
           document.documentURIObject,
-          install
+          install,
+          {
+            preferUpdateOverInstall:
+              PREFER_UPDATE_OVER_INSTALL_FOR_EXISTING_ADDON,
+          }
         );
         installs.push(install);
       }

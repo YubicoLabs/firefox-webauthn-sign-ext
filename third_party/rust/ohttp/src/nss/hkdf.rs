@@ -1,3 +1,7 @@
+use std::{convert::TryFrom, os::raw::c_int, ptr::null_mut};
+
+use log::trace;
+
 use super::{
     super::hpke::{Aead, Kdf},
     p11::{
@@ -10,8 +14,6 @@ use super::{
     },
 };
 use crate::err::Res;
-use log::trace;
-use std::{convert::TryFrom, os::raw::c_int, ptr::null_mut};
 
 #[derive(Clone, Copy)]
 pub enum KeyMechanism {
@@ -23,7 +25,7 @@ pub enum KeyMechanism {
 impl KeyMechanism {
     fn mech(self) -> CK_MECHANISM_TYPE {
         CK_MECHANISM_TYPE::from(match self {
-            Self::Aead(Aead::Aes128Gcm) | Self::Aead(Aead::Aes256Gcm) => CKM_AES_GCM,
+            Self::Aead(Aead::Aes128Gcm | Aead::Aes256Gcm) => CKM_AES_GCM,
             Self::Aead(Aead::ChaCha20Poly1305) => CKM_CHACHA20_POLY1305,
             Self::Hkdf => CKM_HKDF_DERIVE,
         })
@@ -51,7 +53,7 @@ impl Hkdf {
         let slot = super::p11::Slot::internal()?;
         let ptr = unsafe {
             sys::PK11_ImportSymKey(
-                *slot,
+                slot.ptr(),
                 CK_MECHANISM_TYPE::from(sys::CKM_HKDF_KEY_GEN),
                 sys::PK11Origin::PK11_OriginUnwrap,
                 sys::CK_ATTRIBUTE_TYPE::from(sys::CKA_SIGN),
@@ -80,7 +82,7 @@ impl Hkdf {
             bExpand: CK_BBOOL::from(false),
             prfHashMechanism: self.mech(),
             ulSaltType: CK_ULONG::from(salt_type),
-            pSalt: salt.as_ptr() as *mut _, // const-cast = bad API
+            pSalt: salt.as_ptr().cast_mut(), // const-cast = bad API
             ulSaltLen: CK_ULONG::try_from(salt.len()).unwrap(),
             hSaltKey: CK_OBJECT_HANDLE::from(CK_INVALID_HANDLE),
             pInfo: null_mut(),
@@ -89,7 +91,7 @@ impl Hkdf {
         let mut params_item = ParamItem::new(&mut params);
         let ptr = unsafe {
             sys::PK11_Derive(
-                **ikm,
+                ikm.ptr(),
                 CK_MECHANISM_TYPE::from(CKM_HKDF_DERIVE),
                 params_item.ptr(),
                 CK_MECHANISM_TYPE::from(CKM_HKDF_DERIVE),
@@ -118,7 +120,7 @@ impl Hkdf {
             pSalt: null_mut(),
             ulSaltLen: 0,
             hSaltKey: CK_OBJECT_HANDLE::from(CK_INVALID_HANDLE),
-            pInfo: info.as_ptr() as *mut _, // const-cast = bad API
+            pInfo: info.as_ptr().cast_mut(), // const-cast = bad API
             ulInfoLen: CK_ULONG::try_from(info.len()).unwrap(),
         }
     }
@@ -128,7 +130,7 @@ impl Hkdf {
         let mut params_item = ParamItem::new(&mut params);
         let ptr = unsafe {
             sys::PK11_Derive(
-                **prk,
+                prk.ptr(),
                 CK_MECHANISM_TYPE::from(CKM_HKDF_DERIVE),
                 params_item.ptr(),
                 key_mech.mech(),
@@ -151,7 +153,7 @@ impl Hkdf {
         let mut params_item = ParamItem::new(&mut params);
         let ptr = unsafe {
             sys::PK11_Derive(
-                **prk,
+                prk.ptr(),
                 CK_MECHANISM_TYPE::from(CKM_HKDF_DATA),
                 params_item.ptr(),
                 CK_MECHANISM_TYPE::from(CKM_HKDF_DERIVE),

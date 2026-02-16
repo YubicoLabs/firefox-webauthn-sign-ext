@@ -7,7 +7,9 @@
 #ifndef js_loader_ScriptFecthOptions_h
 #define js_loader_ScriptFecthOptions_h
 
+#include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/CORSMode.h"
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/dom/ReferrerPolicyBinding.h"
 #include "mozilla/dom/RequestBinding.h"  // RequestPriority
 #include "nsCOMPtr.h"
@@ -18,7 +20,7 @@ namespace JS::loader {
 // https://fetch.spec.whatwg.org/#concept-request-parser-metadata
 // All scripts are either "parser-inserted" or "not-parser-inserted", so
 // the empty string is not necessary.
-enum class ParserMetadata {
+enum class ParserMetadata : uint8_t {
   NotParserInserted,
   ParserInserted,
 };
@@ -48,13 +50,49 @@ class ScriptFetchOptions {
   ~ScriptFetchOptions();
 
  public:
-  NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(ScriptFetchOptions)
-  NS_DECL_CYCLE_COLLECTION_NATIVE_CLASS(ScriptFetchOptions)
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(ScriptFetchOptions)
 
   ScriptFetchOptions(mozilla::CORSMode aCORSMode, const nsAString& aNonce,
                      mozilla::dom::RequestPriority aFetchPriority,
                      const ParserMetadata aParserMetadata,
-                     nsIPrincipal* aTriggeringPrincipal);
+                     nsIPrincipal* aTriggeringPrincipal = nullptr);
+
+  // https://html.spec.whatwg.org/#default-script-fetch-options
+  static already_AddRefed<ScriptFetchOptions> CreateDefault();
+
+  void SetTriggeringPrincipal(nsIPrincipal* aTriggeringPrincipal);
+
+  // Returns true if given fetch option is compatible with this fetch option
+  // in term of sharing the server response.
+  inline bool IsCompatible(ScriptFetchOptions* other) {
+    if (this == other) {
+      return true;
+    }
+
+    if (mTriggeringPrincipal && other->mTriggeringPrincipal) {
+      bool equals;
+      (void)mTriggeringPrincipal->Equals(other->mTriggeringPrincipal, &equals);
+      if (!equals) {
+        return false;
+      }
+    } else if (mTriggeringPrincipal || other->mTriggeringPrincipal) {
+      return false;
+    }
+
+    // NOTE: mParserMetadata can be ignored.
+    return mCORSMode == other->mCORSMode && mNonce == other->mNonce &&
+           mFetchPriority == other->mFetchPriority;
+  }
+
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
+    return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
+  }
+  size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
+    return mNonce.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+  }
+
+ public:
+  /* Fields */
 
   /*
    *  The credentials mode used for the initial fetch (for module scripts)
@@ -62,12 +100,6 @@ class ScriptFetchOptions {
    *  classic scripts)
    */
   const mozilla::CORSMode mCORSMode;
-
-  /*
-   * The cryptographic nonce metadata used for the initial fetch and for
-   * fetching any imported modules.
-   */
-  const nsString mNonce;
 
   /*
    * <https://html.spec.whatwg.org/multipage/webappapis.html#script-fetch-options>.
@@ -87,20 +119,11 @@ class ScriptFetchOptions {
    */
   nsCOMPtr<nsIPrincipal> mTriggeringPrincipal;
 
-  // Returns true if given fetch option is compatible with this fetch option
-  // in term of sharing the server response.
-  inline bool IsCompatible(ScriptFetchOptions* other) {
-    bool equals;
-    (void)mTriggeringPrincipal->Equals(other->mTriggeringPrincipal, &equals);
-
-    if (!equals) {
-      return false;
-    }
-
-    // NOTE: mParserMetadata can be ignored.
-    return mCORSMode == other->mCORSMode && mNonce == other->mNonce &&
-           mFetchPriority == other->mFetchPriority;
-  }
+  /*
+   * The cryptographic nonce metadata used for the initial fetch and for
+   * fetching any imported modules.
+   */
+  const nsString mNonce;
 };
 
 }  // namespace JS::loader

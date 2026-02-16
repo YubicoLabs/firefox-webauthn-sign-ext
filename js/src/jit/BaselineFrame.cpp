@@ -52,7 +52,12 @@ void BaselineFrame::trace(JSTracer* trc, const JSJitFrameIter& frameIterator) {
     TraceRoot(trc, &argsObj_, "baseline-args-obj");
   }
 
-  if (runningInInterpreter()) {
+  mozilla::DebugOnly<bool> isBaselineSelfHosted =
+      this->script()->selfHosted() && !runningInInterpreter();
+  MOZ_ASSERT_IF(
+      JS::Prefs::experimental_self_hosted_cache() && isBaselineSelfHosted,
+      isRealmIndependent());
+  if (runningInInterpreter() || isRealmIndependent()) {
     TraceRoot(trc, &interpreterScript_, "baseline-interpreterScript");
   }
 
@@ -166,6 +171,10 @@ bool BaselineFrame::initForOsr(InterpreterFrame* fp, uint32_t numStackValues) {
   for (uint32_t i = 0; i < numStackValues; i++) {
     *valueSlot(i) = fp->slots()[i];
   }
+
+  // The InterpreterFrame won't be used anymore, but a GC might still trace it.
+  // Clear its stack slots to avoid keeping GC things alive.
+  std::fill_n(fp->slots(), numStackValues, UndefinedValue());
 
   if (fp->isDebuggee()) {
     // For debuggee frames, update any Debugger.Frame objects for the

@@ -6,34 +6,30 @@ package org.mozilla.focus.search
 
 import android.content.Context
 import android.content.res.Resources
-import android.graphics.drawable.BitmapDrawable
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.CompoundButton
 import android.widget.RadioGroup
+import androidx.core.graphics.drawable.toDrawable
 import androidx.preference.Preference
 import androidx.preference.PreferenceViewHolder
 import androidx.recyclerview.widget.RecyclerView
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.state.searchEngines
 import mozilla.components.browser.state.state.selectedOrDefaultSearchEngine
 import org.mozilla.focus.R
 import org.mozilla.focus.ext.components
-import kotlin.coroutines.CoroutineContext
 
+/**
+ * Abstract base class for a preference that displays a list of available search engines.
+ */
 abstract class SearchEngineListPreference @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0,
-) : Preference(context, attrs, defStyleAttr), CoroutineScope {
+) : Preference(context, attrs, defStyleAttr) {
 
-    private val job = Job()
-    override val coroutineContext: CoroutineContext
-        get() = job + Dispatchers.Main
     protected var searchEngines: List<SearchEngine> = emptyList()
     protected var searchEngineGroup: RadioGroup? = null
 
@@ -53,13 +49,11 @@ abstract class SearchEngineListPreference @JvmOverloads constructor(
         refreshSearchEngineViews(context)
     }
 
-    override fun onDetached() {
-        job.cancel()
-        super.onDetached()
-    }
-
     protected abstract fun updateDefaultItem(defaultButton: CompoundButton)
 
+    /**
+     * Updates the list of search engines from the application store and refreshes the UI.
+     */
     fun refetchSearchEngines() {
         searchEngines = context.components.store.state.search.searchEngines
         refreshSearchEngineViews(this@SearchEngineListPreference.context)
@@ -105,7 +99,7 @@ abstract class SearchEngineListPreference @JvmOverloads constructor(
         val buttonItem = layoutInflater.inflate(itemResId, null) as CompoundButton
         buttonItem.text = engine.name
         val iconSize = res.getDimension(R.dimen.preference_icon_drawable_size).toInt()
-        val engineIcon = BitmapDrawable(res, engine.icon)
+        val engineIcon = engine.icon.toDrawable(res)
         engineIcon.setBounds(0, 0, iconSize, iconSize)
         val drawables = buttonItem.compoundDrawables
         buttonItem.setCompoundDrawablesRelative(engineIcon, null, drawables[2], null)

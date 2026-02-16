@@ -31,6 +31,18 @@ ChromeUtils.defineESModuleGetters(lazy, {
   setTimeout: "resource://gre/modules/Timer.sys.mjs",
 });
 
+class FormFillFocusListener {
+  handleFocus(element) {
+    let actor =
+      element.ownerGlobal?.windowGlobalChild?.getActor("FormAutofill");
+    return actor?.handleFocus(element);
+  }
+
+  QueryInterface = ChromeUtils.generateQI(["nsIFormFillFocusListener"]);
+}
+
+let gFormFillFocusListener;
+
 /**
  * Handles content's interactions for the frame.
  */
@@ -39,13 +51,21 @@ export class FormAutofillChild extends JSWindowActorChild {
    * Keep track of autofill handlers that are waiting for the parent process
    * to send back the identified result.
    */
-  #handlerWaitingForDetectedComplete = new Set();
+  #handlerWaitingForDetectedComplete = new Map();
 
   /**
    * Keep track of handler that are waiting for the
    * notification to re-fill fields after a form change
    */
   #handlerWaitingForFillOnFormChangeComplete = new Set();
+
+  /**
+   * Keep track of handler that are waiting for the parent process
+   * to complete the previous form submission action. This is needed
+   * to prevent the field update heuristics from changing the detected field
+   * details while the form submission heuristics is trying to capture them.
+   */
+  #handlerWaitingForFormSubmissionComplete = new Set();
 
   constructor() {
     super();
@@ -82,88 +102,113 @@ export class FormAutofillChild extends JSWindowActorChild {
    *                           is run due to a form change
    */
   onFieldsDetectedComplete(fieldDetails, isUpdate = false) {
-    if (!fieldDetails.length) {
-      return;
-    }
+    let fieldsDetectedResolver;
 
-    const handler = this._fieldDetailsManager.getFormHandlerByRootElementId(
-      fieldDetails[0].rootElementId
-    );
-    this.#handlerWaitingForDetectedComplete.delete(handler);
-
-    if (isUpdate) {
-      handler.updateFormIfNeeded(fieldDetails[0].element);
-      this._fieldDetailsManager.addFormHandlerByElementEntries(handler);
-    }
-
-    handler.setIdentifiedFieldDetails(fieldDetails);
-    handler.setUpDynamicFormChangeObserver();
-
-    let addressFields = [];
-    let creditcardFields = [];
-
-    handler.fieldDetails.forEach(fd => {
-      if (lazy.FormAutofillUtils.isAddressField(fd.fieldName)) {
-        addressFields.push(fd);
-      } else if (lazy.FormAutofillUtils.isCreditCardField(fd.fieldName)) {
-        creditcardFields.push(fd);
+    try {
+      if (!fieldDetails.length) {
+        return;
       }
-    });
 
-    // Bug 1905040. This is only a temporarily workaround for now to skip marking address fields
-    // autocompletable whenever we detect an address field. We only mark address field when
-    // it is a valid address section (This is done in the parent)
-    const addressFieldSet = new Set(addressFields.map(fd => fd.fieldName));
-    if (
-      addressFieldSet.size < lazy.FormAutofillUtils.AUTOFILL_FIELDS_THRESHOLD
-    ) {
-      addressFields = [];
-    }
+      const handler = this._fieldDetailsManager.getFormHandlerByRootElementId(
+        fieldDetails[0].rootElementId
+      );
+      fieldsDetectedResolver =
+        this.#handlerWaitingForDetectedComplete.get(handler);
+      this.#handlerWaitingForDetectedComplete.delete(handler);
 
-    // Inform the autocomplete controller these fields are autofillable
-    [...addressFields, ...creditcardFields].forEach(fieldDetail => {
-      this.#markAsAutofillField(fieldDetail);
+      if (isUpdate) {
+        if (this.#handlerWaitingForFormSubmissionComplete.has(handler)) {
+          // The form change was detected before the form submission, but was probably initiated
+          // by it, so don't touch the fieldDetails in this case.
+          return;
+        }
+        handler.updateFormByElement(fieldDetails[0].element);
+        this._fieldDetailsManager.addFormHandlerByElementEntries(handler);
+      }
 
+      handler.setIdentifiedFieldDetails(fieldDetails);
+      handler.setUpDynamicFormChangeObserver();
+
+      let addressFields = [];
+      let creditcardFields = [];
+
+      handler.fieldDetails.forEach(fd => {
+        if (lazy.FormAutofillUtils.isAddressField(fd.fieldName)) {
+          addressFields.push(fd);
+        } else if (lazy.FormAutofillUtils.isCreditCardField(fd.fieldName)) {
+          creditcardFields.push(fd);
+        }
+      });
+
+      // Bug 1905040. This is only a temporarily workaround for now to skip marking address fields
+      // autocompletable whenever we detect an address field. We only mark address field when
+      // it is a valid address section (This is done in the parent)
+      if (!lazy.FormAutofillUtils.isValidSection(addressFields)) {
+        addressFields = [];
+      }
+
+      // Inform the autocomplete controller these fields are autofillable
+      [...addressFields, ...creditcardFields].forEach(fieldDetail => {
+        this.#markAsAutofillField(fieldDetail);
+
+        if (
+          fieldDetail.element == lazy.FormAutofillContent.controlledElement &&
+          !isUpdate
+        ) {
+          this.showPopupIfEmpty(fieldDetail.element, fieldDetail.fieldName);
+        }
+      });
+
+      if (isUpdate) {
+        // The fields detection was re-run because of a form change, this means
+        // FormAutofillChild already registered its interest in form submissions
+        // in the initial field detection process
+        return;
+      }
+
+      // Do not need to listen to form submission event because if the address fields do not contain
+      // 'street-address' or `address-linx`, we will not save the address.
       if (
-        fieldDetail.element == lazy.FormAutofillContent.focusedInput &&
-        !isUpdate
+        creditcardFields.length ||
+        (addressFields.length &&
+          [
+            "street-address",
+            "address-line1",
+            "address-line2",
+            "address-line3",
+          ].some(fieldName =>
+            addressFields.some(fd => fd.fieldName == fieldName)
+          ))
       ) {
-        this.showPopupIfEmpty(fieldDetail.element, fieldDetail.fieldName);
+        this.manager
+          .getActor("FormHandler")
+          .registerFormSubmissionInterest(this, {
+            includesFormRemoval: lazy.FormAutofill.captureOnFormRemoval,
+            includesPageNavigation: lazy.FormAutofill.captureOnPageNavigation,
+          });
+
+        // TODO (Bug 1901486): Integrate pagehide to FormHandler.
+        if (!this._hasRegisteredPageHide.has(handler)) {
+          this.registerPageHide(handler);
+          this._hasRegisteredPageHide.add(true);
+        }
       }
-    });
-
-    if (isUpdate) {
-      // The fields detection was re-run because of a form change, this means
-      // FormAutofillChild already registered its interest in form submissions
-      // in the initial field detection process
-      return;
+    } finally {
+      fieldsDetectedResolver?.();
     }
+  }
 
-    // Do not need to listen to form submission event because if the address fields do not contain
-    // 'street-address' or `address-linx`, we will not save the address.
-    if (
-      creditcardFields.length ||
-      (addressFields.length &&
-        [
-          "street-address",
-          "address-line1",
-          "address-line2",
-          "address-line3",
-        ].some(fieldName => addressFieldSet.has(fieldName)))
-    ) {
-      this.manager
-        .getActor("FormHandler")
-        .registerFormSubmissionInterest(this, {
-          includesFormRemoval: lazy.FormAutofill.captureOnFormRemoval,
-          includesPageNavigation: lazy.FormAutofill.captureOnPageNavigation,
-        });
-
-      // TODO (Bug 1901486): Integrate pagehide to FormHandler.
-      if (!this._hasRegisteredPageHide.has(handler)) {
-        this.registerPageHide(handler);
-        this._hasRegisteredPageHide.add(true);
-      }
-    }
+  /**
+   * Disconnect all remaining form change observer that are still set up
+   * for the form that was submitted.
+   *
+   * @param {string} rootElementId
+   */
+  onFormSubmissionComplete(rootElementId) {
+    const handler =
+      this._fieldDetailsManager.getFormHandlerByRootElementId(rootElementId);
+    handler.clearFormChangeObservers();
+    this.#handlerWaitingForFormSubmissionComplete.delete(handler);
   }
 
   /**
@@ -183,8 +228,6 @@ export class FormAutofillChild extends JSWindowActorChild {
 
     const handler = this.#getHandlerByElementId(ids[0]);
     this.#handlerWaitingForFillOnFormChangeComplete.delete(handler);
-
-    // Todo: P6. Re-fill cleared fields with autofillState == AUTOFILL
 
     return result;
   }
@@ -206,13 +249,23 @@ export class FormAutofillChild extends JSWindowActorChild {
 
     const handler = this._fieldDetailsManager.getOrCreateFormHandler(element);
 
-    // If the child process is still waiting for the parent to send to
-    // `onFieldsDetectedComplete` or `onFieldsUpdatedComplete` message, bail out.
     if (
       this.#handlerWaitingForDetectedComplete.has(handler) ||
-      this.#handlerWaitingForFillOnFormChangeComplete.has(handler)
+      this.#handlerWaitingForFillOnFormChangeComplete.has(handler) ||
+      this.#handlerWaitingForFormSubmissionComplete.has(handler)
     ) {
-      return;
+      // Bail out if the child process is still waiting for the parent to send a
+      // `onFieldsDetectedComplete` or `onFieldsUpdatedComplete` message,
+      // or a form submission is currently still getting processed.
+      return null;
+    }
+
+    if (handler.fillOnFormChangeData.isWithinDynamicFormChangeThreshold) {
+      // Received the focus event immediately after an autofill action, which was not
+      // initiated by a user but by the site due to the form change. Bail out here,
+      // because we will receive the form-changed-event anyway and should not process the
+      // field detection here, since this would block the second autofill process.
+      return null;
     }
 
     // Bail out if there is nothing changed since last time we identified this element
@@ -228,10 +281,8 @@ export class FormAutofillChild extends JSWindowActorChild {
         handler.getFieldDetailByElement(element)?.fieldName ?? "";
       this.showPopupIfEmpty(element, fieldName);
     } else {
-      const includeIframe = this.browsingContext == this.browsingContext.top;
       let detectedFields = lazy.FormAutofillHandler.collectFormFieldDetails(
-        handler.form,
-        includeIframe
+        handler.form
       );
 
       // If none of the detected fields are credit card or address fields,
@@ -244,18 +295,22 @@ export class FormAutofillChild extends JSWindowActorChild {
         )
       ) {
         handler.setIdentifiedFieldDetails(detectedFields);
-        return;
+        return null;
       }
 
-      this.sendAsyncMessage(
-        "FormAutofill:OnFieldsDetected",
-        detectedFields.map(field => field.toVanillaObject())
-      );
+      return new Promise(resolve => {
+        this.sendAsyncMessage(
+          "FormAutofill:OnFieldsDetected",
+          detectedFields.map(field => field.toVanillaObject())
+        );
 
-      // Notify the parent about the newly identified fields because
-      // the autofill section information is maintained on the parent side.
-      this.#handlerWaitingForDetectedComplete.add(handler);
+        // Notify the parent about the newly identified fields because
+        // the autofill section information is maintained on the parent side.
+        this.#handlerWaitingForDetectedComplete.set(handler, resolve);
+      });
     }
+
+    return null;
   }
 
   /**
@@ -281,7 +336,7 @@ export class FormAutofillChild extends JSWindowActorChild {
     } else {
       // Ignore form as long as the frame is not the top-level, which means
       // we can just pick any of the eligible elements to identify.
-      element = this.document.querySelector("input, select, iframe");
+      element = lazy.FormAutofillUtils.queryEligibleElements(this.document)[0];
     }
 
     if (!element) {
@@ -293,17 +348,16 @@ export class FormAutofillChild extends JSWindowActorChild {
     // We don't have to call 'updateFormIfNeeded' like we do in
     // 'identifyFieldsWhenFocused' because 'collectFormFieldDetails' doesn't use cached
     // result.
-    const includeIframe = isTop;
     const detectedFields = lazy.FormAutofillHandler.collectFormFieldDetails(
-      handler.form,
-      includeIframe
+      handler.form
     );
 
     if (detectedFields.length) {
       // This actor should receive `onFieldsDetectedComplete`message after
       // `idenitfyFields` is called
-      this.#handlerWaitingForDetectedComplete.add(handler);
+      this.#handlerWaitingForDetectedComplete.set(handler, null);
     }
+
     return detectedFields;
   }
 
@@ -417,9 +471,22 @@ export class FormAutofillChild extends JSWindowActorChild {
 
     switch (evt.type) {
       case "focusin": {
-        this.onFocusIn(evt.target);
+        if (AppConstants.MOZ_GECKOVIEW) {
+          this.handleFocus(evt.target);
+          break;
+        }
+
+        if (!gFormFillFocusListener) {
+          gFormFillFocusListener = new FormFillFocusListener();
+
+          const formFillController = Cc[
+            "@mozilla.org/satchel/form-fill-controller;1"
+          ].getService(Ci.nsIFormFillController);
+          formFillController.addFocusListener(gFormFillFocusListener);
+        }
         break;
       }
+
       case "form-changed": {
         const { form, changes } = evt.detail;
         this.onFormChange(form, changes);
@@ -437,7 +504,7 @@ export class FormAutofillChild extends JSWindowActorChild {
     }
   }
 
-  onFocusIn(element) {
+  handleFocus(element) {
     const handler = this._fieldDetailsManager.getFormHandler(element);
     // When autofilling and clearing a field, we focus on the element before modifying the value.
     // (See FormAutofillHandler.fillFieldValue and FormAutofillHandler.clearFilledFields).
@@ -446,7 +513,7 @@ export class FormAutofillChild extends JSWindowActorChild {
       !lazy.FormAutofillUtils.isCreditCardOrAddressFieldType(element) ||
       handler?.isAutofillInProgress
     ) {
-      return;
+      return null;
     }
 
     const doc = element.ownerDocument;
@@ -457,25 +524,25 @@ export class FormAutofillChild extends JSWindowActorChild {
         this._hasDOMContentLoadedHandler = true;
         doc.addEventListener(
           "DOMContentLoaded",
-          () => this.onFocusIn(lazy.FormAutofillContent.focusedInput),
+          () => this.handleFocus(lazy.FormAutofillContent.controlledElement),
           { once: true }
         );
       }
-      return;
+      return null;
     }
 
     if (
       AppConstants.MOZ_GECKOVIEW ||
       !lazy.FormAutofillContent.savedFieldNames
     ) {
-      this.debug("onFocusIn: savedFieldNames are not known yet");
+      this.debug("handleFocus: savedFieldNames are not known yet");
 
       // Init can be asynchronous because we don't need anything from the parent
       // at this point.
       this.sendAsyncMessage("FormAutofill:InitStorage");
     }
 
-    this.identifyFieldsWhenFocused(element);
+    return this.identifyFieldsWhenFocused(element);
   }
 
   /**
@@ -491,6 +558,7 @@ export class FormAutofillChild extends JSWindowActorChild {
    *                          - NODES_REMOVED: HTMLElement[] - nodes removed
    *                          - ELEMENT_VISIBLE: HTMLElement[] - elements that became visible
    *                          - ELEMENT_INVISIBLE: HTMLElement[] - elements that became invisible
+   *                          - SELECT_OPTIONS_CHANGED: HTMLSelectElement[] - select elements with modified options
    *                          A form-change event is single-reasoned for visibility changes and can be multi-reasoned for mutations.
    */
   async onFormChange(form, changes) {
@@ -517,6 +585,18 @@ export class FormAutofillChild extends JSWindowActorChild {
         formRootElementId
       );
 
+    if (
+      this.#handlerWaitingForFormSubmissionComplete.has(handler) ||
+      !form.isConnected ||
+      (HTMLFormElement.isInstance(form) &&
+        !Array.from(form.elements).find(e => e.checkVisibility()))
+    ) {
+      // Bail out if a form submission is happening, or the whole form is disconnected or invisible,
+      // because then we're suspecting a form submission of reason "form-removal-after-fetch" next.
+      // In these cases avoid updating the fieldDetails since the form submission heuristics rely on them
+      return;
+    }
+
     // Not resetting the field state for elements that became invisible because the handler
     // keeps tracking them if they were previously autocompleted. Their field state
     // will be updated on a clearing action
@@ -534,25 +614,53 @@ export class FormAutofillChild extends JSWindowActorChild {
       return;
     }
 
-    // createFromField needs an input, select or iframe element
-    const anchorElement = handler.form.elements.find(
-      element =>
-        HTMLInputElement.isInstance(element) ||
-        HTMLSelectElement.isInstance(element) ||
-        HTMLIFrameElement.isInstance(element)
-    );
-    const currentForm = lazy.AutofillFormFactory.createFromField(anchorElement);
+    let currentForm;
+    if (HTMLFormElement.isInstance(form)) {
+      currentForm = lazy.AutofillFormFactory.createFromForm(form);
+    }
+
+    if (!currentForm) {
+      const findAnchorElement = elements => {
+        return elements.find(
+          element =>
+            element.isConnected &&
+            // createFromField needs an input, select or iframe element
+            (lazy.FormAutofillUtils.isCreditCardOrAddressFieldType(element) ||
+              HTMLIFrameElement.isInstance(element))
+        );
+      };
+
+      let anchorElement = findAnchorElement(handler.form.elements);
+
+      if (!anchorElement) {
+        // Unable to find an anchor element under the previously tracked fields.
+        // So going over the elements that were added/became visible on form change
+        const addedElements = changes[lazy.FORM_CHANGE_REASON.ADDED_NODES];
+        const visibleElements =
+          changes[lazy.FORM_CHANGE_REASON.ELEMENT_VISIBLE];
+        anchorElement = findAnchorElement([addedElements, visibleElements]);
+      }
+      if (anchorElement) {
+        currentForm = lazy.AutofillFormFactory.createFromField(anchorElement);
+      } else {
+        currentForm = lazy.AutofillFormFactory.createFromDocumentRoot(form);
+      }
+    }
+
     const currentFields =
       lazy.FormAutofillHandler.collectFormFieldDetails(currentForm);
 
+    const changedSelectElements =
+      changes[lazy.FORM_CHANGE_REASON.SELECT_OPTIONS_CHANGED] ?? [];
     if (
       currentFields.length == handler.fieldDetails.length &&
       currentFields.every(
         (field, idx) => field.element === handler.fieldDetails[idx].element
-      )
+      ) &&
+      !changedSelectElements.length
     ) {
-      // The detected form fields remain unchanged,
-      // so we don't notify the parent and the subtree children
+      // All detected fields (including options from detected <select> fields)
+      // remain unchanged, so don't notify the parent and the subtree children
       return;
     }
 
@@ -570,16 +678,28 @@ export class FormAutofillChild extends JSWindowActorChild {
       mergedFields.map(field => field.toVanillaObject())
     );
 
-    this.#handlerWaitingForDetectedComplete.add(handler);
+    this.#handlerWaitingForDetectedComplete.set(handler, null);
 
     if (
       lazy.FormAutofill.fillOnDynamicFormChanges &&
       handler.fillOnFormChangeData.isWithinDynamicFormChangeThreshold &&
       !this.#handlerWaitingForFillOnFormChangeComplete.has(handler)
     ) {
+      const previouslyFocusedId =
+        handler.fillOnFormChangeData.previouslyFocusedId;
+      const prevFocusedElement =
+        lazy.FormAutofillUtils.getElementByIdentifier(previouslyFocusedId);
+
+      // Determine the element that will be re-focused after the autofill action (ideally that
+      // should be the previously focused one). It is also used by the parent to retrieve the section that should be filled.
+      // If the previous one was removed in the form change, then just take the first element of the newly detected fields.
+      const elementToFocus = prevFocusedElement.isConnected
+        ? previouslyFocusedId
+        : mergedFields[0].elementId;
+
       this.#handlerWaitingForFillOnFormChangeComplete.add(handler);
-      this.sendAsyncMessage("FormAutofill:FillFieldsOnFormChange", {
-        elementId: handler.fillOnFormChangeData.previouslyFocusedId,
+      this.sendAsyncMessage("FormAutofill:FieldsUpdatedDuringAutofill", {
+        elementId: elementToFocus,
         profile: handler.fillOnFormChangeData.previouslyUsedProfile,
       });
     }
@@ -613,8 +733,12 @@ export class FormAutofillChild extends JSWindowActorChild {
     switch (message.name) {
       case "FormAutofill:FillFields": {
         const { focusedId, ids, profile } = message.data;
+
+        // Retrieving the handler before filling,
+        // since the filling could trigger a form change and fields removal
+        const handler = this.#getHandlerByElementId(focusedId);
         const result = this.fillFields(focusedId, ids, profile);
-        this.prepareFillingFieldsOnFormChange(focusedId, ids, profile);
+        this.prepareFillingFieldsOnFormChange(handler, focusedId, ids, profile);
 
         // Return the autofilled result to the parent. The result
         // is used by both tests and telemetry.
@@ -622,9 +746,14 @@ export class FormAutofillChild extends JSWindowActorChild {
       }
       case "FormAutofill:FillFieldsOnFormChange": {
         const { focusedId, ids, profile } = message.data;
-        const result = this.fillFieldsOnFormChange(focusedId, ids, profile);
-        // Not preparing for another filling on form change to avoid infinite loops
-        return result;
+        // Site might clear some fields on form change, so let any other task complete first.
+        return new Promise(resolve => {
+          lazy.setTimeout(() => {
+            const result = this.fillFieldsOnFormChange(focusedId, ids, profile);
+            // Not preparing for another filling on form change to avoid infinite loops
+            resolve(result);
+          }, 0);
+        });
       }
       case "FormAutofill:ClearFilledFields": {
         const { focusedId, ids } = message.data;
@@ -677,6 +806,11 @@ export class FormAutofillChild extends JSWindowActorChild {
         this.onFieldsDetectedComplete(fieldDetails, isUpdate);
         break;
       }
+      case "FormAutofill:onFormSubmissionComplete": {
+        const { rootElementId } = message.data;
+        this.onFormSubmissionComplete(rootElementId);
+        break;
+      }
     }
     return true;
   }
@@ -721,6 +855,10 @@ export class FormAutofillChild extends JSWindowActorChild {
       return;
     }
 
+    if (this.#handlerWaitingForFormSubmissionComplete.has(handler)) {
+      return;
+    }
+
     const formFilledData = handler.collectFormFilledData();
     if (!formFilledData) {
       this.debug("Form handler could not obtain filled data");
@@ -737,6 +875,8 @@ export class FormAutofillChild extends JSWindowActorChild {
       rootElementId: handler.rootElementId,
       formFilledData,
     });
+
+    this.#handlerWaitingForFormSubmissionComplete.add(handler);
   }
 
   /**
@@ -744,7 +884,7 @@ export class FormAutofillChild extends JSWindowActorChild {
    */
   onFilledModified(fieldDetail, previousState, newState) {
     const element = fieldDetail.element;
-    if (HTMLInputElement.isInstance(element)) {
+    if (lazy.FormAutofillUtils.isTextControl(element)) {
       // If the user manually blanks a credit card field, then
       // we want the popup to be activated.
       if (
@@ -779,13 +919,13 @@ export class FormAutofillChild extends JSWindowActorChild {
     this.showPopupIfEmpty(focusedElement, fieldName);
   }
 
-  async fillFields(focusedId, elementIds, profile) {
+  async fillFields(focusedId, elementIds, profile, isFormChange) {
     let result = new Map();
     let handler;
     try {
       Services.obs.notifyObservers(null, "autofill-fill-starting");
       handler = this.#getHandlerByElementId(elementIds[0]);
-      handler.fillFields(focusedId, elementIds, profile);
+      handler.fillFields(focusedId, elementIds, profile, isFormChange);
 
       // Return the autofilled result to the parent. The result
       // is used by both tests and telemetry.
@@ -800,16 +940,19 @@ export class FormAutofillChild extends JSWindowActorChild {
   /**
    * Caches necessary data in handler.fillOnFormChangeData in order to fill any fields that
    * are additonally detected after a form changed dynamically. This data is cleared after
-   * a predefined threshold (see lazy.FormAutofill.fillOnDynamicFormChangeTimeout).
+   * a predefined timeout threshold (see lazy.FormAutofill.fillOnDynamicFormChangeTimeout).
    * The timeout gets cancelled early and the data cleared if a "click" or "keydown" event
    * is dispatched on the form.
    */
-  prepareFillingFieldsOnFormChange(focusedId, elementIds, profile) {
+  prepareFillingFieldsOnFormChange(handler, focusedId, elementIds, profile) {
     if (!lazy.FormAutofill.fillOnDynamicFormChanges) {
       return;
     }
 
-    const handler = this.#getHandlerByElementId(elementIds[0]);
+    // TODO bug 1953231:
+    // FormAutofillParent should keep of which profile is used for which section, e.g. by introducing profile
+    // ids. It's not ideal that we are cachine the whole used profile data in the child and then send it back to
+    // the parent when filling after a form change. The parent should let the child know what profile to use.
     handler.fillOnFormChangeData.previouslyUsedProfile = profile;
     handler.fillOnFormChangeData.previouslyFocusedId = focusedId;
     handler.fillOnFormChangeData.isWithinDynamicFormChangeThreshold = true;
@@ -854,10 +997,9 @@ export class FormAutofillChild extends JSWindowActorChild {
    * This function is only used by the autofill developer tool extension.
    */
   inspectFields() {
-    const isTop = this.browsingContext == this.browsingContext.top;
-    const elements = isTop
-      ? Array.from(this.document.querySelectorAll("input, select, iframe"))
-      : Array.from(this.document.querySelectorAll("input, select"));
+    const elements = lazy.FormAutofillUtils.queryEligibleElements(
+      this.document
+    );
 
     // Unlike the case when users click on a field and we only run our heuristic
     // on fields within the same form as the focused field, for inspection,
@@ -873,10 +1015,8 @@ export class FormAutofillChild extends JSWindowActorChild {
       const handler = new lazy.FormAutofillHandler(formLike);
 
       // Fields that cannot be recognized will still be reported with this API.
-      const includeIframe = isTop;
       const fields = lazy.FormAutofillHandler.collectFormFieldDetails(
         handler.form,
-        includeIframe,
         false
       );
       fieldDetails.push(...fields);
@@ -904,7 +1044,7 @@ export class FormAutofillChild extends JSWindowActorChild {
 
     // Since Form Autofill popup is only for input element, any non-Input
     // element should be excluded here.
-    if (!HTMLInputElement.isInstance(element)) {
+    if (!lazy.FormAutofillUtils.isTextControl(element)) {
       return;
     }
 
@@ -920,7 +1060,7 @@ export class FormAutofillChild extends JSWindowActorChild {
   /**
    * Get the search options when searching for autocomplete entries in the parent
    *
-   * @param {HTMLInputElement} input - The input element to search for autocomplete entries
+   * @param {HTMLElement} input - The input or textarea element to search for autocomplete entries
    * @returns {object} the search options for the input
    */
   getAutoCompleteSearchOption(input) {
@@ -942,7 +1082,7 @@ export class FormAutofillChild extends JSWindowActorChild {
    * Ask the provider whether it might have autocomplete entry to show
    * for the given input.
    *
-   * @param {HTMLInputElement} input - The input element to search for autocomplete entries
+   * @param {HTMLElement} input - The input or textarea element to search for autocomplete entries
    * @returns {boolean} true if we shold search for autocomplete entries
    */
   shouldSearchForAutoComplete(input) {
@@ -962,8 +1102,13 @@ export class FormAutofillChild extends JSWindowActorChild {
       return false;
     }
 
-    // No profile can fill the currently-focused input.
-    if (!lazy.FormAutofillContent.savedFieldNames.has(fieldName)) {
+    // No profile can fill the currently-focused input
+    // temporarily excluding "address-housenumber" until it is added to the savedFieldNames set properly
+    if (
+      !lazy.FormAutofillContent.savedFieldNames.has(fieldName) &&
+      fieldName != "address-housenumber" &&
+      fieldName != "address-extra-housesuffix"
+    ) {
       return false;
     }
 
@@ -974,7 +1119,7 @@ export class FormAutofillChild extends JSWindowActorChild {
    * Convert the search result to autocomplete results
    *
    * @param {string} searchString - The string to search for
-   * @param {HTMLInputElement} input - The input element to search for autocomplete entries
+   * @param {HTMLElement} input - The input or textarea element to search for autocomplete entries
    * @param {Array<object>} records - autocomplete records
    * @returns {AutocompleteResult}
    */

@@ -166,7 +166,7 @@ class ProfileAutoCompleteResult {
         data.fillMessageName = "FormAutofill:ClearForm";
         break;
       case "manage":
-        data.fillMessageName = "FormAutofill:OpenPreferences";
+        data.fillMessageName = this.openPreferenceMessage;
         break;
       case "insecure":
         data.noLearnMore = true;
@@ -268,6 +268,10 @@ class ProfileAutoCompleteResult {
 }
 
 export class AddressResult extends ProfileAutoCompleteResult {
+  get openPreferenceMessage() {
+    return `FormAutofill:OpenAddressPreferences`;
+  }
+
   _getSecondaryLabel(focusedFieldName, allFieldNames, profile) {
     // We group similar fields into the same field name so we won't pick another
     // field in the same group as the secondary label.
@@ -458,6 +462,10 @@ export class AddressResult extends ProfileAutoCompleteResult {
 }
 
 export class CreditCardResult extends ProfileAutoCompleteResult {
+  get openPreferenceMessage() {
+    return `FormAutofill:OpenPaymentPreferences`;
+  }
+
   _getSecondaryLabel(focusedFieldName, allFieldNames, profile) {
     const GROUP_FIELDS = {
       "cc-name": [
@@ -506,13 +514,9 @@ export class CreditCardResult extends ProfileAutoCompleteResult {
 
   _generateLabels(focusedFieldName, allFieldNames, profiles, _fillCategories) {
     if (!this._isSecure) {
-      let brandName =
-        lazy.FormAutofillUtils.brandBundle.GetStringFromName("brandShortName");
-
       return [
-        lazy.FormAutofillUtils.stringBundle.formatStringFromName(
-          "insecureFieldWarningDescription",
-          [brandName]
+        lazy.l10n.formatValueSync(
+          "autofill-insecure-field-warning-description"
         ),
       ];
     }

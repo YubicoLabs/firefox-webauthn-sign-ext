@@ -1,13 +1,28 @@
-use super::{conv::is_layered_target, Command as C, PrivateCapabilities};
 use alloc::sync::Arc;
+use alloc::vec;
+use core::sync::atomic::Ordering;
+
 use arrayvec::ArrayVec;
-use core::{mem::size_of, slice, sync::atomic::Ordering};
 use glow::HasContext;
+
+use super::{conv::is_layered_target, lock, Command as C, PrivateCapabilities};
 
 const DEBUG_ID: u32 = 0;
 
 fn extract_marker<'a>(data: &'a [u8], range: &core::ops::Range<u32>) -> &'a str {
     core::str::from_utf8(&data[range.start as usize..range.end as usize]).unwrap()
+}
+
+fn to_debug_str(s: &str) -> &str {
+    // The spec mentions that if the length given to debug functions is negative,
+    // the implementation will access the ptr and look for a null that terminates
+    // the string but some implementations will try to access the ptr even if the
+    // length is 0.
+    if s.is_empty() {
+        "<empty>"
+    } else {
+        s
+    }
 }
 
 fn get_2d_target(target: u32, array_layer: u32) -> u32 {
@@ -95,6 +110,7 @@ impl super::Queue {
         fbo_target: u32,
         attachment: u32,
         view: &super::TextureView,
+        depth_slice: Option<u32>,
     ) {
         match view.inner {
             super::TextureInner::Renderbuffer { raw } => {
@@ -123,13 +139,18 @@ impl super::Queue {
                         )
                     };
                 } else if is_layered_target(target) {
+                    let layer = if target == glow::TEXTURE_3D {
+                        depth_slice.unwrap() as i32
+                    } else {
+                        view.array_layers.start as i32
+                    };
                     unsafe {
                         gl.framebuffer_texture_layer(
                             fbo_target,
                             attachment,
                             Some(raw),
                             view.mip_levels.start as i32,
-                            view.array_layers.start as i32,
+                            layer,
                         )
                     };
                 } else {
@@ -148,6 +169,10 @@ impl super::Queue {
             #[cfg(webgl)]
             super::TextureInner::ExternalFramebuffer { ref inner } => unsafe {
                 gl.bind_external_framebuffer(glow::FRAMEBUFFER, inner);
+            },
+            #[cfg(native)]
+            super::TextureInner::ExternalNativeFramebuffer { ref inner } => unsafe {
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(*inner));
             },
         }
     }
@@ -340,7 +365,7 @@ impl super::Queue {
                     }
                 }
                 None => {
-                    dst.data.as_ref().unwrap().lock().unwrap().as_mut_slice()
+                    lock(dst.data.as_ref().unwrap()).as_mut_slice()
                         [range.start as usize..range.end as usize]
                         .fill(0);
                 }
@@ -382,7 +407,7 @@ impl super::Queue {
                         };
                     }
                     (Some(src), None) => {
-                        let mut data = dst.data.as_ref().unwrap().lock().unwrap();
+                        let mut data = lock(dst.data.as_ref().unwrap());
                         let dst_data = &mut data.as_mut_slice()
                             [copy.dst_offset as usize..copy.dst_offset as usize + size];
 
@@ -397,7 +422,7 @@ impl super::Queue {
                         };
                     }
                     (None, Some(dst)) => {
-                        let data = src.data.as_ref().unwrap().lock().unwrap();
+                        let data = lock(src.data.as_ref().unwrap());
                         let src_data = &data.as_slice()
                             [copy.src_offset as usize..copy.src_offset as usize + size];
                         unsafe { gl.bind_buffer(copy_dst_target, Some(dst)) };
@@ -738,7 +763,7 @@ impl super::Queue {
                             glow::PixelUnpackData::BufferOffset(copy.buffer_layout.offset as u32)
                         }
                         None => {
-                            buffer_data = src.data.as_ref().unwrap().lock().unwrap();
+                            buffer_data = lock(src.data.as_ref().unwrap());
                             let src_data =
                                 &buffer_data.as_slice()[copy.buffer_layout.offset as usize..];
                             glow::PixelUnpackData::Slice(Some(src_data))
@@ -802,7 +827,7 @@ impl super::Queue {
                             )
                         }
                         None => {
-                            buffer_data = src.data.as_ref().unwrap().lock().unwrap();
+                            buffer_data = lock(src.data.as_ref().unwrap());
                             let src_data = &buffer_data.as_slice()
                                 [(offset as usize)..(offset + bytes_in_upload) as usize];
                             glow::CompressedPixelUnpackData::Slice(src_data)
@@ -883,7 +908,7 @@ impl super::Queue {
                             glow::PixelPackData::BufferOffset(offset as u32)
                         }
                         None => {
-                            buffer_data = dst.data.as_ref().unwrap().lock().unwrap();
+                            buffer_data = lock(dst.data.as_ref().unwrap());
                             let dst_data = &mut buffer_data.as_mut_slice()[offset as usize..];
                             glow::PixelPackData::Slice(Some(dst_data))
                         }
@@ -1036,12 +1061,7 @@ impl super::Queue {
                         };
                         temp_query_results.push(result);
                     }
-                    let query_data = unsafe {
-                        slice::from_raw_parts(
-                            temp_query_results.as_ptr().cast::<u8>(),
-                            temp_query_results.len() * size_of::<u64>(),
-                        )
-                    };
+                    let query_data = bytemuck::cast_slice(&temp_query_results);
                     match dst.raw {
                         Some(buffer) => {
                             unsafe { gl.bind_buffer(dst_target, Some(buffer)) };
@@ -1054,7 +1074,7 @@ impl super::Queue {
                             };
                         }
                         None => {
-                            let data = &mut dst.data.as_ref().unwrap().lock().unwrap();
+                            let data = &mut lock(dst.data.as_ref().unwrap());
                             let len = query_data.len().min(data.len());
                             data[..len].copy_from_slice(&query_data[..len]);
                         }
@@ -1098,8 +1118,11 @@ impl super::Queue {
             C::BindAttachment {
                 attachment,
                 ref view,
+                depth_slice,
             } => {
-                unsafe { self.set_attachment(gl, glow::DRAW_FRAMEBUFFER, attachment, view) };
+                unsafe {
+                    self.set_attachment(gl, glow::DRAW_FRAMEBUFFER, attachment, view, depth_slice)
+                };
             }
             C::ResolveAttachment {
                 attachment,
@@ -1110,7 +1133,13 @@ impl super::Queue {
                 unsafe { gl.read_buffer(attachment) };
                 unsafe { gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(self.copy_fbo)) };
                 unsafe {
-                    self.set_attachment(gl, glow::DRAW_FRAMEBUFFER, glow::COLOR_ATTACHMENT0, dst)
+                    self.set_attachment(
+                        gl,
+                        glow::DRAW_FRAMEBUFFER,
+                        glow::COLOR_ATTACHMENT0,
+                        dst,
+                        None,
+                    )
                 };
                 unsafe {
                     gl.blit_framebuffer(
@@ -1228,6 +1257,10 @@ impl super::Queue {
                 }
                 unsafe { gl.memory_barrier(flags) };
             }
+            // because `STORAGE_WRITE_ONLY` and `STORAGE_READ_WRITE` are only states
+            // we can transit from due OpenGL memory barriers are used to make _subsequent_
+            // operations see changes from the _shader_ side. We filter out usage changes that are
+            // does not comes from the shader side in `transition_textures`
             C::TextureBarrier(usage) => {
                 let mut flags = 0;
                 if usage.contains(wgt::TextureUses::RESOURCE) {
@@ -1239,6 +1272,9 @@ impl super::Queue {
                         | wgt::TextureUses::STORAGE_READ_WRITE,
                 ) {
                     flags |= glow::SHADER_IMAGE_ACCESS_BARRIER_BIT;
+                }
+                if usage.intersects(wgt::TextureUses::COPY_SRC) {
+                    flags |= glow::PIXEL_BUFFER_BARRIER_BIT;
                 }
                 if usage.contains(wgt::TextureUses::COPY_DST) {
                     flags |= glow::TEXTURE_UPDATE_BARRIER_BIT;
@@ -1569,7 +1605,7 @@ impl super::Queue {
                             glow::DEBUG_TYPE_MARKER,
                             DEBUG_ID,
                             glow::DEBUG_SEVERITY_NOTIFICATION,
-                            marker,
+                            to_debug_str(marker),
                         )
                     }
                 };
@@ -1582,7 +1618,11 @@ impl super::Queue {
                         .private_caps
                         .contains(PrivateCapabilities::DEBUG_FNS)
                     {
-                        gl.push_debug_group(glow::DEBUG_SOURCE_APPLICATION, DEBUG_ID, marker)
+                        gl.push_debug_group(
+                            glow::DEBUG_SOURCE_APPLICATION,
+                            DEBUG_ID,
+                            to_debug_str(marker),
+                        )
                     }
                 };
             }
@@ -1597,7 +1637,7 @@ impl super::Queue {
                     }
                 };
             }
-            C::SetPushConstants {
+            C::SetImmediates {
                 ref uniform,
                 offset,
             } => {
@@ -1807,6 +1847,20 @@ impl super::Queue {
                     _ => panic!("Unsupported uniform datatype: {:?}!", uniform.ty),
                 }
             }
+            C::SetClipDistances {
+                old_count,
+                new_count,
+            } => {
+                // Disable clip planes that are no longer active
+                for i in new_count..old_count {
+                    unsafe { gl.disable(glow::CLIP_DISTANCE0 + i) };
+                }
+
+                // Enable clip planes that are now active
+                for i in old_count..new_count {
+                    unsafe { gl.enable(glow::CLIP_DISTANCE0 + i) };
+                }
+            }
         }
     }
 }
@@ -1834,7 +1888,13 @@ impl crate::Queue for super::Queue {
                     .private_caps
                     .contains(PrivateCapabilities::DEBUG_FNS)
                 {
-                    unsafe { gl.push_debug_group(glow::DEBUG_SOURCE_APPLICATION, DEBUG_ID, label) };
+                    unsafe {
+                        gl.push_debug_group(
+                            glow::DEBUG_SOURCE_APPLICATION,
+                            DEBUG_ID,
+                            to_debug_str(label),
+                        )
+                    };
                 }
             }
 

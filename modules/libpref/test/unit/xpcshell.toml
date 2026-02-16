@@ -4,6 +4,10 @@ support-files = [
   "data/testPref.js",
   "extdata/testExt.js",
 ]
+# resetPrefs() is racy in SocketProcess (and probably elsewhere as well)
+skip-if = [
+  "socketprocess_networking",
+]
 
 ["test_backupPrefFile.js"]
 
@@ -26,10 +30,11 @@ support-files = [
 ["test_libPrefs.js"]
 
 ["test_locked_file_prefs.js"]
-skip-if = ["os == 'win' && socketprocess_networking"]
 support-files = [
   "data/testPrefLocked.js", "data/testPrefLockedUser.js",
 ]
+
+["test_nsPrefOverrideMap.js"]
 
 ["test_parsePrefs.js"]
 support-files = ["data/testPrefUTF8.js"]
@@ -39,7 +44,6 @@ head = ""
 support-files = ["data/testParser.js"]
 
 ["test_stickyprefs.js"]
-skip-if = ["os == 'win' && socketprocess_networking"]
 support-files = [
   "data/testPrefSticky.js", "data/testPrefStickyUser.js",
 ]

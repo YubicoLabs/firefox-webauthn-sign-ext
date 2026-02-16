@@ -148,6 +148,15 @@ UrlClassifierFeatureSocialTrackingProtection::ProcessChannel(
     return NS_OK;
   }
 
+  bool ShouldProcessByProtectionFeature =
+      UrlClassifierCommon::ShouldProcessWithProtectionFeature(aChannel);
+
+  *aShouldContinue = !ShouldProcessByProtectionFeature;
+
+  if (!ShouldProcessByProtectionFeature) {
+    return NS_OK;
+  }
+
   nsAutoCString list;
   UrlClassifierCommon::TablesToString(aList, list);
 
@@ -183,9 +192,9 @@ UrlClassifierFeatureSocialTrackingProtection::ProcessChannel(
   nsCOMPtr<nsIHttpChannelInternal> httpChannel = do_QueryInterface(aChannel);
 
   if (httpChannel) {
-    Unused << httpChannel->CancelByURLClassifier(NS_ERROR_SOCIALTRACKING_URI);
+    (void)httpChannel->CancelByURLClassifier(NS_ERROR_SOCIALTRACKING_URI);
   } else {
-    Unused << aChannel->Cancel(NS_ERROR_SOCIALTRACKING_URI);
+    (void)aChannel->Cancel(NS_ERROR_SOCIALTRACKING_URI);
   }
 
   return NS_OK;

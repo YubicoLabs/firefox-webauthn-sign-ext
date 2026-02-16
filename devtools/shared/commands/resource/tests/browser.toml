@@ -18,6 +18,7 @@ support-files = [
   "fission_document_workers.html",
   "fission_iframe.html",
   "fission_iframe_workers.html",
+  "iframe_request.html",
   "service-worker-sources.js",
   "sources.html",
   "sources.js",
@@ -53,14 +54,10 @@ support-files = [
 ["browser_resources_css_changes.js"]
 
 ["browser_resources_css_messages.js"]
-skip-if = ["os == 'mac' && os_version == '14.70' && processor == 'x86_64' && debug"] # Bug 1889134
 
 ["browser_resources_css_registered_properties.js"]
 
 ["browser_resources_document_events.js"]
-skip-if = [
-  "os == 'linux' && os_version == '18.04' && processor == 'x86_64'", # Bug 1715878
-]
 
 ["browser_resources_error_messages.js"]
 
@@ -69,11 +66,10 @@ skip-if = [
 ["browser_resources_invalid_api_usage.js"]
 
 ["browser_resources_last_private_context_exit.js"]
-skip-if = [
-  "os == 'linux' && os_version == '18.04' && processor == 'x86_64' && debug", # Bug 1808555
-]
 
 ["browser_resources_network_event_stacktraces.js"]
+
+["browser_resources_network_event_stacktraces_keepalive.js"]
 
 ["browser_resources_network_events.js"]
 
@@ -87,9 +83,9 @@ skip-if = [
 
 ["browser_resources_reflows.js"]
 skip-if = [
-  "os == 'mac' && os_version == '14.70' && processor == 'x86_64' && debug",# Bug 1932913 (secondary)
-  "os == 'linux' && os_version == '18.04' && processor == 'x86_64' && debug && http3", # Bug 1767771
-  "os == 'win' && os_version == '11.26100' && processor == 'x86_64' && debug", # Bug 1767771
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && debug", # Bug 1767771
+  "os == 'mac' && os_version == '14.70' && arch == 'x86_64' && debug", # Bug 1767771
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && debug", # Bug 1767771
 ]
 
 ["browser_resources_root_node.js"]
@@ -101,13 +97,6 @@ skip-if = [
 ["browser_resources_several_resources.js"]
 
 ["browser_resources_sources.js"]
-skip-if = [
-  "os == 'linux' && os_version == '18.04' && processor == 'x86_64'", # Bug 1744565
-  "win11_2009", # Bug 1767772
-  "os == 'win' && os_version == '11.26100' && processor == 'x86_64'", # Bug 1767772
-  "os == 'mac' && os_version == '10.15' && processor == 'x86_64'", # Bug 1767772
-  "os == 'mac' && os_version == '14.70' && processor == 'x86_64'", # Bug 1932913 (secondary)
-]
 
 ["browser_resources_stylesheets.js"]
 
@@ -126,7 +115,6 @@ skip-if = [
 ["browser_resources_target_switching.js"]
 
 ["browser_resources_thread_states.js"]
-skip-if = ["os == 'mac' && os_version == '14.70' && processor == 'x86_64' && debug"] # Bug 1932913 (secondary)
 
 ["browser_resources_unwatch_early.js"]
 
@@ -134,6 +122,5 @@ skip-if = ["os == 'mac' && os_version == '14.70' && processor == 'x86_64' && deb
 
 ["browser_resources_websocket.js"]
 skip-if = [
-  "http3", # Bug 1829298
-  "http2",
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && debug && http3", # Bug 1829298
 ]

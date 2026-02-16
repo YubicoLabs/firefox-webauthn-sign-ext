@@ -10,27 +10,24 @@
 // Microsoft's API Name hackery sucks
 #undef CreateEvent
 
-#include "nsCOMPtr.h"
-#include "nsTArray.h"
-#include "nsITimer.h"
-#include "nsIObserver.h"
-#include "nsIWeakReferenceUtils.h"
-#include "nsWrapperCache.h"
-
-#include "nsCycleCollectionParticipant.h"
-
-#include "GeolocationPosition.h"
 #include "GeolocationCoordinates.h"
+#include "GeolocationPosition.h"
+#include "GeolocationSystem.h"
+#include "mozilla/Attributes.h"
+#include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/CallbackObject.h"
+#include "mozilla/dom/GeolocationBinding.h"
+#include "nsCOMPtr.h"
+#include "nsCycleCollectionParticipant.h"
 #include "nsIDOMGeoPosition.h"
 #include "nsIDOMGeoPositionCallback.h"
 #include "nsIDOMGeoPositionErrorCallback.h"
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/GeolocationBinding.h"
-#include "mozilla/dom/CallbackObject.h"
-#include "GeolocationSystem.h"
-
 #include "nsIGeolocationProvider.h"
-#include "mozilla/Attributes.h"
+#include "nsIObserver.h"
+#include "nsITimer.h"
+#include "nsIWeakReferenceUtils.h"
+#include "nsTArray.h"
+#include "nsWrapperCache.h"
 
 class nsGeolocationService;
 class nsGeolocationRequest;
@@ -57,7 +54,8 @@ struct CachedPositionAndAccuracy {
 class nsGeolocationService final : public nsIGeolocationUpdate,
                                    public nsIObserver {
  public:
-  static already_AddRefed<nsGeolocationService> GetGeolocationService();
+  static already_AddRefed<nsGeolocationService> GetGeolocationService(
+      mozilla::dom::BrowsingContext* browsingContext = nullptr);
   static mozilla::StaticRefPtr<nsGeolocationService> sService;
 
   NS_DECL_THREADSAFE_ISUPPORTS
@@ -69,8 +67,11 @@ class nsGeolocationService final : public nsIGeolocationUpdate,
   nsresult Init();
 
   // Management of the Geolocation objects
-  void AddLocator(mozilla::dom::Geolocation* locator);
-  void RemoveLocator(mozilla::dom::Geolocation* locator);
+  void AddLocator(mozilla::dom::Geolocation* aLocator);
+  void RemoveLocator(mozilla::dom::Geolocation* aLocator);
+
+  // Move locators from service override to the original service.
+  void MoveLocators(nsGeolocationService* aService);
 
   void SetCachedPosition(nsIDOMGeoPosition* aPosition);
   CachedPositionAndAccuracy GetCachedPosition();
@@ -109,6 +110,11 @@ class nsGeolocationService final : public nsIGeolocationUpdate,
 
   // Current state of requests for higher accuracy
   bool mHigherAccuracy = false;
+
+  // Whether the geolocation device is starting.
+  // Nothing() if not being started, or a boolean reflecting the requested
+  // accuracy.
+  mozilla::Maybe<bool> mStarting;
 };
 
 namespace mozilla::dom {
@@ -165,6 +171,11 @@ class Geolocation final : public nsIGeolocationUpdate, public nsWrapperCache {
 
   // Shutting down.
   void Shutdown();
+
+  // Getter for the browsing context that this Geolocation was loaded for
+  mozilla::dom::BrowsingContext* GetBrowsingContext() {
+    return mBrowsingContext;
+  }
 
   // Getter for the principal that this Geolocation was loaded from
   nsIPrincipal* GetPrincipal() { return mPrincipal; }
@@ -234,6 +245,7 @@ class Geolocation final : public nsIGeolocationUpdate, public nsWrapperCache {
 
   // where the content was loaded from
   nsCOMPtr<nsIPrincipal> mPrincipal;
+  RefPtr<mozilla::dom::BrowsingContext> mBrowsingContext;
 
   // the protocols we want to measure
   enum class ProtocolType : uint8_t { OTHER, HTTP, HTTPS };
@@ -243,6 +255,8 @@ class Geolocation final : public nsIGeolocationUpdate, public nsWrapperCache {
 
   // owning back pointer.
   RefPtr<nsGeolocationService> mService;
+  // owning back pointer for service override.
+  RefPtr<nsGeolocationService> mServiceOverride;
 
   // Watch ID
   uint32_t mLastWatchId;

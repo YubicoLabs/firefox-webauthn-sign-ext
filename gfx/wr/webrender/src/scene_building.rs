@@ -38,7 +38,7 @@
 use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, BuiltDisplayListIter, PrimitiveFlags, SnapshotInfo};
 use api::{ClipId, ColorF, CommonItemProperties, ComplexClipRegion, ComponentTransferFuncType, RasterSpace};
 use api::{DebugFlags, DisplayItem, DisplayItemRef, ExtendMode, ExternalScrollId, FilterData};
-use api::{FilterOp, FilterPrimitive, FontInstanceKey, FontSize, GlyphInstance, GlyphOptions, GradientStop};
+use api::{FilterOp, FontInstanceKey, FontSize, GlyphInstance, GlyphOptions, GradientStop};
 use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, ColorDepth, QualitySettings};
 use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId, MixBlendMode, StackingContextFlags};
 use api::{PropertyBinding, ReferenceFrameKind, ScrollFrameDescriptor};
@@ -53,13 +53,15 @@ use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::clip::{ClipIntern, ClipItemKey, ClipItemKeyKind, ClipStore};
 use crate::clip::{ClipInternData, ClipNodeId, ClipLeafId};
 use crate::clip::{PolygonDataHandle, ClipTreeBuilder};
-use crate::segment::EdgeAaSegmentMask;
+use crate::gpu_types::BlurEdgeMode;
+use crate::segment::EdgeMask;
 use crate::spatial_tree::{SceneSpatialTree, SpatialNodeContainer, SpatialNodeIndex, get_external_scroll_offset};
 use crate::frame_builder::FrameBuilderConfig;
 use glyph_rasterizer::{FontInstance, SharedFontResources};
 use crate::hit_test::HitTestingScene;
 use crate::intern::Interner;
-use crate::internal_types::{FastHashMap, LayoutPrimitiveInfo, Filter, FilterGraphNode, FilterGraphOp, FilterGraphPictureReference, PlaneSplitterIndex, PipelineInstanceId};
+use crate::internal_types::{FastHashMap, LayoutPrimitiveInfo, Filter, PlaneSplitterIndex, PipelineInstanceId};
+use crate::svg_filter::{FilterGraphNode, FilterGraphOp, FilterGraphPictureReference};
 use crate::picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive};
 use crate::picture::{BlitReason, OrderedPictureChild, PrimitiveList, SurfaceInfo, PictureFlags};
 use crate::picture_graph::PictureGraph;
@@ -76,7 +78,8 @@ use crate::prim_store::gradient::{
 };
 use crate::prim_store::image::{Image, YuvImage};
 use crate::prim_store::line_dec::{LineDecoration, LineDecorationCacheKey, get_line_decoration_size};
-use crate::prim_store::picture::{Picture, PictureCompositeKey, PictureKey};
+use crate::prim_store::picture::{Picture, PictureKey};
+use crate::picture_composite_mode::PictureCompositeKey;
 use crate::prim_store::text_run::TextRun;
 use crate::render_backend::SceneView;
 use crate::resource_cache::ImageRequest;
@@ -151,7 +154,6 @@ pub struct CompositeOps {
     // Requires only a single texture as input (e.g. most filters)
     pub filters: Vec<Filter>,
     pub filter_datas: Vec<FilterData>,
-    pub filter_primitives: Vec<FilterPrimitive>,
     pub snapshot: Option<SnapshotInfo>,
 
     // Requires two source textures (e.g. mix-blend-mode)
@@ -162,14 +164,12 @@ impl CompositeOps {
     pub fn new(
         filters: Vec<Filter>,
         filter_datas: Vec<FilterData>,
-        filter_primitives: Vec<FilterPrimitive>,
         mix_blend_mode: Option<MixBlendMode>,
         snapshot: Option<SnapshotInfo>,
     ) -> Self {
         CompositeOps {
             filters,
             filter_datas,
-            filter_primitives,
             mix_blend_mode,
             snapshot,
         }
@@ -177,7 +177,6 @@ impl CompositeOps {
 
     pub fn is_empty(&self) -> bool {
         self.filters.is_empty() &&
-            self.filter_primitives.is_empty() &&
             self.mix_blend_mode.is_none() &&
             self.snapshot.is_none()
     }
@@ -209,10 +208,6 @@ impl CompositeOps {
                     }
                 }
             }
-        }
-
-        if !self.filter_primitives.is_empty() {
-            return true;
         }
 
         false
@@ -393,10 +388,15 @@ impl PictureChainBuilder {
                 // If no picture was created for this stacking context, create a
                 // pass-through wrapper now. This is only needed in 1-2 edge cases
                 // now, and will be removed as a follow up.
+
+                // If the picture is snapshotted, it needs to have a surface rather
+                // than being pass-through.
+                let composite_mode = snapshot.map(|_| PictureCompositeMode::Blit(BlitReason::SNAPSHOT));
+
                 let pic_index = PictureIndex(prim_store.pictures
                     .alloc()
                     .init(PicturePrimitive::new_image(
-                        None,
+                        composite_mode,
                         Picture3DContext::Out,
                         self.flags,
                         prim_list,
@@ -554,6 +554,7 @@ pub struct SceneBuilder<'a> {
 impl<'a> SceneBuilder<'a> {
     pub fn build(
         scene: &Scene,
+        root_pipeline: Option<PipelineId>,
         fonts: SharedFontResources,
         view: &SceneView,
         frame_builder_config: &FrameBuilderConfig,
@@ -566,7 +567,7 @@ impl<'a> SceneBuilder<'a> {
         profile_scope!("build_scene");
 
         // We checked that the root pipeline is available on the render backend.
-        let root_pipeline_id = scene.root_pipeline_id.unwrap();
+        let root_pipeline_id = root_pipeline.or(scene.root_pipeline_id).unwrap();
         let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
         let root_reference_frame_index = spatial_tree.root_reference_frame_index();
 
@@ -641,7 +642,12 @@ impl<'a> SceneBuilder<'a> {
             &builder.spatial_tree,
             &builder.prim_instances,
             &mut builder.clip_tree_builder,
+            &builder.interners,
         );
+
+        for pic_index in &builder.snapshot_pictures {
+            builder.picture_graph.add_root(*pic_index);
+        }
 
         // Add all the tile cache pictures as roots of the picture graph
         for pic_index in &tile_cache_pictures {
@@ -741,19 +747,43 @@ impl<'a> SceneBuilder<'a> {
         // scroll event (for tile caching to work usefully we specifically
         // want to draw things even if they are outside the viewport).
         let mut shared_clip_node_id = None;
-        for cluster in &prim_list.clusters {
-            for prim_instance in &prim_instances[cluster.prim_range()] {
-                let leaf = clip_tree_builder.get_leaf(prim_instance.clip_leaf_id);
 
-                shared_clip_node_id = match shared_clip_node_id {
-                    Some(current) => {
-                        Some(clip_tree_builder.find_lowest_common_ancestor(
-                            current,
-                            leaf.node_id,
-                        ))
-                    }
-                    None => Some(leaf.node_id)
-                };
+        // Snapshot picture are special. All clips belonging to parents
+        // *must* be extracted from the snapshot, so we rely on this optimization
+        // taking out parent clips and it overrides other conditions.
+        // In addition we need to ensure that only parent clips are extracted.
+        let is_snapshot = pictures[pic_index.0].snapshot.is_some();
+
+        if is_snapshot {
+            // In the general case, if all of the children of a picture share the
+            // same clips, then these clips are hoisted up in the parent picture,
+            // however we rely on child clips of snapshotted pictures to be baked
+            // into the snapshot.
+            // Snapshotted pictures use the parent of their clip node (if any)
+            // as the clip root, to ensure that the parent clip hierarchy is
+            // extracted from clip chains inside the snapshot, and to make sure
+            // that child clips of the snapshots are not hoisted out of the
+            // snapshot even when all children of the snapshotted picture share
+            // a clip.
+            if let Some(idx) = prim_index {
+                let clip_node = clip_tree_builder.get_leaf(prim_instances[idx].clip_leaf_id).node_id;
+                shared_clip_node_id = clip_tree_builder.get_parent(clip_node);
+            }
+        } else {
+            for cluster in &prim_list.clusters {
+                for prim_instance in &prim_instances[cluster.prim_range()] {
+                    let leaf = clip_tree_builder.get_leaf(prim_instance.clip_leaf_id);
+
+                    shared_clip_node_id = match shared_clip_node_id {
+                        Some(current) => {
+                            Some(clip_tree_builder.find_lowest_common_ancestor(
+                                current,
+                                leaf.node_id,
+                            ))
+                        }
+                        None => Some(leaf.node_id)
+                    };
+                }
             }
         }
 
@@ -777,7 +807,6 @@ impl<'a> SceneBuilder<'a> {
         let has_blur = match &pictures[pic_index.0].composite_mode {
             Some(PictureCompositeMode::Filter(Filter::Blur { .. })) => true,
             Some(PictureCompositeMode::Filter(Filter::DropShadows { .. })) => true,
-            Some(PictureCompositeMode::SvgFilter( .. )) => true,
             Some(PictureCompositeMode::SVGFEGraph( .. )) => true,
             _ => false,
         };
@@ -792,7 +821,7 @@ impl<'a> SceneBuilder<'a> {
             .map(|(lca_tree_node, pic_node_id)| lca_tree_node.parent == pic_node_id)
             .unwrap_or(false);
 
-        if let Some((lca_node, pic_node)) = lca_node.zip(pic_node) {
+        let should_set_clip_root = is_snapshot || lca_node.zip(pic_node).map_or(false, |(lca_node, pic_node)| {
             // It is only safe to ignore the LCA clip (by making it the clip
             // root) if it is equal to or larger than the picture clip. But
             // this comparison also needs to take into account spatial nodes
@@ -801,9 +830,11 @@ impl<'a> SceneBuilder<'a> {
             // clips to be identical and have the same spatial node so it's
             // simplest to just test for ClipItemKey equality (which includes
             // both spatial node and the actual clip).
-            if lca_node.key == pic_node.key && !has_blur && direct_parent {
-                pictures[pic_index.0].clip_root = shared_clip_node_id;
-            }
+            lca_node.key == pic_node.key && !has_blur && direct_parent
+        });
+
+        if should_set_clip_root {
+            pictures[pic_index.0].clip_root = shared_clip_node_id;
         }
 
         // Update the spatial node of any child pictures
@@ -968,7 +999,6 @@ impl<'a> SceneBuilder<'a> {
                         let composition_operations = CompositeOps::new(
                             filter_ops_for_compositing(item.filters()),
                             filter_datas_for_compositing(item.filter_datas()),
-                            filter_primitives_for_compositing(item.filter_primitives()),
                             info.stacking_context.mix_blend_mode_for_compositing(),
                             snapshot,
                         );
@@ -1170,6 +1200,17 @@ impl<'a> SceneBuilder<'a> {
             },
         };
 
+        let snap_origin = match info.reference_frame.kind {
+            ReferenceFrameKind::Transform { should_snap, .. } => should_snap,
+            ReferenceFrameKind::Perspective { .. } => false,
+        };
+
+        let origin = if snap_origin {
+            info.origin.round()
+        } else {
+            info.origin
+        };
+
         let external_scroll_offset = self.current_external_scroll_offset(parent_space);
 
         self.push_reference_frame(
@@ -1179,7 +1220,7 @@ impl<'a> SceneBuilder<'a> {
             info.reference_frame.transform_style,
             transform,
             info.reference_frame.kind,
-            (info.origin + external_scroll_offset).to_vector(),
+            (origin + external_scroll_offset).to_vector(),
             SpatialNodeUid::external(info.reference_frame.key, pipeline_id, instance_id),
         );
     }
@@ -1241,7 +1282,7 @@ impl<'a> SceneBuilder<'a> {
             },
         };
 
-        self.clip_tree_builder.push_clip_chain(Some(info.space_and_clip.clip_chain_id), false);
+        self.clip_tree_builder.push_clip_chain(Some(info.space_and_clip.clip_chain_id), false, false);
 
         // TODO(gw): This is the only remaining call site that relies on ClipId parenting, remove me!
         self.add_rect_clip_node(
@@ -1368,6 +1409,12 @@ impl<'a> SceneBuilder<'a> {
             rect: prim_rect,
             clip_rect,
             flags: common.flags,
+            // TODO: for CSS primitives axis-aligned edges should not get anti-aliased whereas
+            // for SVG primitives, they should. WebRender currently does not apply anti-aliasing
+            // to SVG aligned primitives as it should, which has gone largely unnoticed because
+            // most SVG primitives are rendered via blob-images.
+            aligned_aa_edges: EdgeMask::empty(),
+            transformed_aa_edges: EdgeMask::all(),
         };
 
         (layout, unsnapped_rect, spatial_node_index, clip_node_id)
@@ -1545,6 +1592,8 @@ impl<'a> SceneBuilder<'a> {
                     rect,
                     clip_rect: rect,
                     flags: info.flags,
+                    aligned_aa_edges: EdgeMask::empty(),
+                    transformed_aa_edges: EdgeMask::empty(),
                 };
 
                 let spatial_node = self.spatial_tree.get_node_info(spatial_node_index);
@@ -1568,20 +1617,6 @@ impl<'a> SceneBuilder<'a> {
                     clip_node_id,
                     info.tag,
                     anim_id,
-                );
-            }
-            DisplayItem::ClearRectangle(ref info) => {
-                profile_scope!("clear");
-
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
-                    &info.common,
-                    info.bounds,
-                );
-
-                self.add_clear_rectangle(
-                    spatial_node_index,
-                    clip_node_id,
-                    &layout,
                 );
             }
             DisplayItem::Line(ref info) => {
@@ -1624,7 +1659,6 @@ impl<'a> SceneBuilder<'a> {
                 let mut start = info.gradient.start_point;
                 let mut end = info.gradient.end_point;
                 let flags = layout.flags;
-
                 let optimized = optimize_linear_gradient(
                     &mut layout.rect,
                     &mut tile_size,
@@ -1634,8 +1668,15 @@ impl<'a> SceneBuilder<'a> {
                     &mut end,
                     info.gradient.extend_mode,
                     &mut stops,
+                    self.config.enable_dithering,
                     &mut |rect, start, end, stops, edge_aa_mask| {
-                        let layout = LayoutPrimitiveInfo { rect: *rect, clip_rect: *rect, flags };
+                        let layout = LayoutPrimitiveInfo {
+                            rect: *rect,
+                            clip_rect: *rect,
+                            flags,
+                            aligned_aa_edges: EdgeMask::empty(),
+                            transformed_aa_edges: edge_aa_mask,
+                        };
                         if let Some(prim_key_kind) = self.create_linear_gradient_prim(
                             &layout,
                             start,
@@ -1668,7 +1709,7 @@ impl<'a> SceneBuilder<'a> {
                         tile_size,
                         info.tile_spacing,
                         None,
-                        EdgeAaSegmentMask::all(),
+                        EdgeMask::all(),
                     ) {
                         self.add_nonshadowable_primitive(
                             spatial_node_index,
@@ -1704,22 +1745,26 @@ impl<'a> SceneBuilder<'a> {
 
                 let mut prim_rect = layout.rect;
                 let mut tile_spacing = info.tile_spacing;
+                let mut aa_mask = EdgeMask::all();
                 optimize_radial_gradient(
                     &mut prim_rect,
                     &mut tile_size,
                     &mut center,
                     &mut tile_spacing,
+                    &mut aa_mask,
                     &layout.clip_rect,
                     info.gradient.radius,
                     info.gradient.end_offset,
                     info.gradient.extend_mode,
                     &stops,
-                    &mut |solid_rect, color| {
+                    &mut |solid_rect, color, aa_mask| {
                         self.add_nonshadowable_primitive(
                             spatial_node_index,
                             clip_node_id,
                             &LayoutPrimitiveInfo {
                                 rect: *solid_rect,
+                                aligned_aa_edges: layout.aligned_aa_edges & aa_mask,
+                                transformed_aa_edges: layout.transformed_aa_edges & aa_mask,
                                 .. layout
                             },
                             Vec::new(),
@@ -1727,6 +1772,9 @@ impl<'a> SceneBuilder<'a> {
                         );
                     }
                 );
+
+                layout.aligned_aa_edges &= aa_mask;
+                layout.transformed_aa_edges &= aa_mask;
 
                 // TODO: create_radial_gradient_prim already calls
                 // this, but it leaves the info variable that is
@@ -1824,6 +1872,7 @@ impl<'a> SceneBuilder<'a> {
                     info.blur_radius,
                     info.spread_radius,
                     info.border_radius,
+                    info.shadow_radius,
                     info.clip_mode,
                     self.spatial_tree.is_root_coord_system(spatial_node_index),
                 );
@@ -1892,7 +1941,6 @@ impl<'a> SceneBuilder<'a> {
 
                 let filters = filter_ops_for_compositing(item.filters());
                 let filter_datas = filter_datas_for_compositing(item.filter_datas());
-                let filter_primitives = filter_primitives_for_compositing(item.filter_primitives());
 
                 self.add_backdrop_filter(
                     spatial_node_index,
@@ -1900,7 +1948,6 @@ impl<'a> SceneBuilder<'a> {
                     &layout,
                     filters,
                     filter_datas,
-                    filter_primitives,
                 );
             }
 
@@ -1908,7 +1955,6 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::SetGradientStops |
             DisplayItem::SetFilterOps |
             DisplayItem::SetFilterData |
-            DisplayItem::SetFilterPrimitives |
             DisplayItem::SetPoints => {}
 
             // Special items that are handled in the parent method
@@ -1942,6 +1988,7 @@ impl<'a> SceneBuilder<'a> {
 
                 self.pop_all_shadows();
             }
+            DisplayItem::DebugMarker(..) => {}
         }
     }
 
@@ -2171,7 +2218,7 @@ impl<'a> SceneBuilder<'a> {
         transform_style: TransformStyle,
         prim_flags: PrimitiveFlags,
         spatial_node_index: SpatialNodeIndex,
-        mut clip_chain_id: Option<api::ClipChainId>,
+        clip_chain_id: Option<api::ClipChainId>,
         requested_raster_space: RasterSpace,
         flags: StackingContextFlags,
         subregion_offset: LayoutVector2D,
@@ -2195,14 +2242,13 @@ impl<'a> SceneBuilder<'a> {
                 CompositeOps {
                     filters: Vec::new(),
                     filter_datas: Vec::new(),
-                    filter_primitives: Vec::new(),
                     mix_blend_mode: None,
                     snapshot,
                 },
                 TransformStyle::Flat,
                 prim_flags,
                 spatial_node_index,
-                clip_chain_id.take(),
+                clip_chain_id,
                 requested_raster_space,
                 flags,
                 LayoutVector2D::zero(),
@@ -2223,6 +2269,7 @@ impl<'a> SceneBuilder<'a> {
         self.clip_tree_builder.push_clip_chain(
             clip_chain_id,
             !composite_ops.is_empty(),
+            composite_ops.snapshot.is_some(),
         );
 
         let new_space = match (self.raster_space_stack.last(), requested_raster_space) {
@@ -2322,7 +2369,13 @@ impl<'a> SceneBuilder<'a> {
         // clip node doesn't affect the stacking context rect.
         let mut blit_reason = BlitReason::empty();
 
-        // Stacking context snapshots are offscreen syrfaces.
+        // If we are forcing a backdrop root here, isolate this context
+        // by using an intermediate surface.
+        if flags.contains(StackingContextFlags::FORCED_ISOLATION) {
+            blit_reason = BlitReason::FORCED_ISOLATION;
+        }
+
+        // Stacking context snapshots are offscreen surfaces.
         if composite_ops.snapshot.is_some() {
             blit_reason = BlitReason::SNAPSHOT;
         }
@@ -2352,30 +2405,27 @@ impl<'a> SceneBuilder<'a> {
         // are handled by doing partial reads of the picture cache tiles during rendering.
         if flags.contains(StackingContextFlags::IS_BLEND_CONTAINER) {
             // Check if we're inside a stacking context hierarchy with an existing surface
-            match self.sc_stack.last() {
-                Some(_) => {
-                    // If we are already inside a stacking context hierarchy with a surface, then we
-                    // need to do the normal isolate of this blend container as a regular surface
-                    blit_reason |= BlitReason::ISOLATE;
+            if !self.sc_stack.is_empty() {
+                // If we are already inside a stacking context hierarchy with a surface, then we
+                // need to do the normal isolate of this blend container as a regular surface
+                blit_reason |= BlitReason::BLEND_MODE;
+                is_redundant = false;
+            } else {
+                // If the current slice is empty, then we can just mark the slice as
+                // atomic (so that compositor surfaces don't get promoted within it)
+                // and use that slice as the backing surface for the blend container
+                if self.tile_cache_builder.is_current_slice_empty() &&
+                   self.spatial_tree.is_root_coord_system(spatial_node_index) &&
+                   !self.clip_tree_builder.clip_node_has_complex_clips(clip_node_id, &self.interners)
+                {
+                    self.add_tile_cache_barrier_if_needed(SliceFlags::IS_ATOMIC);
+                    self.tile_cache_builder.make_current_slice_atomic();
+                } else {
+                    // If the slice wasn't empty, we need to isolate a separate surface
+                    // to ensure that the content already in the slice is not used as
+                    // an input to the mix-blend composite
+                    blit_reason |= BlitReason::BLEND_MODE;
                     is_redundant = false;
-                }
-                None => {
-                    // If the current slice is empty, then we can just mark the slice as
-                    // atomic (so that compositor surfaces don't get promoted within it)
-                    // and use that slice as the backing surface for the blend container
-                    if self.tile_cache_builder.is_current_slice_empty() &&
-                       self.spatial_tree.is_root_coord_system(spatial_node_index) &&
-                       !self.clip_tree_builder.clip_node_has_complex_clips(clip_node_id, &self.interners)
-                    {
-                        self.add_tile_cache_barrier_if_needed(SliceFlags::IS_ATOMIC);
-                        self.tile_cache_builder.make_current_slice_atomic();
-                    } else {
-                        // If the slice wasn't empty, we need to isolate a separate surface
-                        // to ensure that the content already in the slice is not used as
-                        // an input to the mix-blend composite
-                        blit_reason |= BlitReason::ISOLATE;
-                        is_redundant = false;
-                    }
                 }
             }
         }
@@ -2609,7 +2659,10 @@ impl<'a> SceneBuilder<'a> {
                 // 3d render context.
                 for child_pic_index in &prim_list.child_pictures {
                     let child_pic = &mut self.prim_store.pictures[child_pic_index.0];
-                    child_pic.composite_mode = None;
+                    let needs_surface = child_pic.snapshot.is_some();
+                    if !needs_surface {
+                        child_pic.composite_mode = None;
+                    }
                     child_pic.context_3d = Picture3DContext::Out;
                 }
 
@@ -2657,9 +2710,8 @@ impl<'a> SceneBuilder<'a> {
             source,
             stacking_context.clip_node_id,
             stacking_context.composite_ops.filters,
-            stacking_context.composite_ops.filter_primitives,
             stacking_context.composite_ops.filter_datas,
-            None,
+            false,
             spatial_node_context_offset,
         );
 
@@ -2977,7 +3029,7 @@ impl<'a> SceneBuilder<'a> {
         clip_chain_id: api::ClipChainId,
         should_inflate: bool,
     ) {
-        self.clip_tree_builder.push_clip_chain(Some(clip_chain_id), false);
+        self.clip_tree_builder.push_clip_chain(Some(clip_chain_id), false, false);
 
         // Store this shadow in the pending list, for processing
         // during pop_all_shadows.
@@ -3023,6 +3075,7 @@ impl<'a> SceneBuilder<'a> {
                         width: std_deviation,
                         height: std_deviation,
                         should_inflate: pending_shadow.should_inflate,
+                        edge_mode: BlurEdgeMode::Duplicate,
                     };
                     let blur_is_noop = blur_filter.is_noop();
 
@@ -3242,27 +3295,6 @@ impl<'a> SceneBuilder<'a> {
         }
     }
 
-    pub fn add_clear_rectangle(
-        &mut self,
-        spatial_node_index: SpatialNodeIndex,
-        clip_node_id: ClipNodeId,
-        info: &LayoutPrimitiveInfo,
-    ) {
-        // Clear prims must be in their own picture cache slice to
-        // be composited correctly.
-        self.add_tile_cache_barrier_if_needed(SliceFlags::empty());
-
-        self.add_primitive(
-            spatial_node_index,
-            clip_node_id,
-            info,
-            Vec::new(),
-            PrimitiveKeyKind::Clear,
-        );
-
-        self.add_tile_cache_barrier_if_needed(SliceFlags::empty());
-    }
-
     pub fn add_line(
         &mut self,
         spatial_node_index: SpatialNodeIndex,
@@ -3353,7 +3385,7 @@ impl<'a> SceneBuilder<'a> {
                             LayoutSize::new(border.height as f32, border.width as f32),
                             LayoutSize::zero(),
                             Some(Box::new(nine_patch)),
-                            EdgeAaSegmentMask::all(),
+                            EdgeMask::all(),
                         ) {
                             Some(prim) => prim,
                             None => return,
@@ -3435,7 +3467,7 @@ impl<'a> SceneBuilder<'a> {
         stretch_size: LayoutSize,
         mut tile_spacing: LayoutSize,
         nine_patch: Option<Box<NinePatchDescriptor>>,
-        edge_aa_mask: EdgeAaSegmentMask,
+        edge_aa_mask: EdgeMask,
     ) -> Option<LinearGradient> {
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
@@ -3501,6 +3533,7 @@ impl<'a> SceneBuilder<'a> {
             nine_patch,
             cached,
             edge_aa_mask,
+            enable_dithering: self.config.enable_dithering,
         })
     }
 
@@ -3642,7 +3675,7 @@ impl<'a> SceneBuilder<'a> {
                 .unwrap();
 
             TextRun {
-                glyphs: Arc::new(glyphs),
+                glyphs,
                 font,
                 shadow: false,
                 requested_raster_space,
@@ -3755,7 +3788,6 @@ impl<'a> SceneBuilder<'a> {
         info: &LayoutPrimitiveInfo,
         filters: Vec<Filter>,
         filter_datas: Vec<FilterData>,
-        filter_primitives: Vec<FilterPrimitive>,
     ) {
         // We don't know the spatial node for a backdrop filter, as it's whatever is the
         // backdrop root, but we can't know this if the root is a picture cache slice
@@ -3809,9 +3841,8 @@ impl<'a> SceneBuilder<'a> {
             source,
             clip_node_id,
             filters,
-            filter_primitives,
             filter_datas,
-            Some(false),
+            true,
             LayoutVector2D::zero(),
         );
 
@@ -3908,17 +3939,10 @@ impl<'a> SceneBuilder<'a> {
         mut source: PictureChainBuilder,
         clip_node_id: ClipNodeId,
         mut filter_ops: Vec<Filter>,
-        mut filter_primitives: Vec<FilterPrimitive>,
         filter_datas: Vec<FilterData>,
-        should_inflate_override: Option<bool>,
+        is_backdrop_filter: bool,
         context_offset: LayoutVector2D,
     ) -> PictureChainBuilder {
-        // TODO(cbrewster): Currently CSS and SVG filters live side by side in WebRender, but unexpected results will
-        // happen if they are used simulataneously. Gecko only provides either filter ops or filter primitives.
-        // At some point, these two should be combined and CSS filters should be expressed in terms of SVG filters.
-        assert!(filter_ops.is_empty() || filter_primitives.is_empty(),
-            "Filter ops and filter primitives are not allowed on the same stacking context.");
-
         // For each filter, create a new image with that composite mode.
         let mut current_filter_data_index = 0;
         // Check if the filter chain is actually an SVGFE filter graph DAG
@@ -4079,9 +4103,13 @@ impl<'a> SceneBuilder<'a> {
                                 // not the 4th red value.  This layout makes the
                                 // shader more compatible with buggy compilers that
                                 // do not like indexing components on a vec4.
+                                //
+                                // If the alpha value of the lowest alpha index
+                                // is more than 0.5/255.0, then the filter
+                                // creates pixels from nothing.
                                 let creates_pixels =
                                     if let Some(a) = filter_data.r_values.get(3) {
-                                        *a != 0.0
+                                        *a >= (0.5/255.0)
                                     } else {
                                         false
                                     };
@@ -4447,12 +4475,13 @@ impl<'a> SceneBuilder<'a> {
                     } else {
                         let mut filter = filter.clone();
 
-                        // backdrop-filter spec says that blurs should assume edgeMode=Duplicate
-                        // We can do this by not inflating the bounds, which means the blur
-                        // shader will duplicate pixels outside the sample rect
-                        if let Some(should_inflate_override) = should_inflate_override {
-                            if let Filter::Blur { ref mut should_inflate, .. } = filter {
-                                *should_inflate = should_inflate_override;
+                        // backdrop-filter spec says that blurs should assume edgeMode=Mirror
+                        // We can do this by not inflating the bounds and setting the edge
+                        // sampling mode to mirror.
+                        if is_backdrop_filter {
+                            if let Filter::Blur { ref mut should_inflate, ref mut edge_mode, .. } = filter {
+                                *should_inflate = false;
+                                *edge_mode = BlurEdgeMode::Mirror;
                             }
                         }
 
@@ -4460,44 +4489,6 @@ impl<'a> SceneBuilder<'a> {
                     }
                 }
             };
-
-            source = source.add_picture(
-                composite_mode,
-                clip_node_id,
-                Picture3DContext::Out,
-                &mut self.interners,
-                &mut self.prim_store,
-                &mut self.prim_instances,
-                &mut self.clip_tree_builder,
-            );
-        }
-
-        if !filter_primitives.is_empty() {
-            let filter_datas = filter_datas.iter()
-                .map(|filter_data| filter_data.sanitize())
-                .map(|filter_data| {
-                    SFilterData {
-                        r_func: SFilterDataComponent::from_functype_values(
-                            filter_data.func_r_type, &filter_data.r_values),
-                        g_func: SFilterDataComponent::from_functype_values(
-                            filter_data.func_g_type, &filter_data.g_values),
-                        b_func: SFilterDataComponent::from_functype_values(
-                            filter_data.func_b_type, &filter_data.b_values),
-                        a_func: SFilterDataComponent::from_functype_values(
-                            filter_data.func_a_type, &filter_data.a_values),
-                    }
-                })
-                .collect();
-
-            // Sanitize filter inputs
-            for primitive in &mut filter_primitives {
-                primitive.sanitize();
-            }
-
-            let composite_mode = PictureCompositeMode::SvgFilter(
-                filter_primitives,
-                filter_datas,
-            );
 
             source = source.add_picture(
                 composite_mode,
@@ -4807,16 +4798,6 @@ fn filter_datas_for_compositing(
         });
     }
     filter_datas
-}
-
-fn filter_primitives_for_compositing(
-    input_filter_primitives: ItemRange<FilterPrimitive>,
-) -> Vec<FilterPrimitive> {
-    // Resolve these in the flattener?
-    // TODO(gw): Now that we resolve these later on,
-    //           we could probably make it a bit
-    //           more efficient than cloning these here.
-    input_filter_primitives.iter().map(|primitive| primitive).collect()
 }
 
 fn process_repeat_size(

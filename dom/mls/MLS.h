@@ -9,9 +9,9 @@
 
 // #include "mozilla/dom/TypedArray.h"
 #include "mozilla/DOMEventTargetHelper.h"
-#include "mozilla/dom/Promise.h"
 #include "mozilla/dom/MLSBinding.h"
 #include "mozilla/dom/MLSTransactionChild.h"
+#include "mozilla/dom/Promise.h"
 #include "nsIGlobalObject.h"
 
 class nsIGlobalObject;
@@ -59,6 +59,9 @@ class MLS final : public nsISupports, public nsWrapperCache {
       const MLSBytesOrUint8Array& aJsWelcome, ErrorResult& aRv);
 
   already_AddRefed<mozilla::dom::Promise> GetGroupIdFromMessage(
+      const MLSBytesOrUint8Array& aJsMessage, ErrorResult& aRv);
+
+  already_AddRefed<mozilla::dom::Promise> GetGroupEpochFromMessage(
       const MLSBytesOrUint8Array& aJsMessage, ErrorResult& aRv);
 
  private:

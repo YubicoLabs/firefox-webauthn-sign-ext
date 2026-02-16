@@ -9,26 +9,9 @@
 #include <utility>
 
 #include "ServiceWorkerOpPromise.h"
+#include "ServiceWorkerShutdownState.h"
 #include "js/Exception.h"  // JS::ExceptionStack, JS::StealPendingExceptionStack
 #include "jsapi.h"
-
-#include "mozilla/dom/PushSubscriptionChangeEvent.h"
-#include "mozilla/dom/PushSubscriptionChangeEventBinding.h"
-#include "nsCOMPtr.h"
-#include "nsContentUtils.h"
-#include "nsDebug.h"
-#include "nsError.h"
-#include "nsINamed.h"
-#include "nsIPushErrorReporter.h"
-#include "nsISupportsImpl.h"
-#include "nsITimer.h"
-#include "nsIURI.h"
-#include "nsServiceManagerUtils.h"
-#include "nsTArray.h"
-#include "nsThreadUtils.h"
-
-#include "ServiceWorkerCloneData.h"
-#include "ServiceWorkerShutdownState.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/DebugOnly.h"
@@ -36,9 +19,10 @@
 #include "mozilla/OwningNonNull.h"
 #include "mozilla/SchedulerGroup.h"
 #include "mozilla/ScopeExit.h"
-#include "mozilla/Unused.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/Client.h"
+#include "mozilla/dom/CookieStore.h"
+#include "mozilla/dom/ExtendableCookieChangeEvent.h"
 #include "mozilla/dom/ExtendableMessageEventBinding.h"
 #include "mozilla/dom/FetchEventBinding.h"
 #include "mozilla/dom/FetchEventOpProxyChild.h"
@@ -48,9 +32,11 @@
 #include "mozilla/dom/Notification.h"
 #include "mozilla/dom/NotificationEvent.h"
 #include "mozilla/dom/NotificationEventBinding.h"
-#include "mozilla/dom/PerformanceTiming.h"
 #include "mozilla/dom/PerformanceStorage.h"
+#include "mozilla/dom/PerformanceTiming.h"
 #include "mozilla/dom/PushEventBinding.h"
+#include "mozilla/dom/PushSubscriptionChangeEvent.h"
+#include "mozilla/dom/PushSubscriptionChangeEventBinding.h"
 #include "mozilla/dom/RemoteWorkerChild.h"
 #include "mozilla/dom/RemoteWorkerNonLifeCycleOpControllerChild.h"
 #include "mozilla/dom/RemoteWorkerService.h"
@@ -66,6 +52,18 @@
 #include "mozilla/dom/WorkerScope.h"
 #include "mozilla/extensions/ExtensionBrowser.h"
 #include "mozilla/ipc/IPCStreamUtils.h"
+#include "nsCOMPtr.h"
+#include "nsContentUtils.h"
+#include "nsDebug.h"
+#include "nsError.h"
+#include "nsINamed.h"
+#include "nsIPushErrorReporter.h"
+#include "nsISupportsImpl.h"
+#include "nsITimer.h"
+#include "nsIURI.h"
+#include "nsServiceManagerUtils.h"
+#include "nsTArray.h"
+#include "nsThreadUtils.h"
 
 namespace mozilla::dom {
 
@@ -301,13 +299,16 @@ class ServiceWorkerOp::ServiceWorkerOpRunnable final
     MOZ_ASSERT(aWorkerPrivate->IsServiceWorker());
     MOZ_ASSERT(mOwner);
 
-    if (aWorkerPrivate->GlobalScope()->IsDying()) {
-      Unused << Cancel();
+    // GlobalScope could be nullptr here that OOM issue causes GlobalScope
+    // creation fail.
+    if (!aWorkerPrivate->GlobalScope() ||
+        aWorkerPrivate->GlobalScope()->IsDying()) {
+      (void)Cancel();
       return true;
     }
 
     bool rv = mOwner->Exec(aCx, aWorkerPrivate);
-    Unused << NS_WARN_IF(!rv);
+    (void)NS_WARN_IF(!rv);
     mOwner = nullptr;
 
     return rv;
@@ -485,7 +486,7 @@ ServiceWorkerOp::ServiceWorkerOp(
 }
 
 ServiceWorkerOp::~ServiceWorkerOp() {
-  Unused << NS_WARN_IF(!mPromiseHolder.IsEmpty());
+  (void)NS_WARN_IF(!mPromiseHolder.IsEmpty());
   mPromiseHolder.RejectIfExists(NS_ERROR_DOM_ABORT_ERR, __func__);
 }
 
@@ -594,7 +595,7 @@ class UpdateServiceWorkerStateOp final : public ServiceWorkerOp {
       MOZ_ASSERT(aWorkerPrivate->IsServiceWorker());
 
       if (mOwner) {
-        Unused << mOwner->Exec(aCx, aWorkerPrivate);
+        (void)mOwner->Exec(aCx, aWorkerPrivate);
         mOwner = nullptr;
       }
 
@@ -692,6 +693,56 @@ class LifeCycleEventOp final : public ExtendableEventOp {
     }
 
     return !DispatchFailed(rv);
+  }
+};
+
+class CookieChangeEventOp final : public ExtendableEventOp {
+  using ExtendableEventOp::ExtendableEventOp;
+
+ public:
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(CookieChangeEventOp, override)
+
+ private:
+  ~CookieChangeEventOp() = default;
+
+  bool Exec(JSContext* aCx, WorkerPrivate* aWorkerPrivate) override {
+    MOZ_ASSERT(aWorkerPrivate);
+    aWorkerPrivate->AssertIsOnWorkerThread();
+    MOZ_ASSERT(aWorkerPrivate->IsServiceWorker());
+    MOZ_ASSERT(!mPromiseHolder.IsEmpty());
+
+    const ServiceWorkerCookieChangeEventOpArgs& args =
+        mArgs.get_ServiceWorkerCookieChangeEventOpArgs();
+
+    CookieListItem item;
+    CookieStore::CookieStructToItem(args.cookie(), &item);
+
+    GlobalObject globalObj(aCx, aWorkerPrivate->GlobalScope()->GetWrapper());
+    nsCOMPtr<EventTarget> eventTarget =
+        do_QueryInterface(globalObj.GetAsSupports());
+    MOZ_ASSERT(eventTarget);
+
+    RefPtr<ExtendableCookieChangeEvent> event;
+
+    if (args.deleted()) {
+      item.mValue.Reset();
+      event = ExtendableCookieChangeEvent::CreateForDeletedCookie(eventTarget,
+                                                                  item);
+    } else {
+      event = ExtendableCookieChangeEvent::CreateForChangedCookie(eventTarget,
+                                                                  item);
+    }
+
+    MOZ_ASSERT(event);
+
+    nsresult rv = DispatchExtendableEventOnWorkerScope(
+        aCx, aWorkerPrivate->GlobalScope(), event, this);
+
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      return false;
+    }
+
+    return true;
   }
 };
 
@@ -807,7 +858,7 @@ class PushEventOp final : public ExtendableEventOp {
 
           if (reporter) {
             nsresult rv = reporter->ReportDeliveryError(messageId, error);
-            Unused << NS_WARN_IF(NS_FAILED(rv));
+            (void)NS_WARN_IF(NS_FAILED(rv));
           }
         });
 
@@ -956,9 +1007,19 @@ class NotificationEventOp : public ExtendableEventOp,
 
     ServiceWorkerNotificationEventOpArgs& args =
         mArgs.get_ServiceWorkerNotificationEventOpArgs();
+    bool isClick = args.type() ==
+                   ServiceWorkerNotificationEventOpArgs::
+                       TServiceWorkerNotificationClickEventOpArgs;
+    const IPCNotification& notification =
+        args.type() == ServiceWorkerNotificationEventOpArgs::
+                           TServiceWorkerNotificationClickEventOpArgs
+            ? args.get_ServiceWorkerNotificationClickEventOpArgs()
+                  .notification()
+            : args.get_ServiceWorkerNotificationCloseEventOpArgs()
+                  .notification();
 
     auto result = Notification::ConstructFromIPC(
-        aWorkerPrivate->GlobalScope(), args.notification(),
+        aWorkerPrivate->GlobalScope(), notification,
         NS_ConvertUTF8toUTF16(aWorkerPrivate->ServiceWorkerScope()));
 
     if (NS_WARN_IF(result.isErr())) {
@@ -969,13 +1030,19 @@ class NotificationEventOp : public ExtendableEventOp,
     init.mNotification = result.unwrap();
     init.mBubbles = false;
     init.mCancelable = false;
+    if (isClick) {
+      init.mAction =
+          args.get_ServiceWorkerNotificationClickEventOpArgs().action();
+    }
 
     RefPtr<NotificationEvent> notificationEvent =
-        NotificationEvent::Constructor(target, args.eventName(), init);
+        NotificationEvent::Constructor(
+            target, isClick ? u"notificationclick"_ns : u"notificationclose"_ns,
+            init);
 
     notificationEvent->SetTrusted(true);
 
-    if (args.eventName().EqualsLiteral("notificationclick")) {
+    if (isClick) {
       StartClearWindowTimer(aWorkerPrivate);
     }
 
@@ -1029,11 +1096,7 @@ class MessageEventOp final : public ExtendableEventOp {
 
   MessageEventOp(ServiceWorkerOpArgs&& aArgs,
                  std::function<void(const ServiceWorkerOpResult&)>&& aCallback)
-      : ExtendableEventOp(std::move(aArgs), std::move(aCallback)),
-        mData(new ServiceWorkerCloneData()) {
-    mData->CopyFromClonedMessageData(
-        mArgs.get_ServiceWorkerMessageEventOpArgs().clonedData());
-  }
+      : ExtendableEventOp(std::move(aArgs), std::move(aCallback)) {}
 
  private:
   ~MessageEventOp() = default;
@@ -1044,21 +1107,25 @@ class MessageEventOp final : public ExtendableEventOp {
     MOZ_ASSERT(aWorkerPrivate->IsServiceWorker());
     MOZ_ASSERT(!mPromiseHolder.IsEmpty());
 
+    ServiceWorkerMessageEventOpArgs& args =
+        mArgs.get_ServiceWorkerMessageEventOpArgs();
+
     JS::Rooted<JS::Value> messageData(aCx);
     nsCOMPtr<nsIGlobalObject> sgo = aWorkerPrivate->GlobalScope();
     ErrorResult rv;
-    if (!mData->IsErrorMessageData()) {
-      mData->Read(aCx, &messageData, rv);
+
+    if (args.clonedData()) {
+      args.clonedData()->Read(aCx, &messageData, rv);
     }
 
     // If mData is an error message data, then it means that it failed to
     // serialize on the caller side because it contains a shared memory object.
     // If deserialization fails, we will fire a messageerror event.
-    const bool deserializationFailed =
-        rv.Failed() || mData->IsErrorMessageData();
+    const bool deserializationFailed = rv.Failed() || !args.clonedData();
 
     Sequence<OwningNonNull<MessagePort>> ports;
-    if (!mData->TakeTransferredPortsAsSequence(ports)) {
+    if (args.clonedData() &&
+        !args.clonedData()->TakeTransferredPortsAsSequence(ports)) {
       RejectAll(NS_ERROR_FAILURE);
       rv.SuppressException();
       return false;
@@ -1076,8 +1143,7 @@ class MessageEventOp final : public ExtendableEventOp {
       init.mPorts = std::move(ports);
     }
 
-    PostMessageSource& ipcSource =
-        mArgs.get_ServiceWorkerMessageEventOpArgs().source();
+    PostMessageSource& ipcSource = args.source();
     nsCString originSource;
     switch (ipcSource.type()) {
       case PostMessageSource::TClientInfoAndState:
@@ -1139,8 +1205,6 @@ class MessageEventOp final : public ExtendableEventOp {
 
     return !DispatchFailed(rv2);
   }
-
-  RefPtr<ServiceWorkerCloneData> mData;
 };
 
 class UpdateIsOnContentBlockingAllowListOp final : public ExtendableEventOp {
@@ -1448,8 +1512,8 @@ void FetchEventOp::AsyncLog(const nsCString& aScriptSpec, uint32_t aLineNumber,
           return;
         }
 
-        Unused << self->mActor->SendAsyncLog(spec, line, column, messageName,
-                                             params);
+        (void)self->mActor->SendAsyncLog(spec, line, column, messageName,
+                                         params);
       });
 
   MOZ_ALWAYS_SUCCEEDS(
@@ -2003,6 +2067,10 @@ class ExtensionAPIEventOp final : public ServiceWorkerOp {
       break;
     case ServiceWorkerOpArgs::TServiceWorkerLifeCycleEventOpArgs:
       op = MakeRefPtr<LifeCycleEventOp>(std::move(aArgs), std::move(aCallback));
+      break;
+    case ServiceWorkerOpArgs::TServiceWorkerCookieChangeEventOpArgs:
+      op = MakeRefPtr<CookieChangeEventOp>(std::move(aArgs),
+                                           std::move(aCallback));
       break;
     case ServiceWorkerOpArgs::TServiceWorkerPushEventOpArgs:
       op = MakeRefPtr<PushEventOp>(std::move(aArgs), std::move(aCallback));

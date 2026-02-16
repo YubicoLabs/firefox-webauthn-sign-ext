@@ -49,10 +49,9 @@ const { L10N } = require("resource://devtools/client/memory/utils.js");
 
 var models = require("resource://devtools/client/memory/models.js");
 
-var Immutable = require("resource://devtools/client/shared/vendor/immutable.js");
-var React = require("resource://devtools/client/shared/vendor/react.js");
+var React = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-var ReactDOM = require("resource://devtools/client/shared/vendor/react-dom.js");
+var ReactDOM = require("resource://devtools/client/shared/vendor/react-dom.mjs");
 var { createFactory } = React;
 var Heap = createFactory(
   require("resource://devtools/client/memory/components/Heap.js")
@@ -121,7 +120,7 @@ var TEST_NODE_ID_COUNTER = 0;
  * Create a mock DominatorTreeNode for testing, with sane defaults. Override any
  * property by providing it on `opts`. Optionally pass child nodes as well.
  *
- * @param {Object} opts
+ * @param {object} opts
  * @param {Array<DominatorTreeNode>?} children
  *
  * @returns {DominatorTreeNode}

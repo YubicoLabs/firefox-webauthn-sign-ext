@@ -75,7 +75,7 @@ item-history-and-downloads =
     .label = Browsing & download history
     .accesskey = B
 
-item-history-and-downloads-description = Clears search, site and download history
+item-history-and-downloads-description2 = Clears site and download history
 
 item-cookies =
     .label = Cookies
@@ -169,3 +169,7 @@ sanitize-everything-warning = All history will be cleared.
 # Recent History dialog, provided that the user has modified the default set of
 # history items to clear.
 sanitize-selected-warning = All selected items will be cleared.
+
+# Label shown next to the loading spinner while calculating the size of cached data
+# and cookies in the clear data dialog.
+sanitize-calculating-size = Calculating…

@@ -10,9 +10,9 @@
 
 #include "mozilla/Assertions.h"
 #include "mozilla/Atomics.h"
+#include "mozilla/CheckedArithmetic.h"
 #include "mozilla/FastBernoulliTrial.h"
 #include "mozilla/IntegerPrintfMacros.h"
-#include "mozilla/JSONWriter.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/PlatformMutex.h"
 #include "mozilla/ProfilerCounts.h"
@@ -26,10 +26,8 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #ifdef XP_WIN
 #  include <windows.h>
@@ -146,10 +144,11 @@ class InfallibleAllocWithoutHooksPolicy {
  public:
   template <typename T>
   static T* maybe_pod_malloc(size_t aNumElems) {
-    if (aNumElems & mozilla::tl::MulOverflowMask<sizeof(T)>::value) {
+    size_t size;
+    if (MOZ_UNLIKELY(!mozilla::SafeMul(aNumElems, sizeof(T), &size))) {
       return nullptr;
     }
-    return (T*)gMallocTable.malloc(aNumElems * sizeof(T));
+    return (T*)gMallocTable.malloc(size);
   }
 
   template <typename T>
@@ -159,10 +158,11 @@ class InfallibleAllocWithoutHooksPolicy {
 
   template <typename T>
   static T* maybe_pod_realloc(T* aPtr, size_t aOldSize, size_t aNewSize) {
-    if (aNewSize & mozilla::tl::MulOverflowMask<sizeof(T)>::value) {
+    size_t size;
+    if (MOZ_UNLIKELY(!mozilla::SafeMul(aNewSize, sizeof(T), &size))) {
       return nullptr;
     }
-    return (T*)gMallocTable.realloc(aPtr, aNewSize * sizeof(T));
+    return (T*)gMallocTable.realloc(aPtr, size);
   }
 
   template <typename T>
@@ -541,19 +541,6 @@ static arena_id_t replace_moz_create_arena_with_params(
 
 static void replace_moz_dispose_arena(arena_id_t aArenaId) {
   return gMallocTable.moz_dispose_arena(aArenaId);
-}
-
-static void replace_moz_set_max_dirty_page_modifier(int32_t aModifier) {
-  return gMallocTable.moz_set_max_dirty_page_modifier(aModifier);
-}
-
-static bool replace_moz_enable_deferred_purge(bool aEnable) {
-  return gMallocTable.moz_enable_deferred_purge(aEnable);
-}
-
-static purge_result_t replace_moz_may_purge_one_now(bool aPeekOnly,
-                                                    uint32_t aReuseGraceMS) {
-  return gMallocTable.moz_may_purge_one_now(aPeekOnly, aReuseGraceMS);
 }
 
 // Must come after all the replace_* funcs

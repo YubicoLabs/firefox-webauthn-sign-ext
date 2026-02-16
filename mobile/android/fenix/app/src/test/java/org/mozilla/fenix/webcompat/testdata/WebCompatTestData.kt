@@ -11,12 +11,27 @@ object WebCompatTestData {
           "antitracking": {
             "blockList": "basic",
             "btpHasPurgedSite": false,
+            "etpCategory": "standard",
             "hasMixedActiveContentBlocked": false,
             "hasMixedDisplayContentBlocked": false,
             "hasTrackingContentBlocked": false,
-            "isPrivateBrowsing": false
+            "isPrivateBrowsing": false,
+            "blockedOrigins": ["https://blockedUrlExample.com"]
           },
           "browser": {
+            "addons": [
+              {
+                "id": "id.temp",
+                "name": "name1",
+                "temporary": true,
+                "version": "version1"
+              }, {
+                "id": "id.perm",
+                "name": "name2",
+                "temporary": false,
+                "version": "version2"
+              }
+            ],
             "app": {
               "defaultUserAgent": "testDefaultUserAgent"
             },
@@ -72,15 +87,41 @@ object WebCompatTestData {
           "antitracking": {
             "blockList": "basic",
             "btpHasPurgedSite": false,
+            "etpCategory": "standard",
             "hasMixedActiveContentBlocked": false,
             "hasMixedDisplayContentBlocked": false,
             "hasTrackingContentBlocked": false,
-            "isPrivateBrowsing": false
+            "isPrivateBrowsing": false,
+            "blockedOrigins": ["https://blockedUrlExample.com", "https://blockedUrlExample2.com"]
           },
           "browser": {
+            "addons": [
+              {
+                "id": "id.temp",
+                "name": "name1",
+                "temporary": true,
+                "version": "version1"
+              }, {
+                "id": "id.perm",
+                "name": "name2",
+                "temporary": false,
+                "version": "version2"
+              }
+            ],
             "app": {
               "defaultUserAgent": "testDefaultUserAgent"
             },
+            "experiments": [
+              {
+                "branch": "branch1",
+                "slug": "slug1",
+                "kind": "kind1"
+              }, {
+                "branch": "branch2",
+                "slug": "slug2",
+                "kind": "kind2"
+              }
+            ],
             "graphics": {
               "devices": [
                 { "id": "device1" },

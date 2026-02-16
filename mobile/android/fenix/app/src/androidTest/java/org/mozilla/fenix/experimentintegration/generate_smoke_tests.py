@@ -29,7 +29,7 @@ def search_for_smoke_tests(tests_name):
             file_name = name
             break
 
-    with open(file_name, "r") as file:
+    with open(file_name) as file:
         code = file.read().split(" ")
         code = [item for item in code if item != ""]
 
@@ -42,7 +42,7 @@ def search_for_smoke_tests(tests_name):
                 locations.append(count)
 
         for location in locations:
-            test_names.append(f"{class_name}#{code[location+3].strip('()')}")
+            test_names.append(f"{class_name}#{code[location + 3].strip('()')}")
     return test_names
 
 
@@ -57,7 +57,7 @@ def create_test_file():
         print("File Exists, you need to delete it to create a new one.")
         return
     # file exists
-    subprocess.run([f"touch {final_path}"], encoding="utf8", shell=True)
+    subprocess.run([f"touch {final_path}"], check=True, encoding="utf8", shell=True)
     assert final_path.exists()
     with open(final_path, "w") as file:
         file.write("import pytest\n\n")
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     if args.test_files:
         test_modules = args.test_files
     else:
-        with open("variables.yaml", "r") as file:
+        with open("variables.yaml") as file:
             tests = yaml.safe_load(file)
             test_modules = [test for test in tests.get("smoke_tests")]
     create_test_file()

@@ -233,6 +233,7 @@ void nsMacDockSupport::BuildDockTile() {
     imageView.imageScaling = NSImageScaleAxesIndependently;
     imageView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     [mDockTileWrapperView addSubview:imageView];
+    [imageView release];
 
     mDockBadgeView =
         [[NSImageView alloc] initWithFrame:NSMakeRect(19.5, 19.5, 12, 12)];
@@ -512,7 +513,7 @@ nsresult nsMacDockSupport::EnsureAppIsPinnedToDock(
 }
 
 nsresult nsMacDockSupport::LaunchAppBundle(
-    nsIFile* aAppBundle, const nsTArray<nsCString>& aArgs,
+    nsIFile* aAppBundle, const nsTArray<nsString>& aArgs,
     nsIAppBundleLaunchOptions* aLaunchOptions) {
   NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 

@@ -15,23 +15,22 @@
 #ifndef mozilla_ServoStyleConstsForwards_h
 #  define mozilla_ServoStyleConstsForwards_h
 
-#  include "nsColor.h"
-#  include "nsCoord.h"
-#  include "mozilla/AtomArray.h"
-#  include "mozilla/IntegerRange.h"
-#  include "mozilla/Span.h"
+#  include <atomic>
+
+#  include "NonCustomCSSPropertyId.h"
 #  include "Units.h"
-#  include "mozilla/gfx/Types.h"
+#  include "mozilla/AtomArray.h"
 #  include "mozilla/CORSMode.h"
 #  include "mozilla/MemoryReporting.h"
-#  include "mozilla/ServoTypes.h"
 #  include "mozilla/ServoBindingTypes.h"
-#  include "mozilla/Vector.h"
-#  include "nsCSSPropertyID.h"
-#  include "nsCompatibility.h"
-#  include "nsIURI.h"
+#  include "mozilla/ServoTypes.h"
+#  include "mozilla/gfx/Types.h"
 #  include "mozilla/image/Resolution.h"
-#  include <atomic>
+#  include "nsColor.h"
+#  include "nsCompatibility.h"
+#  include "nsCoord.h"
+#  include "nsGkAtoms.h"
+#  include "nsIURI.h"
 
 struct RawServoAnimationValueTable;
 
@@ -44,7 +43,8 @@ class nsPresContext;
 class nsSimpleContentList;
 class imgRequestProxy;
 struct nsCSSValueSharedList;
-
+struct AnchorPosResolutionParams;
+struct AnchorPosOffsetResolutionParams;
 class gfxFontFeatureValueSet;
 struct GeckoFontMetrics;
 namespace mozilla {
@@ -52,6 +52,11 @@ namespace mozilla {
 // Forward declaration for `StyleLengthPercentageUnion::AsCalc`, which
 // references the type below in the generated code.
 struct StyleCalcLengthPercentage;
+
+// Forward declaration required due to a circular type dependency between
+// StyleNumericValue and StyleSumValue.
+// cbindgen does not currently emit this forward declaration automatically.
+struct StyleNumericValue;
 
 namespace gfx {
 struct FontVariation;
@@ -101,10 +106,10 @@ class StyleParserState;
 template <typename T>
 struct StyleForgottenArcSlicePtr;
 
-struct AnimatedPropertyID;
 struct AnimationPropertySegment;
 struct AspectRatio;
 struct ComputedTiming;
+struct CSSPropertyId;
 struct URLExtraData;
 
 enum HalfCorner : uint8_t;
@@ -130,7 +135,6 @@ enum class CallerType : uint32_t;
 
 class Element;
 class Document;
-class ImageTracker;
 
 }  // namespace dom
 
@@ -188,7 +192,6 @@ struct StyleBox {
 // Work-around weird cbindgen renaming / avoiding moving stuff outside its
 // namespace.
 
-using StyleImageTracker = dom::ImageTracker;
 using StyleLoader = css::Loader;
 using StyleLoaderReusableStyleSheets = css::LoaderReusableStyleSheets;
 using StyleCallerType = dom::CallerType;
@@ -208,11 +211,11 @@ using StyleMatrixTransformOperator =
     nsStyleTransformMatrix::MatrixTransformOperator;
 
 #  define SERVO_LOCKED_ARC_TYPE(name_) struct StyleLocked##type_;
-#  include "mozilla/ServoLockedArcTypeList.h"
+#  include "mozilla/ServoLockedArcTypeList.inc"
 #  undef SERVO_LOCKED_ARC_TYPE
 
 #  define SERVO_BOXED_TYPE(name_, type_) struct Style##type_;
-#  include "mozilla/ServoBoxedTypeList.h"
+#  include "mozilla/ServoBoxedTypeList.inc"
 #  undef SERVO_BOXED_TYPE
 
 using StyleAtomicUsize = std::atomic<size_t>;

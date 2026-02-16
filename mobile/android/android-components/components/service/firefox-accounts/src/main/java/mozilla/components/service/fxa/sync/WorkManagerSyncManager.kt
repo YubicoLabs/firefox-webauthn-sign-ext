@@ -7,6 +7,7 @@ package mozilla.components.service.fxa.sync
 import android.content.Context
 import androidx.annotation.UiThread
 import androidx.annotation.VisibleForTesting
+import androidx.core.content.edit
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -123,14 +124,8 @@ internal object WorkersLiveDataObserver {
         if (workersLiveData.hasObservers()) return
 
         // This must be called on the UI thread.
-        workersLiveData.observeForever {
-            val isRunning = when (it?.any { worker -> worker.state == WorkInfo.State.RUNNING }) {
-                null -> false
-                false -> false
-                true -> true
-            }
-
-            dispatcher?.workersStateChanged(isRunning)
+        workersLiveData.observeForever { workers ->
+            dispatcher?.workersStateChanged(workers?.map { it.state })
 
             // TODO process errors coming out of worker.outputData
         }
@@ -156,13 +151,13 @@ internal class WorkManagerSyncDispatcher(
         stopPeriodicSync()
     }
 
-    override fun workersStateChanged(isRunning: Boolean) {
-        if (isSyncActive && !isRunning) {
-            notifyObservers { onIdle() }
-            isSyncActive = false
-        } else if (!isSyncActive && isRunning) {
+    override fun workersStateChanged(currentWorkStates: List<WorkInfo.State>?) {
+        if (currentWorkStates?.any { it == WorkInfo.State.RUNNING } == true) {
             notifyObservers { onStarted() }
             isSyncActive = true
+        } else if (currentWorkStates?.any { it.isFinished } == true) {
+            notifyObservers { onIdle() }
+            isSyncActive = false
         }
     }
 
@@ -341,7 +336,7 @@ internal class WorkManagerSyncWorker(
         }
     }
 
-    @Suppress("LongMethod", "ComplexMethod")
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     private suspend fun doSync(syncableStores: Map<SyncEngine, LazyStoreWithKey>): Result {
         val engineKeyProviders = mutableMapOf<SyncEngine, KeyProvider>()
 
@@ -546,8 +541,7 @@ fun getLastSynced(context: Context): Long {
 }
 
 internal fun clearSyncState(context: Context) {
-    context.getSharedPreferences(SYNC_STATE_PREFS_KEY, Context.MODE_PRIVATE)
-        .edit().clear().apply()
+    context.getSharedPreferences(SYNC_STATE_PREFS_KEY, Context.MODE_PRIVATE).edit { clear() }
 }
 
 internal fun getSyncState(context: Context): String? {
@@ -563,17 +557,13 @@ internal fun getSyncState(context: Context): String? {
  * @param lastSyncedTime - the last synced time in milliseconds
  */
 fun setLastSynced(context: Context, lastSyncedTime: Long) {
-    context
-        .getSharedPreferences(SYNC_STATE_PREFS_KEY, Context.MODE_PRIVATE)
-        .edit()
-        .putLong(SYNC_LAST_SYNCED_KEY, lastSyncedTime)
-        .apply()
+    context.getSharedPreferences(SYNC_STATE_PREFS_KEY, Context.MODE_PRIVATE).edit {
+        putLong(SYNC_LAST_SYNCED_KEY, lastSyncedTime)
+    }
 }
 
 internal fun setSyncState(context: Context, state: String) {
-    context
-        .getSharedPreferences(SYNC_STATE_PREFS_KEY, Context.MODE_PRIVATE)
-        .edit()
-        .putString(SYNC_STATE_KEY, state)
-        .apply()
+    context.getSharedPreferences(SYNC_STATE_PREFS_KEY, Context.MODE_PRIVATE).edit {
+        putString(SYNC_STATE_KEY, state)
+    }
 }

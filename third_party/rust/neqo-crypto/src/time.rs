@@ -4,6 +4,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "Let's assume the use of `unwrap` was checked when the use of `unsafe` was reviewed."
+)]
+
 use std::{
     ops::Deref,
     os::raw::c_void,
@@ -102,16 +107,14 @@ impl TryFrom<PRTime> for Time {
     type Error = Error;
     fn try_from(prtime: PRTime) -> Res<Self> {
         let base = get_base();
-        let delta = prtime
-            .checked_sub(base.prtime)
-            .ok_or(Error::TimeTravelError)?;
+        let delta = prtime.checked_sub(base.prtime).ok_or(Error::TimeTravel)?;
         let d = Duration::from_micros(u64::try_from(delta.abs())?);
         let t = if delta >= 0 {
             base.instant.checked_add(d)
         } else {
             base.instant.checked_sub(d)
         };
-        let t = t.ok_or(Error::TimeTravelError)?;
+        let t = t.ok_or(Error::TimeTravel)?;
         Ok(Self { t })
     }
 }
@@ -125,13 +128,13 @@ impl TryInto<PRTime> for Time {
             || {
                 // Try to go backwards from the base time.
                 let backwards = base.instant - self.t; // infallible
-                PRTime::try_from(backwards.as_micros()).map_or(Err(Error::TimeTravelError), |d| {
-                    base.prtime.checked_sub(d).ok_or(Error::TimeTravelError)
+                PRTime::try_from(backwards.as_micros()).map_or(Err(Error::TimeTravel), |d| {
+                    base.prtime.checked_sub(d).ok_or(Error::TimeTravel)
                 })
             },
             |delta| {
-                PRTime::try_from(delta.as_micros()).map_or(Err(Error::TimeTravelError), |d| {
-                    d.checked_add(base.prtime).ok_or(Error::TimeTravelError)
+                PRTime::try_from(delta.as_micros()).map_or(Err(Error::TimeTravel), |d| {
+                    d.checked_add(base.prtime).ok_or(Error::TimeTravel)
                 })
             },
         )
@@ -139,7 +142,6 @@ impl TryInto<PRTime> for Time {
 }
 
 impl From<Time> for Instant {
-    #[must_use]
     fn from(t: Time) -> Self {
         t.t
     }
@@ -149,13 +151,6 @@ impl From<Time> for Instant {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Interval {
     d: Duration,
-}
-
-impl Deref for Interval {
-    type Target = Duration;
-    fn deref(&self) -> &Self::Target {
-        &self.d
-    }
 }
 
 impl TryFrom<PRTime> for Interval {
@@ -187,7 +182,7 @@ pub struct TimeHolder {
 }
 
 impl TimeHolder {
-    unsafe extern "C" fn time_func(arg: *mut c_void) -> PRTime {
+    const unsafe extern "C" fn time_func(arg: *mut c_void) -> PRTime {
         let p = arg as *const PRTime;
         *p.as_ref().unwrap()
     }
@@ -209,16 +204,17 @@ impl Default for TimeHolder {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod test {
     use std::time::{Duration, Instant};
 
-    use super::{get_base, init, Interval, PRTime, Time};
+    use super::{get_base, init, Interval, PRTime, Time, TimeZero};
     use crate::err::Res;
 
     #[test]
     fn convert_stable() {
         init();
-        let now = Time::from(Instant::now());
+        let now = Time::from(test_fixture::now());
         let pr: PRTime = now.try_into().expect("convert to PRTime with truncation");
         let t2 = Time::try_from(pr).expect("convert to Instant");
         let pr2: PRTime = t2.try_into().expect("convert to PRTime again");
@@ -245,6 +241,24 @@ mod test {
         let base = get_base();
         let t = Time::from(base.instant.checked_sub(DELTA).unwrap());
         assert_eq!(Instant::from(t) + DELTA, base.instant);
+
+        // Convert back to PRTime to cover the backwards conversion path.
+        let pr: PRTime = t.try_into().expect("convert past time to PRTime");
+        let delta_micros = PRTime::try_from(DELTA.as_micros()).unwrap();
+        assert_eq!(pr, base.prtime - delta_micros);
+    }
+
+    #[test]
+    fn timezero_baseline_future() {
+        let tz = TimeZero::baseline(Instant::now() + Duration::from_secs(10));
+        let now = Instant::now();
+        assert!(tz.instant <= now && tz.instant + Duration::from_millis(100) > now);
+    }
+
+    #[test]
+    fn timezero_baseline_past() {
+        let past = Instant::now().checked_sub(Duration::from_secs(5)).unwrap();
+        assert_eq!(TimeZero::baseline(past).instant, past);
     }
 
     #[test]

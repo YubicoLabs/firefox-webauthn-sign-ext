@@ -14,8 +14,6 @@ const TEST_URI =
 const dpr = "--dpr 1";
 
 add_task(async function () {
-  await pushPref("devtools.webconsole.input.context", true);
-
   const hud = await openNewTabAndConsole(TEST_URI);
 
   info("wait for the iframes to be loaded");
@@ -72,15 +70,6 @@ add_task(async function () {
   const evaluationContextSelectorButton = hud.ui.outputNode.querySelector(
     ".webconsole-evaluation-selector-button"
   );
-
-  if (!isFissionEnabled() && !isEveryFrameTargetEnabled()) {
-    is(
-      evaluationContextSelectorButton,
-      null,
-      "context selector is only displayed when Fission or EFT is enabled"
-    );
-    return;
-  }
 
   const remoteIframeUrl = await SpecialPowers.spawn(
     gBrowser.selectedBrowser,

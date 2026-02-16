@@ -30,25 +30,28 @@ def _generate_task_output_files(job, filenames, locale=None):
 
     data = list()
     for filename in filenames:
-        data.append(
-            {
-                "type": "file",
-                "path": f"/home/worker/artifacts/{filename}",
-                "name": f"{artifact_prefix}/{locale_output_path}{filename}",
-            }
-        )
-    data.append(
-        {
+        data.append({
             "type": "file",
-            "path": "/home/worker/artifacts/manifest.json",
-            "name": f"{artifact_prefix}/{locale_output_path}manifest.json",
-        }
-    )
+            "path": f"/home/worker/artifacts/{filename}",
+            "name": f"{artifact_prefix}/{locale_output_path}{filename}",
+        })
+    data.append({
+        "type": "file",
+        "path": "/home/worker/artifacts/manifest.json",
+        "name": f"{artifact_prefix}/{locale_output_path}manifest.json",
+    })
     return data
 
 
 def identify_desired_signing_keys(project, product):
-    if project in ["mozilla-central", "comm-central", "larch", "pine", "maple"]:
+    if project in [
+        "mozilla-central",
+        "comm-central",
+        "larch",
+        "pine",
+        "maple",
+        "cypress",
+    ]:
         return "nightly"
     if project == "mozilla-beta":
         if product == "devedition":
@@ -104,11 +107,7 @@ def make_task_description(config, jobs):
         locale_suffix = ""
         if locale:
             locale_suffix = f"{locale}/"
-        artifact_path = "<{}/{}/{}target.complete.mar>".format(
-            dep_job.kind,
-            get_artifact_prefix(dep_job),
-            locale_suffix,
-        )
+        artifact_path = f"<{dep_job.kind}/{get_artifact_prefix(dep_job)}/{locale_suffix}target.complete.mar>"
         for build in sorted(builds):
             partial_info = {
                 "locale": build_locale,
@@ -147,13 +146,13 @@ def make_task_description(config, jobs):
                 "MAR_CHANNEL_ID": attributes["mar-channel-id"],
             },
         }
-        if release_level(config.params["project"]) == "staging":
+        if release_level(config.params) == "staging":
             worker["env"]["FUNSIZE_ALLOW_STAGING_PREFIXES"] = "true"
 
         task = {
             "label": label,
             "description": f"{dep_job.description} Partials",
-            "worker-type": "b-linux-gcp",
+            "worker-type": "b-linux-docker-amd",
             "dependencies": dependencies,
             "scopes": [],
             "attributes": attributes,
@@ -164,9 +163,9 @@ def make_task_description(config, jobs):
         }
 
         # We only want caching on linux/windows due to bug 1436977
-        if int(level) == 3 and any(
-            [build_platform.startswith(prefix) for prefix in ["linux", "win"]]
-        ):
+        if int(level) == 3 and any([
+            build_platform.startswith(prefix) for prefix in ["linux", "win"]
+        ]):
             task["scopes"].append(
                 "auth:aws-s3:read-write:tc-gp-private-1d-us-east-1/releng/mbsdiff-cache/"
             )

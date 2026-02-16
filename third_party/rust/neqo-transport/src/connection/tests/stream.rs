@@ -4,7 +4,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::{cmp::max, collections::HashMap};
+use std::{cmp::max, collections::HashMap, fmt::Debug};
 
 use neqo_common::{event::Provider as _, qdebug};
 use test_fixture::now;
@@ -15,16 +15,13 @@ use super::{
     DEFAULT_STREAM_DATA,
 };
 use crate::{
+    connection::params::INITIAL_LOCAL_MAX_STREAM_DATA,
     events::ConnectionEvent,
-    frame::{
-        FRAME_TYPE_MAX_STREAM_DATA, FRAME_TYPE_RESET_STREAM, FRAME_TYPE_STOP_SENDING,
-        FRAME_TYPE_STREAM_CLIENT_BIDI, FRAME_TYPE_STREAM_DATA_BLOCKED,
-    },
-    packet::PacketBuilder,
-    recv_stream::RECV_BUFFER_SIZE,
-    send_stream::{OrderGroup, SendStreamState, SEND_BUFFER_SIZE},
+    frame::FrameType,
+    packet,
+    send_stream::{self, OrderGroup},
     streams::{SendOrder, StreamOrder},
-    tparams::{self, TransportParameter},
+    tparams::{TransportParameter, TransportParameterId::*},
     CloseReason, Connection, ConnectionParameters, Error, StreamId, StreamType,
 };
 
@@ -33,9 +30,13 @@ fn stream_create() {
     let mut client = default_client();
 
     let out = client.process_output(now());
+    let out2 = client.process_output(now());
     let mut server = default_server();
-    let out = server.process(out.dgram(), now());
+    server.process_input(out.dgram().unwrap(), now());
+    let out = server.process(out2.dgram(), now());
 
+    let out = client.process(out.dgram(), now());
+    let out = server.process(out.dgram(), now());
     let out = client.process(out.dgram(), now());
     drop(server.process(out.dgram(), now()));
     assert!(maybe_authenticate(&mut client));
@@ -223,7 +224,7 @@ fn fairness_test<S, R>(source: S, number_iterates: usize, truncate_to: usize, re
 where
     S: IntoIterator,
     S::Item: Into<StreamId>,
-    R: IntoIterator + std::fmt::Debug,
+    R: IntoIterator + Debug,
     R::Item: Into<StreamId>,
     Vec<u64>: PartialEq<R>,
 {
@@ -393,7 +394,7 @@ fn max_data() {
 
     server
         .set_local_tparam(
-            tparams::INITIAL_MAX_DATA,
+            InitialMaxData,
             TransportParameter::Integer(u64::try_from(SMALL_MAX_DATA).unwrap()),
         )
         .unwrap();
@@ -437,18 +438,7 @@ fn max_data() {
     client.streams.handle_max_data(100_000_000);
     assert_eq!(
         client.stream_avail_send_space(stream_id).unwrap(),
-        SEND_BUFFER_SIZE - SMALL_MAX_DATA
-    );
-
-    // Increase max stream data. Avail space now limited by tx buffer
-    client
-        .streams
-        .get_send_stream_mut(stream_id)
-        .unwrap()
-        .set_max_stream_data(100_000_000);
-    assert_eq!(
-        client.stream_avail_send_space(stream_id).unwrap(),
-        SEND_BUFFER_SIZE - SMALL_MAX_DATA + 4096
+        INITIAL_LOCAL_MAX_STREAM_DATA - SMALL_MAX_DATA
     );
 
     let evts = client.events().collect::<Vec<_>>();
@@ -494,9 +484,9 @@ fn exceed_max_data() {
 
     assert_error(
         &client,
-        &CloseReason::Transport(Error::PeerError(Error::FlowControlError.code())),
+        &CloseReason::Transport(Error::Peer(Error::FlowControl.code())),
     );
-    assert_error(&server, &CloseReason::Transport(Error::FlowControlError));
+    assert_error(&server, &CloseReason::Transport(Error::FlowControl));
 }
 
 #[test]
@@ -524,7 +514,7 @@ fn do_not_accept_data_after_stop_sending() {
     // Call stop sending.
     assert_eq!(
         Ok(()),
-        server.stream_stop_sending(stream_id, Error::NoError.code())
+        server.stream_stop_sending(stream_id, Error::None.code())
     );
 
     // Receive the second data frame. The frame should be ignored and
@@ -534,7 +524,7 @@ fn do_not_accept_data_after_stop_sending() {
 
     drop(client.process(out.dgram(), now()));
     assert_eq!(
-        Err(Error::FinalSizeError),
+        Err(Error::FinalSize),
         client.stream_send(stream_id, &[0x00])
     );
 }
@@ -542,7 +532,7 @@ fn do_not_accept_data_after_stop_sending() {
 struct Writer(Vec<u64>);
 
 impl crate::connection::test_internal::FrameWriter for Writer {
-    fn write_frames(&mut self, builder: &mut PacketBuilder) {
+    fn write_frames(&mut self, builder: &mut packet::Builder<&mut Vec<u8>>) {
         builder.write_varint_frame(&self.0);
     }
 }
@@ -563,15 +553,15 @@ fn illegal_stream_related_frames() {
     // 0 = Client-Initiated, Bidirectional; 2 = Client-Initiated, Unidirectional
     for stream_id in [0, 2] {
         for frame_type in [
-            FRAME_TYPE_RESET_STREAM,
-            FRAME_TYPE_STOP_SENDING,
-            FRAME_TYPE_MAX_STREAM_DATA,
-            FRAME_TYPE_STREAM_DATA_BLOCKED,
-            FRAME_TYPE_STREAM_CLIENT_BIDI,
+            FrameType::ResetStream,
+            FrameType::StopSending,
+            FrameType::MaxStreamData,
+            FrameType::StreamDataBlocked,
+            FrameType::Stream,
         ] {
             // The slice contains an extra 0 that is only needed for a RESET_STREAM frame.
             // It's ignored for the other frame types as PADDING.
-            test_with_illegal_frame(&[frame_type, stream_id, 0, 0]);
+            test_with_illegal_frame(&[frame_type.into(), stream_id, 0, 0]);
         }
     }
 }
@@ -606,7 +596,12 @@ fn legal_out_of_order_frame_on_remote_initiated_closed_stream() {
     // Deliver an out-of-order `FRAME_TYPE_MAX_STREAM_DATA` on forgotten stream.
     let dgram = send_with_extra(
         &mut client,
-        Writer(vec![FRAME_TYPE_MAX_STREAM_DATA, stream_id.as_u64(), 0, 0]),
+        Writer(vec![
+            u64::from(FrameType::MaxStreamData),
+            stream_id.as_u64(),
+            0,
+            0,
+        ]),
         now(),
     );
     server.process_input(dgram, now());
@@ -663,7 +658,7 @@ fn simultaneous_stop_sending_and_reset() {
 #[test]
 /// Make a stream data or control frame arrive after the stream has been used and cleared.
 fn late_stream_related_frames() {
-    fn late_stream_related_frame(frame_type: u64) {
+    fn late_stream_related_frame(frame_type: FrameType) {
         let mut client = default_client();
         let mut server = default_server();
         connect(&mut client, &mut server);
@@ -677,26 +672,26 @@ fn late_stream_related_frames() {
         // Make the server generate a packet containing the test frame.
         let before = server.stats().frame_tx;
         match frame_type {
-            FRAME_TYPE_RESET_STREAM => {
+            FrameType::ResetStream => {
                 server.stream_reset_send(stream_id, 0).unwrap();
             }
-            FRAME_TYPE_STOP_SENDING => {
+            FrameType::StopSending => {
                 server.stream_stop_sending(stream_id, 0).unwrap();
             }
-            FRAME_TYPE_STREAM_CLIENT_BIDI => {
+            FrameType::Stream => {
                 server.stream_send(stream_id, &[0x00]).unwrap();
                 server.stream_close_send(stream_id).unwrap();
             }
-            FRAME_TYPE_MAX_STREAM_DATA => {
+            FrameType::MaxStreamData => {
                 server
                     .streams
                     .get_recv_stream_mut(stream_id)
                     .unwrap()
                     .set_stream_max_data(u32::MAX.into());
             }
-            FRAME_TYPE_STREAM_DATA_BLOCKED => {
+            FrameType::StreamDataBlocked => {
                 let internal_stream = server.streams.get_send_stream_mut(stream_id).unwrap();
-                if let SendStreamState::Ready { fc, .. } = internal_stream.state() {
+                if let send_stream::State::Ready { fc, .. } = internal_stream.state() {
                     fc.blocked();
                 } else {
                     panic!("unexpected stream state");
@@ -707,19 +702,19 @@ fn late_stream_related_frames() {
         let tester = server.process_output(now()).dgram();
         let after = server.stats().frame_tx;
         match frame_type {
-            FRAME_TYPE_RESET_STREAM => {
+            FrameType::ResetStream => {
                 assert_eq!(after.reset_stream, before.reset_stream + 1);
             }
-            FRAME_TYPE_STOP_SENDING => {
+            FrameType::StopSending => {
                 assert_eq!(after.stop_sending, before.stop_sending + 1);
             }
-            FRAME_TYPE_STREAM_CLIENT_BIDI => {
+            FrameType::Stream => {
                 assert_eq!(after.stream, before.stream + 1);
             }
-            FRAME_TYPE_MAX_STREAM_DATA => {
+            FrameType::MaxStreamData => {
                 assert_eq!(after.max_stream_data, before.max_stream_data + 1);
             }
-            FRAME_TYPE_STREAM_DATA_BLOCKED => {
+            FrameType::StreamDataBlocked => {
                 assert_eq!(after.stream_data_blocked, before.stream_data_blocked + 1);
             }
             _ => panic!("unexpected frame type"),
@@ -736,11 +731,11 @@ fn late_stream_related_frames() {
     }
 
     for frame_type in [
-        FRAME_TYPE_RESET_STREAM,
-        FRAME_TYPE_STOP_SENDING,
-        FRAME_TYPE_MAX_STREAM_DATA,
-        FRAME_TYPE_STREAM_DATA_BLOCKED,
-        FRAME_TYPE_STREAM_CLIENT_BIDI,
+        FrameType::ResetStream,
+        FrameType::StopSending,
+        FrameType::MaxStreamData,
+        FrameType::StreamDataBlocked,
+        FrameType::Stream,
     ] {
         late_stream_related_frame(frame_type);
     }
@@ -753,15 +748,20 @@ fn client_fin_reorder() {
 
     // Send ClientHello.
     let client_hs = client.process_output(now());
-    assert!(client_hs.as_dgram_ref().is_some());
+    let client_hs2 = client.process_output(now());
+    assert!(client_hs.as_dgram_ref().is_some() && client_hs2.as_dgram_ref().is_some());
 
-    let server_hs = server.process(client_hs.dgram(), now());
+    server.process_input(client_hs.dgram().unwrap(), now());
+    let server_hs = server.process(client_hs2.dgram(), now());
     assert!(server_hs.as_dgram_ref().is_some()); // ServerHello, etc...
 
     let client_ack = client.process(server_hs.dgram(), now());
     assert!(client_ack.as_dgram_ref().is_some());
 
-    let server_out = server.process(client_ack.dgram(), now());
+    let dgram = server.process(client_ack.dgram(), now());
+    let dgram = client.process(dgram.dgram(), now());
+
+    let server_out = server.process(dgram.dgram(), now());
     assert!(server_out.as_dgram_ref().is_none());
 
     assert!(maybe_authenticate(&mut client));
@@ -824,9 +824,7 @@ fn after_stream_stop_sending_is_called_conn_events_for_stream_should_be_removed(
     drop(client.process(out, now()));
 
     // send stop sending.
-    client
-        .stream_stop_sending(id, Error::NoError.code())
-        .unwrap();
+    client.stream_stop_sending(id, Error::None.code()).unwrap();
 
     // Make sure we do not have RecvStreamReadable events for the stream after stream_stop_sending
     // has been called.
@@ -858,7 +856,7 @@ fn stream_data_blocked_generates_max_stream_data() {
 
     // Now send `STREAM_DATA_BLOCKED`.
     let internal_stream = server.streams.get_send_stream_mut(stream_id).unwrap();
-    if let SendStreamState::Send { fc, .. } = internal_stream.state() {
+    if let send_stream::State::Send { fc, .. } = internal_stream.state() {
         fc.blocked();
     } else {
         panic!("unexpected stream state");
@@ -887,7 +885,7 @@ fn stream_data_blocked_generates_max_stream_data() {
         }
         written += amount;
     }
-    assert_eq!(written, RECV_BUFFER_SIZE);
+    assert_eq!(written, INITIAL_LOCAL_MAX_STREAM_DATA);
 }
 
 /// See <https://github.com/mozilla/neqo/issues/871>
@@ -916,7 +914,7 @@ fn max_streams_after_bidi_closed() {
     // The server shouldn't have released more stream credit.
     client.process_input(dgram.unwrap(), now());
     let e = client.stream_create(StreamType::BiDi).unwrap_err();
-    assert!(matches!(e, Error::StreamLimitError));
+    assert!(matches!(e, Error::StreamLimit));
 
     // Closing the stream isn't enough.
     server.stream_close_send(stream_id).unwrap();
@@ -1090,7 +1088,7 @@ fn session_flow_control_stop_sending_state_recv() {
     exchange_data(&mut client, &mut server);
 
     server
-        .stream_stop_sending(stream_id, Error::NoError.code())
+        .stream_stop_sending(stream_id, Error::None.code())
         .unwrap();
 
     assert_eq!(
@@ -1149,7 +1147,7 @@ fn session_flow_control_stop_sending_state_size_known() {
     server.process_input(out2.unwrap(), now());
 
     server
-        .stream_stop_sending(stream_id, Error::NoError.code())
+        .stream_stop_sending(stream_id, Error::None.code())
         .unwrap();
 
     // In this case the final size is known when stream_stop_sending is called
@@ -1198,7 +1196,7 @@ fn session_flow_control_stop_sending_state_data_recvd() {
 
     // The stream is DataRecvd state
     server
-        .stream_stop_sending(stream_id, Error::NoError.code())
+        .stream_stop_sending(stream_id, Error::None.code())
         .unwrap();
 
     exchange_data(&mut client, &mut server);
@@ -1273,13 +1271,17 @@ fn session_flow_control_affects_all_streams() {
 fn connect_w_different_limit(bidi_limit: u64, unidi_limit: u64) {
     let mut client = default_client();
     let out = client.process_output(now());
+    let out2 = client.process_output(now());
     let mut server = new_server(
         ConnectionParameters::default()
             .max_streams(StreamType::BiDi, bidi_limit)
             .max_streams(StreamType::UniDi, unidi_limit),
     );
-    let out = server.process(out.dgram(), now());
+    server.process_input(out.dgram().unwrap(), now());
+    let out = server.process(out2.dgram(), now());
 
+    let out = client.process(out.dgram(), now());
+    let out = server.process(out.dgram(), now());
     let out = client.process(out.dgram(), now());
     drop(server.process(out.dgram(), now()));
 

@@ -3,11 +3,10 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import React from "react";
-import { actionCreators as ac } from "common/Actions.mjs";
+import { batch } from "react-redux";
+import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import { SectionsMgmtPanel } from "../SectionsMgmtPanel/SectionsMgmtPanel";
-import { SafeAnchor } from "../../DiscoveryStreamComponents/SafeAnchor/SafeAnchor";
-import { WallpapersSection } from "../../WallpapersSection/WallpapersSection";
-import { WallpaperCategories } from "../../WallpapersSection/WallpaperCategories";
+import { WallpaperCategories } from "../../WallpaperCategories/WallpaperCategories";
 
 export class ContentSection extends React.PureComponent {
   constructor(props) {
@@ -20,17 +19,70 @@ export class ContentSection extends React.PureComponent {
   }
 
   inputUserEvent(eventSource, eventValue) {
-    this.props.dispatch(
-      ac.UserEvent({
-        event: "PREF_CHANGED",
-        source: eventSource,
-        value: { status: eventValue, menu_source: "CUSTOMIZE_MENU" },
-      })
-    );
+    batch(() => {
+      this.props.dispatch(
+        ac.UserEvent({
+          event: "PREF_CHANGED",
+          source: eventSource,
+          value: { status: eventValue, menu_source: "CUSTOMIZE_MENU" },
+        })
+      );
+
+      // Dispatch unified widget telemetry for widget toggles.
+      // Map the event source from the customize panel to the widget name
+      // for the unified telemetry event.
+      let widgetName;
+      switch (eventSource) {
+        case "WEATHER":
+          widgetName = "weather";
+          break;
+        case "WIDGET_LISTS":
+          widgetName = "lists";
+          break;
+        case "WIDGET_TIMER":
+          widgetName = "focus_timer";
+          break;
+      }
+
+      if (widgetName) {
+        const { widgetsMaximized, widgetsMayBeMaximized } =
+          this.props.enabledWidgets;
+
+        let widgetSize;
+        if (widgetName === "weather") {
+          if (
+            this.props.mayHaveWeatherForecast &&
+            this.props.weatherDisplay === "detailed"
+          ) {
+            widgetSize =
+              widgetsMayBeMaximized && !widgetsMaximized ? "small" : "medium";
+          } else {
+            widgetSize = "mini";
+          }
+        } else {
+          widgetSize =
+            widgetsMayBeMaximized && !widgetsMaximized ? "small" : "medium";
+        }
+
+        const data = {
+          widget_name: widgetName,
+          widget_source: "customize_panel",
+          enabled: eventValue,
+          widget_size: widgetSize,
+        };
+
+        this.props.dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_ENABLED,
+            data,
+          })
+        );
+      }
+    });
   }
 
   onPreferenceSelect(e) {
-    // eventSource: TOP_SITES | TOP_STORIES | HIGHLIGHTS | WEATHER
+    // eventSource: WEATHER | TOP_SITES | TOP_STORIES | WIDGET_LISTS | WIDGET_TIMER
     const { preference, eventSource } = e.target.dataset;
     let value;
     if (e.target.nodeName === "SELECT") {
@@ -80,13 +132,15 @@ export class ContentSection extends React.PureComponent {
     }
 
     if (drawerRef) {
+      // Use measured height if valid, otherwise use a large fallback
+      // since overflow:hidden on the parent safely hides the drawer
       let drawerHeight =
-        parseFloat(window.getComputedStyle(drawerRef)?.height) || 0;
+        parseFloat(window.getComputedStyle(drawerRef)?.height) || 100;
 
       if (isOpen) {
-        drawerRef.style.marginTop = "var(--space-large)";
+        drawerRef.style.marginTop = "var(--space-small)";
       } else {
-        drawerRef.style.marginTop = `-${drawerHeight}px`;
+        drawerRef.style.marginTop = `-${drawerHeight + 3}px`;
       }
     }
   }
@@ -94,63 +148,123 @@ export class ContentSection extends React.PureComponent {
   render() {
     const {
       enabledSections,
-      mayHaveSponsoredTopSites,
+      enabledWidgets,
       pocketRegion,
-      mayHaveSponsoredStories,
       mayHaveInferredPersonalization,
-      mayHaveRecentSaves,
       mayHaveWeather,
+      mayHaveWidgets,
+      mayHaveTimerWidget,
+      mayHaveListsWidget,
       openPreferences,
-      spocMessageVariant,
       wallpapersEnabled,
-      wallpapersV2Enabled,
       activeWallpaper,
       setPref,
       mayHaveTopicSections,
       exitEventFired,
+      onSubpanelToggle,
+      toggleSectionsMgmtPanel,
+      showSectionsMgmtPanel,
     } = this.props;
     const {
       topSitesEnabled,
       pocketEnabled,
-      highlightsEnabled,
       weatherEnabled,
-      showSponsoredTopSitesEnabled,
-      showSponsoredPocketEnabled,
       showInferredPersonalizationEnabled,
-      showRecentSavesEnabled,
       topSitesRowsCount,
     } = enabledSections;
+    const { timerEnabled, listsEnabled } = enabledWidgets;
 
     return (
       <div className="home-section">
-        {!wallpapersV2Enabled && wallpapersEnabled && (
-          <div className="wallpapers-section">
-            <WallpapersSection
-              setPref={setPref}
-              activeWallpaper={activeWallpaper}
-            />
-          </div>
-        )}
-        {wallpapersV2Enabled && (
+        {wallpapersEnabled && (
           <>
             <div className="wallpapers-section">
               <WallpaperCategories
                 setPref={setPref}
                 activeWallpaper={activeWallpaper}
                 exitEventFired={exitEventFired}
+                onSubpanelToggle={onSubpanelToggle}
               />
             </div>
-            <span className="divider" role="separator"></span>
+            {/* If widgets section is visible, hide this divider */}
+            {!mayHaveWidgets && (
+              <span className="divider" role="separator"></span>
+            )}
           </>
         )}
+        {mayHaveWidgets && (
+          <div className="widgets-section">
+            <div className="category-header">
+              <h2 data-l10n-id="newtab-custom-widget-section-title"></h2>
+            </div>
+            <div className="settings-widgets">
+              {/* Weather */}
+              {mayHaveWeather && (
+                <div id="weather-section" className="section">
+                  <moz-toggle
+                    id="weather-toggle"
+                    pressed={weatherEnabled || null}
+                    onToggle={this.onPreferenceSelect}
+                    data-preference="showWeather"
+                    data-event-source="WEATHER"
+                    data-l10n-id="newtab-custom-widget-weather-toggle"
+                  />
+                </div>
+              )}
+
+              {/* Lists */}
+              {mayHaveListsWidget && (
+                <div id="lists-widget-section" className="section">
+                  <moz-toggle
+                    id="lists-toggle"
+                    pressed={listsEnabled || null}
+                    onToggle={this.onPreferenceSelect}
+                    data-preference="widgets.lists.enabled"
+                    data-event-source="WIDGET_LISTS"
+                    data-l10n-id="newtab-custom-widget-lists-toggle"
+                  />
+                </div>
+              )}
+
+              {/* Timer */}
+              {mayHaveTimerWidget && (
+                <div id="timer-widget-section" className="section">
+                  <moz-toggle
+                    id="timer-toggle"
+                    pressed={timerEnabled || null}
+                    onToggle={this.onPreferenceSelect}
+                    data-preference="widgets.focusTimer.enabled"
+                    data-event-source="WIDGET_TIMER"
+                    data-l10n-id="newtab-custom-widget-timer-toggle"
+                  />
+                </div>
+              )}
+              <span className="divider" role="separator"></span>
+            </div>
+          </div>
+        )}
         <div className="settings-toggles">
+          {/* Note: If widgets are enabled, the weather toggle will be moved under Widgets subsection */}
+          {!mayHaveWidgets && mayHaveWeather && (
+            <div id="weather-section" className="section">
+              <moz-toggle
+                id="weather-toggle"
+                pressed={weatherEnabled || null}
+                onToggle={this.onPreferenceSelect}
+                data-preference="showWeather"
+                data-event-source="WEATHER"
+                data-l10n-id="newtab-custom-weather-toggle"
+              />
+            </div>
+          )}
+
           <div id="shortcuts-section" className="section">
             <moz-toggle
               id="shortcuts-toggle"
               pressed={topSitesEnabled || null}
               onToggle={this.onPreferenceSelect}
               data-preference="feeds.topsites"
-              data-eventSource="TOP_SITES"
+              data-event-source="TOP_SITES"
               data-l10n-id="newtab-custom-shortcuts-toggle"
             >
               <div slot="nested">
@@ -190,25 +304,6 @@ export class ContentSection extends React.PureComponent {
                         data-l10n-args='{"num": 4}'
                       />
                     </select>
-                    {mayHaveSponsoredTopSites && (
-                      <div className="check-wrapper" role="presentation">
-                        <input
-                          id="sponsored-shortcuts"
-                          className="customize-menu-checkbox"
-                          disabled={!topSitesEnabled}
-                          checked={showSponsoredTopSitesEnabled}
-                          type="checkbox"
-                          onChange={this.onPreferenceSelect}
-                          data-preference="showSponsoredTopSites"
-                          data-eventSource="SPONSORED_TOP_SITES"
-                        />
-                        <label
-                          className="customize-menu-checkbox-label"
-                          htmlFor="sponsored-shortcuts"
-                          data-l10n-id="newtab-custom-sponsored-sites"
-                        />
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -223,35 +318,23 @@ export class ContentSection extends React.PureComponent {
                 onToggle={this.onPreferenceSelect}
                 aria-describedby="custom-pocket-subtitle"
                 data-preference="feeds.section.topstories"
-                data-eventSource="TOP_STORIES"
-                data-l10n-id="newtab-custom-stories-toggle"
+                data-event-source="TOP_STORIES"
+                {...(mayHaveInferredPersonalization
+                  ? {
+                      "data-l10n-id":
+                        "newtab-custom-stories-personalized-toggle",
+                    }
+                  : {
+                      "data-l10n-id": "newtab-custom-stories-toggle",
+                    })}
               >
                 <div slot="nested">
-                  {(mayHaveSponsoredStories || mayHaveRecentSaves) && (
+                  {(mayHaveInferredPersonalization || mayHaveTopicSections) && (
                     <div className="more-info-pocket-wrapper">
                       <div
                         className="more-information"
                         ref={this.pocketDrawerRef}
                       >
-                        {mayHaveSponsoredStories && (
-                          <div className="check-wrapper" role="presentation">
-                            <input
-                              id="sponsored-pocket"
-                              className="customize-menu-checkbox"
-                              disabled={!pocketEnabled}
-                              checked={showSponsoredPocketEnabled}
-                              type="checkbox"
-                              onChange={this.onPreferenceSelect}
-                              data-preference="showSponsored"
-                              data-eventSource="POCKET_SPOCS"
-                            />
-                            <label
-                              className="customize-menu-checkbox-label"
-                              htmlFor="sponsored-pocket"
-                              data-l10n-id="newtab-custom-pocket-sponsored"
-                            />
-                          </div>
-                        )}
                         {mayHaveInferredPersonalization && (
                           <div className="check-wrapper" role="presentation">
                             <input
@@ -262,38 +345,23 @@ export class ContentSection extends React.PureComponent {
                               type="checkbox"
                               onChange={this.onPreferenceSelect}
                               data-preference="discoverystream.sections.personalization.inferred.user.enabled"
-                              data-eventSource="INFERRED_PERSONALIZATION"
+                              data-event-source="INFERRED_PERSONALIZATION"
                             />
                             <label
                               className="customize-menu-checkbox-label"
                               htmlFor="inferred-personalization"
-                            >
-                              Recommendations inferred from your activity with
-                              the feed
-                            </label>
+                              data-l10n-id="newtab-custom-stories-personalized-checkbox-label"
+                            />
                           </div>
                         )}
                         {mayHaveTopicSections && (
-                          <SectionsMgmtPanel exitEventFired={exitEventFired} />
-                        )}
-                        {mayHaveRecentSaves && (
-                          <div className="check-wrapper" role="presentation">
-                            <input
-                              id="recent-saves-pocket"
-                              className="customize-menu-checkbox"
-                              disabled={!pocketEnabled}
-                              checked={showRecentSavesEnabled}
-                              type="checkbox"
-                              onChange={this.onPreferenceSelect}
-                              data-preference="showRecentSaves"
-                              data-eventSource="POCKET_RECENT_SAVES"
-                            />
-                            <label
-                              className="customize-menu-checkbox-label"
-                              htmlFor="recent-saves-pocket"
-                              data-l10n-id="newtab-custom-pocket-show-recent-saves"
-                            />
-                          </div>
+                          <SectionsMgmtPanel
+                            exitEventFired={exitEventFired}
+                            pocketEnabled={pocketEnabled}
+                            onSubpanelToggle={onSubpanelToggle}
+                            togglePanel={toggleSectionsMgmtPanel}
+                            showPanel={showSectionsMgmtPanel}
+                          />
                         )}
                       </div>
                     </div>
@@ -302,47 +370,6 @@ export class ContentSection extends React.PureComponent {
               </moz-toggle>
             </div>
           )}
-
-          <div id="recent-section" className="section">
-            <moz-toggle
-              id="highlights-toggle"
-              pressed={highlightsEnabled || null}
-              onToggle={this.onPreferenceSelect}
-              data-preference="feeds.section.highlights"
-              data-eventSource="HIGHLIGHTS"
-              data-l10n-id="newtab-custom-recent-toggle"
-            />
-          </div>
-
-          {mayHaveWeather && (
-            <div id="weather-section" className="section">
-              <moz-toggle
-                id="weather-toggle"
-                pressed={weatherEnabled || null}
-                onToggle={this.onPreferenceSelect}
-                data-preference="showWeather"
-                data-eventSource="WEATHER"
-                data-l10n-id="newtab-custom-weather-toggle"
-              />
-            </div>
-          )}
-
-          {pocketRegion &&
-            mayHaveSponsoredStories &&
-            spocMessageVariant === "variant-c" && (
-              <div className="sponsored-content-info">
-                <div className="icon icon-help"></div>
-                <div>
-                  Sponsored content supports our mission to build a better web.{" "}
-                  <SafeAnchor
-                    dispatch={this.props.dispatch}
-                    url="https://support.mozilla.org/kb/pocket-sponsored-stories-new-tabs"
-                  >
-                    Find out how
-                  </SafeAnchor>
-                </div>
-              </div>
-            )}
         </div>
 
         <span className="divider" role="separator"></span>

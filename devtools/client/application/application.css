@@ -2,11 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
- /*
+/*
 * Global styles
 */
 @import "chrome://devtools/content/application/src/base.css";
-
 
 /*
 * Components
@@ -27,6 +26,7 @@
 @import "chrome://devtools/content/application/src/components/service-workers/Registration.css";
 @import "chrome://devtools/content/application/src/components/service-workers/RegistrationList.css";
 @import "chrome://devtools/content/application/src/components/service-workers/Worker.css";
+@import "chrome://devtools/content/application/src/components/session-history/SessionHistory.css";
 @import "chrome://devtools/content/application/src/components/ui/UIButton.css";
 
 html,

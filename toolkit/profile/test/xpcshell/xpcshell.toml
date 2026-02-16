@@ -1,8 +1,15 @@
 [DEFAULT]
 head = "head.js"
-skip-if = ["os == 'android'"]
+skip-if = [
+  "os == 'android'",
+]
+
+["test_appgroup_profile.js"]
+run-if = ["os == 'mac'"]
 
 ["test_async_flush.js"]
+
+["test_async_flush_current_profile.js"]
 
 ["test_check_backup.js"]
 
@@ -18,9 +25,13 @@ skip-if = ["os == 'android'"]
 
 ["test_delete_dirs.js"]
 
+["test_find_currentProfile.js"]
+
 ["test_fix_directory_case.js"]
 
 ["test_ignore_legacy_directory.js"]
+
+["test_ignore_storeID_pref.js"]
 
 ["test_invalid_descriptor.js"]
 
@@ -35,6 +46,8 @@ skip-if = ["os == 'android'"]
 ["test_new_default.js"]
 
 ["test_previous_dedicated.js"]
+
+["test_profile_descriptor_and_localdir.js"]
 
 ["test_profile_reset.js"]
 
@@ -71,22 +84,34 @@ skip-if = ["os == 'android'"]
 ["test_showselector.js"]
 
 ["test_single_profile_selected.js"]
-skip-if = ["devedition"]
+skip-if = [
+  "devedition",
+]
 
 ["test_single_profile_unselected.js"]
-skip-if = ["devedition"]
+skip-if = [
+  "devedition",
+]
 
 ["test_skip_locked_environment.js"]
 
 ["test_snap.js"]
-snap = true
-run-if = ["os == 'linux'"]
-skip-if = ["appname == 'thunderbird'"]
+environment = ["SNAP_NAME=firefox", "SNAP_INSTANCE_NAME=firefox"]
+run-if = [
+  "os == 'linux'",
+]
+skip-if = [
+  "appname == 'thunderbird'",
+]
 
 ["test_snap_empty.js"]
-snap = true
-run-if = ["os == 'linux'"]
-skip-if = ["appname == 'thunderbird'"]
+environment = ["SNAP_NAME=firefox", "SNAP_INSTANCE_NAME=firefox"]
+run-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'",
+]
+skip-if = [
+  "appname == 'thunderbird'",
+]
 
 ["test_snatch_environment.js"]
 

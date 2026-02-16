@@ -7,14 +7,21 @@ const { topChromeWindow } = window.browsingContext;
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   GenAI: "resource:///modules/GenAI.sys.mjs",
-  LightweightThemeConsumer:
-    "resource://gre/modules/LightweightThemeConsumer.sys.mjs",
   SpecialMessageActions:
     "resource://messaging-system/lib/SpecialMessageActions.sys.mjs",
 });
 const { XPCOMUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/XPCOMUtils.sys.mjs"
 );
+
+// Define actions for onboarding and chatbot
+const ACTIONS = Object.freeze({
+  CHATBOT_PERSIST: "chatbot:persist",
+  CHATBOT_REVERT: "chatbot:revert",
+  CHATBOT_SELECT: "chatbot:select",
+  CHATBOT_SUPPORT: "chatbot:support",
+  OPEN_URL: "OPEN_URL",
+});
 
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
@@ -32,6 +39,61 @@ XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "sidebarRevampPref",
   "sidebar.revamp"
+);
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "onboardingConfig",
+  "browser.ml.chat.onboarding.config",
+  JSON.stringify({
+    id: "chatbot",
+    template: "multistage",
+    transitions: true,
+    screens: [
+      {
+        id: "chat_pick",
+        content: {
+          fullscreen: true,
+          hide_secondary_section: "responsive",
+          narrow: true,
+          position: "split",
+
+          title: {
+            fontWeight: 400,
+            string_id: "genai-onboarding-choose-header",
+          },
+          cta_paragraph: {
+            text: {
+              string_id: "genai-onboarding-choose-description",
+              string_name: "learn-more",
+            },
+            action: {
+              type: ACTIONS.CHATBOT_SUPPORT,
+            },
+          },
+          above_button_content: [
+            // Placeholder to inject on provider change
+            {
+              text: " ",
+              type: "text",
+            },
+          ],
+          primary_button: {
+            action: {
+              navigate: true,
+              type: ACTIONS.CHATBOT_PERSIST,
+            },
+            label: { string_id: "genai-onboarding-primary" },
+          },
+          additional_button: {
+            action: { dismiss: true, type: ACTIONS.CHATBOT_REVERT },
+            label: { string_id: "genai-onboarding-secondary" },
+            style: "link",
+          },
+          progress_bar: true,
+        },
+      },
+    ],
+  })
 );
 
 ChromeUtils.defineLazyGetter(
@@ -67,12 +129,13 @@ function request(url = lazy.providerPref) {
 
 function renderChat() {
   const browser = document.createXULElement("browser");
+  const browserContainer = document.getElementById("browser-container");
   browser.setAttribute("disableglobalhistory", "true");
   browser.setAttribute("maychangeremoteness", "true");
   browser.setAttribute("nodefaultsrc", "true");
   browser.setAttribute("remote", "true");
   browser.setAttribute("type", "content");
-  return document.body.appendChild(browser);
+  return browserContainer.appendChild(browser);
 }
 
 async function renderProviders() {
@@ -111,6 +174,9 @@ async function renderProviders() {
       showOnboarding();
     }
   }
+
+  // Clear warning message from different provider
+  clearWarningMessage();
 
   // Add extra controls after the providers
   select.appendChild(document.createElement("hr"));
@@ -192,15 +258,19 @@ function renderMore() {
       ],
     ].forEach(([type, l10n, command, checked]) => {
       const item = menu.appendChild(topDoc.createXULElement(type));
-      if (type == "menuitem") {
-        document.l10n.setAttributes(item, ...l10n);
-        item.addEventListener("command", () => {
-          command();
-          Glean.genaiChatbot.sidebarMoreMenuClick.record({
-            action: command.name,
-            provider: providerId,
-          });
+      if (type != "menuitem") {
+        return;
+      }
+      document.l10n.setAttributes(item, ...l10n);
+      item.addEventListener("command", () => {
+        command();
+        Glean.genaiChatbot.sidebarMoreMenuClick.record({
+          action: command.name,
+          provider: providerId,
         });
+      });
+      if (checked !== undefined) {
+        item.setAttribute("type", "checkbox");
         if (checked) {
           item.setAttribute("checked", true);
         }
@@ -226,6 +296,12 @@ function handleChange({ target }) {
         });
       } else {
         Services.prefs.setStringPref("browser.ml.chat.provider", value);
+        // Reset Permissions UI by changing provider
+        topChromeWindow.dispatchEvent(
+          new CustomEvent("sidebarbrowserchanged", {
+            bubble: true,
+          })
+        );
       }
       break;
   }
@@ -235,7 +311,6 @@ addEventListener("change", handleChange);
 // Expose a promise for loading and rendering the chat browser element
 var browserPromise = new Promise((resolve, reject) => {
   addEventListener("load", async () => {
-    new lazy.LightweightThemeConsumer(document);
     try {
       node.chat = renderChat();
       node.provider = await renderProviders();
@@ -247,6 +322,17 @@ var browserPromise = new Promise((resolve, reject) => {
           provider: lazy.GenAI.getProviderId(),
         });
       });
+      document
+        .getElementById("summarize-button")
+        .addEventListener("click", async () => {
+          const badgeKey = "browser.ml.chat.page.footerBadge";
+          const newBadgePref = Services.prefs.getBoolPref(badgeKey);
+
+          if (newBadgePref) {
+            Services.prefs.setBoolPref(badgeKey, false);
+          }
+          await lazy.GenAI.summarizeCurrentPage(topChromeWindow, "footer");
+        });
     } catch (ex) {
       console.error("Failed to render on load", ex);
       reject(ex);
@@ -277,13 +363,6 @@ addEventListener("unload", () => {
  * @param {number} length optional show fewer screens
  */
 function showOnboarding(length) {
-  const ACTIONS = Object.freeze({
-    OPEN_URL: "OPEN_URL",
-    CHATBOT_SELECT: "chatbot:select",
-    CHATBOT_PERSIST: "chatbot:persist",
-    CHATBOT_REVERT: "chatbot:revert",
-  });
-
   // Insert onboarding container and render with script
   const root = document.createElement("div");
   root.id = "multi-stage-message-root";
@@ -311,169 +390,60 @@ function showOnboarding(length) {
         closeSidebar();
       }
       root.remove();
+
+      // Indicate onboarding finished and allow another
+      showOnboarding.resolve();
+      onboardingPromise = new Promise(resolve => {
+        showOnboarding.resolve = resolve;
+      });
     },
     AWGetFeatureConfig() {
-      return {
-        id: "chatbot",
-        template: "multistage",
-        transitions: true,
-        screens: [
-          {
-            id: "chat_pick",
-            content: {
-              fullscreen: true,
-              hide_secondary_section: "responsive",
-              narrow: true,
-              position: "split",
-
-              title: {
-                fontWeight: 400,
-                string_id: "genai-onboarding-header",
-              },
-              cta_paragraph: {
-                text: {
-                  string_id: "genai-onboarding-description",
-                  string_name: "learn-more",
-                },
-                action: {
-                  data: {
-                    args: lazy.supportLink,
-                    where: "tabshifted",
-                  },
-                  type: ACTIONS.OPEN_URL,
-                },
-              },
-              tiles: {
-                action: { picker: "<event>" },
-                data: [...providerConfigs.values()].map(config => ({
-                  action: { type: ACTIONS.CHATBOT_SELECT, config },
-                  id: config.id,
-                  label: config.name,
-                  tooltip: { string_id: config.tooltipId },
-                })),
-                // Default to nothing selected
-                selected: " ",
-                type: "single-select",
-              },
-              above_button_content: [
-                // Placeholder to inject on provider change
-                {
-                  text: " ",
-                  type: "text",
-                },
-              ],
-              primary_button: {
-                action: {
-                  navigate: true,
-                  type: ACTIONS.CHATBOT_PERSIST,
-                },
-                label: { string_id: "genai-onboarding-primary" },
-              },
-              additional_button: {
-                action: { dismiss: true, type: ACTIONS.CHATBOT_REVERT },
-                label: { string_id: "genai-onboarding-secondary" },
-                style: "link",
-              },
-              progress_bar: true,
-            },
-          },
-          {
-            id: "chat_suggest",
-            content: {
-              fullscreen: true,
-              hide_secondary_section: "responsive",
-              narrow: true,
-              position: "split",
-
-              title: {
-                fontWeight: 400,
-                string_id: "genai-onboarding-select-header",
-              },
-              subtitle: { string_id: "genai-onboarding-select-description" },
-              above_button_content: [
-                {
-                  height: "172px",
-                  type: "image",
-                  width: "307px",
-                },
-                {
-                  text: " ",
-                  type: "text",
-                },
-              ],
-              primary_button: {
-                action: { navigate: true },
-                label: { string_id: "genai-onboarding-select-primary" },
-              },
-              progress_bar: true,
-            },
-          },
-        ].slice(0, length),
+      const onboarding = JSON.parse(lazy.onboardingConfig);
+      const providerTiles = {
+        action: { picker: "<event>" },
+        data: [...providerConfigs.values()].map(config => ({
+          action: { type: ACTIONS.CHATBOT_SELECT, config },
+          id: config.id,
+          label: config.name,
+          tooltip: { string_id: config.tooltipId },
+        })),
+        // Default to nothing selected
+        selected: " ",
+        type: "single-select",
       };
+      // Insert provider tiles on the first screen
+      onboarding.screens[0].content.tiles = providerTiles;
+      // Remove extra screens if any
+      onboarding.screens = onboarding.screens.slice(0, length);
+      return onboarding;
     },
     AWGetInstalledAddons() {},
     AWGetSelectedTheme() {
-      document.querySelector(".primary").disabled = true;
-
-      // Specially handle links to open out of the sidebar
-      const handleLink = ev => {
-        const { href } = ev.target;
-        if (href) {
-          ev.preventDefault();
-          openLink(href);
-        }
-      };
-      const links = document.querySelector(".link-paragraph");
-      links.addEventListener("click", handleLink);
-
-      [...document.querySelectorAll("fieldset label")].forEach(label => {
-        // Add content that is hidden with 0 height until selected
-        const div = label
-          .querySelector(".text")
-          .appendChild(document.createElement("div"));
-        div.style.maxHeight = 0;
-        div.tabIndex = -1;
-        const ul = div.appendChild(document.createElement("ul"));
-        const config = providerConfigs.get(label.querySelector("input").value);
-        config.choiceIds?.forEach(id => {
-          const li = ul.appendChild(document.createElement("li"));
-          document.l10n.setAttributes(li, id);
-        });
-        if (config.learnLink && config.learnId) {
-          const a = div.appendChild(document.createElement("a"));
-          a.href = config.learnLink;
-          a.tabIndex = -1;
-          a.addEventListener("click", ev => {
-            handleLink(ev);
-            Glean.genaiChatbot.onboardingProviderLearn.record({
-              provider: config.id,
-              step: 1,
-            });
-          });
-          document.l10n.setAttributes(a, config.learnId);
-        }
-      });
+      const primary = document.querySelector(".primary");
+      if (primary) {
+        primary.disabled = true;
+      }
     },
-    AWSendEventTelemetry({ event, event_context: { source }, message_id }) {
+    AWSendEventTelemetry({ event, event_context: { source } }) {
       const { provider } = window.AWSendEventTelemetry;
-      const step = message_id.match(/chat_pick/) ? 1 : 2;
+      const step = 1;
       switch (true) {
-        case step == 1 && event == "IMPRESSION":
+        case event == "IMPRESSION":
           Glean.genaiChatbot.onboardingProviderChoiceDisplayed.record({
             provider: lazy.GenAI.getProviderId(lazy.providerPref),
             step,
           });
           break;
-        case step == 1 && source == "cta_paragraph":
+        case source == "cta_paragraph":
           Glean.genaiChatbot.onboardingLearnMore.record({ provider, step });
           break;
-        case step == 1 && source == "primary_button":
-          Glean.genaiChatbot.onboardingContinue.record({ provider, step });
+        case source == "primary_button":
+          Glean.genaiChatbot.onboardingFinish.record({ provider, step });
           break;
-        case step == 1 && source == "additional_button":
+        case source == "additional_button":
           Glean.genaiChatbot.onboardingClose.record({ provider, step });
           break;
-        case step == 1 && source.startsWith("link"):
+        case source.startsWith("link"):
           Glean.genaiChatbot.onboardingProviderTerms.record({
             provider,
             step,
@@ -481,21 +451,12 @@ function showOnboarding(length) {
           });
           break;
         // Assume generic click not yet handled above single select of provider
-        case step == 1 && event == "CLICK_BUTTON":
+        case event == "CLICK_BUTTON":
           window.AWSendEventTelemetry.provider = source;
           Glean.genaiChatbot.onboardingProviderSelection.record({
             provider: source,
             step,
           });
-          break;
-        case step == 2 && event == "IMPRESSION":
-          Glean.genaiChatbot.onboardingTextHighlightDisplayed.record({
-            provider,
-            step,
-          });
-          break;
-        case step == 2 && source == "primary_button":
-          Glean.genaiChatbot.onboardingFinish.record({ provider, step });
           break;
       }
     },
@@ -541,7 +502,7 @@ function showOnboarding(length) {
 
           // Update potentially multiple links for the provider
           const links = document.querySelector(".link-paragraph");
-          if (links.dataset.l10nId != config.linksId) {
+          if (links && links.dataset.l10nId != config.linksId) {
             links.innerHTML = "";
             for (let i = 1; i <= 3; i++) {
               const link = links.appendChild(document.createElement("a"));
@@ -550,11 +511,103 @@ function showOnboarding(length) {
               link.setAttribute("value", name);
             }
             document.l10n.setAttributes(links, config.linksId);
+
+            const handleLink = ev => {
+              const { href } = ev.target;
+              if (href) {
+                ev.preventDefault();
+                openLink(href);
+              }
+            };
+
+            if (!links._listenerAdded) {
+              links?.addEventListener("click", handleLink);
+              links._listenerAdded = true;
+            }
           }
 
           break;
         }
+        case ACTIONS.CHATBOT_SUPPORT:
+          openLink(lazy.supportLink);
+          break;
       }
     },
   });
 }
+
+// Expose a promise for onboarding finishing
+var onboardingPromise = new Promise(resolve => {
+  showOnboarding.resolve = resolve;
+});
+
+/**
+ * Clear message if present
+ *
+ */
+function clearWarningMessage() {
+  const messageContainer = document.getElementById("message-container");
+
+  if (messageContainer?.hasChildNodes()) {
+    messageContainer.replaceChildren();
+  }
+}
+
+/**
+ * Display a warning message in the sidebar chatbot panel when context is too long
+ *
+ * @param {number} length context length for a request
+ */
+async function showSummarizeWarning(length) {
+  // if previous request showed the message clear previous message
+  clearWarningMessage();
+
+  const messageContainer = document.getElementById("message-container");
+  const warningEl = lazy.GenAI.createWarningEl(document, null, true);
+
+  if (!messageContainer) {
+    return;
+  }
+
+  const provider = lazy.GenAI.getProviderId();
+  const type = "page_summarization";
+  document.l10n.setAttributes(warningEl, "genai-page-warning");
+  messageContainer.hidden = false;
+  messageContainer.appendChild(warningEl);
+
+  // Warning message bar impression event
+  Glean.genaiChatbot.lengthDisclaimer.record({
+    type,
+    length,
+    provider,
+  });
+
+  await customElements.whenDefined("moz-message-bar");
+  const dismissButton = warningEl.shadowRoot.querySelector(".close");
+  dismissButton?.addEventListener("click", () => {
+    Glean.genaiChatbot.lengthDisclaimerDismissed.record({
+      type,
+      provider,
+    });
+    messageContainer.hidden = true;
+  });
+}
+
+/**
+ * Expose Sidebar entry for new prompt
+ *
+ * @param {object} opt for new prompt
+ * @param {boolean} [opt.show]
+ * @param {number} [opt.contextLength]
+ */
+window.onNewPrompt = async function (opt = {}) {
+  if (opt.show) {
+    await showSummarizeWarning(opt.contextLength);
+  } else {
+    clearWarningMessage();
+  }
+};
+
+window.addEventListener("SidebarFocused", () =>
+  document.querySelector("#browser-container browser").focus()
+);

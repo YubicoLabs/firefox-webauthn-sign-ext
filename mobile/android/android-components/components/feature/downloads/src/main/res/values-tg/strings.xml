@@ -1,34 +1,76 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!-- Name of the "notification channel" used for displaying download notification. See https://developer.android.com/training/notify-user/channels -->
   <string name="mozac_feature_downloads_notification_channel">Боргириҳо</string>
+  <!--
+    Summary text shown on an in progress download notification.
+    %1$s will be replaced with the estimated time remaining to complete the download.
+  -->
+  <string name="mozac_feature_downloads_time_remaining">пас аз %1$s</string>
+  <!-- Summary text shown on an in progress download notification when the estimated time remaining is unknown. -->
+  <string name="mozac_feature_downloads_time_remaining_unknown">вақти номаълум</string>
   <!-- Text shown on the second row of a paused download notification. -->
   <string name="mozac_feature_downloads_paused_notification_text">Боргирӣ таваққуф карда шуд</string>
   <!-- Text shown on the second row of an completed download notification. The filename is shown on the first row. -->
   <string name="mozac_feature_downloads_completed_notification_text2">Боргирӣ анҷом ёфт</string>
   <!-- Text shown on the second row of an failed download notification. The filename is shown on the first row. -->
   <string name="mozac_feature_downloads_failed_notification_text2">Боргирӣ иҷро нашуд</string>
-  <!-- Alert dialog confirmation before download a file, this is the title. %1$s will be replaced with the name of the file. -->
-  <string name="mozac_feature_downloads_dialog_title2">Боргирӣ (%1$s)</string>
+  <!--
+    Alert dialog confirmation before downloading a previously downloaded file, this is the title.
+    %1$s will be replaced with the size of the file.
+  -->
+  <string name="mozac_feature_downloads_again_dialog_title">Файлро аз нав боргирӣ мекунед? (%1$s)</string>
+  <!--
+    Alert dialog confirmation before downloading a file, this is the title.
+    %1$s will be replaced with the size of the file.
+  -->
+  <string name="mozac_feature_downloads_dialog_title_3">Файлро боргирӣ мекунед? (%1$s)</string>
+  <!-- This string is used as the title for the download confirmation dialog when the size of the file is not known. -->
+  <string name="mozac_feature_downloads_dialog_title_with_unknown_size">Файлро боргирӣ мекунед?</string>
+  <!-- Alert dialog confirmation before downloading a previously downloaded file, this is the title when the size of the file is not known. -->
+  <string name="mozac_feature_downloads_again_dialog_title_with_unknown_size">Файлро аз нав боргирӣ мекунед?</string>
   <!-- Alert dialog confirmation before download a file, this is the positive action. -->
   <string name="mozac_feature_downloads_dialog_download">Боргирӣ кардан</string>
+  <!-- Alert dialog confirmation before downloading a file again, this is the positive action. -->
+  <string name="mozac_feature_downloads_dialog_download_again">Аз нав боргирӣ кунед</string>
   <!-- Alert dialog confirmation before download a file, this is the negative action. -->
   <string name="mozac_feature_downloads_dialog_cancel">Бекор кардан</string>
+  <!--
+    Alert dialog confirmation before downloading a previously downloaded file, this is the description.
+    %1$s will be replaced with the name of the file.
+  -->
+  <string name="mozac_feature_downloads_already_exists_dialog_title">«%1$s» аллакай вуҷуд дорад.</string>
+  <!-- Alert dialog confirmation before downloading a previously downloaded file, this is the neutral action that proposes to open the file instead. -->
+  <string name="mozac_feature_downloads_open_existing_file">Кушодани файли мавҷудбуда</string>
+  <!--
+    Alert dialog confirmation before downloading a file without network connection, this is the description.
+    %1$s will be replaced with the name of the file.
+  -->
+  <string name="mozac_feature_downloads_file_failure_no_connection" tools:ignore="UnusedResources">«%1$s» боргирӣ карда нашуд.</string>
+  <!-- Alert dialog confirmation before downloading a file without network connection, this is the description. -->
+  <string name="mozac_feature_downloads_file_check_connection" tools:ignore="UnusedResources">Пайвастшавии худро санҷед ва аз нав кӯшиш намоед.</string>
   <!-- Error shown when the user is trying to download a invalid file. %1$s will be replaced with the name of the app. -->
   <string name="mozac_feature_downloads_file_not_supported2">%1$s ин навъи файлро боргирӣ карда наметавонад</string>
-  <!-- Message that appears when the downloaded file could not be opened -->
+  <!-- Message that appears when the downloaded file could not be opened. -->
   <string name="mozac_feature_downloads_could_not_open_file">Файлро кушода натавонист</string>
-  <!-- Message that appears when the downloaded file is a specific type that Android doesn't support opening -->
+  <!-- Message that appears when the downloaded file is a specific type (%1$s) that Android doesn't support opening. -->
   <string name="mozac_feature_downloads_open_not_supported1">Ягон барномае барои кушодани файлҳои %1$s ёфт нашуд</string>
-  <!-- Button that pauses the download when pressed -->
+  <!-- Button that pauses the download when pressed. -->
   <string name="mozac_feature_downloads_button_pause">Таваққуф кардан</string>
-  <!-- Button that resumes the download when pressed -->
+  <!-- Button that resumes the download when pressed. -->
   <string name="mozac_feature_downloads_button_resume">Давом додан</string>
-  <!-- Button that cancels the download when pressed -->
+  <!-- Button that cancels the download when pressed. -->
   <string name="mozac_feature_downloads_button_cancel">Бекор кардан</string>
-  <!-- Button that opens the downloaded file when pressed -->
+  <!-- Button that opens the downloaded file when pressed. -->
   <string name="mozac_feature_downloads_button_open">Кушодан</string>
-  <!-- Button that restarts the download after a failed attempt -->
+  <!-- Button that restarts the download after a failed attempt. -->
   <string name="mozac_feature_downloads_button_try_again">Аз нав кӯшиш кардан</string>
   <!-- Content description for close button -->
   <string name="mozac_feature_downloads_button_close">Пӯшидан</string>

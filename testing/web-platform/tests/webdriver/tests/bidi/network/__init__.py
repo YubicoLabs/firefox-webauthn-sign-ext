@@ -116,16 +116,7 @@ def assert_request_data(request_data, expected_request, expected_time_range):
     recursive_compare(expected_request, request_data)
 
 
-def assert_base_parameters(
-    event,
-    context=None,
-    intercepts=None,
-    is_blocked=None,
-    navigation=None,
-    redirect_count=None,
-    expected_request=None,
-    expected_time_range=None,
-):
+def assert_base_parameters(event, expected_event):
     recursive_compare(
         {
             "context": any_string_or_null,
@@ -138,11 +129,11 @@ def assert_base_parameters(
         event,
     )
 
-    if context is not None:
-        assert event["context"] == context
+    if "context" in expected_event:
+        assert event["context"] == expected_event["context"]
 
-    if is_blocked is not None:
-        assert event["isBlocked"] == is_blocked
+    if "isBlocked" in expected_event:
+        assert event["isBlocked"] == expected_event["isBlocked"]
 
     if event["isBlocked"]:
         assert isinstance(event["intercepts"], list)
@@ -152,30 +143,25 @@ def assert_base_parameters(
     else:
         assert "intercepts" not in event
 
-    if intercepts is not None:
-        assert event["intercepts"] == intercepts
+    if "intercepts" in expected_event:
+        assert event["intercepts"] == expected_event["intercepts"]
 
-    if navigation is not None:
-        assert event["navigation"] == navigation
+    if "navigation" in expected_event:
+        assert event["navigation"] == expected_event["navigation"]
 
-    if redirect_count is not None:
-        assert event["redirectCount"] == redirect_count
+    if "redirectCount" in expected_event:
+        assert event["redirectCount"] == expected_event["redirectCount"]
 
     # Assert request data (expected_time_range is optional)
-    if expected_request is not None:
-        assert_request_data(event["request"], expected_request, expected_time_range)
+    if "request" in expected_event:
+        assert_request_data(
+            event["request"],
+            expected_event["request"],
+            expected_event.get("timestamp"),
+        )
 
 
-def assert_before_request_sent_event(
-    event,
-    context=None,
-    intercepts=None,
-    is_blocked=None,
-    navigation=None,
-    redirect_count=None,
-    expected_request=None,
-    expected_time_range=None,
-):
+def assert_before_request_sent_event(event, expected_event):
     # Assert initiator
     if "initiator" in event:
         assert isinstance(event["initiator"], dict)
@@ -183,43 +169,21 @@ def assert_before_request_sent_event(
     # Assert base parameters
     assert_base_parameters(
         event,
-        context=context,
-        intercepts=intercepts,
-        is_blocked=is_blocked,
-        navigation=navigation,
-        redirect_count=redirect_count,
-        expected_request=expected_request,
-        expected_time_range=expected_time_range,
+        expected_event
     )
 
 
-def assert_fetch_error_event(
-    event,
-    context=None,
-    errorText=None,
-    intercepts=None,
-    is_blocked=None,
-    navigation=None,
-    redirect_count=None,
-    expected_request=None,
-    expected_time_range=None,
-):
+def assert_fetch_error_event(event, expected_event):
     # Assert errorText
     assert isinstance(event["errorText"], str)
 
-    if errorText is not None:
-        assert event["errorText"] == errorText
+    if "errorText" in expected_event:
+        assert event["errorText"] == expected_event["errorText"]
 
     # Assert base parameters
     assert_base_parameters(
         event,
-        context=context,
-        intercepts=intercepts,
-        is_blocked=is_blocked,
-        navigation=navigation,
-        redirect_count=redirect_count,
-        expected_request=expected_request,
-        expected_time_range=expected_time_range,
+        expected_event
     )
 
 
@@ -261,32 +225,16 @@ def assert_response_data(response_data, expected_response):
     recursive_compare(expected_response, response_data)
 
 
-def assert_response_event(
-    event,
-    context=None,
-    intercepts=None,
-    is_blocked=None,
-    navigation=None,
-    redirect_count=None,
-    expected_request=None,
-    expected_response=None,
-    expected_time_range=None,
-):
+def assert_response_event(event, expected_event):
     # Assert response data
     any_dict(event["response"])
-    if expected_response is not None:
-        assert_response_data(event["response"], expected_response)
+    if "response" in expected_event:
+        assert_response_data(event["response"], expected_event["response"])
 
     # Assert base parameters
     assert_base_parameters(
         event,
-        context=context,
-        intercepts=intercepts,
-        is_blocked=is_blocked,
-        navigation=navigation,
-        redirect_count=redirect_count,
-        expected_request=expected_request,
-        expected_time_range=expected_time_range,
+        expected_event
     )
 
 
@@ -348,6 +296,16 @@ def get_network_event_timerange(start, end, bidi_session):
         return number_interval(start - 100, end + 1)
 
     return number_interval(start - 1, end + 1)
+
+
+def get_next_event_for_url(network_events, url):
+    """
+    Retrieve the next network event in the network_events list matching the
+    provided url.
+    """
+    return next(
+        e for e in network_events if e["request"]["url"] == url
+    )
 
 
 # Array of status and status text expected to be available in network events
@@ -415,7 +373,8 @@ PAGE_REDIRECT_HTTP_EQUIV = (
 PAGE_REDIRECTED_HTML = "/webdriver/tests/bidi/network/support/redirected.html"
 PAGE_SERVICEWORKER_HTML = "/webdriver/tests/bidi/network/support/serviceworker.html"
 
-IMAGE_RESPONSE_BODY = urllib.parse.quote_plus(base64.b64decode(b"iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg=="))
+IMAGE_RESPONSE_DATA = b"iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg=="
+IMAGE_RESPONSE_BODY = urllib.parse.quote_plus(base64.b64decode(IMAGE_RESPONSE_DATA))
 
 SCRIPT_CONSOLE_LOG = urllib.parse.quote_plus("console.log('test')")
 SCRIPT_CONSOLE_LOG_IN_MODULE = urllib.parse.quote_plus("export default function foo() { console.log('from module') }")
@@ -463,6 +422,8 @@ SET_COOKIE_TEST_PARAMETERS = [
             name="foo",
             path="/",
             value=NetworkStringValue("bar"),
+            same_site="none",
+            secure=True
         ),
         None,
         {
@@ -470,7 +431,7 @@ SET_COOKIE_TEST_PARAMETERS = [
             "name": "foo",
             "path": "/",
             "sameSite": "none",
-            "secure": False,
+            "secure": True,
             "size": 6,
             "value": {"type": "string", "value": "bar"},
         },
@@ -480,6 +441,8 @@ SET_COOKIE_TEST_PARAMETERS = [
             name="foo",
             path="/",
             value=NetworkStringValue("bar"),
+            same_site="none",
+            secure=True
         ),
         "default domain",
         {
@@ -487,7 +450,7 @@ SET_COOKIE_TEST_PARAMETERS = [
             "name": "foo",
             "path": "/",
             "sameSite": "none",
-            "secure": False,
+            "secure": True,
             "size": 6,
             "value": {"type": "string", "value": "bar"},
         },
@@ -497,6 +460,8 @@ SET_COOKIE_TEST_PARAMETERS = [
             name="foo",
             path="/",
             value=NetworkStringValue("bar"),
+            same_site="none",
+            secure=True
         ),
         "alt domain",
         {
@@ -504,7 +469,7 @@ SET_COOKIE_TEST_PARAMETERS = [
             "name": "foo",
             "path": "/",
             "sameSite": "none",
-            "secure": False,
+            "secure": True,
             "size": 6,
             "value": {"type": "string", "value": "bar"},
         },
@@ -514,6 +479,8 @@ SET_COOKIE_TEST_PARAMETERS = [
             name="foo",
             path="/some/other/path",
             value=NetworkStringValue("bar"),
+            same_site="none",
+            secure=True
         ),
         None,
         {
@@ -521,7 +488,7 @@ SET_COOKIE_TEST_PARAMETERS = [
             "name": "foo",
             "path": "/some/other/path",
             "sameSite": "none",
-            "secure": False,
+            "secure": True,
             "size": 6,
             "value": {"type": "string", "value": "bar"},
         },
@@ -532,6 +499,8 @@ SET_COOKIE_TEST_PARAMETERS = [
             name="foo",
             path="/",
             value=NetworkStringValue("bar"),
+            same_site="none",
+            secure=True
         ),
         None,
         {
@@ -539,7 +508,7 @@ SET_COOKIE_TEST_PARAMETERS = [
             "name": "foo",
             "path": "/",
             "sameSite": "none",
-            "secure": False,
+            "secure": True,
             "size": 6,
             "value": {"type": "string", "value": "bar"},
         },
@@ -550,6 +519,7 @@ SET_COOKIE_TEST_PARAMETERS = [
             path="/",
             secure=True,
             value=NetworkStringValue("bar"),
+            same_site="none",
         ),
         None,
         {
@@ -568,6 +538,8 @@ SET_COOKIE_TEST_PARAMETERS = [
             name="foo",
             path="/",
             value=NetworkStringValue("bar"),
+            same_site="none",
+            secure=True
         ),
         None,
         {
@@ -576,7 +548,7 @@ SET_COOKIE_TEST_PARAMETERS = [
             "name": "foo",
             "path": "/",
             "sameSite": "none",
-            "secure": False,
+            "secure": True,
             "size": 6,
             "value": {"type": "string", "value": "bar"},
         },
@@ -587,6 +559,8 @@ SET_COOKIE_TEST_PARAMETERS = [
             name="foo",
             path="/",
             value=NetworkStringValue("bar"),
+            same_site="none",
+            secure=True
         ),
         None,
         {
@@ -595,7 +569,7 @@ SET_COOKIE_TEST_PARAMETERS = [
             "name": "foo",
             "path": "/",
             "sameSite": "none",
-            "secure": False,
+            "secure": True,
             "size": 6,
             "value": {"type": "string", "value": "bar"},
         },

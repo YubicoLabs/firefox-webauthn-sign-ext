@@ -3,8 +3,8 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-#ifndef NS_IPARSER___
-#define NS_IPARSER___
+#ifndef NS_IPARSER_
+#define NS_IPARSER_
 
 /**
  * This GECKO-INTERNAL interface is on track to being REMOVED (or refactored
@@ -19,19 +19,14 @@
 
 #include "nsISupports.h"
 #include "nsIStreamListener.h"
-#include "nsIDTD.h"
 #include "nsString.h"
 #include "nsTArray.h"
 #include "nsAtom.h"
 #include "nsParserBase.h"
 #include "mozilla/NotNull.h"
 
-#define NS_IPARSER_IID                               \
-  {                                                  \
-    0x2c4ad90a, 0x740e, 0x4212, {                    \
-      0xba, 0x3f, 0xfe, 0xac, 0xda, 0x4b, 0x92, 0x9e \
-    }                                                \
-  }
+#define NS_IPARSER_IID \
+  {0x2c4ad90a, 0x740e, 0x4212, {0xba, 0x3f, 0xfe, 0xac, 0xda, 0x4b, 0x92, 0x9e}}
 
 class nsIContentSink;
 class nsIRequestObserver;
@@ -64,7 +59,7 @@ class nsIParser : public nsParserBase {
   using NotNull = mozilla::NotNull<T>;
 
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IPARSER_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_IPARSER_IID)
 
   /**
    * Select given content sink into parser for parser output
@@ -179,8 +174,12 @@ class nsIParser : public nsParserBase {
    * True if this is a script-created HTML5 parser.
    */
   virtual bool IsScriptCreated() = 0;
-};
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIParser, NS_IPARSER_IID)
+  /**
+   * True iff this is an about:blank-mode HTML5 parser
+   * (i.e. a parser for non-initial about:blank).
+   */
+  virtual bool IsAboutBlankMode() = 0;
+};
 
 #endif

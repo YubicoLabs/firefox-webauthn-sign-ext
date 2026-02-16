@@ -155,7 +155,7 @@ static bool CheckIncrementalLimit(double factor) {
 }
 
 static bool CheckNonZeroUnitRange(double value) {
-  return value > 0.0 && value <= 100.0;
+  return value > 0.0 && value <= 1.0;
 }
 
 GCSchedulingTunables::GCSchedulingTunables() {
@@ -654,7 +654,7 @@ inline bool MemoryTracker::allowMultipleAssociations(MemoryUse use) {
   // one-to-many relationship only where necessary.
   return isNonGCMemoryUse(use) || use == MemoryUse::RegExpSharedBytecode ||
          use == MemoryUse::BreakpointSite || use == MemoryUse::Breakpoint ||
-         use == MemoryUse::ForOfPICStub || use == MemoryUse::ICUObject;
+         use == MemoryUse::ICUObject;
 }
 
 void MemoryTracker::trackGCMemory(Cell* cell, size_t nbytes, MemoryUse use) {

@@ -4,9 +4,6 @@
  */
 
 /*---
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
 description: |
   pending
 esid: pending
@@ -24,9 +21,6 @@ test();
 
 function test()
 {
-  printBugNumber(BUGNUMBER);
-  printStatus (summary);
-
 // ------- Comment #51 From Jason Orendorff
 
 // Assertion failure: UPVAR_FRAME_SKIP(uva->vector[i]) == 0

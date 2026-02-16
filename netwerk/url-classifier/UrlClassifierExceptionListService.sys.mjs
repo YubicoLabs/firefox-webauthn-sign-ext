@@ -10,7 +10,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
 });
 
-const COLLECTION_NAME = "url-classifier-skip-urls";
+const COLLECTION_NAME = "url-classifier-exceptions";
 
 class Feature {
   constructor(name, prefName) {
@@ -48,17 +48,88 @@ class Feature {
   onRemoteSettingsUpdate(entries) {
     this.remoteEntries = [];
 
-    for (let entry of entries) {
-      if (entry.feature == this.name) {
-        this.remoteEntries.push(entry.pattern.toLowerCase());
+    for (let jsEntry of entries) {
+      let { classifierFeatures } = jsEntry;
+      if (classifierFeatures.includes(this.name)) {
+        let entry = Feature.rsObjectToEntry(jsEntry);
+        if (entry) {
+          this.remoteEntries.push(entry);
+        }
       }
     }
+  }
+
+  /**
+   * Convert a JS object from RemoteSettings to an nsIUrlClassifierExceptionListEntry.
+   *
+   * @param {object} rsObject - The JS object from RemoteSettings to convert.
+   * @returns {nsIUrlClassifierExceptionListEntry} The converted nsIUrlClassifierExceptionListEntry.
+   */
+  static rsObjectToEntry(rsObject) {
+    let entry = Cc[
+      "@mozilla.org/url-classifier/exception-list-entry;1"
+    ].createInstance(Ci.nsIUrlClassifierExceptionListEntry);
+
+    let {
+      category: categoryStr,
+      urlPattern,
+      topLevelUrlPattern = "",
+      isPrivateBrowsingOnly = false,
+      filterContentBlockingCategories = [],
+      classifierFeatures = [],
+    } = rsObject;
+
+    const CATEGORY_STR_TO_ENUM = {
+      "internal-pref":
+        Ci.nsIUrlClassifierExceptionListEntry.CATEGORY_INTERNAL_PREF,
+      baseline: Ci.nsIUrlClassifierExceptionListEntry.CATEGORY_BASELINE,
+      convenience: Ci.nsIUrlClassifierExceptionListEntry.CATEGORY_CONVENIENCE,
+    };
+
+    let category = CATEGORY_STR_TO_ENUM[categoryStr];
+    if (category == null) {
+      console.error(
+        "Invalid or unknown category",
+        { rsObject },
+        { categories: Object.keys(CATEGORY_STR_TO_ENUM) }
+      );
+      return null;
+    }
+
+    try {
+      entry.init(
+        category,
+        urlPattern,
+        topLevelUrlPattern,
+        isPrivateBrowsingOnly,
+        filterContentBlockingCategories,
+        classifierFeatures
+      );
+    } catch (e) {
+      console.error(
+        "Error initializing url classifier exception list entry " + e.message,
+        e,
+        { rsObject }
+      );
+      return null;
+    }
+
+    return entry;
   }
 
   notifyObservers(observer = null) {
     let entries = [];
     if (this.prefValue) {
-      entries = this.prefValue.split(",");
+      for (let prefEntry of this.prefValue.split(",")) {
+        let entry = Feature.rsObjectToEntry({
+          category: "internal-pref",
+          urlPattern: prefEntry,
+          classifierFeatures: [this.name],
+        });
+        if (entry) {
+          entries.push(entry);
+        }
+      }
     }
 
     if (this.remoteEntries) {
@@ -67,12 +138,28 @@ class Feature {
       }
     }
 
-    let entriesAsString = entries.join(",").toLowerCase();
+    // Construct nsIUrlClassifierExceptionList with all entries that belong to
+    // this feature.
+    let list = Cc[
+      "@mozilla.org/url-classifier/exception-list;1"
+    ].createInstance(Ci.nsIUrlClassifierExceptionList);
+    for (let entry of entries) {
+      try {
+        list.addEntry(entry);
+      } catch (e) {
+        console.error(
+          "Error adding url classifier exception list entry " + e.message,
+          e,
+          entry
+        );
+      }
+    }
+
     if (observer) {
-      observer.onExceptionListUpdate(entriesAsString);
+      observer.onExceptionListUpdate(list);
     } else {
       for (let obs of this.observers) {
-        obs.onExceptionListUpdate(entriesAsString);
+        obs.onExceptionListUpdate(list);
       }
     }
   }
@@ -82,15 +169,57 @@ UrlClassifierExceptionListService.prototype = {
   classID: Components.ID("{b9f4fd03-9d87-4bfd-9958-85a821750ddc}"),
   QueryInterface: ChromeUtils.generateQI([
     "nsIUrlClassifierExceptionListService",
+    "nsIObserver",
   ]),
 
   features: {},
   _initialized: false,
 
+  ETP_PREFERENCES: [
+    "privacy.trackingprotection.allow_list.baseline.enabled",
+    "privacy.trackingprotection.allow_list.convenience.enabled",
+    "browser.contentblocking.category",
+  ],
+  PREF_ALLOW_LIST_USER_INTERACTED:
+    "privacy.trackingprotection.allow_list.hasUserInteractedWithETPSettings",
+
+  observe(subject, topic, data) {
+    if (topic === "idle-daily") {
+      const baseline = Services.prefs.getBoolPref(
+        "privacy.trackingprotection.allow_list.baseline.enabled"
+      );
+      const convenience = Services.prefs.getBoolPref(
+        "privacy.trackingprotection.allow_list.convenience.enabled"
+      );
+      Glean.contentblocking.tpAllowlistBaselineEnabled.set(baseline);
+      // If baseline is false, having convenience as true has no effect, so we treat it as false.
+      Glean.contentblocking.tpAllowlistConvenienceEnabled.set(
+        baseline ? convenience : false
+      );
+    }
+    if (topic === "nsPref:changed") {
+      // If the user changes the baseline, convenience, or category preference, we set
+      // hasUserInteractedWithETP to true to indicate interaction with ETP settings.
+      // This lets us skip the infobar prompting users to enable allowlists if they’ve
+      // already made a choice.
+      if (this.ETP_PREFERENCES.includes(data)) {
+        Services.prefs.setBoolPref(this.PREF_ALLOW_LIST_USER_INTERACTED, true);
+      }
+    }
+  },
+
   async lazyInit() {
     if (this._initialized) {
       return;
     }
+
+    this.maybeMigrateCategoryPrefs();
+
+    // Add ETP preference observers AFTER migration to avoid false positives. The migration function
+    // above may programmatically change ETP preferences, which would incorrectly trigger our user
+    // interaction tracking if observers were already installed. By adding observers after
+    // migration, we ensure we only detect user changes to ETP settings.
+    this.addETPUserInteractionPrefObservers();
 
     let rs = lazy.RemoteSettings(COLLECTION_NAME);
     rs.on("sync", event => {
@@ -121,6 +250,47 @@ UrlClassifierExceptionListService.prototype = {
     }
 
     this.onUpdateEntries(this.entries);
+  },
+
+  /**
+   * Runs migration code for the allow-list category prefs.
+   * Users who have ETP "strict" or "custom" enabled should not automatically
+   * get enrolled into the new allow-list categories. Instead they should have
+   * the opportunity to opt in/out via the preferences UI.
+   */
+  maybeMigrateCategoryPrefs() {
+    const ALLOW_LIST_CATEGORY_MIGRATION_PREF =
+      "privacy.trackingprotection.allow_list.hasMigratedCategoryPrefs";
+
+    if (Services.prefs.getBoolPref(ALLOW_LIST_CATEGORY_MIGRATION_PREF, false)) {
+      // Already migrated.
+      return;
+    }
+
+    // Set the migration pref to true so we only run the migration once.
+    Services.prefs.setBoolPref(ALLOW_LIST_CATEGORY_MIGRATION_PREF, true);
+
+    // This pref is set on both Desktop and Fenix (Bug 1956620).
+    let cbCategory = Services.prefs.getStringPref(
+      "browser.contentblocking.category",
+      "standard"
+    );
+    // Don't migrate if the user is using the default category. The default
+    // category pref states are already correct.
+    if (cbCategory == "standard") {
+      return;
+    }
+
+    // cbCategory is either "strict" or "custom". Disable both allow list
+    // categories.
+    Services.prefs.setBoolPref(
+      "privacy.trackingprotection.allow_list.baseline.enabled",
+      false
+    );
+    Services.prefs.setBoolPref(
+      "privacy.trackingprotection.allow_list.convenience.enabled",
+      false
+    );
   },
 
   onUpdateEntries(entries) {
@@ -160,9 +330,27 @@ UrlClassifierExceptionListService.prototype = {
     this.features[feature].removeObserver(observer);
   },
 
+  /**
+   * Adds preference observers to track user interactions with ETP settings.
+   * These observers monitor changes to the baseline allow list, convenience allow list, and
+   * content blocking category preferences to detect when users modify ETP-related settings.
+   */
+  addETPUserInteractionPrefObservers() {
+    this.ETP_PREFERENCES.forEach(pref => {
+      Services.prefs.addObserver(pref, this.observe.bind(this));
+    });
+  },
+
+  removeETPUserInteractionPrefObservers() {
+    this.ETP_PREFERENCES.forEach(pref => {
+      Services.prefs.removeObserver(pref, this.observe.bind(this));
+    });
+  },
+
   clear() {
     this.features = {};
     this._initialized = false;
     this.entries = null;
+    this.removeETPUserInteractionPrefObservers();
   },
 };

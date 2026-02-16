@@ -14,15 +14,14 @@ add_task(async function () {
 
   invokeInTab("arithmetic");
   await waitForPaused(dbg, "math.min.js");
-  assertPausedAtSourceAndLine(dbg, findSource(dbg, "math.min.js").id, 3);
+  await assertPausedAtSourceAndLine(dbg, findSource(dbg, "math.min.js").id, 3);
 
-  clickElement(dbg, "prettyPrintButton");
-  await waitForSelectedSource(dbg, "math.min.js:formatted");
+  await togglePrettyPrint(dbg);
   await waitForState(
     dbg,
     () => dbg.selectors.getSelectedFrame().location.line == 18
   );
-  assertPausedAtSourceAndLine(
+  await assertPausedAtSourceAndLine(
     dbg,
     findSource(dbg, "math.min.js:formatted").id,
     18

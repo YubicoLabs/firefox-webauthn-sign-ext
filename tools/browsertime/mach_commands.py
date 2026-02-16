@@ -40,12 +40,12 @@ import stat
 import subprocess
 import sys
 import time
+from io import StringIO
 
 import mozpack.path as mozpath
 from mach.decorators import Command, CommandArgument
 from mozbuild.base import BinaryNotFoundException, MachCommandBase
 from mozbuild.dirutils import mkdir
-from six import StringIO
 
 AUTOMATION = "MOZ_AUTOMATION" in os.environ
 BROWSERTIME_ROOT = os.path.dirname(__file__)
@@ -62,6 +62,12 @@ if py3_minor > 7:
     NUMPY_VERSION = "1.23.5"
     PILLOW_VERSION = "9.2.0"
     OPENCV_VERSION = "4.6.0.66"
+if py3_minor > 11:
+    NUMPY_VERSION = "2.2.3"
+    PILLOW_VERSION = "11.1.0"
+    SCIPY_VERSION = "1.15.2"
+    PYSSIM_VERSION = "0.7"
+    OPENCV_VERSION = "4.11.0.86"
 
 MIN_NODE_VERSION = "16.0.0"
 
@@ -90,9 +96,7 @@ def node_path(command_context):
     cache_path = os.path.join(state_dir, "browsertime", "node-16")
 
     NODE_FAILURE_MSG = (
-        "Could not locate a node binary that is at least version {}. ".format(
-            MIN_NODE_VERSION
-        )
+        f"Could not locate a node binary that is at least version {MIN_NODE_VERSION}. "
         + "Please run `./mach raptor --browsertime -t amazon` to install it "
         + "from the Taskcluster Toolchain artifacts."
     )
@@ -167,7 +171,7 @@ def host_platform():
     elif sys.platform.startswith("darwin"):
         return "darwin"
 
-    raise ValueError("sys.platform is not yet supported: {}".format(sys.platform))
+    raise ValueError(f"sys.platform is not yet supported: {sys.platform}")
 
 
 # Map from `host_platform()` to a `fetch`-like syntax.
@@ -175,25 +179,25 @@ host_fetches = {
     "darwin": {
         "ffmpeg": {
             "type": "static-url",
-            "url": "https://github.com/mozilla/perf-automation/releases/download/FFMPEG-v4.4.1/ffmpeg-macos.zip",  # noqa
+            "url": "https://github.com/mozilla/perf-automation/releases/download/FFMPEG-v7.1/ffmpeg-7.1.zip",  # noqa
             # An extension to `fetch` syntax.
-            "path": "ffmpeg-macos",
+            "path": "ffmpeg-7.1",
         },
     },
     "linux64": {
         "ffmpeg": {
             "type": "static-url",
-            "url": "https://github.com/mozilla/perf-automation/releases/download/FFMPEG-v4.4.1/ffmpeg-4.4.1-i686-static.tar.xz",  # noqa
+            "url": "https://github.com/mozilla/perf-automation/releases/download/FFMPEG-v7.1/ffmpeg-master-latest-linux64-gpl-shared.tar.xz",  # noqa
             # An extension to `fetch` syntax.
-            "path": "ffmpeg-4.4.1-i686-static",
+            "path": "ffmpeg-master-latest-linux64-gpl-shared",
         },
     },
     "win64": {
         "ffmpeg": {
             "type": "static-url",
-            "url": "https://github.com/mozilla/perf-automation/releases/download/FFMPEG-v4.4.1/ffmpeg-4.4.1-full_build.zip",  # noqa
+            "url": "https://github.com/mozilla/perf-automation/releases/download/FFMPEG-v7.1/ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip",  # noqa
             # An extension to `fetch` syntax.
-            "path": "ffmpeg-4.4.1-full_build",
+            "path": "ffmpeg-n7.1-latest-win64-gpl-shared-7.1",
         },
     },
 }
@@ -276,8 +280,7 @@ def setup_browsertime(
 ):
     r"""Install browsertime and visualmetrics.py prerequisites and the Node.js package."""
 
-    sys.path.append(mozpath.join(command_context.topsrcdir, "tools", "lint", "eslint"))
-    import setup_helper
+    from mozbuild.nodeutil import check_node_executables_valid, package_setup
 
     if not new_upstream_url:
         setup_prerequisites(command_context)
@@ -315,7 +318,7 @@ def setup_browsertime(
             f.write(updated_body)
 
     # Install the browsertime Node.js requirements.
-    if not setup_helper.check_node_executables_valid():
+    if not check_node_executables_valid():
         return 1
 
     # To use a custom `geckodriver`, set
@@ -349,7 +352,7 @@ def setup_browsertime(
     if IS_APPLE_SILICON and node_dir not in os.environ["PATH"]:
         os.environ["PATH"] += os.pathsep + node_dir
 
-    status = setup_helper.package_setup(
+    status = package_setup(
         BROWSERTIME_ROOT,
         "browsertime",
         should_update=new_upstream_url != "",
@@ -451,15 +454,13 @@ def activate_browsertime_virtualenv(command_context, *args, **kwargs):
         "opencv-python==%s" % OPENCV_VERSION,
     ):
         if _need_install(command_context, dep):
-            subprocess.check_call(
-                [
-                    command_context.virtualenv_manager.python_path,
-                    "-m",
-                    "pip",
-                    "install",
-                    dep,
-                ]
-            )
+            subprocess.check_call([
+                command_context.virtualenv_manager.python_path,
+                "-m",
+                "pip",
+                "install",
+                dep,
+            ])
 
 
 def check(command_context):
@@ -545,9 +546,10 @@ def extra_default_args(command_context, args=[]):
 
         if not specifies_binaryPath:
             try:
-                extra_args.extend(
-                    ("--firefox.binaryPath", command_context.get_binary_path())
-                )
+                extra_args.extend((
+                    "--firefox.binaryPath",
+                    command_context.get_binary_path(),
+                ))
             except BinaryNotFoundException as e:
                 command_context.log(
                     logging.ERROR,
@@ -577,11 +579,10 @@ def extra_default_args(command_context, args=[]):
 
 def _verify_node_install(command_context):
     # check if Node is installed
-    sys.path.append(mozpath.join(command_context.topsrcdir, "tools", "lint", "eslint"))
-    import setup_helper
+    from mozbuild.nodeutil import check_node_executables_valid
 
     with silence():
-        node_valid = setup_helper.check_node_executables_valid()
+        node_valid = check_node_executables_valid()
     if not node_valid:
         print("Can't find Node. did you run ./mach bootstrap ?")
         return False
@@ -675,9 +676,8 @@ def browsertime(
             should_clobber=clobber,
             install_vismet_reqs=install_vismet_reqs,
         )
-    else:
-        if not _verify_node_install(command_context):
-            return 1
+    elif not _verify_node_install(command_context):
+        return 1
 
     if check_browsertime:
         return check(command_context)

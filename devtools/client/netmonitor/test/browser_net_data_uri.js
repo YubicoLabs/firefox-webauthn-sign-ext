@@ -21,7 +21,7 @@ add_task(async function test_navigation_to_data_uri() {
   store.dispatch(Actions.batchEnable(false));
 
   const wait = waitForNetworkEvents(monitor, 1);
-  reloadBrowser({ waitForLoad: false });
+  reloadSelectedTab({ waitForLoad: false });
   await wait;
 
   const firstItem = document.querySelectorAll(".request-list-item")[0];
@@ -54,10 +54,9 @@ add_task(async function test_content_request_to_data_uri() {
   const IMAGE_URL =
     "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
   const URL = `https://example.com/document-builder.sjs?html=
-  <h1>Test page for content data uri request</h1>
-  <img src="${IMAGE_URL}"></iframe>`;
+  <h1>Test page for content data uri request</h1>`;
 
-  const { monitor } = await initNetMonitor(URL, {
+  const { monitor, tab } = await initNetMonitor(URL, {
     requestCount: 1,
     waitForLoad: false,
   });
@@ -68,9 +67,18 @@ add_task(async function test_content_request_to_data_uri() {
 
   store.dispatch(Actions.batchEnable(false));
 
-  const wait = waitForNetworkEvents(monitor, 2);
-  reloadBrowser({ waitForLoad: false });
-  await wait;
+  let onNetworkEvents = waitForNetworkEvents(monitor, 1);
+  reloadSelectedTab({ waitForLoad: false });
+  await onNetworkEvents;
+
+  info("Load an image in content with a data URI");
+  onNetworkEvents = waitForNetworkEvents(monitor, 1);
+  await SpecialPowers.spawn(tab.linkedBrowser, [IMAGE_URL], imageURL => {
+    const img = content.document.createElement("img");
+    img.src = imageURL;
+    content.document.body.appendChild(img);
+  });
+  await onNetworkEvents;
 
   const firstItem = document.querySelectorAll(".request-list-item")[1];
 
@@ -90,6 +98,32 @@ add_task(async function test_content_request_to_data_uri() {
     "The file in the displayed request is correct"
   );
   ok(hasValidSize(firstItem), "The request shows a valid size");
+
+  info("Check that image details are properly displayed in the response panel");
+  const waitDOM = waitForDOM(document, "#response-panel .response-image");
+  store.dispatch(Actions.selectRequestByIndex(1));
+  document.querySelector("#response-tab").click();
+  const [imageNode] = await waitDOM;
+
+  // Wait for the image to load.
+  await once(imageNode, "load");
+
+  const [name, dimensions, mime] = document.querySelectorAll(
+    ".response-image-box .tabpanel-summary-value"
+  );
+
+  // Bug 1975453: Name is truncated to yH5BAEAAAAALAAAAAABAAEAAAIBRAA7.
+  todo_is(
+    name.textContent,
+    "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+    "The image name matches the base 64 string"
+  );
+  is(mime.textContent, "image/gif", "The image mime info is image/gif");
+  is(
+    dimensions.textContent,
+    "1" + " \u00D7 " + "1",
+    "The image dimensions are correct"
+  );
 
   await teardown(monitor);
 });

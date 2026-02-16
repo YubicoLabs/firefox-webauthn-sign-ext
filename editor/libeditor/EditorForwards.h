@@ -46,6 +46,7 @@ enum class EditorCommandParamType : uint16_t;  // mozilla/EditorCommands.h
 enum class EditSubAction : int32_t;            // mozilla/EditAction.h
 enum class ParagraphSeparator;                 // mozilla/HTMLEditor.h
 enum class SpecifiedStyle : uint8_t;           // mozilla/PendingStyles.h
+enum class StopTracking : bool;                // mozilla/SelectionState.h
 enum class SuggestCaret;                       // EditorUtils.h
 enum class WithTransaction;                    // HTMLEditHelpers.h
 
@@ -91,44 +92,51 @@ class RangeUpdater;                // mozilla/SelectionState.h
 class SelectionState;              // mozilla/SelectionState.h
 class TextEditor;                  // mozilla/TextEditor.h
 
-class AutoClonedRangeArray;             // AutoClonedRangeArray.h
-class AutoClonedSelectionRangeArray;    // AutoClonedRangeArray.h
-class AutoSelectionRestorer;            // AutoSelectionRestorer.h
-class AutoSelectionRangeArray;          // EditorUtils.h
-class CaretPoint;                       // EditorUtils.h
-class ChangeAttributeTransaction;       // ChangeAttributeTransaction.h
-class ChangeStyleTransaction;           // ChangeStyleTransaction.h
-class CompositionTransaction;           // CompositionTransaction.h
-class CreateLineBreakResult;            // EditorLineBreak.h
-class CSSEditUtils;                     // CSSEditUtils.h
-class DeleteContentTransactionBase;     // DeleteContentTransactionBase.h
-class DeleteMultipleRangesTransaction;  // DeleteMultipleRangesTransaction.h
-class DeleteNodeTransaction;            // DeleteNodeTransaction.h
-class DeleteRangeResult;                // HTMLEditHelpers.h
-class DeleteRangeTransaction;           // DeleteRangeTransaction.h
-class DeleteTextTransaction;            // DeleteTextTransaction.h
-class EditActionResult;                 // EditorUtils.h
-class EditAggregateTransaction;         // EditAggregateTransaction.h
-class EditorEventListener;              // EditorEventListener.h
-class EditResult;                       // HTMLEditHelpers.h
-class HTMLEditorEventListener;          // HTMLEditorEventListener.h
-class InsertNodeTransaction;            // InsertNodeTransaction.h
-class InsertTextResult;                 // EditorUtils.h
-class InsertTextTransaction;            // InsertTextTransaction.h
-class InterCiter;                       // InterCiter.h
-class JoinNodesResult;                  // HTMLEditHelpers.h
-class JoinNodesTransaction;             // JoinNodesTransaction.h
-class MoveNodeResult;                   // HTMLEditHelpers.h
-class MoveNodeTransaction;              // MoveNodeTransaction.h
-class PlaceholderTransaction;           // PlaceholderTransaction.h
-class ReplaceTextTransaction;           // ReplaceTextTransaction.h
-class SplitNodeResult;                  // HTMLEditHelpers.h
-class SplitNodeTransaction;             // SplitNodeTransaction.h
-class SplitRangeOffFromNodeResult;      // HTMLEditHelpers.h
-class SplitRangeOffResult;              // HTMLEditHelpers.h
-class WhiteSpaceVisibilityKeeper;       // WhiteSpaceVisibilityKeeper.h
-class WSRunScanner;                     // WSRunScanner.h
-class WSScanResult;                     // WSRunScanner.h
+class AutoClonedRangeArray;               // AutoClonedRangeArray.h
+class AutoClonedSelectionRangeArray;      // AutoClonedRangeArray.h
+class AutoDOMAPIWrapperBase;              // EditorDOMAPIWrapper.h
+class AutoSelectionRestorer;              // AutoSelectionRestorer.h
+class AutoSelectionRangeArray;            // EditorUtils.h
+class CaretPoint;                         // EditorUtils.h
+class ChangeAttributeTransaction;         // ChangeAttributeTransaction.h
+class ChangeStyleTransaction;             // ChangeStyleTransaction.h
+class CompositionInTextNodeTransaction;   // CompositionTransaction.h
+class CompositionTransaction;             // CompositionTransaction.h
+class CreateLineBreakResult;              // EditorLineBreak.h
+class CSSEditUtils;                       // CSSEditUtils.h
+class DeleteContentTransactionBase;       // DeleteContentTransactionBase.h
+class DeleteMultipleRangesTransaction;    // DeleteMultipleRangesTransaction.h
+class DeleteNodeTransaction;              // DeleteNodeTransaction.h
+class DeleteRangeResult;                  // HTMLEditHelpers.h
+class DeleteRangeTransaction;             // DeleteRangeTransaction.h
+class DeleteTextFromTextNodeTransaction;  // DeleteTextTransaction.h
+class DeleteTextTransaction;              // DeleteTextTransaction.h
+class EditActionResult;                   // EditorUtils.h
+class EditAggregateTransaction;           // EditAggregateTransaction.h
+class EditorEventListener;                // EditorEventListener.h
+class EditResult;                         // HTMLEditHelpers.h
+class HTMLEditorEventListener;            // HTMLEditorEventListener.h
+class InsertNodeTransaction;              // InsertNodeTransaction.h
+class InsertTextIntoTextNodeTransaction;  // InsertTextTransaction.h
+class InsertTextResult;                   // EditorUtils.h
+class InsertTextTransaction;              // InsertTextTransaction.h
+class InterCiter;                         // InterCiter.h
+class JoinNodesResult;                    // HTMLEditHelpers.h
+class JoinNodesTransaction;               // JoinNodesTransaction.h
+class MoveNodeResult;                     // HTMLEditHelpers.h
+class MoveNodeTransaction;                // MoveNodeTransaction.h
+class MoveNodeTransactionBase;            // MoveNodeTransaction.h
+class MoveSiblingsTransaction;            // MoveNodeTransaction.h
+class PlaceholderTransaction;             // PlaceholderTransaction.h
+class ReplaceTextInTextNodeTransaction;   // ReplaceTextTransaction.h
+class ReplaceTextTransaction;             // ReplaceTextTransaction.h
+class SplitNodeResult;                    // HTMLEditHelpers.h
+class SplitNodeTransaction;               // SplitNodeTransaction.h
+class SplitRangeOffFromNodeResult;        // HTMLEditHelpers.h
+class SplitRangeOffResult;                // HTMLEditHelpers.h
+class WhiteSpaceVisibilityKeeper;         // WhiteSpaceVisibilityKeeper.h
+class WSRunScanner;                       // WSRunScanner.h
+class WSScanResult;                       // WSRunScanner.h
 
 /******************************************************************************
  * structs

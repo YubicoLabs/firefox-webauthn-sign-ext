@@ -8,9 +8,9 @@
  * player window for a video with and without the built-in controls.
  *
  * @param {Element} tab The tab to be tested.
- * @return Promise
- * @resolves When the toggles for both the video-with-controls and
- * video-without-controls have been tested.
+ * @returns {Promise<void>}
+ *   Resolves when the toggles for both the video-with-controls and
+ *   video-without-controls have been tested.
  */
 async function testToggleForTab(tab) {
   for (let videoID of ["with-controls", "no-controls"]) {
@@ -20,6 +20,12 @@ async function testToggleForTab(tab) {
     await testToggleHelper(browser, videoID, true);
   }
 }
+
+add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
+});
 
 /**
  * Tests that the Picture-in-Picture toggle still works after tearing out the

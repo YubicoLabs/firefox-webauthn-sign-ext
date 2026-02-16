@@ -30,7 +30,7 @@ addRDMTaskWithPreAndPost(
     info("Reload the current page");
     const onNewRoot = inspector.once("new-root");
     const onRuleViewRefreshed = inspector.once("rule-view-refreshed");
-    await reloadBrowser();
+    await reloadSelectedTab();
     await onNewRoot;
     await inspector.markup._waitForChildren();
     await onRuleViewRefreshed;
@@ -42,6 +42,8 @@ addRDMTaskWithPreAndPost(
       });
     });
 
+    info("Wait until rule view shows 2 rules");
+    await waitFor(() => numberOfRules(view) == 2);
     is(
       numberOfRules(view),
       2,

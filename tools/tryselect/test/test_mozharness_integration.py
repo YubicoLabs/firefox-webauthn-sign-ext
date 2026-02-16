@@ -74,9 +74,11 @@ def all_suites():
         all_suites.append({"flavor": flavor, "srcdir_relpath": "test"})
 
     for flavor, subsuite in _test_subsuites:
-        all_suites.append(
-            {"flavor": flavor, "subsuite": subsuite, "srcdir_relpath": "test"}
-        )
+        all_suites.append({
+            "flavor": flavor,
+            "subsuite": subsuite,
+            "srcdir_relpath": "test",
+        })
 
     return all_suites
 
@@ -94,12 +96,12 @@ def generate_suites_from_config(path):
     config = mod.config
 
     for category in sorted(config["suite_definitions"]):
-        key = "all_{}_suites".format(category)
+        key = f"all_{category}_suites"
         if key not in config:
-            yield category,
+            yield (category,)
             continue
 
-        for suite in sorted(config["all_{}_suites".format(category)]):
+        for suite in sorted(config[f"all_{category}_suites"]):
             yield category, suite
 
 
@@ -123,7 +125,7 @@ def generate_suites():
 
 def idfn(item):
     name, suite = item
-    return "{}/{}".format(name, suite[-1])
+    return f"{name}/{suite[-1]}"
 
 
 @pytest.mark.parametrize("item", generate_suites(), ids=idfn)

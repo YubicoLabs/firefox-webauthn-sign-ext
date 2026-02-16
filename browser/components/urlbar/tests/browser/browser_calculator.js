@@ -5,30 +5,54 @@
 
 const lazy = {};
 
-ChromeUtils.defineLazyGetter(lazy, "l10n", () => {
-  return new Localization(["browser/browser.ftl"], true);
-});
-
 const TESTS = [
+  // Ensure regular calculator results are correctly displayed.
   {
     formula: "8 * 8",
-    result: "64",
-    l10nId: "urlbar-result-action-calculator-result-2",
+    formattedResult: "64",
   },
   {
     formula: "10^6",
-    result: "1000000",
-    l10nId: "urlbar-result-action-calculator-result-2",
+    formattedResult: "1000000",
   },
+  // Ensure undefined results are correctly displayed.
   {
     formula: "5/0",
-    result: "undefined",
-    l10nId: "urlbar-result-action-undefined-calculator-result",
+    formattedResult: "undefined",
   },
+  // Ensure scientific notation results are correctly displayed when
+  // below minimum threshold.
   {
     formula: "3/30^12",
-    result: "5.64502927e-18",
-    l10nId: "urlbar-result-action-calculator-result-scientific-notation",
+    formattedResult: "5.64502927e-18",
+  },
+  {
+    formula: "1000000000 + 2",
+    formattedResult: "1000000002",
+  },
+  // Ensure scientific notation results are correctly displayed when
+  // above maximum threshold.
+  {
+    formula: "44^8",
+    formattedResult: "1.40482236e13",
+  },
+  // Ensure maximum decimal places rule is followed for repeating decimals.
+  {
+    formula: "1/3",
+    formattedResult: "0.333333333",
+  },
+  // Ensure negative calculator results are correctly displayed.
+  {
+    formula: "-50000000 + 1",
+    formattedResult: "-49999999",
+  },
+  {
+    formula: "-1/3",
+    formattedResult: "-0.333333333",
+  },
+  {
+    formula: "-10^13",
+    formattedResult: "-1.0e13",
   },
 ];
 
@@ -40,7 +64,7 @@ add_setup(async function () {
 
 add_task(async function test_calculator() {
   for (let test of TESTS) {
-    const { formula, result, l10nId } = test;
+    const { formula, formattedResult } = test;
 
     await UrlbarTestUtils.promiseAutocompleteResultPopup({
       window,
@@ -51,20 +75,14 @@ add_task(async function test_calculator() {
       .result;
     Assert.equal(res.type, UrlbarUtils.RESULT_TYPE.DYNAMIC);
     Assert.equal(res.payload.input, formula);
-    Assert.equal(res.payload.value, result);
 
     EventUtils.synthesizeKey("KEY_ArrowDown");
 
-    let localizedResult = await lazy.l10n.formatValue(l10nId, {
-      result: res.payload.value,
-    });
-
-    if (localizedResult.startsWith("=")) {
-      localizedResult = localizedResult.slice(1).trim();
-    }
+    info("Check that the displayed calculator result is correct");
+    Assert.equal(formattedResult, res.payload.value);
 
     // Ensure the localized result which is displayed is what gets copied to clipboard.
-    await SimpleTest.promiseClipboardChange(localizedResult, () => {
+    await SimpleTest.promiseClipboardChange(formattedResult, () => {
       EventUtils.synthesizeKey("KEY_Enter");
     });
   }

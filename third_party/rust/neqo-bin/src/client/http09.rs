@@ -4,26 +4,31 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![expect(clippy::unwrap_used, reason = "This is example code.")]
+
 //! An [HTTP 0.9](https://www.w3.org/Protocols/HTTP/AsImplemented.html) client implementation.
 
 use std::{
     cell::RefCell,
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
+    fmt::Display,
     fs::File,
     io::{BufWriter, Write as _},
     net::SocketAddr,
+    num::NonZeroUsize,
     path::PathBuf,
     rc::Rc,
     time::Instant,
 };
 
+use http::Uri as Url;
 use neqo_common::{event::Provider, qdebug, qinfo, qwarn, Datagram};
 use neqo_crypto::{AuthenticationStatus, ResumptionToken};
 use neqo_transport::{
     CloseReason, Connection, ConnectionEvent, ConnectionIdGenerator, EmptyConnectionIdGenerator,
-    Error, Output, RandomConnectionIdGenerator, State, StreamId, StreamType,
+    Error, OutputBatch, RandomConnectionIdGenerator, State, StreamId, StreamType,
 };
-use url::Url;
+use rustc_hash::FxHashMap as HashMap;
 
 use super::{get_output_file, qlog_new, Args, CloseState, Res};
 use crate::STREAM_IO_BUFFER_SIZE;
@@ -159,7 +164,11 @@ pub fn create_client(
         client.set_ciphers(&ciphers)?;
     }
 
-    client.set_qlog(qlog_new(args, hostname, client.odcid().unwrap())?);
+    client.set_qlog(qlog_new(
+        args,
+        hostname,
+        client.odcid().ok_or(Error::Internal)?,
+    )?);
 
     Ok(client)
 }
@@ -183,13 +192,17 @@ impl TryFrom<&State> for CloseState {
 }
 
 impl super::Client for Connection {
-    fn process_output(&mut self, now: Instant) -> Output {
-        self.process_output(now)
+    fn process_multiple_output(
+        &mut self,
+        now: Instant,
+        max_datagrams: NonZeroUsize,
+    ) -> OutputBatch {
+        self.process_multiple_output(now, max_datagrams)
     }
 
     fn process_multiple_input<'a>(
         &mut self,
-        dgrams: impl IntoIterator<Item = Datagram<&'a [u8]>>,
+        dgrams: impl IntoIterator<Item = Datagram<&'a mut [u8]>>,
         now: Instant,
     ) {
         self.process_multiple_input(dgrams, now);
@@ -197,7 +210,7 @@ impl super::Client for Connection {
 
     fn close<S>(&mut self, now: Instant, app_error: neqo_transport::AppError, msg: S)
     where
-        S: AsRef<str> + std::fmt::Display,
+        S: AsRef<str> + Display,
     {
         if !self.state().closed() {
             self.close(now, app_error, msg);
@@ -220,7 +233,7 @@ impl super::Client for Connection {
 impl<'b> Handler<'b> {
     pub fn new(url_queue: VecDeque<Url>, args: &'b Args) -> Self {
         Self {
-            streams: HashMap::new(),
+            streams: HashMap::default(),
             url_queue,
             handled_urls: Vec::new(),
             all_paths: Vec::new(),
@@ -268,7 +281,7 @@ impl<'b> Handler<'b> {
                 self.handled_urls.push(url);
                 true
             }
-            Err(e @ (Error::StreamLimitError | Error::ConnectionState)) => {
+            Err(e @ (Error::StreamLimit | Error::ConnectionState)) => {
                 qwarn!("Cannot create stream {e:?}");
                 self.url_queue.push_front(url);
                 false
@@ -302,7 +315,7 @@ impl<'b> Handler<'b> {
             } else {
                 qdebug!(
                     "READ[{stream_id}]: {}",
-                    std::str::from_utf8(read_buffer).unwrap()
+                    std::str::from_utf8(read_buffer).map_err(|_| Error::InvalidInput)?
                 );
             }
             if fin {

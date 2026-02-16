@@ -2,9 +2,8 @@
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
-includes: [sm/non262-shell.js, sm/non262.js]
 flags:
-- noStrict
+  - noStrict
 description: |
   pending
 esid: pending
@@ -12,7 +11,7 @@ esid: pending
 // Accessing an uninitialized variable due to @@unscopables is still a ReferenceError.
 
 with ({x: 1, [Symbol.unscopables]: {x: true}})
-    assertThrowsInstanceOf(() => x, ReferenceError);
+    assert.throws(ReferenceError, () => x);
 
 let x;
 

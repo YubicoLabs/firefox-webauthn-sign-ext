@@ -344,7 +344,6 @@ static_assert(
         nsIContentPolicy::TYPE_SUBDOCUMENT == 7 &&
         nsIContentPolicy::TYPE_PING == 10 &&
         nsIContentPolicy::TYPE_XMLHTTPREQUEST == 11 &&
-        nsIContentPolicy::TYPE_OBJECT_SUBREQUEST == 12 &&
         nsIContentPolicy::TYPE_DTD == 13 && nsIContentPolicy::TYPE_FONT == 14 &&
         nsIContentPolicy::TYPE_MEDIA == 15 &&
         nsIContentPolicy::TYPE_WEBSOCKET == 16 &&
@@ -394,7 +393,8 @@ static_assert(
         nsIContentPolicy::TYPE_INTERNAL_EXTERNAL_RESOURCE == 61 &&
         nsIContentPolicy::TYPE_JSON == 62 &&
         nsIContentPolicy::TYPE_INTERNAL_JSON_PRELOAD == 63 &&
-        nsIContentPolicy::TYPE_END == 64,
+        nsIContentPolicy::TYPE_INTERNAL_IMAGE_NOTIFICATION == 64 &&
+        nsIContentPolicy::TYPE_END == 65,
     "nsContentPolicyType values are as expected");
 
 namespace {

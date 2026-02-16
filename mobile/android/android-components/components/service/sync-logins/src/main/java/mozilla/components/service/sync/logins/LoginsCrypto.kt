@@ -6,6 +6,7 @@ package mozilla.components.service.sync.logins
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import mozilla.appservices.logins.KeyRegenerationEventReason
 import mozilla.appservices.logins.checkCanary
 import mozilla.appservices.logins.createCanary
@@ -13,6 +14,7 @@ import mozilla.appservices.logins.recordKeyRegenerationEvent
 import mozilla.components.concept.storage.KeyGenerationReason
 import mozilla.components.concept.storage.KeyManager
 import mozilla.components.lib.dataprotect.SecureAbove22Preferences
+import mozilla.components.support.base.log.logger.Logger
 
 /**
  * A class that knows how to encrypt & decrypt strings, backed by application-services' logins lib.
@@ -28,6 +30,7 @@ class LoginsCrypto(
     private val context: Context,
     private val securePrefs: SecureAbove22Preferences,
     private val storage: SyncableLoginsStorage,
+    private val logger: Logger = Logger("LoginsCrypto"),
 ) : KeyManager() {
     private val plaintextPrefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
@@ -38,7 +41,11 @@ class LoginsCrypto(
             is KeyGenerationReason.RecoveryNeeded.AbnormalState -> KeyRegenerationEventReason.Other
         }
         recordKeyRegenerationEvent(telemetryEventReason)
-        storage.getStorage().wipeLocal()
+        try {
+            storage.getStorage().wipeLocal()
+        } catch (e: LoginsApiException) {
+            logger.error("Failed to wipe local logins storage after key loss: ", e)
+        }
     }
 
     override fun getStoredCanary(): String? {
@@ -56,10 +63,9 @@ class LoginsCrypto(
         securePrefs.putString(LOGINS_KEY, key)
         // To detect key corruption or absence, use the newly generated key to encrypt a known string.
         // See isKeyValid below.
-        plaintextPrefs
-            .edit()
-            .putString(CANARY_PHRASE_CIPHERTEXT_KEY, createCanary(CANARY_PHRASE_PLAINTEXT, key))
-            .apply()
+        plaintextPrefs.edit {
+            putString(CANARY_PHRASE_CIPHERTEXT_KEY, createCanary(CANARY_PHRASE_PLAINTEXT, key))
+        }
     }
 
     override fun createKey(): String {
@@ -74,7 +80,8 @@ class LoginsCrypto(
                 // A bad key should trigger a IncorrectKey, but check this branch just in case.
                 KeyGenerationReason.RecoveryNeeded.Corrupt
             }
-        } catch (e: InvalidKey) {
+        } catch (e: LoginsApiException) {
+            logger.error("Check key validity method - failed", e)
             KeyGenerationReason.RecoveryNeeded.Corrupt
         }
     }

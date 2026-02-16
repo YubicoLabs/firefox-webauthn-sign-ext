@@ -4,34 +4,73 @@
 
 package mozilla.components.compose.browser.toolbar.store
 
-import android.graphics.Color
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import mozilla.components.compose.browser.toolbar.concept.Action.ActionButton
-import mozilla.components.support.test.rule.MainCoroutineRule
+import mozilla.components.compose.browser.toolbar.R
+import mozilla.components.compose.browser.toolbar.concept.Action.ActionButtonRes
+import mozilla.components.compose.browser.toolbar.concept.PageOrigin
+import mozilla.components.compose.browser.toolbar.store.BrowserDisplayToolbarAction.BrowserActionsEndUpdated
+import mozilla.components.compose.browser.toolbar.store.BrowserDisplayToolbarAction.BrowserActionsStartUpdated
+import mozilla.components.compose.browser.toolbar.store.BrowserDisplayToolbarAction.PageActionsEndUpdated
+import mozilla.components.compose.browser.toolbar.store.BrowserDisplayToolbarAction.PageActionsStartUpdated
+import mozilla.components.compose.browser.toolbar.store.BrowserDisplayToolbarAction.PageOriginUpdated
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.ToolbarGravityUpdated
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarEvent
+import mozilla.components.compose.browser.toolbar.store.ToolbarGravity.Bottom
+import mozilla.components.compose.browser.toolbar.store.ToolbarGravity.Top
+import mozilla.components.compose.browser.toolbar.ui.BrowserToolbarQuery
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Rule
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
-import mozilla.components.ui.icons.R as iconsR
+import kotlin.random.Random
 
 @RunWith(AndroidJUnit4::class)
 class BrowserToolbarStoreTest {
 
-    @get:Rule
-    val coroutineTestRule = MainCoroutineRule()
-
     @Test
-    fun `WHEN toggle edit mode action is dispatched THEN update the mode and edit text states`() {
+    fun `WHEN enter edit mode action is dispatched THEN mode is updated and query remains unchanged`() {
         val store = BrowserToolbarStore()
-        val editMode = true
 
         assertEquals(Mode.DISPLAY, store.state.mode)
+        assertFalse(store.state.editState.isQueryPrivate)
 
-        store.dispatch(BrowserToolbarAction.ToggleEditMode(editMode = editMode))
+        store.dispatch(BrowserToolbarAction.EnterEditMode(false))
 
         assertEquals(Mode.EDIT, store.state.mode)
-        assertNull(store.state.editState.editText)
+        assertEquals("", store.state.editState.query.current)
+        assertEquals(false, store.state.editState.isQueryPrivate)
+    }
+
+    @Test
+    fun `WHEN enter edit mode action in private mode is dispatched THEN replace the old details with the new one`() {
+        val store = BrowserToolbarStore()
+        assertEquals(Mode.DISPLAY, store.state.mode)
+        assertFalse(store.state.editState.isQueryPrivate)
+
+        store.dispatch(BrowserToolbarAction.EnterEditMode(true))
+
+        assertEquals(Mode.EDIT, store.state.mode)
+        assertEquals("", store.state.editState.query.current)
+        assertEquals(true, store.state.editState.isQueryPrivate)
+    }
+
+    @Test
+    fun `WHEN exit edit mode action is dispatched THEN mode is updated and query is cleared`() {
+        val store = BrowserToolbarStore(
+            initialState = BrowserToolbarState(
+                mode = Mode.EDIT,
+                editState = EditState(
+                query = BrowserToolbarQuery("Mozilla"),
+                ),
+            ),
+        )
+
+        assertEquals(Mode.EDIT, store.state.mode)
+
+        store.dispatch(BrowserToolbarAction.ExitEditMode)
+
+        assertEquals(Mode.DISPLAY, store.state.mode)
+        assertEquals("", store.state.editState.query.current)
     }
 
     @Test
@@ -39,37 +78,27 @@ class BrowserToolbarStoreTest {
         val store = BrowserToolbarStore()
         val text = "Mozilla"
 
-        assertNull(store.state.editState.editText)
+        assertEquals("", store.state.editState.query.current)
 
-        store.dispatch(BrowserEditToolbarAction.UpdateEditText(text = text))
+        store.dispatch(BrowserEditToolbarAction.SearchQueryUpdated(query = BrowserToolbarQuery(text)))
 
-        assertEquals(text, store.state.editState.editText)
+        assertEquals(text, store.state.editState.query.current)
     }
 
     @Test
     fun `WHEN add edit action start is dispatched THEN update edit actions start state`() {
         val store = BrowserToolbarStore()
-        val action1 = ActionButton(
-            icon = iconsR.drawable.mozac_ic_search_24,
-            contentDescription = null,
-            tint = Color.BLACK,
-            onClick = {},
-        )
-        val action2 = ActionButton(
-            icon = iconsR.drawable.mozac_ic_forward_24,
-            contentDescription = null,
-            tint = Color.BLACK,
-            onClick = {},
-        )
+        val action1 = fakeActionButton()
+        val action2 = fakeActionButton()
 
         assertEquals(0, store.state.editState.editActionsStart.size)
 
-        store.dispatch(BrowserEditToolbarAction.AddEditActionStart(action = action1))
+        store.dispatch(BrowserEditToolbarAction.SearchActionsStartUpdated(listOf(action1)))
 
         assertEquals(1, store.state.editState.editActionsStart.size)
         assertEquals(action1, store.state.editState.editActionsStart.first())
 
-        store.dispatch(BrowserEditToolbarAction.AddEditActionStart(action = action2))
+        store.dispatch(BrowserEditToolbarAction.SearchActionsStartUpdated(listOf(action1, action2)))
 
         assertEquals(2, store.state.editState.editActionsStart.size)
         assertEquals(action1, store.state.editState.editActionsStart.first())
@@ -79,27 +108,17 @@ class BrowserToolbarStoreTest {
     @Test
     fun `WHEN add edit action end is dispatched THEN update edit actions end state`() {
         val store = BrowserToolbarStore()
-        val action1 = ActionButton(
-            icon = iconsR.drawable.mozac_ic_search_24,
-            contentDescription = null,
-            tint = Color.BLACK,
-            onClick = {},
-        )
-        val action2 = ActionButton(
-            icon = iconsR.drawable.mozac_ic_forward_24,
-            contentDescription = null,
-            tint = Color.BLACK,
-            onClick = {},
-        )
+        val action1 = fakeActionButton()
+        val action2 = fakeActionButton()
 
         assertEquals(0, store.state.editState.editActionsEnd.size)
 
-        store.dispatch(BrowserEditToolbarAction.AddEditActionEnd(action = action1))
+        store.dispatch(BrowserEditToolbarAction.SearchActionsEndUpdated(listOf(action1)))
 
         assertEquals(1, store.state.editState.editActionsEnd.size)
         assertEquals(action1, store.state.editState.editActionsEnd.first())
 
-        store.dispatch(BrowserEditToolbarAction.AddEditActionEnd(action = action2))
+        store.dispatch(BrowserEditToolbarAction.SearchActionsEndUpdated(listOf(action1, action2)))
 
         assertEquals(2, store.state.editState.editActionsEnd.size)
         assertEquals(action1, store.state.editState.editActionsEnd.first())
@@ -107,92 +126,114 @@ class BrowserToolbarStoreTest {
     }
 
     @Test
-    fun `WHEN add navigation action is dispatched THEN update display navigation actions state`() {
+    fun `WHEN updating start browser actions THEN replace the old actions with the new ones`() {
         val store = BrowserToolbarStore()
-        val action1 = ActionButton(
-            icon = iconsR.drawable.mozac_ic_search_24,
-            contentDescription = null,
-            tint = Color.BLACK,
-            onClick = {},
-        )
-        val action2 = ActionButton(
-            icon = iconsR.drawable.mozac_ic_forward_24,
-            contentDescription = null,
-            tint = Color.BLACK,
-            onClick = {},
-        )
+        val action1 = fakeActionButton()
+        val action2 = fakeActionButton()
+        val action3 = fakeActionButton()
+        assertEquals(0, store.state.displayState.browserActionsStart.size)
 
-        assertEquals(0, store.state.displayState.navigationActions.size)
+        store.dispatch(BrowserActionsStartUpdated(listOf(action1)))
+        assertEquals(listOf(action1), store.state.displayState.browserActionsStart)
 
-        store.dispatch(BrowserDisplayToolbarAction.AddNavigationAction(action = action1))
-
-        assertEquals(1, store.state.displayState.navigationActions.size)
-        assertEquals(action1, store.state.displayState.navigationActions.first())
-
-        store.dispatch(BrowserDisplayToolbarAction.AddNavigationAction(action = action2))
-
-        assertEquals(2, store.state.displayState.navigationActions.size)
-        assertEquals(action1, store.state.displayState.navigationActions.first())
-        assertEquals(action2, store.state.displayState.navigationActions.last())
+        store.dispatch(BrowserActionsStartUpdated(listOf(action2, action3)))
+        assertEquals(listOf(action2, action3), store.state.displayState.browserActionsStart)
     }
 
     @Test
-    fun `WHEN add page action is dispatched THEN update display page actions state`() {
+    fun `WHEN updating start page actions THEN replace old actions with the new one`() {
         val store = BrowserToolbarStore()
-        val action1 = ActionButton(
-            icon = iconsR.drawable.mozac_ic_search_24,
-            contentDescription = null,
-            tint = Color.BLACK,
-            onClick = {},
-        )
-        val action2 = ActionButton(
-            icon = iconsR.drawable.mozac_ic_forward_24,
-            contentDescription = null,
-            tint = Color.BLACK,
-            onClick = {},
-        )
+        val action1 = fakeActionButton()
+        val action2 = fakeActionButton()
+        val action3 = fakeActionButton()
+        assertEquals(0, store.state.displayState.pageActionsStart.size)
 
-        assertEquals(0, store.state.displayState.pageActions.size)
+        store.dispatch(PageActionsStartUpdated(listOf(action1)))
+        assertEquals(listOf(action1), store.state.displayState.pageActionsStart)
 
-        store.dispatch(BrowserDisplayToolbarAction.AddPageAction(action = action1))
+        store.dispatch(PageActionsStartUpdated(listOf(action2, action3)))
+        assertEquals(listOf(action2, action3), store.state.displayState.pageActionsStart)
 
-        assertEquals(1, store.state.displayState.pageActions.size)
-        assertEquals(action1, store.state.displayState.pageActions.first())
-
-        store.dispatch(BrowserDisplayToolbarAction.AddPageAction(action = action2))
-
-        assertEquals(2, store.state.displayState.pageActions.size)
-        assertEquals(action1, store.state.displayState.pageActions.first())
-        assertEquals(action2, store.state.displayState.pageActions.last())
+        store.dispatch(PageActionsStartUpdated(emptyList()))
+        assertEquals(0, store.state.displayState.pageActionsStart.size)
     }
 
     @Test
-    fun `WHEN add browser action is dispatched THEN update display browser actions state`() {
+    fun `WHEN updating end page actions THEN replace old actions with the new one`() {
         val store = BrowserToolbarStore()
-        val action1 = ActionButton(
-            icon = iconsR.drawable.mozac_ic_search_24,
-            contentDescription = null,
-            tint = Color.BLACK,
-            onClick = {},
+        val action1 = fakeActionButton()
+        val action2 = fakeActionButton()
+        val action3 = fakeActionButton()
+        assertEquals(0, store.state.displayState.pageActionsEnd.size)
+
+        store.dispatch(PageActionsEndUpdated(listOf(action1)))
+        assertEquals(listOf(action1), store.state.displayState.pageActionsEnd)
+
+        store.dispatch(PageActionsEndUpdated(listOf(action2, action3)))
+        assertEquals(listOf(action2, action3), store.state.displayState.pageActionsEnd)
+
+        store.dispatch(PageActionsEndUpdated(emptyList()))
+        assertEquals(0, store.state.displayState.pageActionsEnd.size)
+    }
+
+    @Test
+    fun `WHEN updating the page origin details THEN replace the old details with the new ones`() {
+        val store = BrowserToolbarStore()
+        val defaultPageDetails = PageOrigin(
+            hint = R.string.mozac_browser_toolbar_search_hint,
+            title = null,
+            url = null,
+            onClick = object : BrowserToolbarEvent {},
         )
-        val action2 = ActionButton(
-            icon = iconsR.drawable.mozac_ic_forward_24,
-            contentDescription = null,
-            tint = Color.BLACK,
-            onClick = {},
+        val newPageDetails = PageOrigin(
+            hint = Random.nextInt(),
+            title = "test",
+            url = "https://firefox.com",
+            onClick = object : BrowserToolbarEvent {},
+            onLongClick = object : BrowserToolbarEvent {},
         )
+        assertPageOriginEquals(defaultPageDetails, store.state.displayState.pageOrigin)
 
-        assertEquals(0, store.state.displayState.browserActions.size)
+        store.dispatch(PageOriginUpdated(newPageDetails))
 
-        store.dispatch(BrowserDisplayToolbarAction.AddBrowserAction(action = action1))
+        assertEquals(newPageDetails, store.state.displayState.pageOrigin)
+    }
 
-        assertEquals(1, store.state.displayState.browserActions.size)
-        assertEquals(action1, store.state.displayState.browserActions.first())
+    @Test
+    fun `WHEN updating end browser actions THEN replace the old actions with the new ones`() {
+        val store = BrowserToolbarStore()
+        val action1 = fakeActionButton()
+        val action2 = fakeActionButton()
+        val action3 = fakeActionButton()
+        assertEquals(0, store.state.displayState.browserActionsEnd.size)
 
-        store.dispatch(BrowserDisplayToolbarAction.AddBrowserAction(action = action2))
+        store.dispatch(BrowserActionsEndUpdated(listOf(action1)))
+        assertEquals(listOf(action1), store.state.displayState.browserActionsEnd)
 
-        assertEquals(2, store.state.displayState.browserActions.size)
-        assertEquals(action1, store.state.displayState.browserActions.first())
-        assertEquals(action2, store.state.displayState.browserActions.last())
+        store.dispatch(BrowserActionsEndUpdated(listOf(action2, action3)))
+        assertEquals(listOf(action2, action3), store.state.displayState.browserActionsEnd)
+    }
+
+    @Test
+    fun `WHEN the toolbar gravity is updated THEN replace the old details with the new ones`() {
+        val store = BrowserToolbarStore()
+        assertEquals(Top, store.state.gravity)
+
+        store.dispatch(ToolbarGravityUpdated(Bottom))
+
+        assertEquals(Bottom, store.state.gravity)
+    }
+
+    private fun fakeActionButton() = ActionButtonRes(
+        drawableResId = Random.nextInt(),
+        contentDescription = Random.nextInt(),
+        onClick = object : BrowserToolbarEvent {},
+    )
+
+    private fun assertPageOriginEquals(expected: PageOrigin, actual: PageOrigin) {
+        assertEquals(expected.hint, actual.hint)
+        assertEquals(expected.title, actual.title)
+        assertEquals(expected.url, actual.url)
+        // Cannot check the onClick and onLongClick anonymous object
     }
 }

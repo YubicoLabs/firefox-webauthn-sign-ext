@@ -42,7 +42,7 @@ const I64Code          = 0x7e;
 const F32Code          = 0x7d;
 const F64Code          = 0x7c;
 const V128Code         = 0x7b;
-const AnyFuncCode      = 0x70;
+const FuncRefCode      = 0x70;
 const ExternRefCode    = 0x6f;
 const AnyRefCode       = 0x6e;
 const EqRefCode        = 0x6d;
@@ -164,7 +164,7 @@ const MozPrefix = 0xff;
 const definedOpcodes =
     [0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
      0x06, 0x07, 0x08, 0x09,
-     ...(wasmExnRefEnabled() ? [0x0a] : []),
+     0x0a,
      0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
      0x10, 0x11,
      0x12, 0x13,
@@ -172,7 +172,7 @@ const definedOpcodes =
      0x15,
      0x18, 0x19,
      0x1a, 0x1b, 0x1c,
-     ...(wasmExnRefEnabled() ? [0x1f] : []),
+     0x1f,
      0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,
      0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
      0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
@@ -227,12 +227,12 @@ const StructNewDefault = 0x01;  // UNOFFICIAL
 const StructGet = 0x03;         // UNOFFICIAL
 const StructSet = 0x06;         // UNOFFICIAL
 
-// DefinitionKind
-const FunctionCode     = 0x00;
-const TableCode        = 0x01;
-const MemoryCode       = 0x02;
-const GlobalCode       = 0x03;
-const TagCode          = 0x04;
+// External type codes (used for imports/exports)
+const ExternFuncCode   = 0x00;
+const ExternTableCode  = 0x01;
+const ExternMemCode    = 0x02;
+const ExternGlobalCode = 0x03;
+const ExternTagCode    = 0x04;
 
 // ResizableFlags
 const HasMaximumFlag   = 0x1;
@@ -242,6 +242,16 @@ function toU8(array) {
         assertEq(b < 256, true, `expected byte at index ${i} but got ${b}`);
     }
     return Uint8Array.from(array);
+}
+
+function toSharedU8(array) {
+    let sab = new SharedArrayBuffer(array.length);
+    let view = new Uint8Array(sab);
+    for (const [i, b] of array.entries()) {
+        assertEq(b < 256, true, `expected byte at index ${i} but got ${b}`);
+        view[i] = b;
+    }
+    return view;
 }
 
 function varU32(u32) {
@@ -272,6 +282,21 @@ function varS32(s32) {
     return bytes;
 }
 
+function varU64(u64) {
+    u64 = BigInt(u64);
+    assertEq(u64 >= 0n, true, `varU64 input must be number between 0 and 2^64-1, got ${u64}`);
+    assertEq(u64 < 2n**64n, true, `varU64 input must be number between 0 and 2^64-1, got ${u64}`);
+    var bytes = [];
+    do {
+        var byte = Number(u64 & 0x7fn);
+        u64 >>= 7n;
+        if (u64 !== 0n)
+            byte |= 0x80;
+        bytes.push(byte);
+    } while (u64 !== 0n);
+    return bytes;
+}
+
 function moduleHeaderThen(...rest) {
     return [magic0, magic1, magic2, magic3, ver0, ver1, ver2, ver3, ...rest];
 }
@@ -295,7 +320,7 @@ function moduleWithSections(sections) {
     const bytes = moduleHeaderThen();
     for (const section of sections) {
         bytes.push(section.name);
-        bytes.push(...varU32(section.body.length));
+        bytes.push(...varU32(section.length ?? section.body.length));
         for (let byte of section.body) {
             bytes.push(byte);
         }
@@ -541,14 +566,58 @@ function bodySection(bodies) {
     return { name: codeId, body };
 }
 
-function importSection(imports) {
+/**
+ * Encode an import section:
+ * https://webassembly.github.io/spec/core/binary/modules.html#binary-importsec
+ *
+ *     importSection([
+ *         // Normal encoding
+ *         { module: "a", item: "b", type: externtype({ funcTypeIndex: 123 }) },
+ *
+ *         // Compact encoding 1
+ *         { module: "a", items: [
+ *             { item: "c", type: externtype({ globalType: globalType({ valType: I32Code, mut: true }) }) },
+ *             { item: "d", type: externtype({ memType: limits({ min: 0 }) }) },
+ *         ]},
+ *
+ *         // Compact encoding 2
+ *         {
+ *             module: "a",
+ *             type: externtype({ globalType: globalType({ valType: [RefCode, ExternRefCode] }) }),
+ *             items: ["e", "f", "g"],
+ *         },
+ *     ]);
+ */
+function importSection(importGroups) {
     var body = [];
-    body.push(...varU32(imports.length));
-    for (let imp of imports) {
-        body.push(...string(imp.module));
-        body.push(...string(imp.func));
-        body.push(...varU32(FunctionCode));
-        body.push(...varU32(imp.sigIndex));
+    body.push(...varU32(importGroups.length));
+    for (let group of importGroups) {
+        body.push(...string(group.module));
+        if (group.items) {
+            if (group.type) {
+                // Compact encoding (one module/type, many item names)
+                body.push(...string(""));
+                body.push(0x7E);
+                body.push(...group.type);
+                body.push(...varU32(group.numItems ?? group.items.length));
+                for (const item of group.items) {
+                    body.push(...string(item));
+                }
+            } else {
+                // Compact encoding (one module, many name/type pairs)
+                body.push(...string(""));
+                body.push(0x7F);
+                body.push(...varU32(group.numItems ?? group.items.length));
+                for (const item of group.items) {
+                    body.push(...string(item.item));
+                    body.push(...item.type);
+                }
+            }
+        } else {
+            // Single-item encoding
+            body.push(...string(group.item));
+            body.push(...group.type);
+        }
     }
     return { name: importId, body };
 }
@@ -559,13 +628,13 @@ function exportSection(exports) {
     for (let exp of exports) {
         body.push(...string(exp.name));
         if (exp.hasOwnProperty("funcIndex")) {
-            body.push(...varU32(FunctionCode));
+            body.push(...varU32(ExternFuncCode));
             body.push(...varU32(exp.funcIndex));
         } else if (exp.hasOwnProperty("memIndex")) {
-            body.push(...varU32(MemoryCode));
+            body.push(...varU32(ExternMemCode));
             body.push(...varU32(exp.memIndex));
         } else if (exp.hasOwnProperty("tagIndex")) {
-            body.push(...varU32(TagCode));
+            body.push(...varU32(ExternTagCode));
             body.push(...varU32(exp.tagIndex));
         } else {
             throw "Bad export " + exp;
@@ -574,13 +643,89 @@ function exportSection(exports) {
     return { name: exportId, body };
 }
 
-function tableSection(initialSize) {
+/**
+ * Encode a table section:
+ * https://wasm-dsl.github.io/spectec/core/binary/modules.html#table-section
+ *
+ *     tableSection([
+ *         // (table 10 100 funcref), two ways
+ *         { type: tableType(FuncRefCode, { min: 10, max: 100 }) },
+ *         { elemType: FuncRefCode, min: 10, max: 100 },
+ *
+ *         // (table i64 10 (ref func) ref.func 123), two ways
+ *         {
+ *             type: tableType([RefCode, FuncRefCode], { addrType: "i64", min: 10n }),
+ *             init: [RefFuncCode, ...varU32(123), EndCode],
+ *         },
+ *         {
+ *             elemType: [RefCode, FuncRefCode],
+ *             addrType: "i64", min: 10n,
+ *             init: [RefFuncCode, ...varU32(123), EndCode],
+ *         },
+ *     ]);
+ */
+function tableSection(tables) {
     var body = [];
-    body.push(...varU32(1));           // number of tables
-    body.push(...varU32(AnyFuncCode));
-    body.push(...varU32(0x0));         // for now, no maximum
-    body.push(...varU32(initialSize));
+    body.push(...varU32(tables.length));
+    for (const table of tables) {
+        if (table.init) {
+            body.push(0x40, 0x00);
+        }
+        if (table.type) {
+            body.push(...table.type);
+        } else {
+            body.push(...tableType(table.elemType, limits({
+                addrType: table.addrType ?? "i32",
+                min: table.min, max: table.max,
+            })));
+        }
+        if (table.init) {
+            body.push(...table.init);
+        }
+    }
     return { name: tableId, body };
+}
+
+/**
+ * Encode a table section of funcs with the given initial size (and no max).
+ * Useful for the typical wasm 1.0 use of tables.
+ */
+function defaultTableSection(initialSize) {
+    return tableSection([{ elemType: FuncRefCode, min: initialSize }]);
+}
+
+/**
+ * Create limits:
+ * https://wasm-dsl.github.io/spectec/core/binary/types.html#binary-limits
+ *
+ *     limits({ min: 0 })
+ *     limits({ addrType: "i64", min: 0n, max: 10n })
+ */
+function limits({ addrType = "i32", min, max }) {
+    var body = [];
+    body.push((addrType === "i64" ? 0x04 : 0x00) & (max === undefined ? 0x00 : 0x01));
+    body.push(...varU64(min));
+    if (max !== undefined) {
+        body.push(...varU64(max));
+    }
+    return body;
+}
+
+/**
+ * Create a table type:
+ * https://wasm-dsl.github.io/spectec/core/binary/types.html#table-types
+ *
+ *     tableType(FuncRefCode, limits({ min: 0 }))
+ *     tableType([RefCode, ...varS32(123)], limits({ addrType: "i64", min: 0n, max: 10n }))
+ */
+function tableType(elemType, limits) {
+    var body = [];
+    if (typeof elemType === "number") {
+        elemType = [elemType];
+    }
+    body.push(...elemType);
+    body.push(...limits);
+    return body;
 }
 
 function memorySection(initialSize) {
@@ -605,7 +750,7 @@ function dataSection(segmentArrays) {
     var body = [];
     body.push(...varU32(segmentArrays.length));
     for (let array of segmentArrays) {
-        body.push(...varU32(0)); // table index
+        body.push(...varU32(0)); // memory index
         body.push(...varU32(I32ConstCode));
         body.push(...varS32(array.offset));
         body.push(...varU32(EndCode));
@@ -636,60 +781,119 @@ function globalSection(globalArray) {
     return { name: globalId, body };
 }
 
-function elemSection(elemArrays) {
+/**
+ * Encode a global type:
+ *
+ *     globalType({ valType: I32Code, mut: true });
+ *     globalType({ valType: FuncRefCode, mut: false });
+ *     globalType({ valType: [RefCode, FuncRefCode], mut: false });
+ *     globalType({ valType: [RefCode, ...varS32(123)], mut: true });
+ */
+function globalType(global) {
     var body = [];
-    body.push(...varU32(elemArrays.length));
-    for (let array of elemArrays) {
-        body.push(...varU32(0)); // table index
-        body.push(...varU32(I32ConstCode));
-        body.push(...varS32(array.offset));
-        body.push(...varU32(EndCode));
-        body.push(...varU32(array.elems.length));
-        for (let elem of array.elems)
-            body.push(...varU32(elem));
-    }
-    return { name: elemId, body };
+    body.push(...(Array.isArray(global.valType) ? global.valType : varU32(global.valType)));
+    body.push(global.mut ? 0x01 : 0x00);
+    return body;
 }
 
-// For now, the encoding spec is here:
-// https://github.com/WebAssembly/bulk-memory-operations/issues/98#issuecomment-507330729
+/**
+ * Encode an externtype:
+ * https://webassembly.github.io/spec/core/binary/types.html#external-types
+ *
+ *     externtype({ funcTypeIndex: 1 });
+ *     externtype({ tableType: tableType(FuncRefCode, limits({ min: 0 })) });
+ *     externtype({ memType: limits({ min: 0 }) });
+ *     externtype({ globalType: globalType({ valType: I32Code, mut: true }) });
+ */
+function externtype(t) {
+    if (t.hasOwnProperty("funcTypeIndex")) {
+        return [ExternFuncCode, ...varU32(t.funcTypeIndex)];
+    } else if (t.hasOwnProperty("tableType")) {
+        return [ExternTableCode, ...t.tableType];
+    } else if (t.hasOwnProperty("memType")) {
+        return [ExternMemCode, ...t.memType];
+    } else if (t.hasOwnProperty("globalType")) {
+        return [ExternGlobalCode, ...t.globalType];
+    } else if (t.hasOwnProperty("tagType")) {
+        return [ExternTagCode, ...t.tagType];
+    } else {
+        throw new Error("unknown externtype");
+    }
+}
 
-const LegacyActiveExternVal = 0;
-const PassiveExternVal = 1;
-const ActiveExternVal = 2;
-const DeclaredExternVal = 3;
-const LegacyActiveElemExpr = 4;
-const PassiveElemExpr = 5;
-const ActiveElemExpr = 6;
-const DeclaredElemExpr = 7;
+/**
+ * Encode an element section:
+ * https://webassembly.github.io/spec/core/binary/modules.html#element-section
+ *
+ * This is complicated because the encoding is
+ * complicated: active/passive/declarative, explicit table index or no, indices
+ * vs. expressions.
+ *
+ * The eight variants defined by the spec can be expressed like so:
+ *
+ *     elemSection([{ mode: "active", offset: 0, indices: [1, 2, 3] }]);
+ *     elemSection([{ mode: "passive", indices: [1, 2, 3] }]);
+ *     elemSection([{ mode: "active", table: 1, offset: 0, indices: [1, 2, 3] }]);
+ *     elemSection([{ mode: "declarative", indices: [1, 2, 3] }]);
+ *     elemSection([{ mode: "active", offset: 0, exprs: [[RefFuncCode, ...varU32(123), EndCode]] }]);
+ *     elemSection([{ mode: "passive", elemType: [FuncRefCode], exprs: [[RefFuncCode, ...varU32(123), EndCode]] }]);
+ *     elemSection([{ mode: "active", table: 1, offset: 0, exprs: [[RefFuncCode, ...varU32(123), EndCode]] }]);
+ *     elemSection([{ mode: "declarative", elemType: [FuncRefCode], exprs: [[RefFuncCode, ...varU32(123), EndCode]] }]);
+ */
+function elemSection(elemSegments) {
+    const body = [];
+    body.push(...varU32(elemSegments.length));
+    for (const segment of elemSegments) {
+        if (!["active", "passive", "declarative"].includes(segment.mode)) {
+            throw new Error(`segment mode must be "active", "passive", or "declarative", but got ${segment.mode}`);
+        }
+        if (!segment.indices && !segment.exprs) {
+            throw new Error("segment must have either .indices or .exprs");
+        }
+        if (segment.mode === "active" && segment.offset === undefined) {
+            throw new Error("active element segment must have .offset");
+        }
+        if (segment.mode !== "active" && segment.exprs && segment.elemType === undefined) {
+            throw new Error("non-active element segment with expression encoding must have .elemType");
+        }
 
-function generalElemSection(elemObjs) {
-    let body = [];
-    body.push(...varU32(elemObjs.length));
-    for (let elemObj of elemObjs) {
-        body.push(elemObj.flag);
-        if ((elemObj.flag & 3) == 2)
-            body.push(...varU32(elemObj.table));
-        // TODO: This is not very flexible
-        if ((elemObj.flag & 1) == 0) {
+        const b0 = segment.mode === "active" ? 0 : 1;
+        const b1 = (
+            segment.mode === "active"
+            ? (segment.table === undefined ? 0 : 1)
+            : (segment.mode === "passive" ? 0 : 1)
+        );
+        const b2 = segment.exprs === undefined ? 0 : 1;
+        const flag = (b0 << 0) | (b1 << 1) | (b2 << 2);
+        console.log("flag", flag);
+
+        body.push(flag);
+        if (segment.table !== undefined) {
+            body.push(...varU32(segment.table));
+        }
+        if (segment.mode === "active") {
             body.push(...varU32(I32ConstCode));
-            body.push(...varS32(elemObj.offset));
+            body.push(...varS32(segment.offset));
             body.push(...varU32(EndCode));
         }
-        if (elemObj.flag & 4) {
-            if (elemObj.flag & 3)
-                body.push(elemObj.typeCode & 255);
-            // Each element is an array of bytes
-            body.push(...varU32(elemObj.elems.length));
-            for (let elemBytes of elemObj.elems)
-                body.push(...elemBytes);
+        if (segment.exprs === undefined) {
+            // Function index encoding
+            if (segment.mode !== "active" || segment.table !== undefined) {
+                body.push(0x00); // elemkind
+            }
+            body.push(...varU32(segment.indices.length));
+            for (const idx of segment.indices) {
+                body.push(...varU32(idx));
+            }
         } else {
-            if (elemObj.flag & 3)
-                body.push(elemObj.externKind & 255);
-            // Each element is a putative function index
-            body.push(...varU32(elemObj.elems.length));
-            for (let elem of elemObj.elems)
-                body.push(...varU32(elem));
+            // Elem expression encoding
+            if (segment.mode !== "active") {
+                body.push(...segment.elemType);
+            }
+            body.push(...varU32(segment.exprs.length));
+            for (const elemExpr of segment.exprs) {
+                body.push(...elemExpr);
+            }
         }
     }
     return { name: elemId, body };
@@ -706,7 +910,7 @@ function moduleNameSubsection(moduleName) {
     return body;
 }
 
-function funcNameSubsection(funcNames) {
+function funcNameSubsection(funcNames, subsectionLen = null) {
     var body = [];
     body.push(...varU32(nameTypeFunction));
 
@@ -719,19 +923,19 @@ function funcNameSubsection(funcNames) {
         funcIndex++;
     }
 
-    body.push(...varU32(subsection.length));
+    body.push(...varU32(subsectionLen ?? subsection.length));
     body.push(...subsection);
     return body;
 }
 
-function nameSection(subsections) {
+function nameSection(subsections, sectionLength = null) {
     var body = [];
     body.push(...string(nameName));
 
     for (let ss of subsections)
         body.push(...ss);
 
-    return { name: userDefinedId, body };
+    return { name: userDefinedId, length: sectionLength, body };
 }
 
 function customSection(name, ...body) {

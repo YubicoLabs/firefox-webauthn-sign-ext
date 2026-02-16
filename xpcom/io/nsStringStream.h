@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsStringStream_h__
-#define nsStringStream_h__
+#ifndef nsStringStream_h_
+#define nsStringStream_h_
 
 #include "nsIStringStream.h"
 #include "nsString.h"
@@ -20,12 +20,12 @@
  *   nsISupportsCString
  */
 #define NS_STRINGINPUTSTREAM_CONTRACTID "@mozilla.org/io/string-input-stream;1"
-#define NS_STRINGINPUTSTREAM_CID                     \
-  { /* 0abb0835-5000-4790-af28-61b3ba17c295 */       \
-    0x0abb0835, 0x5000, 0x4790, {                    \
-      0xaf, 0x28, 0x61, 0xb3, 0xba, 0x17, 0xc2, 0x95 \
-    }                                                \
-  }
+#define NS_STRINGINPUTSTREAM_CID              \
+  {/* 0abb0835-5000-4790-af28-61b3ba17c295 */ \
+   0x0abb0835,                                \
+   0x5000,                                    \
+   0x4790,                                    \
+   {0xaf, 0x28, 0x61, 0xb3, 0xba, 0x17, 0xc2, 0x95}}
 
 /**
  * An enumeration type used to represent a method of assignment.
@@ -86,4 +86,4 @@ extern nsresult NS_NewCStringInputStream(nsIInputStream** aStreamResult,
 extern nsresult NS_NewCStringInputStream(nsIInputStream** aStreamResult,
                                          nsCString&& aStringToRead);
 
-#endif  // nsStringStream_h__
+#endif  // nsStringStream_h_

@@ -7,9 +7,9 @@
 #ifndef mozilla_dom_WorkerEventTarget_h
 #define mozilla_dom_WorkerEventTarget_h
 
-#include "nsISerialEventTarget.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/dom/WorkerPrivate.h"
+#include "nsISerialEventTarget.h"
 
 namespace mozilla::dom {
 
@@ -24,7 +24,9 @@ class WorkerEventTarget final : public nsISerialEventTarget {
   //   with a holder in place.)
   //
   // * ControlOnly targets will simply dispatch a control runnable.
-  enum class Behavior : uint8_t { Hybrid, ControlOnly };
+  //
+  // * DebuggerOnly targets will simply dispatch a debugger runnable.
+  enum class Behavior : uint8_t { Hybrid, ControlOnly, DebuggerOnly };
 
  private:
   mozilla::Mutex mMutex;

@@ -101,25 +101,13 @@ export class AboutReaderParent extends JSWindowActorParent {
           let preferredWidth = message.data.preferredWidth || 0;
           let uri = Services.io.newURI(message.data.url);
 
-          let result = await new Promise(resolve => {
-            lazy.PlacesUtils.favicons.getFaviconURLForPage(
-              uri,
-              iconUri => {
-                if (iconUri) {
-                  resolve({
-                    url: message.data.url,
-                    faviconUrl: iconUri.spec,
-                  });
-                } else {
-                  resolve(null);
-                }
-              },
-              preferredWidth
-            );
-          });
+          let result = await lazy.PlacesUtils.favicons.getFaviconForPage(
+            uri,
+            preferredWidth
+          );
 
           this.callListeners(message);
-          return result;
+          return result && { url: uri.spec, faviconUrl: result.uri.spec };
         } catch (ex) {
           console.error(
             "Error requesting favicon URL for about:reader content: ",
@@ -185,7 +173,7 @@ export class AboutReaderParent extends JSWindowActorParent {
       menuitem.hidden = false;
       doc.l10n.setAttributes(menuitem, "menu-view-close-readerview");
 
-      key.setAttribute("disabled", false);
+      key.removeAttribute("disabled");
 
       Services.obs.notifyObservers(null, "reader-mode-available");
     } else {
@@ -196,7 +184,7 @@ export class AboutReaderParent extends JSWindowActorParent {
       menuitem.hidden = !browser.isArticle;
       doc.l10n.setAttributes(menuitem, "menu-view-enter-readerview");
 
-      key.setAttribute("disabled", !browser.isArticle);
+      key.toggleAttribute("disabled", !browser.isArticle);
 
       if (browser.isArticle) {
         Services.obs.notifyObservers(null, "reader-mode-available");
@@ -270,9 +258,9 @@ export class AboutReaderParent extends JSWindowActorParent {
    * Gets an article for a given URL. This method will download and parse a document.
    *
    * @param url The article URL.
-   * @param browser The browser where the article is currently loaded.
-   * @return {Promise}
-   * @resolves JS object representing the article, or null if no article is found.
+   * @return {Promise<?object>}
+   *   Resolves to the JS object representing the article, or null if no article
+   *   is found.
    */
   async _getArticle(url) {
     return lazy.ReaderMode.downloadAndParseDocument(url).catch(e => {

@@ -13,14 +13,15 @@ use crate::prim_store::{InternablePrimitive, PrimKey, PrimTemplate, PrimTemplate
 use crate::prim_store::{PrimitiveInstanceKind, PrimitiveStore, RectangleKey};
 use crate::quad;
 use crate::render_target::RenderTargetKind;
-use crate::render_task::{BlurTask, MaskSubPass, PrimTask, RenderTask, RenderTaskKind, SubPass};
+use crate::render_task::{BlurTask, PrimTask, RenderTask, RenderTaskKind};
 use crate::scene_building::{SceneBuilder, IsVisible};
-use crate::segment::EdgeAaSegmentMask;
+use crate::segment::EdgeMask;
 use crate::spatial_tree::SpatialNodeIndex;
-use crate::gpu_types::{BoxShadowStretchMode, TransformPaletteId, UvRectKind};
+use crate::gpu_types::{BoxShadowStretchMode, UvRectKind, BlurEdgeMode};
 use crate::render_task_graph::RenderTaskId;
+use crate::transform::GpuTransformId;
 use crate::internal_types::LayoutPrimitiveInfo;
-use crate::util::{extract_inner_rect_k, ScaleOffset};
+use crate::util::extract_inner_rect_k;
 
 pub type BoxShadowKey = PrimKey<BoxShadow>;
 
@@ -99,14 +100,13 @@ impl PatternBuilder for BoxShadowTemplate {
         let clips_range = state.clip_store.push_clip_instance(self.kind.clip);
         let color_pattern = Pattern::color(self.kind.color);
 
-        let pattern_prim_address_f = quad::write_prim_blocks(
+        let pattern_prim_address_f = quad::write_layout_prim_blocks(
             &mut state.frame_gpu_data.f32,
-            pattern_rect,
-            pattern_rect,
+            &pattern_rect,
+            &pattern_rect,
             color_pattern.base_color,
             color_pattern.texture_input.task_id,
             &[],
-            ScaleOffset::identity(),
         );
 
         let pattern_task_id = state.rg_builder.add().init(RenderTask::new_dynamic(
@@ -114,26 +114,37 @@ impl PatternBuilder for BoxShadowTemplate {
             RenderTaskKind::Prim(PrimTask {
                 pattern: color_pattern.kind,
                 pattern_input: color_pattern.shader_input,
-                raster_spatial_node_index,
-                device_pixel_scale: DevicePixelScale::new(1.0),
                 content_origin,
                 prim_address_f: pattern_prim_address_f,
-                transform_id: TransformPaletteId::IDENTITY,
-                edge_flags: EdgeAaSegmentMask::empty(),
-                quad_flags: QuadFlags::APPLY_RENDER_TASK_CLIP | QuadFlags::IGNORE_DEVICE_PIXEL_SCALE,
+                transform_id: GpuTransformId::IDENTITY,
+                edge_flags: EdgeMask::empty(),
+                quad_flags: QuadFlags::APPLY_RENDER_TASK_CLIP,
                 prim_needs_scissor_rect: false,
                 texture_input: color_pattern.texture_input.task_id,
             }),
         ));
 
-        let masks = MaskSubPass {
-            clip_node_range: clips_range,
-            prim_spatial_node_index: raster_spatial_node_index,
-            prim_address_f: pattern_prim_address_f,
-        };
+        let task_rect = DeviceRect::from_origin_and_size(
+            content_origin,
+            task_size.to_f32(),
+        );
 
-        let task = state.rg_builder.get_task_mut(pattern_task_id);
-        task.add_sub_pass(SubPass::Masks { masks });
+        crate::quad::prepare_clip_range(
+            clips_range,
+            pattern_task_id,
+            &task_rect,
+            &pattern_rect,
+            raster_spatial_node_index,
+            raster_spatial_node_index,
+            scale_factor,
+            ctx.interned_clips,
+            state.clip_store,
+            ctx.spatial_tree,
+            &mut state.rg_builder,
+            &mut state.frame_gpu_data.f32,
+            state.transforms,
+        );
+
 
         let blur_task_v = state.rg_builder.add().init(RenderTask::new_dynamic(
             task_size,
@@ -141,6 +152,7 @@ impl PatternBuilder for BoxShadowTemplate {
                 blur_std_deviation: blur_radius,
                 target_kind: RenderTargetKind::Color,
                 blur_region: task_size,
+                edge_mode: BlurEdgeMode::Duplicate,
             }),
         ));
         state.rg_builder.add_dependency(blur_task_v, pattern_task_id);
@@ -151,6 +163,7 @@ impl PatternBuilder for BoxShadowTemplate {
                 blur_std_deviation: blur_radius,
                 target_kind: RenderTargetKind::Color,
                 blur_region: task_size,
+                edge_mode: BlurEdgeMode::Duplicate,
             }),
         ).with_uv_rect_kind(uv_rect_kind));
         state.rg_builder.add_dependency(blur_task_h, blur_task_v);
@@ -312,6 +325,7 @@ impl<'a> SceneBuilder<'a> {
         mut blur_radius: f32,
         spread_radius: f32,
         border_radius: BorderRadius,
+        mut shadow_radius: BorderRadius,
         clip_mode: BoxShadowClipMode,
         is_root_coord_system: bool,
     ) {
@@ -327,9 +341,6 @@ impl<'a> SceneBuilder<'a> {
 
         // Ensure the blur radius is somewhat sensible.
         blur_radius = f32::min(blur_radius, MAX_BLUR_RADIUS);
-
-        // Adjust the border radius of the box shadow per CSS-spec.
-        let mut shadow_radius = adjust_border_radius_for_box_shadow(border_radius, spread_amount);
 
         // Apply parameters that affect where the shadow rect
         // exists in the local space of the primitive.
@@ -555,29 +566,5 @@ impl<'a> SceneBuilder<'a> {
                 );
             }
         }
-    }
-}
-
-fn adjust_border_radius_for_box_shadow(radius: BorderRadius, spread_amount: f32) -> BorderRadius {
-    BorderRadius {
-        top_left: adjust_corner_for_box_shadow(radius.top_left, spread_amount),
-        top_right: adjust_corner_for_box_shadow(radius.top_right, spread_amount),
-        bottom_right: adjust_corner_for_box_shadow(radius.bottom_right, spread_amount),
-        bottom_left: adjust_corner_for_box_shadow(radius.bottom_left, spread_amount),
-    }
-}
-
-fn adjust_corner_for_box_shadow(corner: LayoutSize, spread_amount: f32) -> LayoutSize {
-    LayoutSize::new(
-        adjust_radius_for_box_shadow(corner.width, spread_amount),
-        adjust_radius_for_box_shadow(corner.height, spread_amount),
-    )
-}
-
-fn adjust_radius_for_box_shadow(border_radius: f32, spread_amount: f32) -> f32 {
-    if border_radius > 0.0 {
-        (border_radius + spread_amount).max(0.0)
-    } else {
-        0.0
     }
 }

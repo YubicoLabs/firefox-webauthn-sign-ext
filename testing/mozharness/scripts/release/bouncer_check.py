@@ -3,7 +3,7 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
-""" bouncer_check.py
+"""bouncer_check.py
 
 A script to check HTTP statuses of Bouncer products to be shipped.
 """
@@ -79,7 +79,7 @@ class BouncerCheck(BaseScript):
     ]
 
     def __init__(self, require_config_file=True):
-        super(BouncerCheck, self).__init__(
+        super().__init__(
             config_options=self.config_options,
             require_config_file=require_config_file,
             config={
@@ -99,7 +99,7 @@ class BouncerCheck(BaseScript):
         )
 
     def _pre_config_lock(self, rw_config):
-        super(BouncerCheck, self)._pre_config_lock(rw_config)
+        super()._pre_config_lock(rw_config)
 
         if "product_field" not in self.config:
             return
@@ -122,21 +122,21 @@ class BouncerCheck(BaseScript):
             from urlparse import urlparse
 
         def do_check_url():
-            self.log("Checking {}".format(url))
+            self.log(f"Checking {url}")
             r = session.head(url, verify=True, timeout=10, allow_redirects=True)
             try:
                 r.raise_for_status()
             except HTTPError:
-                self.error("FAIL: {}, status: {}".format(url, r.status_code))
+                self.error(f"FAIL: {url}, status: {r.status_code}")
                 raise
 
             final_url = urlparse(r.url)
             if final_url.scheme != "https":
-                self.error("FAIL: URL scheme is not https: {}".format(r.url))
+                self.error(f"FAIL: URL scheme is not https: {r.url}")
                 self.return_code = EXIT_STATUS_DICT[TBPL_FAILURE]
 
             if final_url.netloc not in self.config["cdn_urls"]:
-                self.error("FAIL: host not in allowed locations: {}".format(r.url))
+                self.error(f"FAIL: host not in allowed locations: {r.url}")
                 self.return_code = EXIT_STATUS_DICT[TBPL_FAILURE]
 
         try:
@@ -176,7 +176,7 @@ class BouncerCheck(BaseScript):
                         yield url
 
     def check_bouncer(self):
-        import concurrent.futures as futures
+        from concurrent import futures
 
         import requests
 

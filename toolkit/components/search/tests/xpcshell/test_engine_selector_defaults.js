@@ -9,7 +9,8 @@
 "use strict";
 
 ChromeUtils.defineESModuleGetters(this, {
-  SearchEngineSelector: "resource://gre/modules/SearchEngineSelector.sys.mjs",
+  SearchEngineSelector:
+    "moz-src:///toolkit/components/search/SearchEngineSelector.sys.mjs",
 });
 
 const CONFIG = [
@@ -112,6 +113,12 @@ const CONFIG = [
     recordType: "engineOrders",
     orders: [],
   },
+  {
+    recordType: "availableLocales",
+    // We use en-CA as a locale in the test, so we need to add that as an
+    // available locale to avoid falling back to en-US.
+    locales: ["en-CA", "en-US", "zh-CN"],
+  },
 ];
 
 const CONFIG_DEFAULTS_OVERRIDE = [
@@ -196,7 +203,7 @@ async function assertActualEnginesEqualsExpected(
   expectedDefaultPrivate,
   message
 ) {
-  engineSelector._configuration = null;
+  engineSelector.clearCachedConfigurationForTests();
   SearchTestUtils.setRemoteSettingsConfig(config, []);
 
   let { appDefaultEngineId, appPrivateDefaultEngineId } =

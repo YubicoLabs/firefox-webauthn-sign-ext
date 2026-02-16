@@ -15,21 +15,21 @@
 #include <memory>
 #include <utility>
 
-#include "absl/base/nullability.h"
 #include "api/environment/environment.h"
 #include "api/media_types.h"
 #include "api/sequence_checker.h"
-#include "api/transport/network_control.h"
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "modules/congestion_controller/remb_throttler.h"
+#include "modules/congestion_controller/rtp/congestion_controller_feedback_stats.h"
 #include "modules/remote_bitrate_estimator/congestion_control_feedback_generator.h"
 #include "modules/remote_bitrate_estimator/remote_bitrate_estimator_abs_send_time.h"
 #include "modules/remote_bitrate_estimator/remote_bitrate_estimator_single_stream.h"
 #include "modules/remote_bitrate_estimator/transport_sequence_number_feedback_generator.h"
 #include "modules/rtp_rtcp/source/rtp_header_extensions.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
+#include "rtc_base/containers/flat_map.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
@@ -37,7 +37,7 @@
 namespace webrtc {
 
 namespace {
-static const uint32_t kTimeOffsetSwitchThreshold = 30;
+const uint32_t kTimeOffsetSwitchThreshold = 30;
 }  // namespace
 
 void ReceiveSideCongestionController::OnRttUpdate(int64_t avg_rtt_ms,
@@ -83,13 +83,6 @@ void ReceiveSideCongestionController::PickEstimator(
     }
   }
 }
-
-ReceiveSideCongestionController::ReceiveSideCongestionController(
-    const Environment& env,
-    TransportSequenceNumberFeedbackGenenerator::RtcpSender feedback_sender,
-    RembThrottler::RembSender remb_sender,
-    absl::Nullable<NetworkStateEstimator*> /* unused */)
-    : ReceiveSideCongestionController(env, feedback_sender, remb_sender) {}
 
 ReceiveSideCongestionController::ReceiveSideCongestionController(
     const Environment& env,
@@ -152,6 +145,15 @@ void ReceiveSideCongestionController::OnReceivedPacket(
     PickEstimator(packet.HasExtension<AbsoluteSendTime>());
     rbe_->IncomingPacket(packet);
   }
+}
+
+flat_map<uint32_t, SentCongestionControllerFeedbackStats>
+ReceiveSideCongestionController::GetCongestionControllerStatsPerSsrc() const {
+  if (!send_rfc8888_congestion_feedback_) {
+    return {};
+  }
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  return congestion_control_feedback_generator_.GetStatsPerSsrc();
 }
 
 void ReceiveSideCongestionController::OnBitrateChanged(int bitrate_bps) {

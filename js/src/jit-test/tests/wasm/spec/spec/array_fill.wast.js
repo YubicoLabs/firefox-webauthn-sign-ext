@@ -18,22 +18,22 @@
 // ./test/core/gc/array_fill.wast:5
 assert_invalid(
   () => instantiate(`(module
-    (type $$a (array i8))
+    (type \$a (array i8))
 
-    (func (export "array.fill-immutable") (param $$1 (ref $$a)) (param $$2 i32)
-      (array.fill $$a (local.get $$1) (i32.const 0) (local.get $$2) (i32.const 0))
+    (func (export "array.fill-immutable") (param \$1 (ref \$a)) (param \$2 i32)
+      (array.fill \$a (local.get \$1) (i32.const 0) (local.get \$2) (i32.const 0))
     )
   )`),
-  `array is immutable`,
+  `immutable array`,
 );
 
 // ./test/core/gc/array_fill.wast:16
 assert_invalid(
   () => instantiate(`(module
-    (type $$a (array (mut i8)))
+    (type \$a (array (mut i8)))
 
-    (func (export "array.fill-invalid-1") (param $$1 (ref $$a)) (param $$2 funcref)
-      (array.fill $$a (local.get $$1) (i32.const 0) (local.get $$2) (i32.const 0))
+    (func (export "array.fill-invalid-1") (param \$1 (ref \$a)) (param \$2 funcref)
+      (array.fill \$a (local.get \$1) (i32.const 0) (local.get \$2) (i32.const 0))
     )
   )`),
   `type mismatch`,
@@ -42,10 +42,10 @@ assert_invalid(
 // ./test/core/gc/array_fill.wast:27
 assert_invalid(
   () => instantiate(`(module
-    (type $$b (array (mut funcref)))
+    (type \$b (array (mut funcref)))
 
-    (func (export "array.fill-invalid-1") (param $$1 (ref $$b)) (param $$2 i32)
-      (array.fill $$b (local.get $$1) (i32.const 0) (local.get $$2) (i32.const 0))
+    (func (export "array.fill-invalid-1") (param \$1 (ref \$b)) (param \$2 i32)
+      (array.fill \$b (local.get \$1) (i32.const 0) (local.get \$2) (i32.const 0))
     )
   )`),
   `type mismatch`,
@@ -53,22 +53,22 @@ assert_invalid(
 
 // ./test/core/gc/array_fill.wast:38
 let $0 = instantiate(`(module
-  (type $$arr8 (array i8))
-  (type $$arr8_mut (array (mut i8)))
+  (type \$arr8 (array i8))
+  (type \$arr8_mut (array (mut i8)))
 
-  (global $$g_arr8 (ref $$arr8) (array.new $$arr8 (i32.const 10) (i32.const 12)))
-  (global $$g_arr8_mut (mut (ref $$arr8_mut)) (array.new_default $$arr8_mut (i32.const 12)))
+  (global \$g_arr8 (ref \$arr8) (array.new \$arr8 (i32.const 10) (i32.const 12)))
+  (global \$g_arr8_mut (mut (ref \$arr8_mut)) (array.new_default \$arr8_mut (i32.const 12)))
 
-  (func (export "array_get_nth") (param $$1 i32) (result i32)
-    (array.get_u $$arr8_mut (global.get $$g_arr8_mut) (local.get $$1))
+  (func (export "array_get_nth") (param \$1 i32) (result i32)
+    (array.get_u \$arr8_mut (global.get \$g_arr8_mut) (local.get \$1))
   )
 
   (func (export "array_fill-null")
-    (array.fill $$arr8_mut (ref.null $$arr8_mut) (i32.const 0) (i32.const 0) (i32.const 0))
+    (array.fill \$arr8_mut (ref.null \$arr8_mut) (i32.const 0) (i32.const 0) (i32.const 0))
   )
 
-  (func (export "array_fill") (param $$1 i32) (param $$2 i32) (param $$3 i32)
-    (array.fill $$arr8_mut (global.get $$g_arr8_mut) (local.get $$1) (local.get $$2) (local.get $$3))
+  (func (export "array_fill") (param \$1 i32) (param \$2 i32) (param \$3 i32)
+    (array.fill \$arr8_mut (global.get \$g_arr8_mut) (local.get \$1) (local.get \$2) (local.get \$3))
   )
 )`);
 
@@ -110,3 +110,42 @@ assert_return(() => invoke($0, `array_get_nth`, [3]), [value("i32", 11)]);
 
 // ./test/core/gc/array_fill.wast:81
 assert_return(() => invoke($0, `array_get_nth`, [4]), [value("i32", 0)]);
+
+// ./test/core/gc/array_fill.wast:84
+assert_return(() => invoke($0, `array_fill`, [0, 42, 12]), []);
+
+// ./test/core/gc/array_fill.wast:85
+assert_return(() => invoke($0, `array_get_nth`, [0]), [value("i32", 42)]);
+
+// ./test/core/gc/array_fill.wast:86
+assert_return(() => invoke($0, `array_get_nth`, [2]), [value("i32", 42)]);
+
+// ./test/core/gc/array_fill.wast:87
+assert_return(() => invoke($0, `array_get_nth`, [5]), [value("i32", 42)]);
+
+// ./test/core/gc/array_fill.wast:88
+assert_return(() => invoke($0, `array_get_nth`, [11]), [value("i32", 42)]);
+
+// ./test/core/gc/array_fill.wast:91
+assert_return(() => invoke($0, `array_fill`, [0, 7, 1]), []);
+
+// ./test/core/gc/array_fill.wast:92
+assert_return(() => invoke($0, `array_get_nth`, [0]), [value("i32", 7)]);
+
+// ./test/core/gc/array_fill.wast:93
+assert_return(() => invoke($0, `array_get_nth`, [1]), [value("i32", 42)]);
+
+// ./test/core/gc/array_fill.wast:94
+assert_return(() => invoke($0, `array_get_nth`, [11]), [value("i32", 42)]);
+
+// ./test/core/gc/array_fill.wast:97
+assert_return(() => invoke($0, `array_fill`, [10, 9, 2]), []);
+
+// ./test/core/gc/array_fill.wast:98
+assert_return(() => invoke($0, `array_get_nth`, [9]), [value("i32", 42)]);
+
+// ./test/core/gc/array_fill.wast:99
+assert_return(() => invoke($0, `array_get_nth`, [10]), [value("i32", 9)]);
+
+// ./test/core/gc/array_fill.wast:100
+assert_return(() => invoke($0, `array_get_nth`, [11]), [value("i32", 9)]);

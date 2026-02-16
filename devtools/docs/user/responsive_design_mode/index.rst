@@ -41,9 +41,9 @@ Information for the selected device is centered over the display. From left to r
 
 
 - *Orientation (portrait or landscape)* - This setting persists between sessions
-- *DPR (pixel ratio)* - Beginning with Firefox 68, the DPR is no longer editable; create a custom device in order to change the DPR
+- *DPR (pixel ratio)* - To set a specific DPR, you need to create a custom device
 - *Throttling* - A drop-down list where you can select the connection throttling to apply, for example 2G, 3G, or LTE
-- *Enable/Disable touch simulation* - Toggles whether or not Responsive Design Mode simulates touch events. While touch event simulation is enabled, mouse events are translated into `touch events <https://developer.mozilla.org/en-US/docs/Web/API/Touch_events>`_; this includes (starting in Firefox 79) translating a mouse-drag event into a touch-drag event. (Note that when touch simulation is enabled, this toolbar icon is blue; when simulation is disabled, it is black.
+- *Enable/Disable touch simulation* - Toggles whether or not Responsive Design Mode simulates touch events. While touch event simulation is enabled, mouse events are translated into `touch events <https://developer.mozilla.org/en-US/docs/Web/API/Touch_events>`_; this includes translating a mouse-drag event into a touch-drag event. (Note that when touch simulation is enabled, this toolbar icon is blue; when simulation is disabled, it is black).
 
 
 On the right end of the screen, three buttons allow you to:
@@ -106,7 +106,7 @@ Just above the viewport there is a label "no device selected"; click this to see
 - Touch event simulation
 
 
-Additionally, Firefox sets the `User-Agent <https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/User-Agent>`_ HTTP request header to identify itself as the default browser on the selected device. For example, if you've selected an iPhone, then Firefox identifies itself as Safari. The `navigator.userAgent <https://developer.mozilla.org/en-US/docs/Web/API/Navigator/userAgent>`_ property is set to the same value.
+Additionally, Firefox sets the `User-Agent <https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/User-Agent>`_ HTTP request header to identify itself as the default browser on the selected device. For example, if you've selected an iPhone, then Firefox identifies itself as Safari. The `navigator.userAgent <https://developer.mozilla.org/en-US/docs/Web/API/Navigator/userAgent>`_ property is set to the same value.
 
 .. raw:: html
 

@@ -18,7 +18,7 @@
 
 #include "jit/JSJitFrameIter.h"  // js::jit::{InlineFrameIterator,JSJitFrameIter}
 #include "js/ColumnNumber.h"     // JS::TaggedColumnNumberOneOrigin
-#include "js/RootingAPI.h"       // JS::Handle, JS::Rooted
+#include "js/RootingAPI.h"       // JS::Handle
 #include "js/TypeDecls.h"  // jsbytecode, JSContext, JSAtom, JSFunction, JSObject, JSScript
 #include "js/Value.h"       // JS::Value
 #include "vm/Activation.h"  // js::InterpreterActivation
@@ -489,8 +489,9 @@ class NonBuiltinScriptFrameIter : public ScriptFrameIter {
 };
 
 /*
- * Blindly iterate over all frames in the current thread's stack. These frames
- * can be from different contexts and compartments, so beware.
+ * Iterates over all frames in the current thread's stack. This is very similar
+ * to FrameIter, but AllFramesIter passes IGNORE_DEBUGGER_EVAL_PREV_LINK to
+ * ignore evalInFramePrev links for debugger-eval frames.
  */
 class AllFramesIter : public FrameIter {
  public:

@@ -145,9 +145,10 @@ class CommandAction(argparse.Action):
         # If there are sub-commands, parse the intent out immediately.
         if handler.subcommand_handlers and args:
             # mach <command> help <subcommand>
-            if set(args[: args.index("--")] if "--" in args else args).intersection(
-                ("help", "--help")
-            ):
+            if set(args[: args.index("--")] if "--" in args else args).intersection((
+                "help",
+                "--help",
+            )):
                 self._handle_subcommand_help(parser, handler, args)
                 sys.exit(0)
             # mach <command> <subcommand> ...
@@ -259,6 +260,9 @@ class CommandAction(argparse.Action):
             for command in sorted(r.commands_by_category[category]):
                 handler = r.command_handlers[command]
 
+                if handler.hidden:
+                    continue
+
                 # Instantiate a handler class to see if it should be filtered
                 # out for the current context or not. Condition functions can be
                 # applied to the command's decorator.
@@ -286,16 +290,14 @@ class CommandAction(argparse.Action):
                     group = parser.add_argument_group(title, description)
 
                 description = handler.description
-                group.add_argument(command, help=description, action="store_true")
+                group.add_argument(command, help=description)
 
         if disabled_commands and "disabled" in r.categories:
             title, description, _priority = r.categories["disabled"]
             group = parser.add_argument_group(title, description)
             if verbose:
                 for c in disabled_commands:
-                    group.add_argument(
-                        c["command"], help=c["description"], action="store_true"
-                    )
+                    group.add_argument(c["command"], help=c["description"])
 
         parser.print_help()
 
@@ -402,9 +404,7 @@ class CommandAction(argparse.Action):
             subhandlers,
             key=by_decl_order if handler.order == "declaration" else by_name,
         ):
-            group.add_argument(
-                subcommand, help=subhandler.description, action="store_true"
-            )
+            group.add_argument(subcommand, help=subhandler.description)
 
         if handler.docstring:
             parser.description = format_docstring(handler.docstring)

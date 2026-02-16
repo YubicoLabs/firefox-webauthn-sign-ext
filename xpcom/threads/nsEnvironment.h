@@ -4,19 +4,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsEnvironment_h__
-#define nsEnvironment_h__
+#ifndef nsEnvironment_h_
+#define nsEnvironment_h_
 
-#include "mozilla/Attributes.h"
 #include "mozilla/Mutex.h"
 #include "nsIEnvironment.h"
 
-#define NS_ENVIRONMENT_CID                           \
-  {                                                  \
-    0X3D68F92UL, 0X9513, 0X4E25, {                   \
-      0X9B, 0XE9, 0X7C, 0XB2, 0X39, 0X87, 0X41, 0X72 \
-    }                                                \
-  }
+#define NS_ENVIRONMENT_CID \
+  {0X3D68F92UL,            \
+   0X9513,                 \
+   0X4E25,                 \
+   {0X9B, 0XE9, 0X7C, 0XB2, 0X39, 0X87, 0X41, 0X72}}
 #define NS_ENVIRONMENT_CONTRACTID "@mozilla.org/process/environment;1"
 
 class nsEnvironment final : public nsIEnvironment {
@@ -31,4 +29,4 @@ class nsEnvironment final : public nsIEnvironment {
   ~nsEnvironment() = default;
 };
 
-#endif /* !nsEnvironment_h__ */
+#endif /* !nsEnvironment_h_ */

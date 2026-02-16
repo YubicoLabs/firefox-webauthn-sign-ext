@@ -9,15 +9,14 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkStatic
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
+import org.robolectric.RobolectricTestRunner
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class ConnectivityManagerTest {
 
     private lateinit var connectivityManager: ConnectivityManager
@@ -25,8 +24,6 @@ class ConnectivityManagerTest {
     @Before
     fun setup() {
         connectivityManager = mockk(relaxed = true)
-
-        mockkStatic("org.mozilla.fenix.ext.ConnectivityManagerKt")
     }
 
     @Test

@@ -170,7 +170,7 @@ class nsDynamicAtom : public nsAtom {
     nsrefcnt count = --mRefCnt;
     if (count == 0) {
       if (++gUnusedAtomCount >= kAtomGCThreshold) {
-        GCAtomTable();
+        ScheduleAtomTableGC();
       }
     }
 
@@ -189,7 +189,7 @@ class nsDynamicAtom : public nsAtom {
   friend int32_t NS_GetUnusedAtomCount();
 
   static mozilla::Atomic<int32_t, mozilla::ReleaseAcquire> gUnusedAtomCount;
-  static void GCAtomTable();
+  static void ScheduleAtomTableGC();
 
   // These shouldn't be used directly, even by friend classes. The
   // Create()/Destroy() methods use them.
@@ -295,5 +295,11 @@ class nsDependentAtomString : public nsDependentString {
 // chars to lowercase and atomizes, storing the result in the inout
 // param.
 void ToLowerCaseASCII(RefPtr<nsAtom>& aAtom);
+
+// MOZ_DBG support
+inline std::ostream& operator<<(std::ostream& aStream, const nsAtom& aAtom) {
+  return aStream << (aAtom.IsDynamic() ? "nsDynamicAtom" : "nsStaticAtom")
+                 << " { " << nsAtomCString(&aAtom) << " }";
+}
 
 #endif  // nsAtom_h

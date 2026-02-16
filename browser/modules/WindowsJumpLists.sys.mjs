@@ -50,13 +50,13 @@ XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "_idle",
   "@mozilla.org/widget/useridleservice;1",
-  "nsIUserIdleService"
+  Ci.nsIUserIdleService
 );
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "_taskbarService",
   "@mozilla.org/windows-taskbar;1",
-  "nsIWinTaskbar"
+  Ci.nsIWinTaskbar
 );
 
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -182,8 +182,15 @@ var Builder = class {
       return;
     }
 
+    if (!this._showRecent) {
+      // Clear the recents list, so it won't appear if we disable frequents
+      // and tasks.  Recents will only appear if we disable frequents and
+      // tasks _and_ we do not clear the list here.
+      this._clearRecentsList();
+    }
+
     // anything to build?
-    if (!this._showFrequent && !this._showRecent && !this._showTasks) {
+    if (!this._showFrequent && !this._showTasks) {
       // don't leave the last list hanging on the taskbar.
       this._deleteActiveJumpList();
       return;
@@ -284,6 +291,10 @@ var Builder = class {
     }
   }
 
+  _clearRecentsList() {
+    this._builder.clearRecentsList();
+  }
+
   _deleteActiveJumpList() {
     this._builder.clearJumpList();
   }
@@ -322,6 +333,9 @@ export var WinTaskbarJumpList = {
   _builder: null,
   _pbBuilder: null,
   _builtPb: false,
+  // Is showing jump lists currently blocked, such as when waiting for the user
+  // to interact with the preonboarding modal?
+  _blocked: false,
   _shuttingDown: false,
 
   /**
@@ -352,11 +366,15 @@ export var WinTaskbarJumpList = {
 
     // jump list refresh timer
     this._updateTimer();
+
+    if (this._blocked) {
+      this._builder._deleteActiveJumpList();
+    }
   },
 
   update: function WTBJL_update() {
-    // are we disabled via prefs? don't do anything!
-    if (!this._enabled) {
+    // are we disabled via prefs or currently blocked? don't do anything!
+    if (!this._enabled || this._blocked) {
       return;
     }
 
@@ -500,6 +518,23 @@ export var WinTaskbarJumpList = {
 
   name: "WinTaskbarJumpList",
 
+  blockJumpList: async function WTBJL_clearJumpList(unblockPromise) {
+    this._blocked = true;
+    if (unblockPromise) {
+      try {
+        await unblockPromise;
+      } catch (e) {
+        console.error("Unblock promise error, reinstating jump list: ", e);
+      }
+    }
+    this._unblockJumpList();
+  },
+
+  _unblockJumpList: function WTBJL_updateJumpList() {
+    this._blocked = false;
+    this.update();
+  },
+
   notify: function WTBJL_notify() {
     // Add idle observer on the first notification so it doesn't hit startup.
     this._updateIdleObserver();
@@ -512,7 +547,7 @@ export var WinTaskbarJumpList = {
     switch (aTopic) {
       case "nsPref:changed":
         if (this._enabled && !lazy._prefs.getBoolPref(PREF_TASKBAR_ENABLED)) {
-          this._deleteActiveJumpList();
+          this._builder._deleteActiveJumpList();
         }
         this._refreshPrefs();
         this._updateTimer();

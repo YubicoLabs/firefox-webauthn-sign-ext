@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
 <resources>
   <!-- Name of the "notification channel" used for displaying download notification. See https://developer.android.com/training/notify-user/channels -->
   <string name="mozac_feature_downloads_notification_channel">බාගැනීම්</string>
@@ -8,27 +15,25 @@
   <string name="mozac_feature_downloads_completed_notification_text2">බාගැනීම සම්පූර්ණයි</string>
   <!-- Text shown on the second row of an failed download notification. The filename is shown on the first row. -->
   <string name="mozac_feature_downloads_failed_notification_text2">බාගැනීමට අසමත්!</string>
-  <!-- Alert dialog confirmation before download a file, this is the title. %1$s will be replaced with the name of the file. -->
-  <string name="mozac_feature_downloads_dialog_title2">(%1$s) බාගන්න</string>
   <!-- Alert dialog confirmation before download a file, this is the positive action. -->
   <string name="mozac_feature_downloads_dialog_download">බාගන්න</string>
   <!-- Alert dialog confirmation before download a file, this is the negative action. -->
   <string name="mozac_feature_downloads_dialog_cancel">අවලංගු</string>
   <!-- Error shown when the user is trying to download a invalid file. %1$s will be replaced with the name of the app. -->
   <string name="mozac_feature_downloads_file_not_supported2">%1$s සඳහා මෙම ගොනු වර්ගය බාගැනීමට නොහැකිය</string>
-  <!-- Message that appears when the downloaded file could not be opened -->
+  <!-- Message that appears when the downloaded file could not be opened. -->
   <string name="mozac_feature_downloads_could_not_open_file">ගොනුව ඇරීමට නොහැකිය</string>
-  <!-- Message that appears when the downloaded file is a specific type that Android doesn't support opening -->
+  <!-- Message that appears when the downloaded file is a specific type (%1$s) that Android doesn't support opening. -->
   <string name="mozac_feature_downloads_open_not_supported1">%1$s ගොනු ඇරීමට යෙදුමක් හමු නොවුණි</string>
-  <!-- Button that pauses the download when pressed -->
+  <!-- Button that pauses the download when pressed. -->
   <string name="mozac_feature_downloads_button_pause">විරාමයක්</string>
-  <!-- Button that resumes the download when pressed -->
+  <!-- Button that resumes the download when pressed. -->
   <string name="mozac_feature_downloads_button_resume">නැවතත්</string>
-  <!-- Button that cancels the download when pressed -->
+  <!-- Button that cancels the download when pressed. -->
   <string name="mozac_feature_downloads_button_cancel">අවලංගු</string>
-  <!-- Button that opens the downloaded file when pressed -->
+  <!-- Button that opens the downloaded file when pressed. -->
   <string name="mozac_feature_downloads_button_open">අරින්න</string>
-  <!-- Button that restarts the download after a failed attempt -->
+  <!-- Button that restarts the download after a failed attempt. -->
   <string name="mozac_feature_downloads_button_try_again">නැවත</string>
   <!-- Content description for close button -->
   <string name="mozac_feature_downloads_button_close">වසන්න</string>

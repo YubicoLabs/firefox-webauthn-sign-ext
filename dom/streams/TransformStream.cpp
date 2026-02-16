@@ -11,13 +11,13 @@
 #include "UnderlyingSourceCallbackHelpers.h"
 #include "js/TypeDecls.h"
 #include "mozilla/Attributes.h"
-#include "mozilla/dom/Promise.h"
 #include "mozilla/dom/Promise-inl.h"
-#include "mozilla/dom/WritableStream.h"
+#include "mozilla/dom/Promise.h"
 #include "mozilla/dom/ReadableStream.h"
 #include "mozilla/dom/RootedDictionary.h"
 #include "mozilla/dom/TransformStreamBinding.h"
 #include "mozilla/dom/TransformerBinding.h"
+#include "mozilla/dom/WritableStream.h"
 #include "nsWrapperCache.h"
 
 namespace mozilla::dom {
@@ -435,7 +435,7 @@ class TransformStreamUnderlyingSourceAlgorithms final
                                             TransformStream* aStream)
       : mStartPromise(aStartPromise), mStream(aStream) {}
 
-  void StartCallback(JSContext* aCx, ReadableStreamController& aController,
+  void StartCallback(JSContext* aCx, ReadableStreamControllerBase& aController,
                      JS::MutableHandle<JS::Value> aRetVal,
                      ErrorResult& aRv) override {
     // Step 1. Let startAlgorithm be an algorithm that returns startPromise.
@@ -443,9 +443,9 @@ class TransformStreamUnderlyingSourceAlgorithms final
     aRetVal.setObject(*mStartPromise->PromiseObj());
   }
 
-  already_AddRefed<Promise> PullCallback(JSContext* aCx,
-                                         ReadableStreamController& aController,
-                                         ErrorResult& aRv) override {
+  already_AddRefed<Promise> PullCallback(
+      JSContext* aCx, ReadableStreamControllerBase& aController,
+      ErrorResult& aRv) override {
     // Step 6. Let pullAlgorithm be the following steps:
     // Step 6.1. Return ! TransformStreamDefaultSourcePullAlgorithm(stream).
 

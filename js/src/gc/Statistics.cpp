@@ -11,7 +11,7 @@
 #include "mozilla/TimeStamp.h"
 
 #include <algorithm>
-#include <stdarg.h>
+#include <cmath>
 #include <stdio.h>
 #include <type_traits>
 
@@ -144,7 +144,6 @@ static FILE* MaybeOpenFileFromEnv(const char* env,
 
 struct PhaseKindInfo {
   Phase firstPhase;
-  uint8_t telemetryBucket;
   const char* name;
 };
 
@@ -180,6 +179,12 @@ class PhaseIter {
   Phase get() const { return phase; }
   operator Phase() const { return phase; }
 };
+
+JS_PUBLIC_API const char* JS::GetGCPhaseName(uint32_t val) {
+  PhaseKind kind = static_cast<PhaseKind>(val);
+  MOZ_RELEASE_ASSERT(kind < PhaseKind::LIMIT);
+  return phaseKinds[kind].name;
+}
 
 static double t(TimeDuration duration) { return duration.ToMilliseconds(); }
 
@@ -635,22 +640,6 @@ UniqueChars Statistics::renderNurseryJson() const {
   return printer.release();
 }
 
-#ifdef DEBUG
-void Statistics::log(const char* fmt, ...) {
-  va_list args;
-  va_start(args, fmt);
-  if (gcDebugFile) {
-    TimeDuration sinceStart =
-        TimeBetween(TimeStamp::FirstTimeStamp(), TimeStamp::Now());
-    fprintf(gcDebugFile, "%12.3f: ", sinceStart.ToMicroseconds());
-    vfprintf(gcDebugFile, fmt, args);
-    fprintf(gcDebugFile, "\n");
-    fflush(gcDebugFile);
-  }
-  va_end(args);
-}
-#endif
-
 UniqueChars Statistics::renderJsonMessage() const {
   /*
    * The format of the JSON message is specified by the GCMajorMarkerPayload
@@ -784,7 +773,6 @@ void Statistics::formatJsonPhaseTimes(const PhaseTimes& phaseTimes,
 Statistics::Statistics(GCRuntime* gc)
     : gc(gc),
       gcTimerFile(nullptr),
-      gcDebugFile(nullptr),
       nonincrementalReason_(GCAbortReason::None),
       creationTime_(TimeStamp::Now()),
       tenuredAllocsSinceMinorGC(0),
@@ -825,7 +813,6 @@ Statistics::Statistics(GCRuntime* gc)
   MOZ_ALWAYS_TRUE(suspendedPhases.reserve(MAX_SUSPENDED_PHASES));
 
   gcTimerFile = MaybeOpenFileFromEnv("MOZ_GCTIMER");
-  gcDebugFile = MaybeOpenFileFromEnv("JS_GC_DEBUG");
   gcProfileFile = MaybeOpenFileFromEnv("JS_GC_PROFILE_FILE", stderr);
 
   gc::ReadProfileEnv("JS_GC_PROFILE",
@@ -840,9 +827,6 @@ Statistics::Statistics(GCRuntime* gc)
 Statistics::~Statistics() {
   if (gcTimerFile && gcTimerFile != stdout && gcTimerFile != stderr) {
     fclose(gcTimerFile);
-  }
-  if (gcDebugFile && gcDebugFile != stdout && gcDebugFile != stderr) {
-    fclose(gcDebugFile);
   }
 }
 
@@ -873,10 +857,6 @@ bool Statistics::initialize() {
   }
   for (auto i : AllPhaseKinds()) {
     MOZ_ASSERT(phases[phaseKinds[i].firstPhase].phaseKind == i);
-    for (auto j : AllPhaseKinds()) {
-      MOZ_ASSERT_IF(i != j, phaseKinds[i].telemetryBucket !=
-                                phaseKinds[j].telemetryBucket);
-    }
   }
 #endif
 
@@ -1178,6 +1158,13 @@ void Statistics::sendGCTelemetry() {
 void Statistics::beginNurseryCollection() {
   count(COUNT_MINOR_GC);
   startingMinorGCNumber = gc->minorGCCount();
+  TimeStamp currentTime = TimeStamp::Now();
+  JSRuntime* runtime = gc->rt;
+
+  if (gc->nursery().lastCollectionEndTime()) {
+    runtime->metrics().GC_TIME_BETWEEN_MINOR_MS(
+        TimeBetween(gc->nursery().lastCollectionEndTime(), currentTime));
+  }
 }
 
 void Statistics::endNurseryCollection() { tenuredAllocsSinceMinorGC = 0; }
@@ -1241,8 +1228,6 @@ void Statistics::beginSlice(const ZoneGCStats& zoneStats, JS::GCOptions options,
     }
     (*sliceCallback)(cx, JS::GC_SLICE_BEGIN, desc);
   }
-
-  log("begin slice");
 }
 
 void Statistics::endSlice() {
@@ -1254,8 +1239,6 @@ void Statistics::endSlice() {
     slice.end = TimeStamp::Now();
     slice.endFaults = GetPageFaultCount();
     slice.finalState = gc->state();
-
-    log("end slice");
 
     sendSliceTelemetry(slice);
 
@@ -1270,6 +1253,11 @@ void Statistics::endSlice() {
       printStats();
     }
 
+    if (enableBufferAllocStats_ && gc->rt->isMainRuntime()) {
+      maybePrintProfileHeaders();
+      BufferAllocator::printStats(gc, creationTime(), true, profileFile());
+    }
+
     if (!aborted) {
       endGC();
     }
@@ -1279,11 +1267,6 @@ void Statistics::endSlice() {
     if (ShouldPrintProfile(gc->rt, enableProfiling_, profileWorkers_,
                            profileThreshold_, slices_.back().duration())) {
       printSliceProfile();
-    }
-
-    if (enableBufferAllocStats_ && gc->rt->isMainRuntime()) {
-      maybePrintProfileHeaders();
-      BufferAllocator::printStats(gc, creationTime(), true, profileFile());
     }
 
     // Slice callbacks should only fire for the outermost level.
@@ -1369,11 +1352,11 @@ void Statistics::sendSliceTelemetry(const SliceData& slice) {
   }
 }
 
-template <typename Fn>
-void Statistics::reportLongestPhaseInMajorGC(PhaseKind longest, Fn reportFn) {
+template <typename GleanFn>
+void Statistics::reportLongestPhaseInMajorGC(PhaseKind longest,
+                                             GleanFn gleanReportFn) {
   if (longest != PhaseKind::NONE) {
-    uint8_t bucket = phaseKinds[longest].telemetryBucket;
-    reportFn(bucket);
+    gleanReportFn(static_cast<uint32_t>(longest));
   }
 }
 
@@ -1474,7 +1457,6 @@ void Statistics::recordPhaseBegin(Phase phase) {
 
   phaseStack.infallibleAppend(phase);
   phaseStartTimes[phase] = now;
-  log("begin: %s", phases[phase].path);
 }
 
 void Statistics::recordPhaseEnd(Phase phase) {
@@ -1530,7 +1512,6 @@ void Statistics::recordPhaseEnd(Phase phase) {
 
 #ifdef DEBUG
   phaseEndTimes[phase] = now;
-  log("end: %s", phases[phase].path);
 #endif
 }
 
@@ -1553,7 +1534,7 @@ void Statistics::recordParallelPhase(PhaseKind phaseKind,
                                      TimeDuration duration) {
   MOZ_ASSERT(CurrentThreadCanAccessRuntime(gc->rt));
 
-  if (aborted) {
+  if (slices_.empty()) {
     return;
   }
 
@@ -1823,8 +1804,12 @@ const char* Statistics::formatBudget(const SliceData& slice) {
 void Statistics::printProfileTimes(const ProfileDurations& times,
                                    Sprinter& sprinter) {
   for (auto time : times) {
-    int64_t millis = int64_t(time.ToMilliseconds());
-    sprinter.printf(" %6" PRIi64, millis);
+    double millis = time.ToMilliseconds();
+    if (millis < 0.001 || millis >= 1.0) {
+      sprinter.printf(" %6ld", std::lround(millis));
+    } else {
+      sprinter.printf(" %6.3f", millis);
+    }
   }
 
   sprinter.put("\n");

@@ -60,6 +60,10 @@ const isExpectedLoginItemSelected = async ({ expectedGuid }) => {
 };
 
 add_setup(async () => {
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
+
   await Services.logins.addLogins(
     LOGINS_DATA.map(login => LoginTestUtils.testData.formLogin(login))
   );
@@ -218,7 +222,7 @@ add_task(async function test_new_login_url_has_correct_hash() {
 });
 
 add_task(async function test_no_logins_empty_url_hash() {
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   await BrowserTestUtils.withNewTab(
     {
       gBrowser,

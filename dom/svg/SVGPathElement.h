@@ -7,10 +7,10 @@
 #ifndef DOM_SVG_SVGPATHELEMENT_H_
 #define DOM_SVG_SVGPATHELEMENT_H_
 
-#include "mozilla/gfx/2D.h"
-#include "mozilla/RefPtr.h"
 #include "SVGAnimatedPathSegList.h"
 #include "SVGGeometryElement.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/gfx/2D.h"
 
 nsresult NS_NewSVGPathElement(
     nsIContent** aResult, already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
@@ -18,6 +18,7 @@ nsresult NS_NewSVGPathElement(
 namespace mozilla::dom {
 
 struct SVGPathDataSettings;
+struct SVGPathSegmentInit;
 class SVGPathSegment;
 
 using SVGPathElementBase = SVGGeometryElement;
@@ -85,7 +86,7 @@ class SVGPathElement final : public SVGPathElementBase {
   MOZ_CAN_RUN_SCRIPT
   void GetPathData(const SVGPathDataSettings& aOptions,
                    nsTArray<RefPtr<SVGPathSegment>>& aValues);
-  void SetPathData(const Sequence<OwningNonNull<SVGPathSegment>>& aValues);
+  void SetPathData(const Sequence<SVGPathSegmentInit>& aValues);
 
   static bool IsDPropertyChangedViaCSS(const ComputedStyle& aNewStyle,
                                        const ComputedStyle& aOldStyle);

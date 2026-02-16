@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-import io
 import os
 import re
 import shutil
@@ -9,18 +8,11 @@ import threading
 import time
 import unittest
 from unittest import mock
+from urllib.parse import unquote
 
 import mozunit
 import requests
-import six
 from mozgeckoprofiler import view_gecko_profile
-
-if six.PY2:
-    # Import for Python 2
-    from urllib import unquote
-else:
-    # Import for Python 3
-    from urllib.parse import unquote
 
 
 def access_profiler_link(file_url, response):
@@ -55,7 +47,7 @@ class TestViewGeckoProfile(unittest.TestCase):
         # Create a temporary fake performance profile.
         temp_dir = tempfile.mkdtemp()
         profile_path = os.path.join(temp_dir, "fakeprofile.json")
-        with io.open(profile_path, "w") as f:
+        with open(profile_path, "w") as f:
             f.write("FAKE_PROFILE")
 
         # Mock the open_new_tab function so that we know when the view_gecko_profile

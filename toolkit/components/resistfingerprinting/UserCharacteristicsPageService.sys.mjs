@@ -3,6 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+/* global CompressionStream */
+
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -71,6 +73,8 @@ export class UserCharacteristicsPageService {
     }
     this._initialized = true;
     this.handledErrors = [];
+    // Needed to collect canvas renderings from two different places for unified filtering
+    this.allCanvasData = new Map();
   }
 
   shutdown() {}
@@ -156,14 +160,16 @@ export class UserCharacteristicsPageService {
     const populateFuncs = [
       [this.populateIntlLocale, []],
       [this.populateZoomPrefs, []],
-      [this.populateDevicePixelRatio, [browser.ownerGlobal]],
       [this.populateDisabledMediaPrefs, []],
       [this.populateMathOps, []],
+      [this.populateMathOpsFdlibm2, []],
       [this.populateMappableData, [data.output]],
       [this.populateGamepads, [data.gamepads]],
       [this.populateClientInfo, []],
       [this.populateCPUInfo, []],
-      [this.populateWindowInfo, []],
+      [this.populateScreenInfo, []],
+      [this.populatePointerInfo, []],
+      [this.initWindowInfoActor, []],
       [
         this.populateWebGlInfo,
         [browser.ownerGlobal, browser.ownerDocument, 1, false],
@@ -204,9 +210,34 @@ export class UserCharacteristicsPageService {
       }
     }
 
+    // After all populate functions complete, apply unified canvas filtering
+    // This is where ALL canvas data (Canvas 2D + WebGL) is filtered together
+    try {
+      await this.filterAndPopulateAllCanvasData();
+    } catch (e) {
+      const error = `filterAndPopulateAllCanvasData: ${await stringifyError(
+        e
+      )}`;
+      errors.push(error);
+      lazy.console.debug(error);
+    }
+
     errors.push(...this.handledErrors);
 
     Glean.characteristics.jsErrors.set(JSON.stringify(errors));
+  }
+
+  // Compress strings that are all the same repeated character
+  // e.g., "AAAAAAA" (length 7) becomes "[A * 7]"
+  compressRepeatedChars(value) {
+    if (typeof value !== "string" || value.length < 10) {
+      return value;
+    }
+    const firstChar = value[0];
+    if (value.split("").every(c => c === firstChar)) {
+      return `[${firstChar} * ${value.length}]`;
+    }
+    return value;
   }
 
   async collectGleanMetricsFromMap(
@@ -215,7 +246,17 @@ export class UserCharacteristicsPageService {
   ) {
     const entries = data instanceof Map ? data.entries() : Object.entries(data);
     for (const [key, value] of entries) {
-      Glean.characteristics[prefix + key + suffix][operation](value);
+      const metricName = prefix + key + suffix;
+      const processedValue = this.compressRepeatedChars(value);
+      try {
+        Glean.characteristics[metricName][operation](processedValue);
+      } catch (e) {
+        lazy.console.error(
+          `ERROR setting metric "${metricName}" (prefix: "${prefix}", key: "${key}", suffix: "${suffix}"):`,
+          e
+        );
+        throw e;
+      }
     }
   }
 
@@ -264,7 +305,7 @@ export class UserCharacteristicsPageService {
     }
   }
 
-  async populateWindowInfo() {
+  async initWindowInfoActor() {
     // We use two different methods to get any loaded document.
     // First one is, DOMContentLoaded event. If the user loads
     // a new document after actor registration, we will get it.
@@ -278,27 +319,12 @@ export class UserCharacteristicsPageService {
     // existing tabs and continue on a new one before the page
     // is loaded. This is a rare case, but we want to cover it.
 
-    const { promise: screenInfoPromise, resolve: screenInfoResolve } =
-      Promise.withResolvers();
-    const { promise: pointerInfoPromise, resolve: pointerInfoResolve } =
-      Promise.withResolvers();
-
-    Services.obs.addObserver(function observe(_subject, topic, data) {
-      Services.obs.removeObserver(observe, topic);
-      screenInfoResolve(JSON.parse(data));
-    }, "user-characteristics-screen-info-done");
-
-    Services.obs.addObserver(function observe(_subject, topic, data) {
-      Services.obs.removeObserver(observe, topic);
-      pointerInfoResolve(JSON.parse(data));
-    }, "user-characteristics-pointer-info-done");
-
-    const actorName = "UserCharacteristicsWindowInfo";
     Services.obs.addObserver(function observe(_subject, topic, _data) {
       Services.obs.removeObserver(observe, topic);
       ChromeUtils.unregisterWindowActor(actorName);
     }, "user-characteristics-window-info-done");
 
+    const actorName = "UserCharacteristicsWindowInfo";
     ChromeUtils.registerWindowActor(actorName, {
       parent: {
         esModuleURI: "resource://gre/actors/UserCharacteristicsParent.sys.mjs",
@@ -323,11 +349,347 @@ export class UserCharacteristicsPageService {
         this.handledErrors.push(await stringifyError(error));
       }
     }
+  }
 
-    await Promise.all([
-      screenInfoPromise.then(data => this.collectGleanMetricsFromMap(data)),
-      pointerInfoPromise.then(data => this.collectGleanMetricsFromMap(data)),
-    ]);
+  async populateScreenInfo() {
+    const { promise, resolve } = Promise.withResolvers();
+
+    Services.obs.addObserver(function observe(_subject, topic, data) {
+      Services.obs.removeObserver(observe, topic);
+      resolve(JSON.parse(data));
+    }, "user-characteristics-screen-info-done");
+
+    await promise.then(data => this.collectGleanMetricsFromMap(data));
+  }
+
+  async populatePointerInfo() {
+    const { promise, resolve } = Promise.withResolvers();
+
+    Services.obs.addObserver(function observe(_subject, topic, data) {
+      Services.obs.removeObserver(observe, topic);
+      resolve(JSON.parse(data));
+    }, "user-characteristics-pointer-info-done");
+
+    await promise.then(data => this.collectGleanMetricsFromMap(data));
+  }
+
+  async filterAndPopulateAllCanvasData() {
+    // Apply unified filtering to all canvas data (Canvas 2D + WebGL)
+    // This sees ALL canvas data at once before populating any Glean metrics
+    lazy.console.debug(
+      `Applying unified filtering to all canvas data (${this.allCanvasData.size} entries)`
+    );
+
+    const filteredCanvasData = await this.filterAllCanvasRawData(
+      this.allCanvasData
+    );
+
+    // Populate all canvas metrics with filtered data
+    this.collectGleanMetricsFromMap(filteredCanvasData);
+  }
+
+  // This function is different from above to allow us to return early in
+  // certain circumstances.  After we return we still need to populate the Glean
+  // metrics, so we do this in a wrapper function
+  async filterAllCanvasRawData(allCanvasData) {
+    // Check if we should skip compression (test mode)
+    const skipCompression = lazy.Preferences.get(
+      "toolkit.telemetry.user_characteristics_ping.test_skip_compression",
+      false
+    );
+
+    // Compress all raw data and cache both sizes and compressed data
+    const compressedData = new Map(); // key -> { size, data (base64) }
+
+    lazy.console.debug("Raw canvas data sizes:");
+    for (const [key, value] of allCanvasData.entries()) {
+      if (key.endsWith("Raw")) {
+        const size = value ? value.length : 0;
+
+        let compressedSize = 0;
+        let compressedBase64 = value; // Default to original if compression fails/skipped
+        if (value && !skipCompression) {
+          try {
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(value);
+            const cs = new CompressionStream("gzip");
+            const writer = cs.writable.getWriter();
+            writer.write(bytes);
+            writer.close();
+
+            const reader = cs.readable.getReader();
+            const chunks = [];
+            while (true) {
+              const { done, value: chunk } = await reader.read();
+              if (done) {
+                break;
+              }
+              chunks.push(chunk);
+            }
+
+            // Combine chunks into single Uint8Array
+            const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+            const compressed = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+              compressed.set(chunk, offset);
+              offset += chunk.length;
+            }
+
+            // Convert to base64 for storage in Glean
+            compressedBase64 = btoa(String.fromCharCode(...compressed));
+            compressedSize = compressedBase64.length;
+          } catch (e) {
+            lazy.console.debug(`  Error compressing ${key}: ${e}`);
+            compressedSize = size; // Fall back to uncompressed size
+            compressedBase64 = value;
+          }
+        } else if (skipCompression) {
+          compressedSize = size;
+        }
+
+        // Cache the compressed size and data for later use
+        compressedData.set(key, {
+          size: compressedSize,
+          data: compressedBase64,
+        });
+
+        lazy.console.debug(
+          `  ${key}: ${size} bytes (compressed: ${compressedSize} bytes, ${((compressedSize / size) * 100).toFixed(1)}%)`
+        );
+      }
+    }
+
+    // -----------------------------------------------------------
+    // First go through and decide what we want to keep based on the value
+    // and the collect probability.
+
+    // Check if we should ignore probability filtering
+    const ignoreProbability = lazy.Preferences.get(
+      "toolkit.telemetry.user_characteristics_ping.ignore_canvas_probability",
+      false
+    );
+
+    // Import canvas hash lookup functions and length
+    const { isKnownHash, getHashProbability, CANVAS_HASH_LENGTH } =
+      ChromeUtils.importESModule(
+        "resource://gre/modules/CanvasHashData.sys.mjs"
+      );
+
+    // Iterate through all canvas metrics (1-13) for both HW and SW
+    // Use camelCase naming to match Glean conventions
+    const canvasMetrics = [
+      "canvasdata1",
+      "canvasdata2",
+      "canvasdata3",
+      "canvasdata4",
+      "canvasdata5",
+      "canvasdata6",
+      "canvasdata7",
+      "canvasdata8",
+      "canvasdata9",
+      "canvasdata10",
+      "canvasdata11Webgl",
+      "canvasdata12Fingerprintjs1",
+      "canvasdata13Fingerprintjs2",
+    ];
+
+    const variants = [
+      { key: "", suffix: "" }, // HW
+      { key: "Software", suffix: "Software" }, // SW
+    ];
+
+    for (const metric of canvasMetrics) {
+      for (const variant of variants) {
+        // Construct the key names (all camelCase)
+        // Examples:
+        //   - canvasdata1, canvasdata1Software
+        //   - canvasdata11Webgl, canvasdata11WebglSoftware
+        //   - canvasdata12Fingerprintjs1, canvasdata12Fingerprintjs1Software
+        const hashKey = metric + variant.suffix;
+        const rawKey = hashKey + "Raw";
+
+        // Check if this raw data exists
+        if (!allCanvasData.has(rawKey)) {
+          continue;
+        }
+
+        // Get the hash value
+        const hash = allCanvasData.get(hashKey);
+        if (!hash) {
+          // No hash, remove the raw data
+          allCanvasData.delete(rawKey);
+          continue;
+        }
+
+        // Determine if we should keep this raw data based on probability
+        // Use substring of hash for comparison (trimmed hash)
+        const hashSubstring =
+          CANVAS_HASH_LENGTH > 0 && hash.length >= CANVAS_HASH_LENGTH
+            ? hash.substring(0, CANVAS_HASH_LENGTH)
+            : hash;
+
+        const buf = new Uint32Array(1);
+        crypto.getRandomValues(buf);
+        const rand = buf[0] / 0x100000000; // [0,1)
+
+        let shouldKeep;
+        if (isKnownHash(hashSubstring)) {
+          // Known hash - sample using cryptographically secure randomness
+          // getHashProbability applies channel-specific multiplier
+          const probability = getHashProbability(hashSubstring);
+          shouldKeep = rand < probability;
+        } else {
+          // Unknown hash - use 1/10 sampling rate
+          shouldKeep = rand < 1 / 10;
+        }
+
+        if (ignoreProbability) {
+          if (!shouldKeep) {
+            lazy.console.debug(
+              `Canvas data ${hashKey} would have been excluded (probability filter), but keeping due to ignore_canvas_probability pref`
+            );
+          }
+          shouldKeep = true;
+        } else if (!shouldKeep) {
+          lazy.console.debug(
+            `Canvas data ${hashKey} excluded by probability filter (hash: ${hashSubstring})`
+          );
+        }
+
+        if (!shouldKeep) {
+          allCanvasData.delete(rawKey);
+        }
+      }
+    }
+
+    // -----------------------------------------------------------
+    // Collect all raw data keys with their cached compressed sizes for budget filtering
+    const rawDataEntries = [];
+    for (const [key, value] of allCanvasData.entries()) {
+      if (key.endsWith("Raw")) {
+        if (!value) {
+          continue;
+        }
+
+        // Use cached compressed data from earlier compression
+        const cached = compressedData.get(key);
+        const compressedSize = cached?.size || value.length;
+
+        rawDataEntries.push({
+          key,
+          size: compressedSize,
+          uncompressedSize: value.length,
+        });
+      }
+    }
+
+    if (rawDataEntries.length === 0) {
+      return allCanvasData; // No raw data to filter
+    }
+
+    const totalUncompressed = rawDataEntries.reduce(
+      (sum, e) => sum + e.uncompressedSize,
+      0
+    );
+    const totalCompressed = rawDataEntries.reduce((sum, e) => sum + e.size, 0);
+    lazy.console.debug(
+      `Found ${rawDataEntries.length} raw canvas entries (Canvas 2D + WebGL), ` +
+        `uncompressed: ~${Math.round(totalUncompressed / 1024)}KB, ` +
+        `compressed: ~${Math.round(totalCompressed / 1024)}KB ` +
+        `(${((totalCompressed / totalUncompressed) * 100).toFixed(1)}%)`
+    );
+
+    // -----------------------------------------------------------
+    // Budget: ~170KB total for ALL raw canvas data (Canvas 2D + WebGL)
+    // TODO: Subject to change
+    const MAX_BUDGET_BYTES = 170 * 1024;
+
+    // Priority algorithm:
+    // 1. canvasdata01 (if doesn't match, include it - prioritize software over hardware)
+    // 2. canvasdata02 (same logic)
+    // 3. canvasdata09 and canvasdata10
+    // 4. Remaining images picked at random
+
+    const getBaseName = key => {
+      // Extract base name: "canvasdata1Raw" -> "canvasdata1"
+      // "canvasdata1SoftwareRaw" -> "canvasdata1"
+      // "canvasdata11WebglRaw" -> "canvasdata11Webgl"
+      // "canvasdata11WebglSoftwareRaw" -> "canvasdata11Webgl"
+      return key.replace(/Raw$/, "").replace(/Software$/, "");
+    };
+
+    const isSoftware = key => key.includes("Software");
+
+    // Map to store random priorities for non-priority canvases
+    const randomPriorities = new Map();
+
+    const getPriority = key => {
+      const baseName = getBaseName(key);
+      const soft = isSoftware(key);
+
+      // Priority 0-1: canvasdata1 (software first, then hardware)
+      if (baseName === "canvasdata1") {
+        return soft ? 0 : 1;
+      }
+      // Priority 2-3: canvasdata2 (software first, then hardware)
+      if (baseName === "canvasdata2") {
+        return soft ? 2 : 3;
+      }
+      // Priority 4-5: canvasdata9 (software first, then hardware)
+      if (baseName === "canvasdata9") {
+        return soft ? 4 : 5;
+      }
+      // Priority 6-7: canvasdata10 (software first, then hardware)
+      if (baseName === "canvasdata10") {
+        return soft ? 6 : 7;
+      }
+      // Priority 8+: All others - use random value for shuffling
+      if (!randomPriorities.has(key)) {
+        randomPriorities.set(key, 8 + Math.random());
+      }
+      return randomPriorities.get(key);
+    };
+
+    // Sort by priority
+    rawDataEntries.sort((a, b) => {
+      const priorityA = getPriority(a.key);
+      const priorityB = getPriority(b.key);
+      return priorityA - priorityB;
+    });
+
+    // Apply budget by removing lowest-priority items
+    // Use compressed sizes since we store compressed data in the ping
+    let totalSize = rawDataEntries.reduce((sum, e) => sum + e.size, 0);
+    const keysToRemove = [];
+
+    while (totalSize > MAX_BUDGET_BYTES && rawDataEntries.length) {
+      const removed = rawDataEntries.pop(); // Remove lowest priority
+      keysToRemove.push(removed.key);
+      totalSize -= removed.size;
+    }
+
+    // Build result map with compressed data replacing raw data
+    const result = new Map(allCanvasData);
+
+    // Remove entries that exceeded budget
+    for (const key of keysToRemove) {
+      result.delete(key);
+      lazy.console.debug(`Budget exceeded, removing: ${key}`);
+    }
+
+    // Replace remaining raw data with compressed versions
+    for (const [key, cached] of compressedData.entries()) {
+      if (result.has(key) && cached?.data) {
+        result.set(key, cached.data);
+      }
+    }
+
+    lazy.console.debug(
+      `Budget filtering complete: kept ${rawDataEntries.length} entries, ` +
+        `removed ${keysToRemove.length}, total compressed size: ~${Math.round(totalSize / 1024)}KB`
+    );
+    return result;
   }
 
   async populateCanvasData() {
@@ -465,15 +827,24 @@ export class UserCharacteristicsPageService {
       this.handledErrors.push(result.error);
     }
 
-    // We may have HW + SW, or only SW rendered canvases - populate the metrics with what we have
-    this.collectGleanMetricsFromMap(data.get("renderings") ?? {});
-    Glean.characteristics.canvasDpr.set(data.get("dpr") ?? "");
+    // Store Canvas 2D data for unified filtering later
+    // Don't populate Glean yet - wait for unified filtering
+    const renderings = data.get("renderings");
+    if (renderings) {
+      for (const [key, value] of renderings.entries()) {
+        this.allCanvasData.set(key, value);
+      }
+    }
+
+    // Store DPR for later population
+    this.allCanvasData.set("canvasDpr", data.get("dpr") ?? "");
 
     ChromeUtils.unregisterWindowActor(actorName);
 
     // Record the errors
-    if (data.get("errors")?.length) {
-      this.handledErrors.push(...data.get("errors"));
+    const errors = data.get("errors");
+    if (errors?.length) {
+      this.handledErrors.push(...errors);
     }
   }
 
@@ -491,12 +862,6 @@ export class UserCharacteristicsPageService {
     });
 
     Glean.characteristics.zoomCount.set(zoomPrefsCount);
-  }
-
-  async populateDevicePixelRatio(window) {
-    Glean.characteristics.pixelRatio.set(
-      (window.browsingContext.overrideDPPX || window.devicePixelRatio) * 100
-    );
   }
 
   async populateIntlLocale() {
@@ -610,6 +975,11 @@ export class UserCharacteristicsPageService {
     Glean.characteristics.wgpuMaxcomputeworkgroupsperdimension.set(
       adapter.limits.maxComputeWorkgroupsPerDimension
     );
+
+    // Collect adapter metadata
+    Glean.characteristics.wgpuIsFallbackAdapter.set(
+      adapter.isFallbackAdapter || false
+    );
   }
 
   async populateUserAgent(window) {
@@ -617,16 +987,37 @@ export class UserCharacteristicsPageService {
   }
 
   async populateMappableData(data) {
-    // We set data from usercharacteristics.js
-    // We could do Object.keys(data), but this
-    // is more explicit and provides better
-    // readability and control.
+    // Store WebGL canvas data for unified filtering later
+    // Don't populate WebGL metrics yet - wait for unified filtering
+    // Content script keys are already in camelCase format matching filtering logic
+    const webglKeys = [
+      "canvasdata11Webgl",
+      "canvasdata11WebglSoftware",
+      "canvasdata11WebglRaw",
+      "canvasdata11WebglSoftwareRaw",
+    ];
+
+    for (const key of webglKeys) {
+      if (data.has(key)) {
+        this.allCanvasData.set(key, data.get(key));
+      }
+    }
+
+    // Handle mathmlDiagValues array (similar to mathOps)
+    const mathmlDiagValues = data.get("mathmlDiagValues");
+    if (mathmlDiagValues) {
+      Glean.characteristics.mathmlDiagValues.set(
+        JSON.stringify(mathmlDiagValues)
+      );
+    }
+
+    // We set non-canvas data from usercharacteristics.js
     // Keys must match to data returned from
     // usercharacteristics.js and the metric defined
+    // Note: WebGL canvas data keys (hash and raw) are NOT included here -
+    // they go through filterAndPopulateAllCanvasData for unified filtering
     const metrics = {
       set: [
-        "canvasdata11Webgl",
-        "canvasdata11Webglsoftware",
         "voicesCount",
         "voicesLocalCount",
         "voicesDefault",
@@ -639,7 +1030,11 @@ export class UserCharacteristicsPageService {
         "mediaCapabilitiesNotSmooth",
         "mediaCapabilitiesNotEfficient",
         "mediaCapabilitiesH264",
+        "audioCompressorGainReduction",
         "audioFingerprint",
+        "audioFloatFrequencySum",
+        "audioFloatTimeDomainSum",
+        "audioFingerprint2",
         "jsErrors",
         "pointerType",
         "anyPointerType",
@@ -661,13 +1056,82 @@ export class UserCharacteristicsPageService {
         "mathml8",
         "mathml9",
         "mathml10",
+        "mathmlDiagFontFamily",
         "monochrome",
+        "cssSystemColors",
+        "cssSystemFonts",
+        "clientrectsElementGcr01",
+        "clientrectsElementGcr02",
+        "clientrectsElementGcr03",
+        "clientrectsElementGcr04",
+        "clientrectsElementGcr05",
+        "clientrectsElementGcr06",
+        "clientrectsElementGcr07",
+        "clientrectsElementGcr08",
+        "clientrectsElementGcr09",
+        "clientrectsElementGcr10",
+        "clientrectsElementGcr11",
+        "clientrectsElementGcr12",
+        "clientrectsElementGbcr01",
+        "clientrectsElementGbcr02",
+        "clientrectsElementGbcr03",
+        "clientrectsElementGbcr04",
+        "clientrectsElementGbcr05",
+        "clientrectsElementGbcr06",
+        "clientrectsElementGbcr07",
+        "clientrectsElementGbcr08",
+        "clientrectsElementGbcr09",
+        "clientrectsElementGbcr10",
+        "clientrectsElementGbcr11",
+        "clientrectsElementGbcr12",
+        "clientrectsRangeGcr01",
+        "clientrectsRangeGcr02",
+        "clientrectsRangeGcr03",
+        "clientrectsRangeGcr04",
+        "clientrectsRangeGcr05",
+        "clientrectsRangeGcr06",
+        "clientrectsRangeGcr07",
+        "clientrectsRangeGcr08",
+        "clientrectsRangeGcr09",
+        "clientrectsRangeGcr10",
+        "clientrectsRangeGcr11",
+        "clientrectsRangeGcr12",
+        "clientrectsRangeGbcr01",
+        "clientrectsRangeGbcr02",
+        "clientrectsRangeGbcr03",
+        "clientrectsRangeGbcr04",
+        "clientrectsRangeGbcr05",
+        "clientrectsRangeGbcr06",
+        "clientrectsRangeGbcr07",
+        "clientrectsRangeGbcr08",
+        "clientrectsRangeGbcr09",
+        "clientrectsRangeGbcr10",
+        "clientrectsRangeGbcr11",
+        "clientrectsRangeGbcr12",
+        "clientrectsKnownDimensions",
+        "clientrectsGhostDimensions",
+        "clientrectsEmoji01",
+        "clientrectsEmoji02",
+        "clientrectsEmoji03",
+        "clientrectsEmoji04",
+        "clientrectsEmoji05",
+        "clientrectsEmoji06",
+        "clientrectsTextFontFamily",
+        "clientrectsEmojiFontFamily",
+        "svgBbox",
+        "svgComputedTextLength",
+        "svgExtentOfChar",
+        "svgSubstringLength",
+        "svgEmojiSet",
         "oscpu",
         "pdfViewer",
         "platform",
         "audioFrames",
         "audioRate",
         "audioChannels",
+        "audioUniqueSamples",
+        "timezoneWeb",
+        "timezoneOffsetWeb",
       ],
     };
 
@@ -725,17 +1189,96 @@ export class UserCharacteristicsPageService {
     }
   }
 
+  async populateMathOpsFdlibm2() {
+    // IF YOU ADD ENTRIES TO THIS LIST, PLEASE ALSO UPDATE THE COUNT IN
+    // toolkit/components/resistfingerprinting/tests/browser/browser_usercharacteristics_math.js
+    const getResults = () => {
+      const results = [];
+
+      // Math constants
+      results.push(Math.PI);
+      results.push(Math.E);
+      results.push(Math.SQRT2);
+      results.push(Math.SQRT1_2);
+      results.push(Math.LN2);
+      results.push(Math.LN10);
+      results.push(Math.LOG2E);
+      results.push(Math.LOG10E);
+
+      // Intermediate values from operation 15: Math.pow(Math.PI, -100)
+      results.push(Math.pow(Math.PI, -100));
+
+      // Intermediate values from operation 16: Math.log(1e154 + Math.sqrt(1e154^2 - 1))
+      const v16 = 1e154;
+      results.push(v16);
+      results.push(v16 * v16);
+      const sqrt16 = Math.sqrt(v16 * v16 - 1);
+      results.push(sqrt16);
+      results.push(v16 + sqrt16);
+
+      // Intermediate values from operation 17: Math.log(1 + Math.sqrt(2))
+      const sqrt2 = Math.sqrt(2);
+      results.push(sqrt2);
+      results.push(1 + sqrt2);
+
+      // Intermediate values from operation 18: Math.log((1 + 0.5) / (1 - 0.5)) / 2
+      results.push(1 + 0.5);
+      results.push(1 - 0.5);
+      results.push((1 + 0.5) / (1 - 0.5));
+
+      // Intermediate values from operation 19: Math.exp(1) - 1 / Math.exp(1) / 2
+      const exp1 = Math.exp(1);
+      results.push(exp1);
+      results.push(1 / exp1);
+      results.push(1 / exp1 / 2);
+      results.push(exp1 - 1 / exp1 / 2);
+
+      // Intermediate values from operation 20: (Math.exp(1) + 1 / Math.exp(1)) / 2
+      results.push(exp1 + 1 / exp1);
+      results.push((exp1 + 1 / exp1) / 2);
+
+      // Intermediate values from operation 21: Math.exp(1) - 1
+      results.push(exp1 - 1);
+
+      // Intermediate values from operation 22: (Math.exp(2) - 1) / (Math.exp(2) + 1)
+      const exp2 = Math.exp(2);
+      results.push(exp2);
+      results.push(exp2 - 1);
+      results.push(exp2 + 1);
+      results.push((exp2 - 1) / (exp2 + 1));
+
+      // Intermediate values from operation 23: Math.log(1 + 10)
+      results.push(1 + 10);
+
+      // Additional illustrative values
+      results.push(Math.sqrt(3));
+      results.push(Math.sqrt(5));
+      results.push(Math.pow(2, 0.5));
+      results.push(Math.pow(Math.E, 2));
+      results.push(Math.log(Math.E));
+      results.push(Math.log(10));
+
+      return results;
+    };
+
+    const sandbox = Cu.Sandbox(null, {
+      alwaysUseFdlibm: true,
+    });
+    const results = Cu.evalInSandbox(`(${getResults.toString()})()`, sandbox);
+    Glean.characteristics.mathOpsFdlibm2.set(JSON.stringify(results));
+  }
+
   async populateClientInfo() {
     const buildID = Services.appinfo.appBuildID;
     const buildDate =
-      new Date(
+      Date.UTC(
         buildID.slice(0, 4),
         buildID.slice(4, 6) - 1,
         buildID.slice(6, 8),
         buildID.slice(8, 10),
         buildID.slice(10, 12),
         buildID.slice(12, 14)
-      ).getTime() / 1000;
+      ) / 1000;
 
     Glean.characteristics.version.set(Services.appinfo.version);
     Glean.characteristics.channel.set(AppConstants.MOZ_UPDATE_CHANNEL);
@@ -743,6 +1286,19 @@ export class UserCharacteristicsPageService {
     Glean.characteristics.osVersion.set(
       Services.sysinfo.getProperty("version")
     );
+    if (Services.sysinfo.hasKey("distro")) {
+      Glean.characteristics.osDistro.set(
+        Services.sysinfo.getProperty("distro")
+      );
+    }
+    if (Services.sysinfo.hasKey("distroVersion")) {
+      Glean.characteristics.osDistroVersion.set(
+        Services.sysinfo.getProperty("distroVersion")
+      );
+    }
+    if (Services.appinfo.distributionID) {
+      Glean.characteristics.osDistroId.set(Services.appinfo.distributionID);
+    }
     Glean.characteristics.buildDate.set(buildDate);
   }
 
@@ -751,6 +1307,20 @@ export class UserCharacteristicsPageService {
       await Services.sysinfo.processInfo.then(r => r.name)
     );
     Glean.characteristics.cpuArch.set(Services.sysinfo.get("arch"));
+
+    // Collect Firefox binary architecture (can differ from CPU arch)
+    // e.g., x86-64 Firefox via Rosetta 2 on ARM64 Mac
+    let binaryArch = "unknown";
+    try {
+      const xpcomAbi = Services.appinfo.XPCOMABI || "unknown";
+      const is64Bit = Services.appinfo.is64Bit ? "true" : "false";
+      // Concatenate both values for robustness
+      binaryArch = `xpcomabi:${xpcomAbi}|is64bit:${is64Bit}`;
+    } catch (e) {
+      lazy.console.error("Failed to get Firefox binary architecture:", e);
+      binaryArch = "error";
+    }
+    Glean.characteristics.firefoxBinaryArch.set(binaryArch);
   }
 
   async populateWebGlInfo(window, document, version, forceSoftwareRendering) {
@@ -797,6 +1367,11 @@ export class UserCharacteristicsPageService {
         "MAX_VERTEX_UNIFORM_VECTORS",
         "MAX_VIEWPORT_DIMS",
         "SHADING_LANGUAGE_VERSION",
+        "STENCIL_BACK_VALUE_MASK",
+        "STENCIL_BACK_WRITEMASK",
+        "STENCIL_VALUE_MASK",
+        "STENCIL_WRITEMASK",
+        "SUBPIXEL_BITS",
       ],
       v2: [
         "MAX_3D_TEXTURE_SIZE",
@@ -1031,8 +1606,6 @@ export class UserCharacteristicsPageService {
       "media.av1.enabled",
       "media.encoder.webm.enabled",
       "media.mediasource.enabled",
-      "media.mediasource.mp4.enabled",
-      "media.mediasource.webm.enabled",
       "media.mediasource.vp9.enabled",
     ];
 
@@ -1112,3 +1685,6 @@ function isValidRemoteType(sanitizedRemoteType) {
     lazy.ProcessType.kFallback
   );
 }
+
+// Export constants for testing
+export const MAX_CANVAS_RAW_DATA_BUDGET_BYTES = 170 * 1024;

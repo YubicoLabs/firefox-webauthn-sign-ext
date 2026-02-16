@@ -128,7 +128,7 @@ function isObject(value) {
  * The WebConsoleActor implements capabilities needed for the Web Console
  * feature.
  *
- * @constructor
+ * @class
  * @param object connection
  *        The connection to the client, DevToolsServerConnection.
  * @param object [targetActor]
@@ -154,8 +154,7 @@ class WebConsoleActor extends Actor {
     this.onConsoleAPICall = this.onConsoleAPICall.bind(this);
     this.onDocumentEvent = this.onDocumentEvent.bind(this);
 
-    EventEmitter.on(
-      this.targetActor,
+    this.targetActor.on(
       "changed-toplevel-document",
       this._onChangedToplevelDocument
     );
@@ -170,6 +169,7 @@ class WebConsoleActor extends Actor {
 
   /**
    * This is used by the ObjectActor to keep track of the depth of grip() calls.
+   *
    * @private
    * @type number
    */
@@ -278,7 +278,7 @@ class WebConsoleActor extends Actor {
     this._evalGlobal = global;
 
     if (!this._progressListenerActive) {
-      EventEmitter.on(this.targetActor, "will-navigate", this._onWillNavigate);
+      this.targetActor.on("will-navigate", this._onWillNavigate);
       this._progressListenerActive = true;
     }
   }
@@ -295,6 +295,7 @@ class WebConsoleActor extends Actor {
 
   /**
    * The ConsoleServiceListener instance.
+   *
    * @type object
    */
   consoleServiceListener = null;
@@ -328,8 +329,7 @@ class WebConsoleActor extends Actor {
     this.stopListeners();
     super.destroy();
 
-    EventEmitter.off(
-      this.targetActor,
+    this.targetActor.off(
       "changed-toplevel-document",
       this._onChangedToplevelDocument
     );
@@ -343,13 +343,17 @@ class WebConsoleActor extends Actor {
    * Create a grip for the given value.
    *
    * @param mixed value
+   * @param object objectActorAttributes
+   *        See createValueGrip in devtools/server/actors/object/utils.js
    * @return object
    */
-  createValueGrip(value) {
+  createValueGrip(value, objectActorAttributes = {}) {
     return createValueGrip(
       this.targetActor.threadActor,
       value,
-      this.targetActor.objectsPool
+      this.targetActor.objectsPool,
+      0,
+      objectActorAttributes
     );
   }
 
@@ -507,7 +511,7 @@ class WebConsoleActor extends Actor {
           }
           startedListeners.push(event);
           break;
-        case "NetworkActivity":
+        case "NetworkActivity": {
           // Workers don't support this message type
           if (isWorker) {
             break;
@@ -518,6 +522,7 @@ class WebConsoleActor extends Actor {
             "Instead use Watcher actor's watchResources and listen to NETWORK_EVENT resource";
           dump(errorMessage + "\n");
           throw new Error(errorMessage);
+        }
         case "FileActivity":
           // Workers don't support this message type
           if (isWorker) {
@@ -948,26 +953,29 @@ class WebConsoleActor extends Actor {
         result = evalResult.yield;
       } else if ("throw" in evalResult) {
         const error = evalResult.throw;
-        errorGrip = this.createValueGrip(error);
+        const allowSideEffect = !eager;
+        errorGrip = this.createValueGrip(error, { allowSideEffect });
 
         exceptionStack = this.prepareStackForRemote(evalResult.stack);
 
         if (exceptionStack) {
-          // Set the frame based on the topmost stack frame for the exception.
-          const {
-            filename: source,
-            sourceId,
-            lineNumber: line,
-            columnNumber: column,
-          } = exceptionStack[0];
-          frame = { source, sourceId, line, column };
-
           exceptionStack =
             WebConsoleUtils.removeFramesAboveDebuggerEval(exceptionStack);
+
+          // Set the frame based on the topmost stack frame for the exception.
+          if (exceptionStack && exceptionStack.length) {
+            const {
+              filename: source,
+              sourceId,
+              lineNumber: line,
+              columnNumber: column,
+            } = exceptionStack[0];
+            frame = { source, sourceId, line, column };
+          }
         }
 
         errorMessage = String(error);
-        if (typeof error === "object" && error !== null) {
+        if (allowSideEffect && typeof error === "object" && error !== null) {
           try {
             errorMessage = DevToolsUtils.callPropertyOnObject(
               error,
@@ -1008,7 +1016,11 @@ class WebConsoleActor extends Actor {
           const line = error.errorLineNumber;
           const column = error.errorColumnNumber;
 
-          if (typeof line === "number" && typeof column === "number") {
+          if (
+            !frame &&
+            typeof line === "number" &&
+            typeof column === "number"
+          ) {
             // Set frame only if we have line/column numbers.
             frame = {
               source: "debugger eval code",
@@ -1447,14 +1459,14 @@ class WebConsoleActor extends Actor {
    * Handler for the DocumentEventsListener.
    *
    * @see DocumentEventsListener
-   * @param {String} name
+   * @param {string} name
    *        The document event name that either of followings.
    *        - dom-loading
    *        - dom-interactive
    *        - dom-complete
-   * @param {Number} time
+   * @param {number} time
    *        The time that the event is fired.
-   * @param {Boolean} hasNativeConsoleAPI
+   * @param {boolean} hasNativeConsoleAPI
    *        Tells if the window.console object is native or overwritten by script in the page.
    *        Only passed when `name` is "dom-complete" (see devtools/server/actors/webconsole/listeners/document-events.js).
    */
@@ -1571,8 +1583,8 @@ class WebConsoleActor extends Actor {
    * So here we need to retrieve the properties of the first parameter, and also all the
    * sub-properties we might need.
    *
-   * @param {Object} result: The console.table message.
-   * @returns {Object} An object containing the properties of the first argument of the
+   * @param {object} result: The console.table message.
+   * @returns {object} An object containing the properties of the first argument of the
    *                   console.table call.
    */
   _getConsoleTableMessageItems(result) {
@@ -1617,7 +1629,7 @@ class WebConsoleActor extends Actor {
             // We need to load sub-properties as well to render the table in a nice way.
             const actor =
               grip && this.targetActor.objectsPool.getActorByID(grip.actor);
-            if (actor) {
+            if (actor && typeof actor.enumProperties === "function") {
               const res = actor
                 .enumProperties({
                   ignoreNonIndexedProperties: isArray(grip),
@@ -1642,7 +1654,7 @@ class WebConsoleActor extends Actor {
   _onWillNavigate({ isTopLevel }) {
     if (isTopLevel) {
       this._evalGlobal = null;
-      EventEmitter.off(this.targetActor, "will-navigate", this._onWillNavigate);
+      this.targetActor.off("will-navigate", this._onWillNavigate);
       this._progressListenerActive = false;
     }
   }

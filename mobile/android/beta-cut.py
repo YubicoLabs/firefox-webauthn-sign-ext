@@ -60,7 +60,7 @@ def get_bug_id():
 
 def get_previous_version():
     """Extract the previous version number from the changelog."""
-    with open(CHANGELOG_FILE, "r") as file:
+    with open(CHANGELOG_FILE) as file:
         content = file.read()
     match = re.search(r"# (\d+)\.0 \(In Development\)", content)
     if not match:
@@ -73,7 +73,7 @@ def get_previous_version():
 
 def update_changelog(previous_version, new_version):
     """Update the changelog with the new version number."""
-    with open(CHANGELOG_FILE, "r") as file:
+    with open(CHANGELOG_FILE) as file:
         content = file.read()
     updated_content = content.replace(
         f"# {previous_version}.0 (In Development)",
@@ -130,7 +130,7 @@ def update_json_if_necessary():
     if os.path.exists(SOURCE_JSON) and os.path.exists(TARGET_JSON):
         result = subprocess.run(["cmp", "-s", SOURCE_JSON, TARGET_JSON], check=False)
         if result.returncode != 0:  # Files differ
-            subprocess.run(["cp", SOURCE_JSON, TARGET_JSON], check=False)
+            subprocess.run(["cp", SOURCE_JSON, TARGET_JSON], check=True)
             return True
     return False
 

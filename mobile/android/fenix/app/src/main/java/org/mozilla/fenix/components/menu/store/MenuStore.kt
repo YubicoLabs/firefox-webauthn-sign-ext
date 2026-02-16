@@ -32,17 +32,15 @@ private fun reducer(state: MenuState, action: MenuAction): MenuState {
         is MenuAction.RemoveShortcut,
         is MenuAction.DeleteBrowsingDataAndQuit,
         is MenuAction.FindInPage,
+        is MenuAction.MenuBanner,
+        is MenuAction.DismissMenuBanner,
         is MenuAction.OpenInApp,
         is MenuAction.OpenInFirefox,
         is MenuAction.InstallAddon,
         is MenuAction.CustomMenuItemAction,
-        is MenuAction.ToggleReaderView,
         is MenuAction.CustomizeReaderView,
         is MenuAction.Navigate,
-        is MenuAction.SaveMenuClicked,
-        is MenuAction.ToolsMenuClicked,
         is MenuAction.OnCFRShown,
-        is MenuAction.OpenInRegularTab,
         is MenuAction.OnCFRDismiss,
         -> state
 
@@ -82,18 +80,6 @@ private fun reducer(state: MenuState, action: MenuAction): MenuState {
                 availableAddons = state.extensionMenuState.availableAddons.plus(action.addon),
                 addonInstallationInProgress = null,
             )
-        }
-
-        is MenuAction.UpdateShowExtensionsOnboarding -> state.copyWithExtensionMenuState { extensionState ->
-            extensionState.copy(showExtensionsOnboarding = action.showExtensionsOnboarding)
-        }
-
-        is MenuAction.UpdateShowDisabledExtensionsOnboarding -> state.copyWithExtensionMenuState { extensionState ->
-            extensionState.copy(showDisabledExtensionsOnboarding = action.showDisabledExtensionsOnboarding)
-        }
-
-        is MenuAction.UpdateManageExtensionsMenuItemVisibility -> state.copyWithExtensionMenuState {
-            it.copy(shouldShowManageExtensionsMenuItem = action.isVisible)
         }
 
         is MenuAction.UpdateAvailableAddons -> state.copyWithExtensionMenuState {

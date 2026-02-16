@@ -32,13 +32,12 @@ EXTRA_SUPPORT_FILES = [
     "mochi-single.html",
 ]
 
-ACCEPTABLE_ERRATA_KEYS = set(
-    [
-        "fail-if",
-        "skip-if",
-        "prefs",
-    ]
-)
+ACCEPTABLE_ERRATA_KEYS = set([
+    "fail-if",
+    "prefs",
+    "skip-if",
+    "tags",
+])
 
 
 def ChooseSubsuite(name):
@@ -66,7 +65,7 @@ def ChooseSubsuite(name):
         elif split[1] == "textures" and split[2] != "misc":
             category = "ext"
 
-    return "webgl{}-{}".format(version, category)
+    return f"webgl{version}-{category}"
 
 
 ########################################################################
@@ -124,7 +123,6 @@ class TestEntry:
         self.path = path
         self.webgl1 = webgl1
         self.webgl2 = webgl2
-        return
 
 
 def AccumTests(pathStr, listFile, allowWebGL1, allowWebGL2, out_testList):
@@ -133,7 +131,7 @@ def AccumTests(pathStr, listFile, allowWebGL1, allowWebGL2, out_testList):
     listPath = listPathStr.replace("/", os.sep)
     assert os.path.exists(listPath), "Bad `listPath`: " + listPath
 
-    with open(listPath, "r") as fIn:
+    with open(listPath) as fIn:
         lineNum = 0
         for line in fIn:
             lineNum += 1
@@ -164,9 +162,7 @@ def AccumTests(pathStr, listFile, allowWebGL1, allowWebGL2, out_testList):
                 elif flag == "--slow":
                     continue  # TODO
                 else:
-                    text = "Unknown flag '{}': {}:{}: {}".format(
-                        flag, listPath, lineNum, line
-                    )
+                    text = f"Unknown flag '{flag}': {listPath}:{lineNum}: {line}"
                     assert False, text
                 continue
 
@@ -196,8 +192,6 @@ def AccumTests(pathStr, listFile, allowWebGL1, allowWebGL2, out_testList):
             AccumTests(nextPathStr, nextListFile, webgl1, webgl2, out_testList)
             continue
 
-    return
-
 
 ########################################################################
 # Templates
@@ -206,11 +200,10 @@ def AccumTests(pathStr, listFile, allowWebGL1, allowWebGL2, out_testList):
 def FillTemplate(inFilePath, templateDict, outFilePath):
     templateShell = ImportTemplate(inFilePath)
     OutputFilledTemplate(templateShell, templateDict, outFilePath)
-    return
 
 
 def ImportTemplate(inFilePath):
-    with open(inFilePath, "r") as f:
+    with open(inFilePath) as f:
         return TemplateShell(f)
 
 
@@ -219,7 +212,6 @@ def OutputFilledTemplate(templateShell, templateDict, outFilePath):
 
     with open(outFilePath, "w", newline="\n") as f:
         f.writelines(spanStrList)
-    return
 
 
 ##############################
@@ -251,8 +243,6 @@ class TemplateShellSpan:
         if self.span.startswith("%%") and self.span.endswith("%%"):
             self.isLiteralSpan = False
             self.span = self.span[2:-2]
-
-        return
 
     def Fill(self, templateDict, indentLen):
         if self.isLiteralSpan:
@@ -297,15 +287,14 @@ class TemplateShell:
             spanList.append(span)
 
         self.spanList = spanList
-        return
 
     # Returns spanStrList.
 
     def Fill(self, templateDict):
         indentLen = 0
         ret = []
-        for span in self.spanList:
-            span = span.Fill(templateDict, indentLen)
+        for span_ in self.spanList:
+            span = span_.Fill(templateDict, indentLen)
             ret.append(span)
 
             # Get next `indentLen`.
@@ -360,7 +349,6 @@ def WriteWrapper(entryPath, webgl2, templateShell, wrapperPathAccum):
         assert IsWrapperWebGL2(wrapperPath)
 
     wrapperPathAccum.append(wrapperPath)
-    return
 
 
 def WriteWrappers(testEntryList):
@@ -379,7 +367,7 @@ def WriteWrappers(testEntryList):
             WriteWrapper(entry.path, True, templateShell, wrapperPathList)
         continue
 
-    print("{} wrappers written.\n".format(len(wrapperPathList)))
+    print(f"{len(wrapperPathList)} wrappers written.\n")
     return wrapperPathList
 
 
@@ -452,7 +440,6 @@ def WriteManifest(wrapperPathStrList, supportPathStrList):
 
     destPath = destPathStr.replace("/", os.sep)
     FillTemplate(MANIFEST_TEMPLATE_FILE, templateDict, destPath)
-    return
 
 
 ##############################
@@ -469,7 +456,7 @@ def LoadTOML(path):
     key = ""
     val = ""
 
-    with open(path, "r") as f:
+    with open(path) as f:
         for rawLine in f:
             lineNum += 1
             if multiLineVal:
@@ -484,11 +471,11 @@ def LoadTOML(path):
                 if line[0] in [";", "#"]:
                     continue
                 if line[0] == "[":
-                    assert line[-1] == "]", "{}:{}".format(path, lineNum)
+                    assert line[-1] == "]", f"{path}:{lineNum}"
                     curSectionName = line[1:-1].strip('"')
-                    assert (
-                        curSectionName not in ret
-                    ), "Line {}: Duplicate section: {}".format(lineNum, line)
+                    assert curSectionName not in ret, (
+                        f"Line {lineNum}: Duplicate section: {line}"
+                    )
                     curSectionMap = {}
                     ret[curSectionName] = (lineNum, curSectionMap)
                     continue
@@ -517,14 +504,14 @@ def LoadErrata():
             continue
         elif sectionName != "DEFAULT":
             path = sectionName.replace("/", os.sep)
-            assert os.path.exists(path), "Errata line {}: Invalid file: {}".format(
-                sectionLineNum, sectionName
+            assert os.path.exists(path), (
+                f"Errata line {sectionLineNum}: Invalid file: {sectionName}"
             )
 
         for key, (lineNum, val) in sectionMap.items():
-            assert key in ACCEPTABLE_ERRATA_KEYS, "Line {}: {}".format(lineNum, key)
+            assert key in ACCEPTABLE_ERRATA_KEYS, f"Line {lineNum}: {key}"
 
-            curLine = "{} = {}".format(key, val)
+            curLine = f"{key} = {val}"
             curLines.append(curLine)
             continue
 

@@ -8,6 +8,7 @@
 
 #![deny(missing_docs)]
 
+use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
 use crate::values::distance::{ComputeSquaredDistance, SquaredDistance};
 use crate::Atom;
@@ -227,7 +228,7 @@ where
 
 /// A generic CSS `<ident>` stored as an `Atom`, for the default atom set.
 #[cfg(feature = "servo")]
-pub type AtomIdent = GenericAtomIdent<servo_atoms::AtomStaticSet>;
+pub type AtomIdent = GenericAtomIdent<stylo_atoms::AtomStaticSet>;
 
 #[cfg(feature = "servo")]
 impl<Set: string_cache::StaticAtomSet> style_traits::SpecifiedValueInfo for GenericAtomIdent<Set> {}
@@ -713,7 +714,10 @@ impl Parse for KeyframesName {
         let location = input.current_source_location();
         Ok(match *input.next()? {
             Token::Ident(ref s) => Self(CustomIdent::from_ident(location, s, &["none"])?.0),
-            Token::QuotedString(ref s) => Self(Atom::from(s.as_ref())),
+            // Note that empty <string> should be rejected.
+            Token::QuotedString(ref s) if !s.as_ref().is_empty() => {
+                Self(Atom::from(s.as_ref()))
+            },
             ref t => return Err(location.new_unexpected_token_error(t.clone())),
         })
     }
@@ -728,16 +732,18 @@ impl ToCss for KeyframesName {
             return dest.write_str("none");
         }
 
-        let serialize = |string: &_| {
+        fn serialize<W: Write>(string: &str, dest: &mut CssWriter<W>) -> fmt::Result {
             if CustomIdent::is_valid(string, &["none"]) {
                 serialize_identifier(string, dest)
             } else {
                 string.to_css(dest)
             }
-        };
+        }
+
         #[cfg(feature = "gecko")]
-        return self.0.with_str(serialize);
+        return self.0.with_str(|s| serialize(s, dest));
+
         #[cfg(feature = "servo")]
-        return serialize(self.0.as_ref());
+        return serialize(self.0.as_ref(), dest);
     }
 }

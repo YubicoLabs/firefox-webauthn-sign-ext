@@ -45,10 +45,24 @@ const DOMContentLoadedPromise = new Promise(resolve => {
   );
 });
 
+if (navigator.maxTouchPoints > 0) {
+  document.documentElement.classList.add("mobile");
+}
+
 Promise.all([
   browser.runtime.sendMessage("getAllInterventions"),
   DOMContentLoadedPromise,
 ]).then(([info]) => {
+  // alphabetize the interventions and shims
+  if (info.interventions) {
+    info.interventions = info.interventions.sort((a, b) =>
+      a.domain.localeCompare(b.domain)
+    );
+  }
+  if (info.shims) {
+    info.shims = info.shims.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   document.body.addEventListener("click", async evt => {
     const ele = evt.target;
     if (ele.nodeName === "BUTTON") {
@@ -81,24 +95,64 @@ async function onMessageFromAddon(msg) {
   await DOMContentLoadedPromise;
 
   if ("interventionsChanged" in msg) {
-    redrawTable($("#interventions"), msg.interventionsChanged, alsoShowHidden);
+    const table = document.querySelector("#interventions");
+
+    // if we toggled the global pref, we need to redraw the whole table.
+    if (
+      msg.interventionsChanged === false ||
+      table.querySelector("[data-l10n-id=text-disabled-in-about-config]")
+    ) {
+      redrawTable(
+        $("#interventions"),
+        msg.interventionsChanged,
+        alsoShowHidden
+      );
+    } else {
+      // redraw just the interventions which changed.
+      for (const config of msg.interventionsChanged) {
+        if (config.hidden && !alsoShowHidden) {
+          continue;
+        }
+
+        const { domain } = config;
+        const newTR = createTableRow(config);
+
+        const oldTR = document.querySelector(`[data-id="${config.id}"]`);
+        const oldDomain = oldTR?.querySelector("td").innerText;
+        if (domain == oldDomain) {
+          oldTR.parentNode.replaceChild(newTR, oldTR);
+          continue;
+        }
+
+        oldTR?.remove();
+        let whereToInsert = table.firstElementChild;
+        while (
+          whereToInsert &&
+          (whereToInsert.nodeName != "TR" ||
+            whereToInsert.querySelector("td").innerText < domain)
+        ) {
+          whereToInsert = whereToInsert.nextElementSibling;
+        }
+        table.insertBefore(newTR, whereToInsert);
+      }
+    }
   }
 
   if ("shimsChanged" in msg) {
     updateShimTables(msg.shimsChanged, alsoShowHidden);
   }
 
-  const id = msg.toggling || msg.toggled;
-  const button = $(`[data-id="${id}"] button`);
-  if (!button) {
-    return;
+  if ("toggling" in msg) {
+    // Disable the button while an intervention is being enabled/disabled.
+    // The markup of the table-row will be updated appropriately when a
+    // subsequent interventionsChanged message arrives.
+    const id = msg.toggling;
+    const button = $(`[data-id="${id}"] button`);
+    if (!button) {
+      return;
+    }
+    button.disabled = true;
   }
-  const active = msg.active;
-  document.l10n.setAttributes(
-    button,
-    active ? "label-disable" : "label-enable"
-  );
-  button.disabled = !!msg.toggling;
 }
 
 function redraw() {
@@ -247,34 +301,38 @@ function redrawTable(table, data, alsoShowHidden) {
     if (row.hidden && !alsoShowHidden) {
       continue;
     }
-
-    const tr = document.createElement("tr");
-    tr.setAttribute("data-id", row.id);
-    df.appendChild(tr);
-
-    let td = document.createElement("td");
-    td.innerText = row.domain;
-    tr.appendChild(td);
-
-    td = document.createElement("td");
-    const a = document.createElement("a");
-    const bug = row.bug;
-    a.href = `https://bugzilla.mozilla.org/show_bug.cgi?id=${bug}`;
-    document.l10n.setAttributes(a, "label-more-information", { bug });
-    a.target = "_blank";
-    td.appendChild(a);
-    tr.appendChild(td);
-
-    td = document.createElement("td");
-    tr.appendChild(td);
-    const button = document.createElement("button");
-    document.l10n.setAttributes(
-      button,
-      row.active ? "label-disable" : "label-enable"
-    );
-    td.appendChild(button);
+    df.appendChild(createTableRow(row));
   }
   table.appendChild(df);
+}
+
+function createTableRow(row) {
+  const tr = document.createElement("tr");
+  tr.setAttribute("data-id", row.id);
+
+  let td = document.createElement("td");
+  td.innerText = row.domain;
+  tr.appendChild(td);
+
+  td = document.createElement("td");
+  const a = document.createElement("a");
+  const bug = row.bug;
+  a.href = `https://bugzilla.mozilla.org/show_bug.cgi?id=${bug}`;
+  document.l10n.setAttributes(a, "label-more-information", { bug });
+  a.target = "_blank";
+  td.appendChild(a);
+  tr.appendChild(td);
+
+  td = document.createElement("td");
+  tr.appendChild(td);
+  const button = document.createElement("button");
+  document.l10n.setAttributes(
+    button,
+    row.active ? "label-disable" : "label-enable"
+  );
+  td.appendChild(button);
+
+  return tr;
 }
 
 window.onhashchange = redraw;

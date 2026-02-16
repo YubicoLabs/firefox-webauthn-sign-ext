@@ -9,14 +9,9 @@
     <androidx.preference.Preference
         android:key="@string/pref_key_sign_in"
         android:layout="@layout/sign_in_preference"
-        android:summary="@string/preferences_sign_in_description_2"
-        android:title="@string/preferences_sync_2"
+        android:summary="@string/preferences_sign_in_description"
+        android:title="@string/preferences_sign_in"
         app:allowDividerBelow="false" />
-
-    <androidx.preference.SwitchPreference
-        android:key="@string/pref_key_allow_domestic_china_fxa_server"
-        android:title="@string/preferences_allow_domestic_china_fxa_server"
-        android:defaultValue="true"/>
 
     <androidx.preference.PreferenceCategory
         android:key="@string/pref_key_account_category"
@@ -25,7 +20,7 @@
         android:layout="@layout/preference_category_no_icon_style">
 
         <org.mozilla.fenix.settings.account.AccountPreference
-            android:icon="@drawable/ic_account"
+            android:icon="@drawable/mozac_ic_avatar_circle_24"
             android:key="@string/pref_key_account" />
 
         <org.mozilla.fenix.settings.account.AccountAuthErrorPreference
@@ -66,6 +61,12 @@
             android:key="@string/pref_key_passwords"
             app:iconSpaceReserved="false"
             android:title="@string/preferences_passwords_logins_and_passwords_2" />
+
+        <androidx.preference.Preference
+            android:key="@string/pref_key_email_masks"
+            android:title="@string/preferences_email_masks"
+            app:iconSpaceReserved="false"
+            app:isPreferenceVisible="false" />
 
         <androidx.preference.Preference
             app:iconSpaceReserved="false"
@@ -183,17 +184,27 @@
             android:title="@string/preferences_open_links_in_apps"
             app:iconSpaceReserved="false" />
 
-        <androidx.preference.SwitchPreference
-            android:defaultValue="false"
-            android:key="@string/pref_key_external_download_manager"
+        <androidx.preference.Preference
+            android:key="@string/pref_key_downloads"
             app:iconSpaceReserved="false"
-            android:title="@string/preferences_external_download_manager" />
+            android:title="@string/preferences_downloads" />
+
+        <androidx.preference.Preference
+            android:key="@string/pref_key_firefox_labs"
+            app:iconSpaceReserved="false"
+            app:isPreferenceVisible="false"
+            android:title="@string/firefox_labs_title" />
 
         <androidx.preference.SwitchPreference
             android:key="@string/pref_key_leakcanary"
             android:title="@string/preference_leakcanary"
             app:iconSpaceReserved="false"
             app:isPreferenceVisible="@bool/IS_DEBUG" />
+
+        <androidx.preference.Preference
+            android:key="@string/pref_key_remote_improvements"
+            android:title="@string/preferences_remote_improvements"
+            app:iconSpaceReserved="false" />
 
         <androidx.preference.SwitchPreference
             android:key="@string/pref_key_remote_debugging"

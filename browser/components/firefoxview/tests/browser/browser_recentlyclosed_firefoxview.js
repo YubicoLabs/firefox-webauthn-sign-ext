@@ -1,7 +1,7 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
-requestLongerTimeout(2);
+requestLongerTimeout(3);
 
 ChromeUtils.defineESModuleGetters(globalThis, {
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
@@ -356,7 +356,7 @@ add_task(async function test_restore_tab_from_deleted_group() {
   let group = gBrowser.addTabGroup([tab]);
   Assert.equal(gBrowser.visibleTabs.length, 2, "2 tabs are open");
   Assert.ok(tab.group, "New tab is grouped");
-  gBrowser.removeTabGroup(group);
+  await gBrowser.removeTabGroup(group);
   Assert.equal(
     gBrowser.visibleTabs.length,
     1,
@@ -561,7 +561,13 @@ add_task(async function test_search() {
     );
 
     info("Clear the search query.");
-    EventUtils.synthesizeMouseAtCenter(searchTextbox.clearButton, {}, content);
+    let inputChildren = SpecialPowers.InspectorUtils.getChildrenForNode(
+      searchTextbox.inputEl,
+      true,
+      false
+    );
+    let clearButton = inputChildren.find(e => e.localName == "button");
+    EventUtils.synthesizeMouseAtCenter(clearButton, {}, content);
     await TestUtils.waitForCondition(
       () => listElem.rowEls.length === expectedURLs.length,
       "The original list is restored."
@@ -576,16 +582,14 @@ add_task(async function test_search() {
       "There are no matching search results."
     );
 
-    info("Clear the search query with keyboard.");
-    EventUtils.synthesizeMouseAtCenter(searchTextbox.clearButton, {}, content);
-
-    is(
-      recentlyClosedComponent.shadowRoot.activeElement,
-      searchTextbox,
-      "Search input is focused"
+    info("Clear the search query.");
+    inputChildren = SpecialPowers.InspectorUtils.getChildrenForNode(
+      searchTextbox.inputEl,
+      true,
+      false
     );
-    EventUtils.synthesizeKey("KEY_Tab", {}, content);
-    EventUtils.synthesizeKey("KEY_Enter", {}, content);
+    clearButton = inputChildren.find(e => e.localName == "button");
+    EventUtils.synthesizeMouseAtCenter(clearButton, {}, content);
     await TestUtils.waitForCondition(
       () => listElem.rowEls.length === expectedURLs.length,
       "The original list is restored."

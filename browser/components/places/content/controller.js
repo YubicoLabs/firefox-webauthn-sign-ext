@@ -5,7 +5,7 @@
 
 ChromeUtils.defineESModuleGetters(this, {
   PlacesTransactions: "resource://gre/modules/PlacesTransactions.sys.mjs",
-  PlacesUIUtils: "resource:///modules/PlacesUIUtils.sys.mjs",
+  PlacesUIUtils: "moz-src:///browser/components/places/PlacesUIUtils.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
 });
 
@@ -1408,37 +1408,20 @@ PlacesController.prototype = {
     } catch (e) {
       // If there is no baseDomain we fall back to host
     }
-    const [title, body, forget] = await document.l10n.formatValues([
-      { id: "places-forget-about-this-site-confirmation-title" },
-      {
-        id: "places-forget-about-this-site-confirmation-msg",
-        args: { hostOrBaseDomain: baseDomain ?? host },
-      },
-      { id: "places-forget-about-this-site-forget" },
-    ]);
-
-    const flags =
-      Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_0 +
-      Services.prompt.BUTTON_TITLE_CANCEL * Services.prompt.BUTTON_POS_1 +
-      Services.prompt.BUTTON_POS_1_DEFAULT;
-
-    let bag = await Services.prompt.asyncConfirmEx(
-      window.browsingContext,
-      Services.prompt.MODAL_TYPE_INTERNAL_WINDOW,
-      title,
-      body,
-      flags,
-      forget,
-      null,
-      null,
-      null,
-      false
-    );
-    if (bag.getProperty("buttonNumClicked") !== 0) {
-      return;
+    let params = { host, hostOrBaseDomain: baseDomain ?? host };
+    if (window.gDialogBox) {
+      await window.gDialogBox.open(
+        "chrome://browser/content/places/clearDataForSite.xhtml",
+        params
+      );
+    } else {
+      await window.openDialog(
+        "chrome://browser/content/places/clearDataForSite.xhtml",
+        null,
+        "modal,centerscreen",
+        params
+      );
     }
-
-    await this.ForgetAboutSite.removeDataFromBaseDomain(host);
   },
 
   showInFolder(aBookmarkGuid) {
@@ -1455,8 +1438,7 @@ PlacesController.prototype = {
     } else if (documentUrl.includes("sidebar")) {
       // We're in the sidebar - clear the search box first
       let searchBox = document.getElementById("search-box");
-      searchBox.value = "";
-      searchBox.doCommand();
+      searchBox.clear();
 
       // And go to the node
       this._view.selectItems([aBookmarkGuid], true);
@@ -1693,6 +1675,21 @@ var PlacesControllerDragHelper = {
           title: data.label,
           type: PlacesUtils.TYPE_X_MOZ_URL,
         });
+      } else if (
+        XULElement.isInstance(data) &&
+        data.localName == "tab-split-view-wrapper" &&
+        data.ownerGlobal.isChromeWindow
+      ) {
+        // Splitview tabs are dragged together via tab-split-view-wrapper, so that means
+        // mozItemCount/dropCount is 1, which is why we unpack its tabs to bookmark here.
+        data.tabs.forEach(tab => {
+          let uri = tab.linkedBrowser.currentURI?.spec ?? "about:blank";
+          nodes.push({
+            uri,
+            title: tab.label,
+            type: PlacesUtils.TYPE_X_MOZ_URL,
+          });
+        });
       } else {
         throw new Error("bogus data was passed as a tab");
       }
@@ -1756,5 +1753,5 @@ XPCOMUtils.defineLazyServiceGetter(
   PlacesControllerDragHelper,
   "dragService",
   "@mozilla.org/widget/dragservice;1",
-  "nsIDragService"
+  Ci.nsIDragService
 );

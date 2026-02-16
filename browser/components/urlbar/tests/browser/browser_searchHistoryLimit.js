@@ -10,14 +10,14 @@
 "use strict";
 
 const { SearchSuggestionController } = ChromeUtils.importESModule(
-  "resource://gre/modules/SearchSuggestionController.sys.mjs"
+  "moz-src:///toolkit/components/search/SearchSuggestionController.sys.mjs"
 );
 
 let gEngine;
 
 add_setup(async function () {
   await SearchTestUtils.installSearchExtension({}, { setAsDefault: true });
-  gEngine = Services.search.getEngineByName("Example");
+  gEngine = SearchService.getEngineByName("Example");
   await UrlbarTestUtils.formHistory.clear();
 
   registerCleanupFunction(async function () {

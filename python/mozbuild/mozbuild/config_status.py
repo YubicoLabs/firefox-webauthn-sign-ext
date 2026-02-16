@@ -106,17 +106,15 @@ def config_status(
     """
 
     if "CONFIG_FILES" in os.environ:
-        raise Exception(
-            "Using the CONFIG_FILES environment variable is not " "supported."
-        )
+        raise Exception("Using the CONFIG_FILES environment variable is not supported.")
     if "CONFIG_HEADERS" in os.environ:
         raise Exception(
-            "Using the CONFIG_HEADERS environment variable is not " "supported."
+            "Using the CONFIG_HEADERS environment variable is not supported."
         )
 
     if not os.path.isabs(topsrcdir):
         raise Exception(
-            "topsrcdir must be defined as an absolute directory: " "%s" % topsrcdir
+            "topsrcdir must be defined as an absolute directory: %s" % topsrcdir
         )
 
     default_backends = ["RecursiveMake"]
@@ -222,8 +220,8 @@ def config_status(
     untracked = wall_time - execution_time
 
     print(
-        "Total wall time: {:.2f}s; CPU time: {:.2f}s; Efficiency: "
-        "{:.0%}; Untracked: {:.2f}s".format(wall_time, cpu_time, efficiency, untracked),
+        f"Total wall time: {wall_time:.2f}s; CPU time: {cpu_time:.2f}s; Efficiency: "
+        f"{efficiency:.0%}; Untracked: {untracked:.2f}s",
         file=sys.stderr,
     )
 

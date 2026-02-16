@@ -46,9 +46,9 @@ pub fn mod_path() -> syn::Result<String> {
 
     static LIB_CRATE_MOD_PATH: Lazy<Result<String, String>> = Lazy::new(|| {
         let file = manifest_path()?;
-        let cargo_toml_bytes = fs::read(file).map_err(|e| e.to_string())?;
+        let cargo_toml_str = fs::read_to_string(file).map_err(|e| e.to_string())?;
 
-        let cargo_toml = toml::from_slice::<CargoToml>(&cargo_toml_bytes)
+        let cargo_toml = toml::from_str::<CargoToml>(&cargo_toml_str)
             .map_err(|e| format!("Failed to parse `Cargo.toml`: {e}"))?;
 
         let lib_crate_name = cargo_toml
@@ -115,7 +115,7 @@ pub fn create_metadata_items(
         let ident = Ident::new(&name, Span::call_site());
         quote! {
             #[doc(hidden)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             pub extern "C" fn #ident() -> u16 {
                 // Force constant evaluation to ensure:
                 // 1. The checksum is computed at compile time; and
@@ -128,7 +128,7 @@ pub fn create_metadata_items(
 
     quote! {
         const #const_ident: ::uniffi::MetadataBuffer = #metadata_expr;
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         #[doc(hidden)]
         pub static #static_ident: [u8; #const_ident.size] = #const_ident.into_array();
 
@@ -209,33 +209,25 @@ pub fn either_attribute_arg<T: ToTokens>(a: Option<T>, b: Option<T>) -> syn::Res
 pub(crate) fn tagged_impl_header(
     trait_name: &str,
     ident: &impl ToTokens,
-    udl_mode: bool,
+    remote: bool,
 ) -> TokenStream {
     let trait_name = Ident::new(trait_name, Span::call_site());
-    if udl_mode {
+    if remote {
         quote! { impl ::uniffi::#trait_name<crate::UniFfiTag> for #ident }
     } else {
         quote! { impl<T> ::uniffi::#trait_name<T> for #ident }
     }
 }
 
-pub(crate) fn derive_all_ffi_traits(ty: &Ident, udl_mode: bool) -> TokenStream {
-    if udl_mode {
-        quote! { ::uniffi::derive_ffi_traits!(local #ty); }
-    } else {
-        quote! { ::uniffi::derive_ffi_traits!(blanket #ty); }
-    }
-}
-
 pub(crate) fn derive_ffi_traits(
     ty: impl ToTokens,
-    udl_mode: bool,
+    remote: bool,
     trait_names: &[&str],
 ) -> TokenStream {
     let trait_idents = trait_names
         .iter()
         .map(|name| Ident::new(name, Span::call_site()));
-    if udl_mode {
+    if remote {
         quote! {
             #(
                 ::uniffi::derive_ffi_traits!(impl #trait_idents<crate::UniFfiTag> for #ty);
@@ -262,6 +254,9 @@ pub mod kw {
     syn::custom_keyword!(with_try_read);
     syn::custom_keyword!(name);
     syn::custom_keyword!(non_exhaustive);
+    syn::custom_keyword!(lower);
+    syn::custom_keyword!(try_lift);
+    syn::custom_keyword!(remote);
     syn::custom_keyword!(Record);
     syn::custom_keyword!(Enum);
     syn::custom_keyword!(Error);
@@ -270,6 +265,7 @@ pub mod kw {
     syn::custom_keyword!(Display);
     syn::custom_keyword!(Eq);
     syn::custom_keyword!(Hash);
+    syn::custom_keyword!(Ord);
     // Not used anymore
     syn::custom_keyword!(handle_unknown_callback_error);
 }
@@ -292,18 +288,52 @@ impl Parse for ExternalTypeItem {
 }
 
 pub(crate) fn extract_docstring(attrs: &[Attribute]) -> syn::Result<String> {
-    return attrs
+    attrs
         .iter()
         .filter(|attr| attr.path().is_ident("doc"))
-        .map(|attr| {
-            let name_value = attr.meta.require_name_value()?;
+        .filter_map(|attr| {
+            let Ok(name_value) = attr.meta.require_name_value() else {
+                return None;
+            };
             if let Expr::Lit(expr) = &name_value.value {
                 if let Lit::Str(lit_str) = &expr.lit {
-                    return Ok(lit_str.value().trim().to_owned());
+                    return Some(Ok(lit_str.value().trim().to_owned()));
                 }
             }
-            Err(syn::Error::new_spanned(attr, "Cannot parse doc attribute"))
+            Some(Err(syn::Error::new_spanned(
+                attr,
+                "Cannot parse doc attribute",
+            )))
         })
         .collect::<syn::Result<Vec<_>>>()
-        .map(|lines| lines.join("\n"));
+        .map(|lines| lines.join("\n"))
+}
+
+pub(crate) fn wasm_single_threaded_annotation() -> TokenStream {
+    #[cfg(feature = "wasm-unstable-single-threaded")]
+    {
+        quote! {
+            #[cfg(not(target_arch = "wasm32"))]
+        }
+    }
+    #[cfg(not(feature = "wasm-unstable-single-threaded"))]
+    {
+        TokenStream::default()
+    }
+}
+
+pub(crate) fn async_trait_annotation() -> TokenStream {
+    #[cfg(feature = "wasm-unstable-single-threaded")]
+    {
+        quote! {
+            #[cfg_attr(not(target_arch = "wasm32"), ::async_trait::async_trait)]
+            #[cfg_attr(target_arch = "wasm32", ::async_trait::async_trait(?Send))]
+        }
+    }
+    #[cfg(not(feature = "wasm-unstable-single-threaded"))]
+    {
+        quote! {
+            #[::async_trait::async_trait]
+        }
+    }
 }

@@ -6,7 +6,6 @@
 #include "WebTransportStreamProxy.h"
 
 #include "WebTransportLog.h"
-#include "Http3WebTransportStream.h"
 #include "nsProxyRelease.h"
 #include "nsSocketTransportService2.h"
 
@@ -23,7 +22,7 @@ NS_INTERFACE_MAP_BEGIN(WebTransportStreamProxy)
 NS_INTERFACE_MAP_END
 
 WebTransportStreamProxy::WebTransportStreamProxy(
-    Http3WebTransportStream* aStream)
+    WebTransportStreamBase* aStream)
     : mWebTransportStream(aStream) {
   nsCOMPtr<nsIAsyncInputStream> inputStream;
   nsCOMPtr<nsIAsyncOutputStream> outputStream;
@@ -109,7 +108,7 @@ class StatsCallbackWrapper : public nsIWebTransportStreamStatsCallback {
     if (!mTarget->IsOnCurrentThread()) {
       RefPtr<StatsCallbackWrapper> self(this);
       nsCOMPtr<nsIWebTransportSendStreamStats> stats = aStats;
-      Unused << mTarget->Dispatch(NS_NewRunnableFunction(
+      (void)mTarget->Dispatch(NS_NewRunnableFunction(
           "StatsCallbackWrapper::OnSendStatsAvailable",
           [self{std::move(self)}, stats{std::move(stats)}]() {
             self->OnSendStatsAvailable(stats);
@@ -126,7 +125,7 @@ class StatsCallbackWrapper : public nsIWebTransportStreamStatsCallback {
     if (!mTarget->IsOnCurrentThread()) {
       RefPtr<StatsCallbackWrapper> self(this);
       nsCOMPtr<nsIWebTransportReceiveStreamStats> stats = aStats;
-      Unused << mTarget->Dispatch(NS_NewRunnableFunction(
+      (void)mTarget->Dispatch(NS_NewRunnableFunction(
           "StatsCallbackWrapper::OnReceiveStatsAvailable",
           [self{std::move(self)}, stats{std::move(stats)}]() {
             self->OnReceiveStatsAvailable(stats);
@@ -219,7 +218,7 @@ NS_IMETHODIMP WebTransportStreamProxy::GetOutputStream(
 }
 
 NS_IMETHODIMP WebTransportStreamProxy::GetStreamId(uint64_t* aId) {
-  *aId = mWebTransportStream->StreamId();
+  *aId = mWebTransportStream->GetStreamId();
   return NS_OK;
 }
 
@@ -242,7 +241,7 @@ NS_IMPL_ISUPPORTS(WebTransportStreamProxy::AsyncInputStreamWrapper,
                   nsIInputStream, nsIAsyncInputStream)
 
 WebTransportStreamProxy::AsyncInputStreamWrapper::AsyncInputStreamWrapper(
-    nsIAsyncInputStream* aStream, Http3WebTransportStream* aWebTransportStream)
+    nsIAsyncInputStream* aStream, WebTransportStreamBase* aWebTransportStream)
     : mStream(aStream), mWebTransportStream(aWebTransportStream) {}
 
 WebTransportStreamProxy::AsyncInputStreamWrapper::~AsyncInputStreamWrapper() =
@@ -254,7 +253,7 @@ void WebTransportStreamProxy::AsyncInputStreamWrapper::MaybeCloseStream() {
   }
 
   uint64_t available = 0;
-  Unused << Available(&available);
+  (void)Available(&available);
   if (available) {
     // Don't close the InputStream if there's unread data available, since it
     // would be lost. We exit above unless we know no more data will be received

@@ -2,13 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsChannelClassifier_h__
-#define nsChannelClassifier_h__
+#ifndef nsChannelClassifier_h_
+#define nsChannelClassifier_h_
 
 #include "nsIObserver.h"
 #include "nsIURIClassifier.h"
 #include "nsCOMPtr.h"
-#include "mozilla/Attributes.h"
 
 #include <functional>
 
@@ -54,14 +53,6 @@ class nsChannelClassifier final : public nsIURIClassifierCallback,
                                       const nsACString& aProvider,
                                       const nsACString& aList,
                                       const nsACString& aFullHash);
-
- public:
-  // If we are blocking content, update the corresponding flag in the respective
-  // docshell and call nsDocLoader::OnSecurityChange.
-  static nsresult SetBlockedContent(nsIChannel* channel, nsresult aErrorCode,
-                                    const nsACString& aList,
-                                    const nsACString& aProvider,
-                                    const nsACString& aFullHash);
 };
 
 }  // namespace net

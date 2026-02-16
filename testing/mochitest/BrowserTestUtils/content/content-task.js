@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-env mozilla/frame-script */
-
 "use strict";
 
 let { ContentTaskUtils } = ChromeUtils.importESModule(
@@ -101,6 +99,11 @@ addMessageListener("content-task:spawn", async function (msg) {
     sendAsyncMessage("content-task:test-info", { id, name });
   }
   /* eslint-enable no-unused-vars */
+
+  // Note that ContentTaskUtils is imported above, so it's also available in the
+  // scope of the eval.
+  // If more variables are made available, don't forget to update
+  // tools/lint/eslint/eslint-plugin-mozilla/lib/rules/import-content-task-globals.js.
 
   try {
     let runnablestr = `

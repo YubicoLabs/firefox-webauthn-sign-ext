@@ -188,20 +188,21 @@ dtls_FreeHandshakeMessages(PRCList *list)
 static SECStatus
 dtls_RetransmitDetected(sslSocket *ss)
 {
-    dtlsTimer *timer = ss->ssl3.hs.rtTimer;
+    dtlsTimer *rtTimer = ss->ssl3.hs.rtTimer;
+    dtlsTimer *hdTimer = ss->ssl3.hs.hdTimer;
     SECStatus rv = SECSuccess;
 
     PORT_Assert(ss->opt.noLocks || ssl_HaveRecvBufLock(ss));
     PORT_Assert(ss->opt.noLocks || ssl_HaveSSL3HandshakeLock(ss));
 
-    if (timer->cb == dtls_RetransmitTimerExpiredCb) {
+    if (rtTimer->cb == dtls_RetransmitTimerExpiredCb) {
         /* Check to see if we retransmitted recently. If so,
          * suppress the triggered retransmit. This avoids
          * retransmit wars after packet loss.
          * This is not in RFC 5346 but it should be.
          */
-        if ((PR_IntervalNow() - timer->started) >
-            (timer->timeout / 4)) {
+        if ((PR_IntervalNow() - rtTimer->started) >
+            (rtTimer->timeout / 4)) {
             SSL_TRC(30,
                     ("%d: SSL3[%d]: Shortcutting retransmit timer",
                      SSL_GETPID(), ss->fd));
@@ -215,11 +216,10 @@ dtls_RetransmitDetected(sslSocket *ss)
                     ("%d: SSL3[%d]: Ignoring retransmission: "
                      "last retransmission %dms ago, suppressed for %dms",
                      SSL_GETPID(), ss->fd,
-                     PR_IntervalNow() - timer->started,
-                     timer->timeout / 4));
+                     PR_IntervalNow() - rtTimer->started,
+                     rtTimer->timeout / 4));
         }
-
-    } else if (timer->cb == dtls_FinishedTimerCb) {
+    } else if (hdTimer->cb == dtls_FinishedTimerCb) {
         SSL_TRC(30, ("%d: SSL3[%d]: Retransmit detected in holddown",
                      SSL_GETPID(), ss->fd));
         /* Retransmit the messages and re-arm the timer
@@ -227,14 +227,18 @@ dtls_RetransmitDetected(sslSocket *ss)
          * The spec isn't clear and my reasoning is that this
          * may be a re-ordered packet rather than slowness,
          * so let's be aggressive. */
-        dtls_CancelTimer(ss, ss->ssl3.hs.rtTimer);
+        dtls_CancelTimer(ss, ss->ssl3.hs.hdTimer);
         rv = dtls_TransmitMessageFlight(ss);
         if (rv == SECSuccess) {
             rv = dtls_StartHolddownTimer(ss);
         }
-
     } else {
-        PORT_Assert(timer->cb == NULL);
+        /* Otherwise handled in dtls13_HandleOutOfEpochRecord. */
+        if (ss->version < SSL_LIBRARY_VERSION_TLS_1_3) {
+            PORT_Assert(hdTimer->cb == NULL);
+        }
+
+        PORT_Assert(rtTimer->cb == NULL);
         /* ... and ignore it. */
     }
     return rv;
@@ -938,13 +942,32 @@ dtls_TimerActive(sslSocket *ss, dtlsTimer *timer)
 {
     return timer->cb != NULL;
 }
+
 /* Start a timer for retransmission. */
 static SECStatus
 dtls_StartRetransmitTimer(sslSocket *ss)
 {
+    dtlsTimer *timer = ss->ssl3.hs.rtTimer;
+    PRUint32 timeout = DTLS_RETRANSMIT_INITIAL_MS;
+
+    if (dtls_TimerActive(ss, timer)) {
+        SSL_TRC(10, ("%d: SSL3[%d]: %s dtls timer %s is already active, restarting. New timeout is %d",
+                     SSL_GETPID(), ss->fd, SSL_ROLE(ss),
+                     timer->label, timeout));
+        // If a post-handshake message has already been sent (thus activating the
+        // timer) and a second one is queued, reset the timer so no message waits
+        // longer than the minimum delay. The first message is retransmitted a
+        // bit more aggressively than it otherwise would be, but this is
+        // unlikely to be a problem.
+        (void)dtls_RestartTimer(ss, timer);
+        ss->ssl3.hs.rtRetries = 0;
+        timer->timeout = timeout;
+        return SECSuccess;
+    }
+
     ss->ssl3.hs.rtRetries = 0;
-    return dtls_StartTimer(ss, ss->ssl3.hs.rtTimer,
-                           DTLS_RETRANSMIT_INITIAL_MS,
+    return dtls_StartTimer(ss, timer,
+                           timeout,
                            dtls_RetransmitTimerExpiredCb);
 }
 
@@ -952,8 +975,9 @@ dtls_StartRetransmitTimer(sslSocket *ss)
 SECStatus
 dtls_StartHolddownTimer(sslSocket *ss)
 {
-    ss->ssl3.hs.rtRetries = 0;
-    return dtls_StartTimer(ss, ss->ssl3.hs.rtTimer,
+    /* DTLS1.3 starts the timer without calling this function, see tls13_ServerHandleFinished.*/
+    PORT_Assert(ss->version < SSL_LIBRARY_VERSION_TLS_1_3);
+    return dtls_StartTimer(ss, ss->ssl3.hs.hdTimer,
                            DTLS_RETRANSMIT_FINISHED_MS,
                            dtls_FinishedTimerCb);
 }

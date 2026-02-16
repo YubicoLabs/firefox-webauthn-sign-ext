@@ -5,6 +5,7 @@
 // except according to those terms.
 
 #![cfg(not(feature = "disable-encryption"))]
+#![cfg(test)]
 
 use neqo_crypto::{
     constants::{TLS_AES_128_GCM_SHA256, TLS_VERSION_1_3},
@@ -50,7 +51,7 @@ fn seal_rotate_twice_open() {
     se.rotate().expect("rotate should be infallible");
     se.rotate().expect("rotate should be infallible");
     let res = se.open(AAD, &sealed);
-    assert_eq!(res.unwrap_err(), Error::SelfEncryptFailure);
+    assert_eq!(res.unwrap_err(), Error::SelfEncrypt);
 }
 
 #[test]
@@ -58,11 +59,11 @@ fn damage_version() {
     let (se, mut sealed) = sealed();
     sealed[0] ^= 0x80;
     let res = se.open(AAD, &sealed);
-    assert_eq!(res.unwrap_err(), Error::SelfEncryptFailure);
+    assert_eq!(res.unwrap_err(), Error::SelfEncrypt);
 }
 
 fn assert_bad_data<T>(res: Result<T, Error>) {
-    if let Err(Error::NssError { name, .. }) = res {
+    if let Err(Error::Nss { name, .. }) = res {
         assert_eq!(name, "SEC_ERROR_BAD_DATA");
     }
 }
@@ -97,4 +98,12 @@ fn truncate() {
     let (se, sealed) = sealed();
     let res = se.open(AAD, &sealed[0..(sealed.len() - 1)]);
     assert_bad_data(res);
+}
+
+#[test]
+fn truncate_header() {
+    let (se, _) = sealed();
+    // Ciphertext too short to contain the salt (needs 2 byte header + 16 byte salt).
+    let res = se.open(AAD, &[1, 0, 0, 0, 0]);
+    assert_eq!(res.unwrap_err(), Error::SelfEncrypt);
 }

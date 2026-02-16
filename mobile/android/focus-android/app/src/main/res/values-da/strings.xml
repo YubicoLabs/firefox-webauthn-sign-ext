@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">Browserhistorik blev ryddet</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">Fanebladets historik er slettet.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">Søg efter %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Del…</string>
@@ -52,7 +62,7 @@
   <string name="menu_settings">Indstillinger</string>
   <string name="menu_about">Om</string>
   <string name="menu_help">Hjælp</string>
-  <string name="menu_rights">Dine rettigheder</string>
+  <string name="menu_terms_of_use">Betingelser for brug</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -143,19 +153,12 @@
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Søg i Focus Nightly</string>
   <!--
-    Content of about focus. Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
-    Argument 2 is the url for the learn-more link.
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
   -->
-  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote">&lt;p&gt;%1$s giver dig fuld kontrol.&lt;/p&gt;
-&lt;p&gt;Anvend den som privat browser:
-  &lt;ul&gt;
-    &lt;li&gt;Søg og surf direkte i appen&lt;/li&gt;
-    &lt;li&gt;Bloker sporing (eller opdater indstillingerne og tillad sporing)&lt;/li&gt;
-    &lt;li&gt;Fjern nemt cookies samt søge- og browser-historik&lt;/li&gt;
-  &lt;/ul&gt;
-&lt;/p&gt;
-&lt;p&gt;%1$s er udviklet af Mozilla. Vores formål er at fremme et sundt, åbent internet.&lt;br/&gt;
-&lt;a href="%2$s"&gt;Læs mere&lt;/a&gt;&lt;/p&gt;</string>
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s giver dig fuld kontrol.</p>\n<p>Anvend den som privat browser:\n<ul>\n<li>Søg og surf direkte i appen</li>\n<li>Bloker sporing (eller opdater indstillingerne og tillad sporing)</li>\n<li>Fjern nemt cookies samt søge- og browser-historik</li>\n</ul> </p>\n<p>%1$s er udviklet af Mozilla. Vores formål er at fremme et sundt, åbent internet.<br/>\n<a href=\"%2$s\">Læs mere</a></p>]]></string>
+  <!-- A link to SUMO at the bottom of About Focus screen. -->
+  <string name="about_screen_learn_more">Læs mere</string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">Privatliv og sikkerhed</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -192,7 +195,7 @@
     Description of the preference that enables/disables search suggestions
     %1$s will be replaced by the app name (e.g. Firefox Focus)
   -->
-  <string name="preference_show_search_suggestions_summary">%1$s sender det indtastede i adresselinjen til den valgte søgetjeneste</string>
+  <string name="preference_show_search_suggestions_summary">%1$s sender det indtastede i adressefeltet til den valgte søgetjeneste</string>
   <!-- This label is shown below the name of the default search engine in settings -->
   <string name="preference_search_engine_default">Standard</string>
   <!-- This label is shown above the currently selected search engine in settings -->
@@ -207,14 +210,14 @@
   <string name="preference_switch_autocomplete_topsites">For populære websteder</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">Slå til for at få %s til at autofuldføre over 450 populære URLer i adressefeltet.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">For websteder du tilføjer</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">Slå til for at få %s til at autofuldføre dine foretrukne URLer.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -289,8 +292,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">Lås op med dit fingeraftryk, hvis du har tilføjet genveje eller når et websted allerede er åbent i %s.</string>
   <!--
@@ -338,9 +341,9 @@
   <string name="preference_libraries_we_use">Biblioteker, som vi bruger</string>
   <!-- Link to Focus Crash reports list. -->
   <string name="preference_crashes">Nedbrud</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s | OSS-biblioteker</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">Om %1$s</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">Installerede søgetjenester</string>
@@ -364,7 +367,7 @@
   <string name="search_add_manually_name_hint">Søgetjenestens navn</string>
   <string name="search_add_manually_string">Søgestreng der skal anvendes</string>
   <string name="search_add_manually_save">Gem</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">Eksempel: eksempel.dk/search/?q=%s</string>
   <string name="search_add_confirmation">Ny søgetjeneste tilføjet.</string>
   <string name="search_add_error_empty_name">Indtast søgetjenestens navn</string>
@@ -436,19 +439,19 @@
   <string name="external_app_prompt_title">Åbn link i en anden app</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">Du kan forlade %1$s og åbne dette link i %2$s.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">Find en app der kan åbne linket</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">Ingen app på din enhed kan åbne dette link. Du kan forlade %1$s og søge på %2$s efter en app der kan.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">Afslut privat browsing?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s hentet</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">Åbn</string>
@@ -458,13 +461,35 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">Velkommen til %1$s</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
   <string name="onboarding_first_screen_subtitle">Hurtig. Privat. Ingen distraktioner.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_terms_of_use_link as text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_text_2" tools:ignore="UnusedResources">Ved at fortsætte accepterer du %1$s.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use link'
+
+    Text for the link used in onboarding_first_screen_terms_of_use_text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_link_2" tools:ignore="BrandUsage">betingelser for brug af Firefox</string>
+  <!--
+    New Onboarding flow first screen 'privacy notice' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_privacy_notice_link as text
+  -->
+  <string name="onboarding_first_screen_privacy_notice_text_2" tools:ignore="BrandUsage">Firefox passer på dit privatliv. Læs mere i vores %1$s.</string>
+  <!-- Text for the link used in onboarding_first_screen_privacy_notice_text -->
+  <string name="onboarding_first_screen_privacy_notice_link_2">privatlivserklæring</string>
   <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">Kom i gang</string>
+  <string name="onboarding_first_screen_button_agree_and_continue_2">Fortsæt</string>
+  <!-- In the first screen of new onboarding flow, additional accessibility description for content that contain urls. -->
+  <string name="a11y_link_available">Link tilgængeligt</string>
   <!--
     Onboarding second screen: Title
 
@@ -542,36 +567,6 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">Hent Firefox</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">%1$s er frit og åbent software, udviklet af Mozilla og andre bidragydere.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s er tilgængelig under de vilkår, der er fastsat i &lt;a href="%2$s"&gt;Mozilla Public License&lt;/a&gt; og andre licenser til åben kildekode.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">Du bliver ikke givet nogen ret eller licens til varemærker tilhørende Mozilla Foundation eller tredjepart, herunder navn og logo for Mozilla, Firefox og %1$s. Få flere oplysninger &lt;a href="%2$s"&gt;her&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">Yderligere gratis og åben kildekode til %1$s er tilgængelig under diverse &lt;a href="%2$s"&gt;licenser&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s benytter sig også af blokeringslister fra Disconnect, Inc. som adskilte og uafhængige værker under &lt;a href="%2$s"&gt;GNU General Public License v3&lt;/a&gt;. Listerne er tilgængelige &lt;a href="%3$s"&gt;her&lt;/a&gt;.</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">Brugernavn</string>
   <string name="gv_prompt_password_hint">Adgangskode</string>
@@ -593,13 +588,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">Find på siden</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">%1$d af %2$d</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -646,13 +643,13 @@
   <string name="cookie_banner_exception_panel_switch_state_off">Slået FRA for dette websted</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">Slået TIL for dette websted</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">Vil du slå reduktion af cookie-bannere til for %1$s?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">Vil du slå reduktion af cookie-bannere fra for %1$s?</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">%1$s vil rydde dette websteds cookies og genindlæse siden. Rydning af alle cookies kan logge dig ud eller tømme indkøbskurve.</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">%1$s kan forsøge at afvise cookie-anmodninger automatisk.</string>
   <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_description_site_is_not_supported">Dette websted understøttes i øjeblikket ikke af reduktion af cookie-bannere. Vil du anmode vores team om at gennemgå dette websted for at det kan understøttes i fremtiden?</string>
@@ -679,11 +676,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Gå til Indstillinger i Android</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. Tryk på &lt;b&gt;Tilladelser&lt;/b&gt;</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. Tryk på <b>Tilladelser</b>]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">Gå til indstillinger</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. Slå &lt;b&gt;%1$s&lt;/b&gt; TIL</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. Slå <b>%1$s</b> TIL]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">Kamera</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -710,20 +707,6 @@
   <string name="preference_block_autoplay_audio_only_summary">Anbefalet</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">Bloker lyd og video</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">Undersøgelser</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Firefox kan installere og afvikle undersøgelser.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">Læs mere</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">Appen afsluttes for at anvende ændringerne</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">Fjern</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">Aktive</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">Gennemførte</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">Ekstern debugging via USB/wi-fi</string>
   <!-- Text Button for show biometric prompt -->
@@ -755,7 +738,7 @@
     Description for the prompt to enable search suggestions
     %1$s will be replaced by the app name (e.g. Firefox Focus)
   -->
-  <string name="enable_search_suggestion_description">For at kunne vise søgeforslag sender %1$s dine indtastninger i søgefeltet til søgetjenesten.</string>
+  <string name="enable_search_suggestion_description">For at kunne vise søgeforslag sender %1$s dine indtastninger i adressefeltet til søgetjenesten.</string>
   <!-- Label used for the "NO button" for the prompt to enable search suggestions -->
   <string name="enable_search_suggestions_no">Nej</string>
   <!-- Label used for the "YES button" for the prompt to enable search suggestions -->
@@ -770,28 +753,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">Opfører siden sig uventet?\n Prøv at deaktivere beskyttelse mod sporing</string>
+  <string name="tip_disable_tracking_protection">Opfører siden sig uventet?\nPrøv at deaktivere beskyttelse mod sporing</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">Få adgang til dine mest brugte sider med et enkelt tryk%1$s Menu &gt; Føj til startskærmen</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">Åbn alle links i %1$s\n Angiv %1$s som standard-browser</string>
+  <string name="tip_set_default_browser">Åbn alle links i %1$s\nAngiv %1$s som standard-browser</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">Autofuldfør URL\'er for de sider, du bruger mest\n Tryk og hold en URL i adressefeltet</string>
+  <string name="tip_autocomplete_url">Autofuldfør URL\'er for de sider, du bruger mest\nTryk og hold en URL i adressefeltet</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">Åbn link i et nyt faneblad\n Tryk og hold links på en side</string>
+  <string name="tip_open_in_new_tab">Åbn link i et nyt faneblad\nTryk og hold links på en side</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">Slå tips på startskærmen fra</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -832,29 +815,29 @@
   <string name="crash_report_send_crash_label">Send fejlrapport til Mozilla</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">Blokerede sporings-mekanismer blokeret siden %s</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">Indhold</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">Reklamer</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">Social</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">Analyse</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">Udvidet beskyttelse mod sporing</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">Beskyttelse er slået FRA for dette websted</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">Beskyttelse er slået TIL for dette websted</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">Forbindelsen er sikker</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">Forbindelsen er ikke sikker</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">Sporings-mekanismer og scripts, der skal blokeres</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">Gå tilbage</string>
   <!--
     Top Sites
@@ -872,7 +855,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">Gemte og delte billeder &lt;b&gt;vil ikke blive slettet,&lt;/b&gt; når du sletter historikken i %1$s</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[Gemte og delte billeder <b>vil ikke blive slettet,</b> når du sletter historikken i %1$s]]></string>
   <!--
     Theme Preferences
 
@@ -890,25 +873,16 @@
   <!-- The title of the error page for websites that do not support HTTPS when HTTPS-Only is turned on -->
   <string name="errorpage_httpsonly_title2">Dette websted understøtter ikke HTTPS</string>
   <!--
-    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s will get replaced with the name of the app (e.g. "Firefox Focus").
-    Contains a button that will redirect the user to Privacy & Security Screen
+    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"),
+    %2$s is a URL to a support article. Contains a button that will redirect the user to Privacy & Security Screen.
   -->
-  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote">%1$s prøver om muligt at benytte en HTTPS-forbindelse for mere sikkerhed.
-     &lt;a href="%2$s"&gt;Læs mere&lt;/a&gt; &lt;br/&gt;&lt;br/&gt;
-     Skift denne indstilling i Indstillinger &gt; Privatliv og sikkerhed &gt; Sikkerhed.</string>
+  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[%1$s prøver om muligt at benytte en HTTPS-forbindelse for mere sikkerhed. <a href=\"%2$s\">Læs mere</a> <br/><br/> Skift denne indstilling i Indstillinger > Privatliv og sikkerhed > Sikkerhed.]]></string>
   <!-- The document title and heading of the error page shown when a website has an invalid or expired SSL certificate. -->
   <string name="mozac_browser_errorpages_security_bad_cert_title">Forbindelsen er ikke sikker</string>
   <!-- The error message shown when a website has an invalid or expired SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_message">
-    Dette kan være et problem med serverens konfiguration, eller det kan betyde, at nogen forsøger at give sig ud for at være serveren. &lt;br/&gt;&lt;br/&gt;
-    Hvis du har kunnet tilgå serveren tidligere, kan dette problem være midlertidigt.
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_message"><![CDATA[Dette kan være et problem med serverens konfiguration, eller det kan betyde, at nogen forsøger at give sig ud for at være serveren. <br/><br/> Hvis du har kunnet tilgå serveren tidligere, kan dette problem være midlertidigt.]]></string>
   <!-- The advanced certificate information shown when a website has an invalid SSL certificate. The %1$s will be replaced by the app name and %2$s will be replaced by website URL. It's only shown when a website has an invalid SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_techInfo">
-        &lt;label&gt;Nogen kan have lavet en falsk version af webstedet, og det kan være risikabelt at fortsætte.&lt;/label&gt;
-        &lt;br&gt;&lt;br&gt;
-        &lt;label&gt;%1$s stoler ikke på &lt;b&gt;%2$s&lt;/b&gt;, fordi udstederen af webstedets certifikat er ukendt, fordi certifikatet er underskrevet af indehaveren selv, eller fordi serveren ikke sender de korrekte mellemliggende certifikater.&lt;/label&gt;
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_techInfo"><![CDATA[<label>Nogen kan have lavet en falsk version af webstedet, og det kan være risikabelt at fortsætte.</label> <br><br>\n<label>%1$s stoler ikke på <b>%2$s</b>, fordi udstederen af webstedets certifikat er ukendt, fordi certifikatet er underskrevet af indehaveren selv, eller fordi serveren ikke sender de korrekte mellemliggende certifikater.</label>]]></string>
   <!--
     Sessions List
 
@@ -971,13 +945,13 @@
 
     Message shown to explain how to exit fullscreen mode when gesture navigation is enabled.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_gesture_short">Træk fra toppen og stryg derefter mod venstre for at afslutte</string>
   <!--
     Message shown to explain how to exit fullscreen mode when using back button navigation.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_back_button_short">Træk fra toppen og tryk på tilbage-knappen for at afslutte</string>
 </resources>

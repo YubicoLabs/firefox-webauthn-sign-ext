@@ -20,11 +20,11 @@
 #include <string.h>
 
 #include "jsapi.h"
-#include "jsnum.h"
 
 #include "builtin/Array.h"
 #include "builtin/Eval.h"
 #include "builtin/ModuleObject.h"
+#include "builtin/Number.h"
 #include "builtin/Object.h"
 #include "builtin/Promise.h"
 #include "gc/GC.h"
@@ -43,6 +43,7 @@
 #include "vm/AsyncIteration.h"
 #include "vm/BigIntType.h"
 #include "vm/BytecodeUtil.h"  // JSDVG_SEARCH_STACK
+#include "vm/ConstantCompareOperand.h"
 #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
 #  include "vm/ErrorObject.h"
 #endif
@@ -268,17 +269,6 @@ static inline bool GetLengthProperty(const Value& lval, MutableHandleValue vp) {
   return false;
 }
 
-static inline bool GetPropertyOperation(JSContext* cx,
-                                        Handle<PropertyName*> name,
-                                        HandleValue lval,
-                                        MutableHandleValue vp) {
-  if (name == cx->names().length && ::GetLengthProperty(lval, vp)) {
-    return true;
-  }
-
-  return GetProperty(cx, lval, name, vp);
-}
-
 static inline bool GetNameOperation(JSContext* cx, HandleObject envChain,
                                     Handle<PropertyName*> name, JSOp nextOp,
                                     MutableHandleValue vp) {
@@ -434,19 +424,26 @@ bool js::RunScript(JSContext* cx, RunState& state) {
 
   GeckoProfilerEntryMarker marker(cx, state.script());
 
-  bool measuringTime = !cx->isMeasuringExecutionTime();
+  // If the isExecuting flag was not set, then enable it.
+  //  This flag is only set on the initial, outermost RunScript call.
+  //  Also start a timer if measureExecutionTimeEnabled() is true.
+  bool isExecuting = cx->isExecutingRef();
+  bool timerEnabled = cx->measuringExecutionTimeEnabled();
+
   mozilla::TimeStamp startTime;
-  if (measuringTime) {
-    cx->setIsMeasuringExecutionTime(true);
+  if (!isExecuting) {
     cx->setIsExecuting(true);
-    startTime = mozilla::TimeStamp::Now();
+    if (timerEnabled) {
+      startTime = mozilla::TimeStamp::Now();
+    }
   }
-  auto timerEnd = mozilla::MakeScopeExit([&]() {
-    if (measuringTime) {
-      mozilla::TimeDuration delta = mozilla::TimeStamp::Now() - startTime;
-      cx->realm()->timers.executionTime += delta;
-      cx->setIsMeasuringExecutionTime(false);
+  auto onScopeExit = mozilla::MakeScopeExit([&]() {
+    if (!isExecuting) {
       cx->setIsExecuting(false);
+      if (timerEnabled) {
+        mozilla::TimeDuration delta = mozilla::TimeStamp::Now() - startTime;
+        cx->realm()->timers.executionTime += delta;
+      }
     }
   });
 
@@ -628,7 +625,7 @@ bool js::InternalCallOrConstruct(JSContext* cx, const CallArgs& args,
 // means passing the WindowProxy instead of the Window (a GlobalObject) because
 // we must never expose the Window to script. This returns false only for DOM
 // getters or setters.
-static bool CalleeNeedsOuterizedThisObject(const Value& callee) {
+static bool CalleeNeedsOuterizedThisObject(Value callee) {
   if (!callee.isObject() || !callee.toObject().is<JSFunction>()) {
     return true;
   }
@@ -849,12 +846,8 @@ bool js::ExecuteKernel(JSContext* cx, HandleScript script,
     return true;
   }
 
-  probes::StartExecution(script);
   ExecuteState state(cx, script, envChainArg, evalInFrame, result);
-  bool ok = RunScript(cx, state);
-  probes::StopExecution(script);
-
-  return ok;
+  return RunScript(cx, state);
 }
 
 bool js::Execute(JSContext* cx, HandleScript script, HandleObject envChain,
@@ -1637,7 +1630,7 @@ bool js::SyncDisposalClosure(JSContext* cx, unsigned argc, JS::Value* vp) {
       cx, callee->getExtendedSlot(uint8_t(SyncDisposalClosureSlots::Method)));
 
   // Step 1.b.ii.1.a. Let O be the this value.
-  JS::Rooted<JS::Value> O(cx, args.thisv());
+  JS::Handle<JS::Value> O = args.thisv();
 
   // Step 1.b.ii.1.b. Let promiseCapability be !
   // NewPromiseCapability(%Promise%).
@@ -2560,8 +2553,8 @@ bool MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER js::Interpret(JSContext* cx,
 
 #define STRICT_EQUALITY_OP(OP, COND)                  \
   JS_BEGIN_MACRO                                      \
-    HandleValue lval = REGS.stackHandleAt(-2);        \
-    HandleValue rval = REGS.stackHandleAt(-1);        \
+    const Value& lval = REGS.sp[-2];                  \
+    const Value& rval = REGS.sp[-1];                  \
     bool equal;                                       \
     if (!js::StrictlyEqual(cx, lval, rval, &equal)) { \
       goto error;                                     \
@@ -2585,6 +2578,20 @@ bool MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER js::Interpret(JSContext* cx,
     END_CASE(StrictNe)
 
 #undef STRICT_EQUALITY_OP
+
+    CASE(StrictConstantEq) {
+      const Value& value = REGS.sp[-1];
+      bool equal = js::ConstantStrictEqual(value, GET_UINT16(REGS.pc));
+      REGS.sp[-1].setBoolean(equal);
+    }
+    END_CASE(StrictConstantEq)
+
+    CASE(StrictConstantNe) {
+      const Value& value = REGS.sp[-1];
+      bool equal = js::ConstantStrictEqual(value, GET_UINT16(REGS.pc));
+      REGS.sp[-1].setBoolean(!equal);
+    }
+    END_CASE(StrictConstantNe)
 
     CASE(Case) {
       bool cond = REGS.sp[-1].toBoolean();
@@ -2917,7 +2924,7 @@ bool MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER js::Interpret(JSContext* cx,
       ReservedRooted<Value> lval(&rootValue0, REGS.sp[-1]);
       MutableHandleValue res = REGS.stackHandleAt(-1);
       ReservedRooted<PropertyName*> name(&rootName0, script->getName(REGS.pc));
-      if (!GetPropertyOperation(cx, name, lval, res)) {
+      if (!GetProperty(cx, lval, name, res)) {
         goto error;
       }
       cx->debugOnlyCheck(res);
@@ -4382,8 +4389,21 @@ bool MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER js::Interpret(JSContext* cx,
     }
     END_CASE(DynamicImport)
 
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+    CASE(DynamicImportSource) {
+      ReservedRooted<Value> specifier(&rootValue0);
+      POP_COPY_TO(specifier);
+
+      JSObject* promise = StartDynamicModuleImportSource(cx, script, specifier);
+      if (!promise) goto error;
+
+      PUSH_OBJECT(*promise);
+    }
+    END_CASE(DynamicImportSource)
+#endif
+
     CASE(EnvCallee) {
-      uint8_t numHops = GET_UINT8(REGS.pc);
+      uint16_t numHops = GET_ENVCOORD_HOPS(REGS.pc);
       JSObject* env = &REGS.fp()->environmentChain()->as<EnvironmentObject>();
       for (unsigned i = 0; i < numHops; i++) {
         env = &env->as<EnvironmentObject>().enclosingEnvironment();
@@ -4465,6 +4485,7 @@ error:
       goto successful_return_continuation;
 
     case ErrorReturnContinuation:
+      CheckForOOMStackTraceInterrupt(cx);
       interpReturnOK = false;
       goto return_continuation;
 
@@ -4609,14 +4630,36 @@ bool js::GetProperty(JSContext* cx, HandleValue v, Handle<PropertyName*> name,
   return GetProperty(cx, obj, receiver, name, vp);
 }
 
-JSObject* js::Lambda(JSContext* cx, HandleFunction fun, HandleObject parent) {
+JSObject* js::LambdaBaselineFallback(JSContext* cx, HandleFunction fun,
+                                     HandleObject parent, gc::AllocSite* site) {
+  MOZ_ASSERT(site);
+  gc::Heap heap = site->initialHeap();
+  JSObject* obj = Lambda(cx, fun, parent, heap, site);
+  MOZ_ASSERT_IF(obj && heap == gc::Heap::Tenured, obj->isTenured());
+  return obj;
+}
+
+JSObject* js::LambdaOptimizedFallback(JSContext* cx, HandleFunction fun,
+                                      HandleObject parent, gc::Heap heap) {
+  // It's important to use the correct heap here so that tenured allocation
+  // fallback will refill the appropriate free list allowing subsequent JIT
+  // allocation in tenured heap to succeed.
+  gc::AllocSite* site = cx->zone()->optimizedAllocSite();
+  JSObject* obj = Lambda(cx, fun, parent, heap, site);
+  MOZ_ASSERT_IF(obj && heap == gc::Heap::Tenured, obj->isTenured());
+  return obj;
+}
+
+JSObject* js::Lambda(JSContext* cx, HandleFunction fun, HandleObject parent,
+                     gc::Heap heap, gc::AllocSite* site) {
   JSFunction* clone;
   if (fun->isNativeFun()) {
     MOZ_ASSERT(IsAsmJSModule(fun));
+    MOZ_ASSERT(heap == gc::Heap::Default);  // Not supported.
     clone = CloneAsmJSModuleFunction(cx, fun);
   } else {
     RootedObject proto(cx, fun->staticPrototype());
-    clone = CloneFunctionReuseScript(cx, fun, parent, proto);
+    clone = CloneFunctionReuseScript(cx, fun, parent, proto, heap, site);
   }
   if (!clone) {
     return nullptr;
@@ -5093,7 +5136,7 @@ bool js::OptimizeSpreadCall(JSContext* cx, HandleValue arg,
   return true;
 }
 
-bool js::OptimizeGetIterator(const Value& arg, JSContext* cx) {
+bool js::OptimizeGetIterator(Value arg, JSContext* cx) {
   if (!arg.isObject()) {
     return false;
   }

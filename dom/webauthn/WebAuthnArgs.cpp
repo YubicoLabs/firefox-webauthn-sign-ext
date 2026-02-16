@@ -5,6 +5,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "WebAuthnArgs.h"
+
 #include "WebAuthnEnumStrings.h"
 #include "WebAuthnUtil.h"
 #include "mozilla/dom/PWebAuthnTransactionParent.h"
@@ -97,6 +98,25 @@ WebAuthnRegisterArgs::GetExcludeListTransports(
   for (const WebAuthnScopedCredential& cred : mInfo.ExcludeList()) {
     aExcludeListTransports.AppendElement(cred.transports());
   }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetCredentialProtectionPolicy(
+    nsACString& aCredentialProtectionPolicy) {
+  if (mCredentialProtectionPolicy.isSome()) {
+    aCredentialProtectionPolicy =
+        GetEnumString(mCredentialProtectionPolicy.ref());
+    return NS_OK;
+  }
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetEnforceCredentialProtectionPolicy(
+    bool* aEnforceCredentialProtectionPolicy) {
+  *aEnforceCredentialProtectionPolicy = mEnforceCredentialProtectionPolicy;
+
   return NS_OK;
 }
 
@@ -236,6 +256,28 @@ WebAuthnRegisterArgs::GetAttestationConveyancePreference(
 NS_IMETHODIMP
 WebAuthnRegisterArgs::GetPrivateBrowsing(bool* aPrivateBrowsing) {
   *aPrivateBrowsing = mPrivateBrowsing;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetLargeBlobSupportRequired(
+    bool* aLargeBlobSupportRequired) {
+  if (mLargeBlobSupportRequired.isSome()) {
+    *aLargeBlobSupportRequired = mLargeBlobSupportRequired.ref();
+    return NS_OK;
+  }
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetHints(nsTArray<nsString>& aHints) {
+  aHints.Assign(mInfo.Hints());
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetJson(nsAString& aJSON) {
+  aJSON = mInfo.Json();
   return NS_OK;
 }
 
@@ -563,6 +605,36 @@ WebAuthnSignArgs::GetConditionallyMediated(bool* aConditionallyMediated) {
 NS_IMETHODIMP
 WebAuthnSignArgs::GetPrivateBrowsing(bool* aPrivateBrowsing) {
   *aPrivateBrowsing = mPrivateBrowsing;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetLargeBlobRead(bool* aLargeBlobRead) {
+  if (mLargeBlobRead.isSome()) {
+    *aLargeBlobRead = mLargeBlobRead.ref();
+    return NS_OK;
+  }
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetLargeBlobWrite(nsTArray<uint8_t>& aLargeBlobWrite) {
+  if (mLargeBlobRead.isSome() && mLargeBlobRead.ref() == false) {
+    aLargeBlobWrite.Assign(mLargeBlobWrite);
+    return NS_OK;
+  }
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetHints(nsTArray<nsString>& aHints) {
+  aHints.Assign(mInfo.Hints());
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetJson(nsAString& aJSON) {
+  aJSON = mInfo.Json();
   return NS_OK;
 }
 

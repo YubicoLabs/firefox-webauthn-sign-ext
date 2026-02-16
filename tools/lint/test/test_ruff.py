@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -57,7 +55,7 @@ def test_lint_fix_withotu_warning(lint, create_temp_file):
 
     path = create_temp_file(contents, "bad.py")
     lint([path], warning=False, fix=True)
-    assert fixed == 2
+    assert fixed == 3
 
 
 def test_lint_ruff(lint, paths):

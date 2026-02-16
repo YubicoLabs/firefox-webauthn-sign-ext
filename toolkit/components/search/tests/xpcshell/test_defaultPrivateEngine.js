@@ -23,9 +23,22 @@ const CONFIG = [
     base: {
       name: "Application Default Private",
       urls: {
-        search: { base: "https://example.org", searchTermParamName: "q2" },
+        search: {
+          base: "https://example.org",
+          params: [{ name: "pc", value: "{partnerCode}" }],
+          searchTermParamName: "q2",
+        },
       },
     },
+    variants: [
+      {
+        environment: {
+          allLocalesAndRegions: true,
+        },
+        telemetrySuffix: "123",
+        partnerCode: "foo",
+      },
+    ],
   },
   {
     identifier: "otherEngine1",
@@ -83,43 +96,52 @@ add_setup(async () => {
 
   useHttpServer();
 
-  await Services.search.init();
+  await SearchService.init();
 
-  appDefault = Services.search.getEngineById("appDefault");
-  appPrivateDefault = Services.search.getEngineById("appDefaultPrivate");
-  engine1 = Services.search.getEngineById("otherEngine1");
-  engine2 = Services.search.getEngineById("otherEngine2");
+  appDefault = SearchService.getEngineById("appDefault");
+  appPrivateDefault = SearchService.getEngineById("appDefaultPrivate");
+  engine1 = SearchService.getEngineById("otherEngine1");
+  engine2 = SearchService.getEngineById("otherEngine2");
 });
 
 add_task(async function test_defaultPrivateEngine() {
   Assert.equal(
-    Services.search.defaultPrivateEngine.identifier,
-    appPrivateDefault.identifier,
+    SearchService.defaultPrivateEngine.id,
+    appPrivateDefault.id,
     "Should have the app private default as the default private engine"
   );
   Assert.equal(
-    Services.search.defaultEngine.identifier,
-    appDefault.identifier,
+    SearchService.defaultEngine.id,
+    appDefault.id,
     "Should have the app default as the default engine"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "appDefault",
+      partnerCode: "",
+      overriddenByThirdParty: false,
       engineId: "appDefault",
       displayName: "Application Default",
       loadPath: "[app]appDefault",
       submissionUrl: "https://example.org/?q1=",
     },
     private: {
-      engineId: "appDefaultPrivate",
+      providerId: "appDefaultPrivate",
+      partnerCode: "foo",
+      overriddenByThirdParty: false,
+      engineId: "appDefaultPrivate-123",
       displayName: "Application Default Private",
       loadPath: "[app]appDefaultPrivate",
-      submissionUrl: "https://example.org/?q2=",
+      submissionUrl: "https://example.org/?pc=foo&q2=",
     },
   });
 
   let promise = promiseDefaultNotification("private");
-  Services.search.defaultPrivateEngine = engine1;
+  await SearchService.setDefaultPrivate(
+    engine1,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
   Assert.equal(
     await promise,
     engine1,
@@ -127,24 +149,30 @@ add_task(async function test_defaultPrivateEngine() {
   );
 
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine1,
     "Should have set the private engine to the new one"
   );
   Assert.equal(
-    Services.search.defaultEngine,
+    SearchService.defaultEngine,
     appDefault,
     "Should not have changed the default engine"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "appDefault",
+      partnerCode: "",
+      overriddenByThirdParty: false,
       engineId: "appDefault",
       displayName: "Application Default",
       loadPath: "[app]appDefault",
       submissionUrl: "https://example.org/?q1=",
     },
     private: {
+      providerId: "otherEngine1",
+      partnerCode: "",
+      overriddenByThirdParty: false,
       engineId: "otherEngine1",
       displayName: "Other Engine 1",
       loadPath: "[app]otherEngine1",
@@ -153,9 +181,9 @@ add_task(async function test_defaultPrivateEngine() {
   });
 
   promise = promiseDefaultNotification("private");
-  await Services.search.setDefaultPrivate(
+  await SearchService.setDefaultPrivate(
     engine2,
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+    SearchService.CHANGE_REASON.UNKNOWN
   );
   Assert.equal(
     await promise,
@@ -163,33 +191,39 @@ add_task(async function test_defaultPrivateEngine() {
     "Should have notified setting the private engine to the new one using async api"
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine2,
     "Should have set the private engine to the new one using the async api"
   );
 
   // We use the names here as for some reason the getDefaultPrivate promise
-  // returns something which is an nsISearchEngine but doesn't compare
+  // returns something which is an SearchEngine but doesn't compare
   // exactly to what engine2 is.
   Assert.equal(
-    (await Services.search.getDefaultPrivate()).name,
+    (await SearchService.getDefaultPrivate()).name,
     engine2.name,
     "Should have got the correct private engine with the async api"
   );
   Assert.equal(
-    Services.search.defaultEngine,
+    SearchService.defaultEngine,
     appDefault,
     "Should not have changed the default engine"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "appDefault",
+      partnerCode: "",
+      overriddenByThirdParty: false,
       engineId: "appDefault",
       displayName: "Application Default",
       loadPath: "[app]appDefault",
       submissionUrl: "https://example.org/?q1=",
     },
     private: {
+      providerId: "otherEngine2",
+      partnerCode: "",
+      overriddenByThirdParty: false,
       engineId: "otherEngine2",
       displayName: "Other Engine 2",
       loadPath: "[app]otherEngine2",
@@ -198,9 +232,9 @@ add_task(async function test_defaultPrivateEngine() {
   });
 
   promise = promiseDefaultNotification("private");
-  await Services.search.setDefaultPrivate(
+  await SearchService.setDefaultPrivate(
     engine1,
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+    SearchService.CHANGE_REASON.UNKNOWN
   );
   Assert.equal(
     await promise,
@@ -208,59 +242,68 @@ add_task(async function test_defaultPrivateEngine() {
     "Should have notified reverting the private engine to the selected one using async api"
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine1,
     "Should have reverted the private engine to the selected one using the async api"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "appDefault",
       engineId: "appDefault",
     },
     private: {
+      providerId: "otherEngine1",
       engineId: "otherEngine1",
     },
   });
 
   engine1.hidden = true;
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     appPrivateDefault,
     "Should reset to the app default private engine when hiding the default"
   );
   Assert.equal(
-    Services.search.defaultEngine,
+    SearchService.defaultEngine,
     appDefault,
     "Should not have changed the default engine"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "appDefault",
       engineId: "appDefault",
     },
     private: {
-      engineId: "appDefaultPrivate",
+      providerId: "appDefaultPrivate",
+      engineId: "appDefaultPrivate-123",
     },
   });
 
   engine1.hidden = false;
-  Services.search.defaultEngine = engine1;
+  await SearchService.setDefault(engine1, SearchService.CHANGE_REASON.UNKNOWN);
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     appPrivateDefault,
     "Setting the default engine should not affect the private default"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine1",
       engineId: "otherEngine1",
     },
     private: {
-      engineId: "appDefaultPrivate",
+      providerId: "appDefaultPrivate",
+      engineId: "appDefaultPrivate-123",
     },
   });
 
-  Services.search.defaultEngine = appDefault;
+  await SearchService.setDefault(
+    appDefault,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
 });
 
 add_task(async function test_telemetry_private_empty_submission_url() {
@@ -274,9 +317,15 @@ add_task(async function test_telemetry_private_empty_submission_url() {
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "appDefault",
+      partnerCode: "",
+      overriddenByThirdParty: false,
       engineId: appDefault.telemetryId,
     },
     private: {
+      providerId: "other",
+      partnerCode: "",
+      overriddenByThirdParty: false,
       engineId: "other-simple",
       displayName: "simple",
       loadPath: "[http]localhost/simple.xml",
@@ -284,18 +333,29 @@ add_task(async function test_telemetry_private_empty_submission_url() {
     },
   });
 
-  Services.search.defaultEngine = appDefault;
+  await SearchService.setDefault(
+    appDefault,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
 });
 
 add_task(async function test_defaultPrivateEngine_turned_off() {
-  Services.search.defaultEngine = appDefault;
-  Services.search.defaultPrivateEngine = engine1;
+  await SearchService.setDefault(
+    appDefault,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
+  await SearchService.setDefaultPrivate(
+    engine1,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "appDefault",
       engineId: "appDefault",
     },
     private: {
+      providerId: "otherEngine1",
       engineId: "otherEngine1",
     },
   });
@@ -313,16 +373,18 @@ add_task(async function test_defaultPrivateEngine_turned_off() {
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "appDefault",
       engineId: "appDefault",
     },
     private: {
+      providerId: "",
       engineId: "",
     },
   });
 
   promise = promiseDefaultNotification("normal");
   let privatePromise = promiseDefaultNotification("private");
-  Services.search.defaultEngine = engine1;
+  await SearchService.setDefault(engine1, SearchService.CHANGE_REASON.UNKNOWN);
   Assert.equal(
     await promise,
     engine1,
@@ -334,39 +396,44 @@ add_task(async function test_defaultPrivateEngine_turned_off() {
     "Should have notified setting of the private engine as well."
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine1,
     "Should be set to the first engine correctly"
   );
   Assert.equal(
-    Services.search.defaultEngine,
+    SearchService.defaultEngine,
     engine1,
     "Should keep the default engine in sync with the pref off"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine1",
       engineId: "otherEngine1",
     },
     private: {
+      providerId: "",
       engineId: "",
     },
   });
 
   promise = promiseDefaultNotification("private");
-  Services.search.defaultPrivateEngine = engine2;
+  await SearchService.setDefaultPrivate(
+    engine2,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
   Assert.equal(
     await promise,
     engine2,
     "Should have notified setting the second engine correctly."
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine2,
     "Should be set to the second engine correctly"
   );
   Assert.equal(
-    Services.search.defaultEngine,
+    SearchService.defaultEngine,
     engine1,
     "Should not change the normal mode default engine"
   );
@@ -381,36 +448,43 @@ add_task(async function test_defaultPrivateEngine_turned_off() {
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine1",
       engineId: "otherEngine1",
     },
     private: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
   });
 
   promise = promiseDefaultNotification("private");
-  Services.search.defaultPrivateEngine = engine1;
+  await SearchService.setDefaultPrivate(
+    engine1,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
   Assert.equal(
     await promise,
     engine1,
     "Should have notified resetting to the first engine again"
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine1,
     "Should be reset to the first engine again"
   );
   Assert.equal(
-    Services.search.defaultEngine,
+    SearchService.defaultEngine,
     engine1,
     "Should keep the default engine in sync with the pref off"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine1",
       engineId: "otherEngine1",
     },
     private: {
+      providerId: "otherEngine1",
       engineId: "otherEngine1",
     },
   });
@@ -424,14 +498,19 @@ add_task(async function test_defaultPrivateEngine_ui_turned_off() {
     true
   );
 
-  Services.search.defaultEngine = engine2;
-  Services.search.defaultPrivateEngine = engine1;
+  await SearchService.setDefault(engine2, SearchService.CHANGE_REASON.UNKNOWN);
+  await SearchService.setDefaultPrivate(
+    engine1,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
     private: {
+      providerId: "otherEngine1",
       engineId: "otherEngine1",
     },
   });
@@ -449,31 +528,38 @@ add_task(async function test_defaultPrivateEngine_ui_turned_off() {
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
     private: {
+      providerId: "",
       engineId: "",
     },
   });
 
   promise = promiseDefaultNotification("normal");
-  Services.search.defaultPrivateEngine = engine1;
+  await SearchService.setDefaultPrivate(
+    engine1,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
   Assert.equal(
     await promise,
     engine1,
     "Should have notified setting the first engine correctly."
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine1,
     "Should be set to the first engine correctly"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine1",
       engineId: "otherEngine1",
     },
     private: {
+      providerId: "",
       engineId: "",
     },
   });
@@ -490,14 +576,19 @@ add_task(async function test_defaultPrivateEngine_same_engine_toggle_pref() {
   );
 
   // Set the normal and private engines to be the same
-  Services.search.defaultEngine = engine2;
-  Services.search.defaultPrivateEngine = engine2;
+  await SearchService.setDefault(engine2, SearchService.CHANGE_REASON.UNKNOWN);
+  await SearchService.setDefaultPrivate(
+    engine2,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
     private: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
   });
@@ -508,21 +599,23 @@ add_task(async function test_defaultPrivateEngine_same_engine_toggle_pref() {
     false
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine2,
     "Should not change the default private engine"
   );
   Assert.equal(
-    Services.search.defaultEngine,
+    SearchService.defaultEngine,
     engine2,
     "Should not change the default engine"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
     private: {
+      providerId: "",
       engineId: "",
     },
   });
@@ -533,21 +626,23 @@ add_task(async function test_defaultPrivateEngine_same_engine_toggle_pref() {
     true
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine2,
     "Should not change the default private engine"
   );
   Assert.equal(
-    Services.search.defaultEngine,
+    SearchService.defaultEngine,
     engine2,
     "Should not change the default engine"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
     private: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
   });
@@ -564,14 +659,19 @@ add_task(async function test_defaultPrivateEngine_same_engine_toggle_ui_pref() {
   );
 
   // Set the normal and private engines to be the same
-  Services.search.defaultEngine = engine2;
-  Services.search.defaultPrivateEngine = engine2;
+  await SearchService.setDefault(engine2, SearchService.CHANGE_REASON.UNKNOWN);
+  await SearchService.setDefaultPrivate(
+    engine2,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
     private: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
   });
@@ -582,21 +682,23 @@ add_task(async function test_defaultPrivateEngine_same_engine_toggle_ui_pref() {
     false
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine2,
     "Should not change the default private engine"
   );
   Assert.equal(
-    Services.search.defaultEngine,
+    SearchService.defaultEngine,
     engine2,
     "Should not change the default engine"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
     private: {
+      providerId: "",
       engineId: "",
     },
   });
@@ -607,21 +709,23 @@ add_task(async function test_defaultPrivateEngine_same_engine_toggle_ui_pref() {
     true
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine,
+    SearchService.defaultPrivateEngine,
     engine2,
     "Should not change the default private engine"
   );
   Assert.equal(
-    Services.search.defaultEngine,
+    SearchService.defaultEngine,
     engine2,
     "Should not change the default engine"
   );
 
   await assertGleanDefaultEngine({
     normal: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
     private: {
+      providerId: "otherEngine2",
       engineId: "otherEngine2",
     },
   });
@@ -629,8 +733,8 @@ add_task(async function test_defaultPrivateEngine_same_engine_toggle_ui_pref() {
 
 add_task(async function test_no_private_default_falls_back_to_normal_default() {
   SearchTestUtils.setRemoteSettingsConfig(CONFIG_NO_PRIVATE);
-  Services.search.wrappedJSObject.reset();
-  await Services.search.init();
+  SearchService.reset();
+  await SearchService.init();
 
   Services.prefs.setBoolPref(
     SearchUtils.BROWSER_SEARCH_PREF + "separatePrivateDefault.ui.enabled",
@@ -642,27 +746,27 @@ add_task(async function test_no_private_default_falls_back_to_normal_default() {
   );
   Services.prefs.setCharPref(SearchUtils.BROWSER_SEARCH_PREF + "region", "US");
 
-  await Services.search.init();
+  await SearchService.init();
 
-  Assert.ok(Services.search.isInitialized, "search initialized");
+  Assert.ok(SearchService.isInitialized, "search initialized");
 
   Assert.equal(
-    Services.search.appDefaultEngine.name,
+    SearchService.appDefaultEngine.name,
     "appDefault",
     "Should have the expected engine as app default"
   );
   Assert.equal(
-    Services.search.defaultEngine.name,
+    SearchService.defaultEngine.name,
     "appDefault",
     "Should have the expected engine as default"
   );
   Assert.equal(
-    Services.search.appPrivateDefaultEngine.name,
+    SearchService.appPrivateDefaultEngine.name,
     "appDefault",
     "Should have the same engine for the app private default"
   );
   Assert.equal(
-    Services.search.defaultPrivateEngine.name,
+    SearchService.defaultPrivateEngine.name,
     "appDefault",
     "Should have the same engine for the private default"
   );

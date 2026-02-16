@@ -10,15 +10,17 @@ const REMOTE_SETTINGS_RECORDS = [
     type: "yelp-suggestions",
     attachment: {
       subjects: ["ramen"],
+      businessSubjects: ["the shop"],
       preModifiers: ["best"],
       postModifiers: ["delivery"],
-      locationSigns: [{ keyword: "in", needLocation: true }],
+      locationSigns: ["in"],
       yelpModifiers: [],
       icon: "1234",
       score: 0.5,
     },
   },
-  QuickSuggestTestUtils.geonamesRecord(),
+  ...QuickSuggestTestUtils.geonamesRecords(),
+  ...QuickSuggestTestUtils.geonamesAlternatesRecords(),
 ];
 
 add_setup(async function () {
@@ -30,6 +32,7 @@ add_setup(async function () {
       ["suggest.quicksuggest.sponsored", true],
       ["suggest.yelp", true],
       ["yelp.featureGate", true],
+      ["yelp.serviceResultDistinction", true],
     ],
   });
 });
@@ -48,8 +51,10 @@ add_task(async function basic() {
 
     Assert.equal(UrlbarTestUtils.getResultCount(window), 2);
 
-    const details = await UrlbarTestUtils.getDetailsOfResultAt(window, 1);
-    const { result } = details;
+    const { element, result } = await UrlbarTestUtils.getDetailsOfResultAt(
+      window,
+      1
+    );
     Assert.equal(
       result.providerName,
       UrlbarProviderQuickSuggest.name,
@@ -60,24 +65,57 @@ add_task(async function basic() {
       result.payload.url,
       "https://www.yelp.com/search?find_desc=RaMeN&find_loc=Tokyo%2C+Tokyo-to&utm_medium=partner&utm_source=mozilla"
     );
-    Assert.equal(result.payload.title, "RaMeN iN Tokyo, Tokyo-to");
 
-    const { row } = details.element;
-    const bottom = row.querySelector(".urlbarView-row-body-bottom");
-    Assert.ok(bottom, "Bottom text element should exist");
-    Assert.ok(
-      BrowserTestUtils.isVisible(bottom),
-      "Bottom text element should be visible"
-    );
+    const { row } = element;
+    const icon = row.querySelector(".urlbarView-favicon");
+    Assert.equal(icon.src, "chrome://global/skin/icons/defaultFavicon.svg");
+    const title = row.querySelector(".urlbarView-title");
+    Assert.equal(title.textContent, "Top results for RaMeN iN Tokyo, Tokyo-to");
+    const subtitle = row.querySelector(".urlbarView-subtitle");
+    Assert.equal(subtitle.textContent, "Yelp");
+    const description = row.querySelector(".urlbarView-row-body-description");
+    Assert.equal(description.textContent, "");
+    const bottomLabel = row.querySelector(".urlbarView-bottom-label");
+    Assert.equal(bottomLabel.textContent, "Sponsored");
+    const bottomUrl = row.querySelector(".urlbarView-url");
     Assert.equal(
-      bottom.textContent,
-      "Yelp · Sponsored",
-      "Bottom text is correct"
+      bottomUrl.textContent,
+      "yelp.com/search?find_desc=RaMeN&find_loc=Tokyo,+Tokyo-to&utm_medium=partner&utm_source=mozilla"
     );
 
     await UrlbarTestUtils.promisePopupClose(window);
     await SpecialPowers.popPrefEnv();
   }
+});
+
+add_task(async function businessSubject() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.urlbar.quicksuggest.yelpPriority", true]],
+  });
+
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window,
+    value: "the shop to",
+  });
+  Assert.equal(UrlbarTestUtils.getResultCount(window), 2);
+
+  const details = await UrlbarTestUtils.getDetailsOfResultAt(window, 1);
+  const { element, result } = details;
+  Assert.equal(
+    result.providerName,
+    UrlbarProviderQuickSuggest.name,
+    "The result should be from the expected provider"
+  );
+  Assert.equal(result.payload.provider, "Yelp");
+  Assert.equal(
+    result.payload.url,
+    "https://www.yelp.com/search?find_desc=the+shop&find_loc=Tokyo%2C+Tokyo-to&utm_medium=partner&utm_source=mozilla"
+  );
+  const titleElement = element.row.querySelector(".urlbarView-title");
+  Assert.equal(titleElement.textContent, "the shop in Tokyo, Tokyo-to");
+
+  await UrlbarTestUtils.promisePopupClose(window);
+  await SpecialPowers.popPrefEnv();
 });
 
 // Tests the "Show less frequently" result menu command.
@@ -283,27 +321,15 @@ async function doShowLessFrequently({
 add_task(async function resultMenu_not_relevant() {
   await doDismiss({
     menu: "not_relevant",
-    assert: resuilt => {
+    assert: result => {
       Assert.ok(
-        QuickSuggest.blockedSuggestions.isResultBlocked(resuilt),
-        "The URL should be register as blocked"
+        QuickSuggest.isResultDismissed(result),
+        "The result should be dismissed"
       );
     },
   });
 
-  await QuickSuggest.blockedSuggestions.clear();
-});
-
-// Tests the "Not interested" result menu dismissal command.
-add_task(async function resultMenu_not_interested() {
-  await doDismiss({
-    menu: "not_interested",
-    assert: () => {
-      Assert.ok(!UrlbarPrefs.get("suggest.yelp"));
-    },
-  });
-
-  UrlbarPrefs.clear("suggest.yelp");
+  await QuickSuggest.clearDismissedSuggestions();
 });
 
 async function doDismiss({ menu, assert }) {
@@ -319,14 +345,15 @@ async function doDismiss({ menu, assert }) {
   let result = details.result;
 
   // Click the command.
-  await UrlbarTestUtils.openResultMenuAndClickItem(
-    window,
-    ["[data-l10n-id=firefox-suggest-command-dont-show-this]", menu],
-    {
-      resultIndex,
-      openByMouse: true,
-    }
+  let dismissalPromise = TestUtils.topicObserved(
+    "quicksuggest-dismissals-changed"
   );
+  await UrlbarTestUtils.openResultMenuAndClickItem(window, [menu], {
+    resultIndex,
+    openByMouse: true,
+  });
+  info("Awaiting dismissal promise");
+  await dismissalPromise;
 
   // The row should be a tip now.
   Assert.ok(gURLBar.view.isOpen, "The view should remain open after dismissal");
@@ -392,8 +419,9 @@ async function doDismiss({ menu, assert }) {
 
   for (let i = 0; i < UrlbarTestUtils.getResultCount(window); i++) {
     details = await UrlbarTestUtils.getDetailsOfResultAt(window, i);
-    Assert.ok(
-      details.result.payload.provider !== "Yelp",
+    Assert.notStrictEqual(
+      details.result.payload.provider,
+      "Yelp",
       "Yelp result should not be present"
     );
   }
@@ -406,10 +434,33 @@ add_task(async function resultMenu_manage() {
   await doManageTest({ input: "ramen", index: 1 });
 });
 
+// Tests the "Learn more" result menu.
+add_task(async function resultMenu_learn_more() {
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window,
+    value: "ramen",
+  });
+
+  info("Selecting Learn more item from the result menu");
+  let tabOpenPromise = BrowserTestUtils.waitForNewTab(
+    gBrowser,
+    Services.urlFormatter.formatURLPref("app.support.baseURL") +
+      "awesome-bar-result-menu"
+  );
+  await UrlbarTestUtils.openResultMenuAndClickItem(window, "help", {
+    resultIndex: 1,
+  });
+  info("Waiting for Learn more link to open in a new tab");
+  await tabOpenPromise;
+  gBrowser.removeCurrentTab();
+
+  await UrlbarTestUtils.promisePopupClose(window);
+});
+
 // Tests the row/group label.
 add_task(async function rowLabel() {
   let tests = [
-    { topPick: true, label: "Local recommendations" },
+    { topPick: true, label: null },
     { topPick: false, label: "Firefox Suggest" },
   ];
 

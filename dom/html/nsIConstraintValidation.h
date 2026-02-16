@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsIConstraintValidition_h___
-#define nsIConstraintValidition_h___
+#ifndef nsIConstraintValidition_h_
+#define nsIConstraintValidition_h_
 
 #include "nsISupports.h"
 
@@ -15,12 +15,8 @@ namespace mozilla::dom {
 class ValidityState;
 }  // namespace mozilla::dom
 
-#define NS_ICONSTRAINTVALIDATION_IID                 \
-  {                                                  \
-    0x983829da, 0x1aaf, 0x449c, {                    \
-      0xa3, 0x06, 0x85, 0xd4, 0xf0, 0x31, 0x1c, 0xf6 \
-    }                                                \
-  }
+#define NS_ICONSTRAINTVALIDATION_IID \
+  {0x983829da, 0x1aaf, 0x449c, {0xa3, 0x06, 0x85, 0xd4, 0xf0, 0x31, 0x1c, 0xf6}}
 
 /**
  * This interface is for form elements implementing the validity constraint API.
@@ -31,7 +27,7 @@ class ValidityState;
  */
 class nsIConstraintValidation : public nsISupports {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICONSTRAINTVALIDATION_IID);
+  NS_INLINE_DECL_STATIC_IID(NS_ICONSTRAINTVALIDATION_IID);
 
   friend class mozilla::dom::ValidityState;
 
@@ -104,8 +100,5 @@ class nsIConstraintValidation : public nsISupports {
    */
   bool mBarredFromConstraintValidation;
 };
-
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIConstraintValidation,
-                              NS_ICONSTRAINTVALIDATION_IID)
 
 #endif  // nsIConstraintValidation_h___

@@ -8,7 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.MediumTest
 import org.hamcrest.Matchers
 import org.json.JSONObject
-import org.junit.Assume.assumeThat
+import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.geckoview.GeckoSession
@@ -162,10 +162,8 @@ class MediaDelegateXOriginTest : BaseSessionTest() {
         assertThat("stream stop should fail", stopped, Matchers.equalTo(false))
     }
 
+    @Ignore("https://bugzilla.mozilla.org/show_bug.cgi?id=1988041")
     @Test fun testDeviceRecordingEventAudioAndVideoInXOriginIframe() {
-        // TODO: needs bug 1700243
-        assumeThat(sessionRule.env.isIsolatedProcess, Matchers.equalTo(false))
-
         mainSession.loadTestPath(GETUSERMEDIA_XORIGIN_CONTAINER_HTML_PATH)
         mainSession.waitForPageStop()
 

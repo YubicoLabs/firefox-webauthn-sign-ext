@@ -11,7 +11,7 @@
 // https://github.com/microsoft/rushstack/blob/main/apps/api-documenter/src/documenters/MarkdownDocumenter.ts
 // This file has been edited to morph into Docusaurus's expected inputs.
 
-import * as path from 'path';
+import * as path from 'node:path';
 
 import type {DocumenterConfig} from '@microsoft/api-documenter/lib/documenters/DocumenterConfig.js';
 import {CustomMarkdownEmitter as ApiFormatterMarkdownEmitter} from '@microsoft/api-documenter/lib/markdown/CustomMarkdownEmitter.js';
@@ -248,10 +248,7 @@ export class MarkdownDocumenter {
       ApiReturnTypeMixin.isBaseClassOf(apiItem) &&
       apiItem.getMergedSiblings().length > 1
     ) {
-      const name = apiItem.displayName;
-      const overloadIndex = apiItem.overloadIndex - 1;
-      const overloadId =
-        overloadIndex === 0 ? name : `${name}-${overloadIndex}`;
+      const overloadId = this._getOverloadElementId(apiItem.overloadIndex);
 
       // TODO: See if we don't need to create all of the on our own.
       const overLoadHeader = `${apiItem.displayName}(): ${apiItem.returnTypeExcerpt.text}`;
@@ -1606,6 +1603,13 @@ export class MarkdownDocumenter {
       }
     }
 
+    if (
+      ApiParameterListMixin.isBaseClassOf(apiItem) &&
+      apiItem.overloadIndex > 1
+    ) {
+      suffix = `#${this._getOverloadElementId(apiItem.overloadIndex)}`;
+    }
+
     return `${baseName}.md${suffix}`;
   }
 
@@ -1616,5 +1620,9 @@ export class MarkdownDocumenter {
   private _deleteOldOutputFiles(): void {
     console.log('Deleting old output from ' + this._outputFolder);
     FileSystem.ensureEmptyFolder(this._outputFolder);
+  }
+
+  private _getOverloadElementId(overloadIndex: number): string {
+    return `overload-${overloadIndex}`;
   }
 }

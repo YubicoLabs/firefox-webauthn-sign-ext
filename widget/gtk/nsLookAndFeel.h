@@ -5,15 +5,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __nsLookAndFeel
-#define __nsLookAndFeel
+#ifndef _nsLookAndFeel
+#define _nsLookAndFeel
 
 #include "X11UndefineNone.h"
 #include "nsXPLookAndFeel.h"
-#include "nsCOMPtr.h"
 #include "gfxFont.h"
 
-enum WidgetNodeType : int;
 struct _GtkStyle;
 typedef struct _GDBusProxy GDBusProxy;
 typedef struct _GtkCssProvider GtkCssProvider;
@@ -23,15 +21,30 @@ typedef struct _GVariant GVariant;
 
 namespace mozilla {
 enum class StyleGtkThemeFamily : uint8_t;
-}
+
+namespace widget {
+
+enum class NativeChangeKind : uint8_t {
+  None = 0,
+  GtkTheme = 1 << 0,
+  OtherSettings = 1 << 1,
+  All = GtkTheme | OtherSettings,
+};
+
+MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(NativeChangeKind)
+
+}  // namespace widget
+}  // namespace mozilla
 
 class nsLookAndFeel final : public nsXPLookAndFeel {
+  using NativeChangeKind = mozilla::widget::NativeChangeKind;
+
  public:
   nsLookAndFeel();
   virtual ~nsLookAndFeel();
 
+  void RecordChange(NativeChangeKind aKind) { mPendingChanges |= aKind; }
   void NativeInit() final;
-  void RefreshImpl() override;
   nsresult NativeGetInt(IntID aID, int32_t& aResult) override;
   nsresult NativeGetFloat(FloatID aID, float& aResult) override;
   nsresult NativeGetColor(ColorID, ColorScheme, nscolor& aResult) override;
@@ -40,6 +53,12 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
 
   char16_t GetPasswordCharacterImpl() override;
   bool GetEchoPasswordImpl() override;
+
+  void RefreshImpl() override {
+    // When calling Refresh(), we don't need to reload all our GTK theme info,
+    // but we might need to change our effective theme.
+    RecordChange(NativeChangeKind::OtherSettings);
+  }
 
   bool GetDefaultDrawInTitlebar() override;
 
@@ -52,10 +71,12 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
 
   static const nscolor kBlack = NS_RGB(0, 0, 0);
   static const nscolor kWhite = NS_RGB(255, 255, 255);
+#ifdef MOZ_ENABLE_DBUS
   // Returns whether any setting changed.
   bool RecomputeDBusSettings();
   // Returns whether the setting really changed.
   bool RecomputeDBusAppearanceSetting(const nsACString& aKey, GVariant* aValue);
+#endif
 
   struct ColorPair {
     nscolor mBg = kWhite;
@@ -69,16 +90,29 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
     }
   };
 
+  struct ButtonColors : ColorPair {
+    nscolor mBorder = kBlack;
+
+    bool operator==(const ButtonColors& aOther) const {
+      return mBg == aOther.mBg && mFg == aOther.mFg &&
+             mBorder == aOther.mBorder;
+    }
+    bool operator!=(const ButtonColors& aOther) const {
+      return !(*this == aOther);
+    }
+  };
+
   using ThemeFamily = mozilla::StyleGtkThemeFamily;
 
  protected:
-  static bool WidgetUsesImage(WidgetNodeType aNodeType);
   void RecordLookAndFeelSpecificTelemetry() override;
   static bool ShouldHonorThemeScrollbarColors();
   mozilla::Maybe<ColorScheme> ComputeColorSchemeSetting();
 
+#ifdef MOZ_ENABLE_DBUS
   void WatchDBus();
   void UnwatchDBus();
+#endif
 
   // We use up to two themes (one light, one dark), which might have different
   // sets of fonts and colors.
@@ -87,6 +121,7 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
     bool mIsDark = false;
     bool mHighContrast = false;
     bool mPreferDarkTheme = false;
+    bool mIsDefaultThemeFallback = false;
 
     ThemeFamily mFamily{0};
 
@@ -107,19 +142,13 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
     ColorPair mMenuHover;
     ColorPair mHeaderBar;
     ColorPair mHeaderBarInactive;
-    ColorPair mButton;
-    ColorPair mButtonHover;
-    ColorPair mButtonActive;
-    nscolor mButtonBorder = kBlack;
-    nscolor mThreeDHighlight = kBlack;
-    nscolor mThreeDShadow = kBlack;
-    nscolor mOddCellBackground = kWhite;
+    ButtonColors mButton;
+    ButtonColors mButtonHover;
+    ButtonColors mButtonActive;
+    ButtonColors mButtonDisabled;
+    nscolor mFrameBorder = kBlack;
     nscolor mNativeHyperLinkText = kBlack;
     nscolor mNativeVisitedHyperLinkText = kBlack;
-    // FIXME: This doesn't seem like it'd be sound since we use Window for
-    // -moz-Combobox... But I guess we rely on chrome code not setting
-    // appearance: none on selects or overriding the color if they do.
-    nscolor mComboBoxText = kBlack;
     ColorPair mField;
     ColorPair mWindow;
     ColorPair mDialog;
@@ -142,22 +171,30 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
     ColorPair mTitlebarInactive;
 
     nscolor mThemedScrollbar = kWhite;
-    nscolor mThemedScrollbarInactive = kWhite;
     nscolor mThemedScrollbarThumb = kBlack;
     nscolor mThemedScrollbarThumbHover = kBlack;
     nscolor mThemedScrollbarThumbActive = kBlack;
-    nscolor mThemedScrollbarThumbInactive = kBlack;
 
     float mCaretRatio = 0.0f;
     int32_t mTitlebarRadius = 0;
-    int32_t mTitlebarButtonSpacing = 0;
+    int32_t mTooltipRadius = 0;
     char16_t mInvisibleCharacter = 0;
     bool mMenuSupportsDrag = false;
 
     void Init();
     nsresult GetColor(ColorID, nscolor&) const;
-    bool GetFont(FontID, nsString& aFontName, gfxFontStyle&) const;
+    bool GetFont(FontID, nsString& aFontName, gfxFontStyle&,
+                 float aTextScaleFactor) const;
     void InitCellHighlightColors();
+    void RestoreColorOverrides();
+    void ApplyColorOverride(nscolor* aMember, nscolor aNewColor);
+    void ApplyColorOverride(ColorPair* aMember, const ColorPair& aNewPair);
+
+    struct ColorOverride {
+      uint32_t mByteOffset;
+      nscolor mOriginalColor;
+    };
+    nsTArray<ColorOverride> mOverrides;
   };
 
   PerThemeData mSystemTheme;
@@ -203,21 +240,23 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
   bool mCSDCloseButton = false;
   bool mCSDReversedPlacement = false;
   bool mPrefersReducedMotion = false;
-  bool mInitialized = false;
   bool mSystemThemeOverridden = false;
+  NativeChangeKind mPendingChanges = NativeChangeKind::All;
   int32_t mCSDMaximizeButtonPosition = 0;
   int32_t mCSDMinimizeButtonPosition = 0;
   int32_t mCSDCloseButtonPosition = 0;
   TitlebarAction mDoubleClickAction = TitlebarAction::None;
   TitlebarAction mMiddleClickAction = TitlebarAction::None;
+  float mTextScaleFactor = 1.0f;
 
+  int32_t mRoundedCornerProviderRadius = 0;
   RefPtr<GtkCssProvider> mRoundedCornerProvider;
   void UpdateRoundedBottomCornerStyles();
 
   void ClearRoundedCornerProvider();
 
   void EnsureInit() {
-    if (mInitialized) {
+    if (mPendingChanges == NativeChangeKind::None) {
       return;
     }
     Initialize();
@@ -231,7 +270,7 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
   bool ConfigureAltTheme();
   void ConfigureAndInitializeAltTheme();
   void ConfigureFinalEffectiveTheme();
-  void MaybeApplyAdwaitaOverrides();
+  void MaybeApplyColorOverrides();
 };
 
 #endif

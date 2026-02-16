@@ -23,7 +23,9 @@ if (System.env.GRADLE_MACH_PYTHON) {
 }
 
 def proc = providers.exec {
-    commandLine(command)
+    workingDir = new File(topsrcdir)
+    environment = machEnv(topsrcdir)
+    commandLine = command
     ignoreExitValue = true
 }
 
@@ -80,19 +82,39 @@ gradle.ext.mozconfig = json
 def orig = slurper.parse(new File(json.topobjdir, '.mozconfig.json'))
 gradle.ext.mozconfig.orig_mozconfig = orig.mozconfig
 
-// Returns the hg hash of the currently checked out revision.
-// Hash is stored in MOZ_SOURCE_STAMP variable of $topobjdir/source-repo.h.
-// $topobjdir/source-repo.h is created in mercurial repos and taskcluster.
-// Also avoids running git/hg subprocesses when possible.
-// Relevant bug: 1890508
-def getVcsHash() {
-    def sourceRepoFile = file("${gradle.mozconfig.topobjdir}/source-repo.h")
-    if (sourceRepoFile.canRead()) {
-        def pattern = ~/define MOZ_SOURCE_STAMP\s(.{1,12})/
-        def matcher = sourceRepoFile.getText('utf-8') =~ pattern
-        return matcher.find() ? matcher.group(1).trim() : null
+// While we're here, read our VCS configuration when available.  This is usually
+// present in the `mozconfig`, but the source of truth is `source-repo.h`, which
+// incorporates environment variables after configure-time.
+gradle.ext.mozconfig.source_repo = [:]
+def sourceRepoFile = file("${gradle.mozconfig.topobjdir}/source-repo.h")
+if (sourceRepoFile.canRead()) {
+    def defines = ["MOZ_SOURCE_STAMP", "MOZ_SOURCE_REPO", "MOZ_SOURCE_URL"]
+
+    sourceRepoFile.eachLine { line ->
+        defines.forEach { define ->
+            def matcher = line =~ ~/^#define ${define}\s(.*)/
+            if (matcher.find()) {
+                gradle.ext.mozconfig.source_repo[define] = matcher.group(1).trim()
+            }
+        }
     }
-    return null
+
+    if (gradle.ext.mozconfig.substs.MOZILLA_OFFICIAL) {
+        logger.info("mozconfig.gradle> Parsed source-repo.h: ${gradle.ext.mozconfig.source_repo}");
+    }
 }
 
-gradle.ext.vcsHashFileContent = getVcsHash()
+// Configures Maven repositories from mozconfig onto a RepositoryHandler.
+// In Groovy, pass `delegate` from within a `repositories { }` closure, since
+// `delegate` refers to the RepositoryHandler that receives method calls.
+// In Kotlin, pass `this`.
+gradle.ext.configureMavenRepositories = { handler ->
+    gradle.mozconfig.substs.GRADLE_MAVEN_REPOSITORIES.each { repository ->
+        handler.maven {
+            url = repository
+            if (gradle.mozconfig.substs.ALLOW_INSECURE_GRADLE_REPOSITORIES) {
+                allowInsecureProtocol = true
+            }
+        }
+    }
+}

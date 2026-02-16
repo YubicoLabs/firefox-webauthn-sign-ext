@@ -35,6 +35,15 @@ size_t BaseCompiler::countMemRefsOnStk() {
   }
   return nRefs;
 }
+
+bool BaseCompiler::hasLiveRegsOnStk() {
+  for (Stk& v : stk_) {
+    if (v.isReg()) {
+      return true;
+    }
+  }
+  return false;
+}
 #endif
 
 template <typename T>
@@ -726,9 +735,15 @@ void BaseCompiler::popI32(const Stk& v, RegI32 dest) {
       break;
     case Stk::LocalI32:
       loadLocalI32(v, dest);
+#if defined(DEBUG) && defined(JS_64BIT)
+      masm.debugAssertCanonicalInt32(dest);
+#endif
       break;
     case Stk::MemI32:
       fr.popGPR(dest);
+#if defined(DEBUG) && defined(JS_64BIT)
+      masm.debugAssertCanonicalInt32(dest);
+#endif
       break;
     case Stk::RegisterI32:
       loadRegisterI32(v, dest);
@@ -1221,15 +1236,11 @@ RegI32 BaseCompiler::popTableAddressToClampedInt32(AddressType addressType) {
     return popI32();
   }
 
-#ifdef ENABLE_WASM_MEMORY64
   MOZ_ASSERT(addressType == AddressType::I64);
   RegI64 val = popI64();
   RegI32 clamped = narrowI64(val);
   masm.wasmClampTable64Address(val, clamped);
   return clamped;
-#else
-  MOZ_CRASH("got i64 table address without memory64 enabled");
-#endif
 }
 
 void BaseCompiler::replaceTableAddressWithClampedInt32(

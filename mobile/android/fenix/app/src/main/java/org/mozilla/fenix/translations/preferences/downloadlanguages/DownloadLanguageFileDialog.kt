@@ -14,30 +14,36 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Checkbox
-import androidx.compose.material.CheckboxDefaults
-import androidx.compose.material.Text
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import mozilla.components.compose.base.annotation.LightDarkPreview
+import mozilla.components.compose.base.button.FilledButton
 import mozilla.components.compose.base.button.TextButton
-import mozilla.components.feature.downloads.toMegabyteOrKilobyteString
+import mozilla.components.feature.downloads.DefaultFileSizeFormatter
+import mozilla.components.feature.downloads.FileSizeFormatter
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.button.PrimaryButton
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.theme.PreviewThemeProvider
+import org.mozilla.fenix.theme.Theme
 
 /**
  * Download Languages File Dialog.
  * @param downloadLanguageDialogType Whether the download language file item is
  * of type all languages,single file translation request or default.
+ * @param fileSizeFormatter [FileSizeFormatter] used to format the size of the file item.
  * @param fileSize Language file size in bytes that should be displayed in the dialogue title.
  * @param isCheckBoxEnabled Whether saving mode checkbox is checked or unchecked.
  * @param onSavingModeStateChange Invoked when the user clicks on the checkbox of the saving mode state.
@@ -48,6 +54,7 @@ import org.mozilla.fenix.theme.FirefoxTheme
 @Suppress("LongMethod")
 fun DownloadLanguageFileDialog(
     downloadLanguageDialogType: DownloadLanguageFileDialogType,
+    fileSizeFormatter: FileSizeFormatter,
     fileSize: Long? = null,
     isCheckBoxEnabled: Boolean,
     onSavingModeStateChange: (Boolean) -> Unit,
@@ -58,7 +65,7 @@ fun DownloadLanguageFileDialog(
         Column(
             modifier = Modifier
                 .background(
-                    color = FirefoxTheme.colors.layer2,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     shape = RoundedCornerShape(8.dp),
                 )
                 .padding(16.dp),
@@ -67,20 +74,20 @@ fun DownloadLanguageFileDialog(
                 if (downloadLanguageDialogType is DownloadLanguageFileDialogType.TranslationRequest) {
                     stringResource(
                         R.string.translations_download_language_file_dialog_title,
-                        fileSize?.toMegabyteOrKilobyteString() ?: 0L,
+                        fileSizeFormatter.formatSizeInBytes(fileSize ?: 0L),
                     )
                 } else {
                     stringResource(
                         R.string.download_language_file_dialog_title,
-                        fileSize?.toMegabyteOrKilobyteString() ?: 0L,
+                        fileSizeFormatter.formatSizeInBytes(fileSize ?: 0L),
                     )
                 }
             Text(
                 text = title,
                 modifier = Modifier
                     .semantics { heading() },
-                color = FirefoxTheme.colors.textPrimary,
-                style = FirefoxTheme.typography.headline7,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = FirefoxTheme.typography.headline5,
             )
 
             if (downloadLanguageDialogType is DownloadLanguageFileDialogType.AllLanguages ||
@@ -89,8 +96,8 @@ fun DownloadLanguageFileDialog(
                 Text(
                     text = stringResource(R.string.download_language_file_dialog_message_all_languages),
                     modifier = Modifier.padding(top = 16.dp, bottom = 16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = FirefoxTheme.typography.body2,
-                    color = FirefoxTheme.colors.textPrimary,
                 )
             }
 
@@ -108,7 +115,7 @@ fun DownloadLanguageFileDialog(
                     stringResource(id = R.string.download_language_file_dialog_positive_button_text)
                 }
 
-            PrimaryButton(
+            FilledButton(
                 text = primaryButtonText,
                 modifier = Modifier
                     .padding(top = 16.dp)
@@ -120,7 +127,6 @@ fun DownloadLanguageFileDialog(
 
             TextButton(
                 text = stringResource(id = R.string.download_language_file_dialog_negative_button_text),
-                upperCaseText = false,
                 modifier = Modifier
                     .fillMaxWidth(),
                 onClick = {
@@ -154,10 +160,6 @@ private fun DownloadLanguageFileDialogCheckbox(
                 .clearAndSetSemantics { },
             checked = isCheckBoxEnabled,
             onCheckedChange = onSavingModeStateChange,
-            colors = CheckboxDefaults.colors(
-                checkedColor = FirefoxTheme.colors.formSelected,
-                uncheckedColor = FirefoxTheme.colors.formDefault,
-            ),
         )
 
         Spacer(modifier = Modifier.width(20.dp))
@@ -167,22 +169,7 @@ private fun DownloadLanguageFileDialogCheckbox(
                 .align(Alignment.CenterVertically),
             text = checkBoxText,
             style = FirefoxTheme.typography.body2,
-            color = FirefoxTheme.colors.textPrimary,
-        )
-    }
-}
-
-@Composable
-@LightDarkPreview
-private fun PrefDownloadLanguageFileDialogPreviewAllLanguages() {
-    FirefoxTheme {
-        DownloadLanguageFileDialog(
-            downloadLanguageDialogType = DownloadLanguageFileDialogType.AllLanguages,
-            fileSize = 4000L,
-            isCheckBoxEnabled = true,
-            onSavingModeStateChange = {},
-            onConfirmDownload = {},
-            onCancel = {},
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -210,12 +197,33 @@ sealed class DownloadLanguageFileDialogType {
     data object TranslationRequest : DownloadLanguageFileDialogType()
 }
 
+@Preview
 @Composable
-@LightDarkPreview
-private fun PrefDownloadLanguageFileDialogPreview() {
-    FirefoxTheme {
+private fun PrefDownloadLanguageFileDialogPreviewAllLanguages(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
+        DownloadLanguageFileDialog(
+            downloadLanguageDialogType = DownloadLanguageFileDialogType.AllLanguages,
+            fileSizeFormatter = DefaultFileSizeFormatter(LocalContext.current),
+            fileSize = 4000L,
+            isCheckBoxEnabled = true,
+            onSavingModeStateChange = {},
+            onConfirmDownload = {},
+            onCancel = {},
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun PrefDownloadLanguageFileDialogPreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
         DownloadLanguageFileDialog(
             downloadLanguageDialogType = DownloadLanguageFileDialogType.Default,
+            fileSizeFormatter = DefaultFileSizeFormatter(LocalContext.current),
             fileSize = 4000L,
             isCheckBoxEnabled = false,
             onSavingModeStateChange = {},

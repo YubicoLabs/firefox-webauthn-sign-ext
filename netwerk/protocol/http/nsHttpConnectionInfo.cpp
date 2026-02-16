@@ -26,19 +26,19 @@
 #include "nsProxyInfo.h"
 #include "prnetdb.h"
 
-static nsresult ComputeHash(uint32_t aAlgorithm, const uint8_t* aInput,
-                            uint32_t aLen, nsAutoCString& aResult) {
-  nsCOMPtr<nsICryptoHash> hasher;
-  nsresult rv = NS_NewCryptoHash(aAlgorithm, getter_AddRefs(hasher));
-
+static nsresult SHA256(const char* aPlainText, nsAutoCString& aResult) {
+  nsresult rv;
+  nsCOMPtr<nsICryptoHash> hasher =
+      do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID, &rv);
   if (NS_FAILED(rv)) {
     LOG(("nsHttpDigestAuth: no crypto hash!\n"));
     return rv;
   }
-
-  rv = hasher->Update(aInput, aLen);
+  rv = hasher->Init(nsICryptoHash::SHA256);
   NS_ENSURE_SUCCESS(rv, rv);
-  return hasher->Finish(true, aResult);
+  rv = hasher->Update((unsigned char*)aPlainText, strlen(aPlainText));
+  NS_ENSURE_SUCCESS(rv, rv);
+  return hasher->Finish(false, aResult);
 }
 
 namespace mozilla {
@@ -72,6 +72,15 @@ nsHttpConnectionInfo::nsHttpConnectionInfo(
        true, aIsHttp3, aWebTransport);
 }
 
+// static
+uint64_t nsHttpConnectionInfo::GenerateNewWebTransportId() {
+  // Used for generating unique IDSs for dedicated connections, currently used
+  // by WebTransport
+  MOZ_ASSERT(XRE_IsParentProcess());
+  static Atomic<uint64_t> id(0);
+  return ++id;
+}
+
 void nsHttpConnectionInfo::Init(const nsACString& host, int32_t port,
                                 const nsACString& npnToken,
                                 const nsACString& username,
@@ -100,11 +109,20 @@ void nsHttpConnectionInfo::Init(const nsACString& host, int32_t port,
   mUsingHttpProxy = mUsingHttpsProxy || (proxyInfo && proxyInfo->IsHTTP());
 
   if (mUsingHttpProxy) {
-    mUsingConnect = mEndToEndSSL;  // SSL always uses CONNECT
-    uint32_t resolveFlags = 0;
-    if (NS_SUCCEEDED(mProxyInfo->GetResolveFlags(&resolveFlags)) &&
-        resolveFlags & nsIProtocolProxyService::RESOLVE_ALWAYS_TUNNEL) {
-      mUsingConnect = true;
+    mUsingConnect = mEndToEndSSL || proxyInfo->IsHttp3Proxy();
+    if (!mUsingConnect) {
+      uint32_t resolveFlags = 0;
+      if (NS_SUCCEEDED(mProxyInfo->GetResolveFlags(&resolveFlags)) &&
+          resolveFlags & nsIProtocolProxyService::RESOLVE_ALWAYS_TUNNEL) {
+        mUsingConnect = true;
+      }
+    }
+  }
+
+  if (mUsingHttpsProxy) {
+    mIsHttp3ProxyConnection = "masque"_ns.Equals(proxyInfo->Type());
+    if (mIsHttp3ProxyConnection) {
+      mProxyNPNToken = "h3"_ns;
     }
   }
 
@@ -202,12 +220,9 @@ void nsHttpConnectionInfo::BuildHashKey() {
     mHashKey.Append(ProxyUsername());
     mHashKey.Append(':');
     const char* password = ProxyPassword();
-    uint32_t len = strlen(password);
-    if (len > 0) {
+    if (strlen(password) > 0) {
       nsAutoCString digestedPassword;
-      nsresult rv = ComputeHash(nsICryptoHash::SHA256,
-                                reinterpret_cast<const uint8_t*>(password), len,
-                                digestedPassword);
+      nsresult rv = SHA256(password, digestedPassword);
       if (rv == NS_OK) {
         mHashKey.Append(digestedPassword);
       }
@@ -263,20 +278,6 @@ void nsHttpConnectionInfo::BuildHashKey() {
     mHashKey.AppendLiteral("{wId");
     mHashKey.AppendInt(mWebTransportId, 16);
     mHashKey.AppendLiteral("}");
-  }
-
-  // Make sure when echConfig is changed, we don't reuse the old connection.
-  if (!mEchConfig.IsEmpty()) {
-    nsAutoCString digestedEch;
-    nsresult rv =
-        ComputeHash(nsICryptoHash::SHA1,
-                    reinterpret_cast<const uint8_t*>(mEchConfig.BeginReading()),
-                    mEchConfig.Length(), digestedEch);
-    if (NS_SUCCEEDED(rv)) {
-      mHashKey.AppendLiteral("{ech");
-      mHashKey.Append(digestedEch);
-      mHashKey.AppendLiteral("}");
-    }
   }
 
   nsAutoCString originAttributes;
@@ -403,13 +404,13 @@ nsHttpConnectionInfo::CloneAndAdoptHTTPSSVCRecord(
   clone->SetIPv6Disabled(GetIPv6Disabled());
 
   bool hasIPHint = false;
-  Unused << aRecord->GetHasIPHintAddress(&hasIPHint);
+  (void)aRecord->GetHasIPHintAddress(&hasIPHint);
   if (hasIPHint) {
     clone->SetHasIPHintAddress(hasIPHint);
   }
 
   nsAutoCString echConfig;
-  Unused << aRecord->GetEchConfig(echConfig);
+  (void)aRecord->GetEchConfig(echConfig);
   clone->SetEchConfig(echConfig);
 
   return clone.forget();
@@ -494,13 +495,15 @@ nsHttpConnectionInfo::DeserializeHttpConnectionInfoCloneArgs(
   return cinfo.forget();
 }
 
-void nsHttpConnectionInfo::CloneAsDirectRoute(nsHttpConnectionInfo** outCI) {
+void nsHttpConnectionInfo::CloneAsDirectRoute(nsHttpConnectionInfo** outCI,
+                                              nsProxyInfo* aProxyInfo) {
   // Explicitly use an empty npnToken when |mIsHttp3| is true, since we want to
   // create a non-http3 connection info.
   RefPtr<nsHttpConnectionInfo> clone = new nsHttpConnectionInfo(
       mOrigin, mOriginPort,
       (mRoutedHost.IsEmpty() && !mIsHttp3) ? mNPNToken : ""_ns, mUsername,
-      mProxyInfo, mOriginAttributes, mEndToEndSSL, false, mWebTransport);
+      aProxyInfo ? aProxyInfo : mProxyInfo.get(), mOriginAttributes,
+      mEndToEndSSL, false, mWebTransport);
   // Make sure the anonymous, insecure-scheme, and private flags are transferred
   clone->SetAnonymous(GetAnonymous());
   clone->SetPrivate(GetPrivate());
@@ -520,6 +523,18 @@ void nsHttpConnectionInfo::CloneAsDirectRoute(nsHttpConnectionInfo** outCI) {
   clone.forget(outCI);
 }
 
+already_AddRefed<nsHttpConnectionInfo>
+nsHttpConnectionInfo::CreateConnectUDPFallbackConnInfo() {
+  if (!mProxyInfo || !mProxyInfo->IsHttp3Proxy()) {
+    return nullptr;
+  }
+
+  RefPtr<nsProxyInfo> proxyInfo = mProxyInfo->CreateFallbackProxyInfo();
+  RefPtr<nsHttpConnectionInfo> clone;
+  CloneAsDirectRoute(getter_AddRefs(clone), proxyInfo);
+  return clone.forget();
+}
+
 nsresult nsHttpConnectionInfo::CreateWildCard(nsHttpConnectionInfo** outParam) {
   // T???mozilla.org:443 (https:proxy.ducksong.com:3128) [specifc form]
   // TS??*:0 (https:proxy.ducksong.com:3128)   [wildcard form]
@@ -536,6 +551,7 @@ nsresult nsHttpConnectionInfo::CreateWildCard(nsHttpConnectionInfo** outParam) {
   // Make sure the anonymous and private flags are transferred!
   clone->SetAnonymous(GetAnonymous());
   clone->SetPrivate(GetPrivate());
+  clone->SetFallbackConnection(GetFallbackConnection());
   clone.forget(outParam);
   return NS_OK;
 }
@@ -575,13 +591,6 @@ void nsHttpConnectionInfo::SetWebTransportId(uint64_t id) {
   }
 }
 
-void nsHttpConnectionInfo::SetEchConfig(const nsACString& aEchConfig) {
-  if (!mEchConfig.Equals(aEchConfig)) {
-    mEchConfig = aEchConfig;
-    RebuildHashKey();
-  }
-}
-
 void nsHttpConnectionInfo::SetTlsFlags(uint32_t aTlsFlags) {
   mTlsFlags = aTlsFlags;
   const uint32_t tlsFlagsLength = 8;
@@ -604,6 +613,30 @@ bool nsHttpConnectionInfo::HostIsLocalIPLiteral() const {
     return false;
   }
   return netAddr.IsIPAddrLocal();
+}
+
+// static
+void nsHttpConnectionInfo::BuildOriginFrameHashKey(nsACString& newKey,
+                                                   nsHttpConnectionInfo* ci,
+                                                   const nsACString& host,
+                                                   int32_t port) {
+  newKey.Assign(host);
+  if (ci->GetAnonymous()) {
+    newKey.AppendLiteral("~A:");
+  } else {
+    newKey.AppendLiteral("~.:");
+  }
+  if (ci->GetFallbackConnection()) {
+    newKey.AppendLiteral("~F:");
+  } else {
+    newKey.AppendLiteral("~.:");
+  }
+  newKey.AppendInt(port);
+  newKey.AppendLiteral("/[");
+  nsAutoCString suffix;
+  ci->GetOriginAttributes().CreateSuffix(suffix);
+  newKey.Append(suffix);
+  newKey.AppendLiteral("]viaORIGIN.FRAME");
 }
 
 }  // namespace net

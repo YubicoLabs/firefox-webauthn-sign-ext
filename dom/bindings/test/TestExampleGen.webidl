@@ -307,6 +307,8 @@ interface TestExampleInterface {
   undefined passUint8ClampedArray(Uint8ClampedArray arg);
   undefined passFloat32Array(Float32Array arg);
   undefined passFloat64Array(Float64Array arg);
+  undefined passBigUint64Array(BigUint64Array arg);
+  undefined passBigInt64Array(BigInt64Array arg);
   undefined passSequenceOfArrayBuffers(sequence<ArrayBuffer> arg);
   undefined passSequenceOfNullableArrayBuffers(sequence<ArrayBuffer?> arg);
   undefined passRecordOfArrayBuffers(record<DOMString, ArrayBuffer> arg);
@@ -869,6 +871,7 @@ interface TestExampleInterface {
   undefined passAllowSharedNullableArrayBuffer([AllowShared] ArrayBuffer? foo);
   undefined passUnionArrayBuffer((DOMString or ArrayBuffer) foo);
   undefined passUnionAllowSharedArrayBuffer((DOMString or [AllowShared] ArrayBuffer) foo);
+  undefined passAllowSharedInt8ArrayOrInt16Array([AllowShared] (Int8Array or Int16Array) foo);
 
   [Frozen, ReflectedHTMLAttributeReturningFrozenArray]
   attribute sequence<Element>? reflectedHTMLAttributeReturningFrozenArray;

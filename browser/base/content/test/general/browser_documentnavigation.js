@@ -175,8 +175,9 @@ add_task(async function () {
 
   // Check to ensure that the root element is focused
   await SpecialPowers.spawn(gBrowser.selectedBrowser, [], async function () {
-    Assert.ok(
-      content.document.activeElement == content.document.documentElement,
+    Assert.equal(
+      content.document.activeElement,
+      content.document.documentElement,
       "basic focus again content page with button focused child root is focused"
     );
   });
@@ -236,7 +237,9 @@ add_task(async function () {
   await expectFocusOnF6(
     false,
     "bookmarksPanel",
-    sidebar.contentDocument.getElementById("search-box").inputField,
+    sidebar.contentDocument
+      .getElementById("search-box")
+      .shadowRoot.querySelector("input"),
     false,
     "focus with sidebar open sidebar"
   );
@@ -263,10 +266,20 @@ add_task(async function () {
     true,
     "back focus with sidebar open content"
   );
+
+  // Bug 2006225: sidebar.revamp introduces a regression where the "X" button receives
+  // focus instead of the search input.
+  let expectedSidebarFocusElement = Services.prefs.getBoolPref("sidebar.revamp")
+    ? sidebar.contentDocument
+        .getElementById("sidebar-panel-close")
+        .shadowRoot.querySelector("#main-button")
+    : sidebar.contentDocument
+        .getElementById("search-box")
+        .shadowRoot.querySelector("input");
   await expectFocusOnF6(
     true,
     "bookmarksPanel",
-    sidebar.contentDocument.getElementById("search-box").inputField,
+    expectedSidebarFocusElement,
     false,
     "back focus with sidebar open sidebar"
   );

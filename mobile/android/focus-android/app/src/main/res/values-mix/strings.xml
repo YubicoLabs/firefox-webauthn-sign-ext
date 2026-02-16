@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">Stoo ña ntsinu</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">Stoi ña ntsinu ña ntsika nu xikua.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">Ndukù %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Stucha…</string>
@@ -52,7 +62,7 @@
   <string name="menu_settings">Nu samu</string>
   <string name="menu_about">Tsaa ña</string>
   <string name="menu_help">Chinchee</string>
-  <string name="menu_rights">Yee yu\'u</string>
+  <string name="menu_terms_of_use">Kavi tutu</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -123,7 +133,7 @@
     Focus is hard coded since we can't use variables in this context.
     Do not translate or transliterate Focus.
   -->
-  <string name="text_selection_search_action_focus" tools:ignore="BrandUsage">Nduku nu Focus </string>
+  <string name="text_selection_search_action_focus" tools:ignore="BrandUsage">Nduku nu Focus</string>
   <!--
     This is the label of an action we offer when the user selects text in other third-party apps.
     Klar is hard coded since we can't use variables in this context.
@@ -143,19 +153,10 @@
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Nduku tsi Focus Nightly</string>
   <!--
-    Content of about focus. Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
-    Argument 2 is the url for the learn-more link.
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
   -->
-  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote">&lt;p&gt;%1$s te da el control.&lt;/p&gt;
-&lt;p&gt;Usalo como navegador privado:
-  &lt;ul&gt;
-    &lt;li&gt;Buscar y navegar directamente en la aplicación&lt;/li&gt;
-    &lt;li&gt;Bloquear rastreadores (o actualizar los ajustes para permitir rastreadores)&lt;/li&gt;
-    &lt;li&gt;Borrar para eliminar cookies e historial de búsqueda y navegación&lt;/li&gt;
-  &lt;/ul&gt;
-&lt;/p&gt;
-&lt;p&gt;%1$s es producido por Mozilla. Nuestra misión es promover una Internet saludable y abierta.&lt;br/&gt;
-&lt;a href="%2$s"&gt;Conocer más&lt;/a&gt;&lt;/p&gt;</string>
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s te da el control.</p>\n<p>Usalo como navegador privado:\n<ul>\n<li>Buscar y navegar directamente en la aplicación</li>\n<li>Bloquear rastreadores (o actualizar los ajustes para permitir rastreadores)</li>\n<li>Borrar para eliminar cookies e historial de búsqueda y navegación</li>\n</ul> </p>\n<p>%1$s es producido por Mozilla. Nuestra misión es promover una Internet saludable y abierta.<br/>\n<a href=\"%2$s\">Conocer más</a></p>]]></string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">Ña i\'í tsi Ña kunka vai</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -207,14 +208,14 @@
   <string name="preference_switch_autocomplete_topsites">Sitio kua ncheu</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">Habilitar para que %s autocomplete más de 450 URLs populares en la barra de direcciones.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">Sitio chikau</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">Habilitar para que %s autocomplete tus URLs favoritas.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -289,8 +290,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">Desbloqueá usando la huella digital si agregaste accesos directos o cuando un sitio web ya está abierto en %s.</string>
   <!--
@@ -326,15 +327,20 @@
   <string name="preference_mozilla_telemetry_summary">Skua\'a kuakaa</string>
   <!-- %1$s will be replaced with the name of the app (e.g. Firefox Focus) -->
   <string name="preference_mozilla_telemetry_summary2">Mozilla ndaki\'an ña vaa tava na koo vaa %1$s ntio.</string>
+  <!-- Preference switch for daily usage ping data collection -->
+  <string name="preference_daily_usage_ping_title">Ping de uso diario</string>
+  <string name="preference_daily_usage_ping_learn_more">Kavi</string>
   <!-- In-app link (in settings) to Focus privacy notice. -->
   <string name="preference_privacy_notice">Nixi inka vaa tutu\'ku</string>
   <!-- In-app link (in settings) to Focus licensing information. -->
   <string name="preference_licensing_info">Información de licencia</string>
   <!-- Link to Focus licensing information from other libraries that we use. -->
   <string name="preference_libraries_we_use">Bibliotecas que usamos</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Link to Focus Crash reports list. -->
+  <string name="preference_crashes">Ña va\'a</string>
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s | Bibliotecas OSS</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">Tsaa ña\'a%1$s</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">Ndu tsaa ña nda nduku</string>
@@ -358,7 +364,7 @@
   <string name="search_add_manually_name_hint">SIvi ña nduku</string>
   <string name="search_add_manually_string">Nduku tu\'un kunu kuachu\'un</string>
   <string name="search_add_manually_save">Chika vaà</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">Sa\'an chau\'ña: example.com/search/?q=%s</string>
   <string name="search_add_confirmation">Ntu tsa\'a tsi ña ndukuku.</string>
   <string name="search_add_error_empty_name">Chaa sivi ña kunu nduku</string>
@@ -430,19 +436,19 @@
   <string name="external_app_prompt_title">Kuna nu ndukuku inka tsio</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">Kuu siau %1$s cha kuu kunu nu ndukuku yoo%2$s.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">Nduku inka nu kuu kuncheu ña kunu</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">Ni iin nu sachuun kúú kunaku tsi enlace yó’o. Kuu ketu %1$s tatu kunu ndukukuv%2$s inka nu kuu sachuun.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">A keu nu nduku seu ñaa?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s ntsinu</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">Kuna</string>
@@ -452,13 +458,13 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">A nikitsau nu %1$s</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
   <string name="onboarding_first_screen_subtitle">Rápido. Privado. Sin distracciones.</string>
-  <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">Ki tsaà</string>
+  <!-- In the first screen of new onboarding flow, additional accessibility description for content that contain urls. -->
+  <string name="a11y_link_available">Enlace vaa</string>
   <!--
     Onboarding second screen: Title
 
@@ -529,41 +535,13 @@
   <string name="notification_browsing_session_channel_description">Tu\'un kuu stoi nu nikitsau %1$s ta katavu. ke tsiniñu\'u kunakuña ni kuncheu ta sachuùn navegador.</string>
   <!-- Label for a button in the "tabs tray" to erase the browsing history (closes all tabs and removes associated data). -->
   <string name="tabs_tray_action_erase">Stòo ña ntukuku sata</string>
+  <!-- Label for the option in the Focus "tabs tray" to clos the other tabs except the current tab. -->
+  <string name="tabs_tray_action_erase_other">Kasi inka xikúa</string>
   <!--
     If the user decides to open the current page in another browser and if Firefox is not installed then we show this
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">Snuu Firefox</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">%1$s software kuachu\'un ntiina ni kuu vaa saa Mozilla tsi nivi sachu\'un chi\'an.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s está disponible para ti bajo los términos de la &lt;a href="%2$s"&gt;Licencia Pública de Mozilla&lt;/a&gt; y otras licencias de código abierto.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">Ma ku kuatyu´un marca a licencia tsa fundación Mozilla a inka ña´a, tana logos a sivi Mozilla, Firefox a %1$s. kuntyee nu &lt;a href="%2$s"&gt;aquí&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">El código fuente adicional para %1$s está disponible bajo varias otras &lt;a href="%2$s"&gt;licencias&lt;/a&gt; gratuitas y de código abierto.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s también usa listas de bloqueo provistas por Disconnect, Inc. como trabajos separados e independientes bajo la &lt;a href="%2$s"&gt;GPLv3 (GNU General Public License v3)&lt;/a&gt;, y se encuentra disponible &lt;a href="%3$s"&gt;aquí&lt;/a&gt;.</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">Sivìi</string>
   <string name="gv_prompt_password_hint">Tu\'un seè</string>
@@ -585,13 +563,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">Nduku nu página</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">%1$d a %2$d</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -638,13 +618,13 @@
   <string name="cookie_banner_exception_panel_switch_state_off">DESACTIVADA para este sitio</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">ACTIVADA para este sitio</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">¿Habilitar reducción de mensajes de cookies para %1$s?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">¿Habilitar reducción de mensajes de cookies para %1$s?</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">%1$s borrará las cookies de este sitio y actualizará la página. Borrar todas las cookies puede cerrar la sesión o vaciar los carritos de compras.</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">%1$s puede intentar rechazar automáticamente las solicitudes de cookies.</string>
   <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_description_site_is_not_supported">Este sitio actualmente no soporta la reducción de mensajes de cookies. ¿Querés pedirle a nuestro equipo que revise este sitio web y agregue soporte en el futuro?</string>
@@ -671,11 +651,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Kuna nu ndasama Android</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. Katavi &lt;b&gt;Sama&lt;/b&gt;</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. Katavi <b>Sama</b>]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">Kua´an nu ku ndasamu</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. Ndatu´un &lt;b&gt;%1$s&lt;/b&gt;</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. Ndatu´un <b>%1$s</b>]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">Cámara</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -702,20 +682,6 @@
   <string name="preference_block_autoplay_audio_only_summary">Recomendado</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">Kasi ndusu tsi ña ndatavana</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">Skua</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Firefox ku tyikai la skua ya kunu.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">Skua´a kuakaa</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">La aplicación se cerrará para aplicar los cambios</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">Xitaá</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">Va´a </string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">Va´a </string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">Nta sa vaà tsi USBWi-Fi</string>
   <!-- Text Button for show biometric prompt -->
@@ -762,28 +728,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">¿Ntu satiñu vii sitio ya´a?\n Xita protección de rastreo </string>
+  <string name="tip_disable_tracking_protection">¿Ntu satiñu vii sitio ya´a?\nXita protección de rastreo</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">kuntyee sitio ña tyeu ndikii nu %1$s Menú &gt; Tyika xina</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">Kuna iin enlace tsi %1$s\n Chikay %1$s tana navegador xina</string>
+  <string name="tip_set_default_browser">Kuna iin enlace tsi %1$s\nChikay %1$s tana navegador xina</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">Ntasa URLs ña sitio ña kuaka chichu\'un\n Katavi URL niku nu barra ña direcciones</string>
+  <string name="tip_autocomplete_url">Ntasa URLs ña sitio ña kuaka chichu\'un\nKatavi URL niku nu barra ña direcciones</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">Kuna enlace nu xikua tsaá\n Katavi nchi enlace niku nu página</string>
+  <string name="tip_open_in_new_tab">Kuna enlace nu xikua tsaá\nKatavi nchi enlace niku nu página</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">Xita tu´un xina ya kitsau</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -791,15 +757,15 @@
   <!-- Label for the button in the snackbar that switches to the newly opened tab -->
   <string name="open_new_tab_snackbar">Sama</string>
   <!-- Preference for switching to a new tab immediately after opening -->
-  <string name="preference_open_new_tab">Sama  enlazar nu xikua  tsaa vityi</string>
+  <string name="preference_open_new_tab">Sama enlazar nu xikua tsaa vityi</string>
   <!-- Preference title for safe browsing which when enabled, blocks dangerous or deceptive webpages that may include phishing or malware -->
   <string name="preference_safe_browsing_title">Kasi sitio vaa tsi ña stavi</string>
   <!-- Preference summary for safe browsing which when enabled, blocks dangerous or deceptive webpages that may include phishing or malware -->
   <string name="preference_safe_browsing_summary">Kasi sitio vaa tsi ña stavi, sitio nu inka kue aplicaciones tsi software vaa.</string>
   <!-- Title of the preference to enable "HTTPS-Only" mode -->
-  <string name="preference_https_only_title"> HTTPS</string>
+  <string name="preference_https_only_title">HTTPS</string>
   <!-- Description of the preference to enable "HTTPS-Only" mode. -->
-  <string name="preference_https_only_summary3">Kunu  kuntyeu sitio tatyu un protocolo HTTPS cifrado.</string>
+  <string name="preference_https_only_summary3">Kunu kuntyeu sitio tatyu un protocolo HTTPS cifrado.</string>
   <!-- Preference for exceptions tracking protection -->
   <string name="preference_exceptions">Excepciones</string>
   <!-- Menu item to remove existing exceptions. -->
@@ -822,29 +788,29 @@
   <string name="crash_report_send_crash_label">Tachu\'un tu\'un ña vai nu Mozilla</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
-  <string name="trackers_count_note"> Ntsasia reatreador nu%s</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
+  <string name="trackers_count_note">Ntsasia reatreador nu%s</string>
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">Contenido</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">Publicidad</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">Social</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">Analítica</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">Chikavaa ña sau</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">Las protecciones están desactivadas para este sitio</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">Las protecciones están activadas para este sitio</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">Conexión va´a</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">Conexión va´a</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">Rastreadores y scripts a bloquear</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">Satà</string>
   <!--
     Top Sites
@@ -862,7 +828,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">Tutu ndatavu ña inka vaa compartidas &lt;b&gt;ma&lt;/b&gt; sntoi ta ku stuu ña ntsinu nu %1$s</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[Tutu ndatavu ña inka vaa compartidas <b>ma</b> sntoi ta ku stuu ña ntsinu nu %1$s]]></string>
   <!--
     Theme Preferences
 
@@ -908,7 +874,7 @@
     Content description (not visible, for screen readers etc.): This is the description for
     picture of search widget from promote search widget dialog.
   -->
-  <string name="promote_search_widget_dialog_picture_content_description">Dnuku Widget </string>
+  <string name="promote_search_widget_dialog_picture_content_description">Dnuku Widget</string>
   <!-- This is the title of promote search widget dialog. -->
   <string name="promote_search_widget_dialog_title">¡Koo ña ntsinu ! 🎉</string>
   <!-- Banner Info Message than will appear when user first enters in the app. The location is at the toolbar. -->

@@ -50,7 +50,7 @@ void pattern_vertex(PrimitiveInfo info) {
 
     // v_pos is in a coordinate space relative to the task rect
     // (so it is independent of the task origin).
-    v_pos = ((info.local_pos - info.local_prim_rect.p0) * gradient.scale - gradient.center) * radius_scale;
+    v_pos = (info.local_pos * gradient.scale - gradient.center) * radius_scale;
     v_pos.y *= gradient.xy_ratio;
 
     v_gradient_repeat.x = gradient.repeat;
@@ -73,8 +73,12 @@ void swgl_drawSpanRGBA8() {
     if (address < 0) {
         return;
     }
-    swgl_commitRadialGradientRGBA8(sGpuBufferF, address, GRADIENT_ENTRIES, v_gradient_repeat.x != 0.0,
+#ifdef WR_FEATURE_DITHERING
+    swgl_commitDitheredRadialGradientRGBA8(sGpuBufferF, address, GRADIENT_ENTRIES, v_gradient_repeat.x != 0.0,
                                    v_pos, v_start_radius.x);
+#else
+    swgl_commitRadialGradientRGBA8(sGpuBufferF, address, GRADIENT_ENTRIES, v_gradient_repeat.x != 0.0, v_pos, v_start_radius.x); 
+#endif
 }
 #endif
 

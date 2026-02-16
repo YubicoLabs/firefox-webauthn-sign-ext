@@ -23,7 +23,6 @@ import traceback
 from queue import Empty, Queue
 
 import psutil
-import six
 
 # Set the MOZPROCESS_DEBUG environment variable to 1 to see some debugging output
 MOZPROCESS_DEBUG = os.getenv("MOZPROCESS_DEBUG")
@@ -38,7 +37,7 @@ UNKNOWN_RETURNCODE = 8
 isPosix = os.name == "posix"  # includes MacOS X
 
 
-class ProcessHandlerMixin(object):
+class ProcessHandlerMixin:
     """
     A class for launching and manipulating local processes.
 
@@ -233,11 +232,10 @@ class ProcessHandlerMixin(object):
         Handle process output until the process terminates or times out.
 
         :param timeout: If not None, the process will be allowed to continue
-        for that number of seconds before being killed.
-
-        :outputTimeout: If not None, the process will be allowed to continue
-        for that number of seconds without producing any output before
-        being killed.
+            for that number of seconds before being killed.
+        :param outputTimeout: If not None, the process will be allowed to continue
+            for that number of seconds without producing any output before
+            being killed.
         """
         # this method is kept for backward compatibility
         if not hasattr(self, "proc"):
@@ -254,12 +252,11 @@ class ProcessHandlerMixin(object):
         Starts the process.
 
         :param timeout: If not None, the process will be allowed to continue for
-        that number of seconds before being killed. If the process is killed
-        due to a timeout, the onTimeout handler will be called.
-
-        :outputTimeout: If not None, the process will be allowed to continue
-        for that number of seconds without producing any output before
-        being killed.
+            that number of seconds before being killed. If the process is killed
+            due to a timeout, the onTimeout handler will be called.
+        :param outputTimeout: If not None, the process will be allowed to continue
+            for that number of seconds without producing any output before
+            being killed.
         """
         self.didTimeout = False
         self.didOutputTimeout = False
@@ -380,7 +377,7 @@ class CallableList(list):
         return CallableList(list.__add__(self, lst))
 
 
-class ProcessReader(object):
+class ProcessReader:
     def __init__(
         self,
         stdout_callback=None,
@@ -403,7 +400,7 @@ class ProcessReader(object):
         if not MOZPROCESS_DEBUG:
             return
 
-        print("DBG::MARIONETTE ProcessReader | {}".format(msg), file=sys.stdout)
+        print(f"DBG::MARIONETTE ProcessReader | {msg}", file=sys.stdout)
 
     def _create_stream_reader(self, name, stream, queue, callback):
         thread = threading.Thread(
@@ -511,7 +508,7 @@ class ProcessReader(object):
 # these should be callables that take the output line
 
 
-class StoreOutput(object):
+class StoreOutput:
     """accumulate stdout"""
 
     def __init__(self):
@@ -521,7 +518,7 @@ class StoreOutput(object):
         self.output.append(line)
 
 
-class StreamOutput(object):
+class StreamOutput:
     """pass output to a stream and flush"""
 
     def __init__(self, stream, text=True):
@@ -529,9 +526,16 @@ class StreamOutput(object):
         self.text = text
 
     def __call__(self, line):
-        ensure = six.ensure_text if self.text else six.ensure_binary
+        if self.text:
+            if isinstance(line, bytes):
+                line = line.decode(errors="ignore")
+            line += "\n"
+        else:
+            if isinstance(line, str):
+                line = line.encode(errors="ignore")
+            line += b"\n"
         try:
-            self.stream.write(ensure(line, errors="ignore") + ensure("\n"))
+            self.stream.write(line)
         except TypeError:
             print(
                 "HEY! If you're reading this, you're about to encounter a "

@@ -9,7 +9,9 @@ import {
 } from "../../selectors/index";
 import { mapScopes } from "./mapScopes";
 import { generateInlinePreview } from "./inlinePreview";
-import { PROMISE } from "../utils/middleware/promise";
+const {
+  PROMISE,
+} = require("resource://devtools/client/shared/redux/middleware/promise.js");
 import { validateSelectedFrame } from "../../utils/context";
 
 /**
@@ -36,7 +38,7 @@ export function fetchScopes() {
         // Avoid generating previews, if we resumed or switched to another frame while retrieving scopes
         validateSelectedFrame(getState(), selectedFrame);
 
-        dispatch(generateInlinePreview());
+        dispatch(generateInlinePreview(selectedFrame));
       });
     }
 

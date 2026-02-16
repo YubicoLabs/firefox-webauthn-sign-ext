@@ -137,8 +137,7 @@ describe('Coverage specs', function () {
         JSON.stringify(coverage, null, 2).replace(/:\d{4,5}\//g, ':<PORT>/'),
       ).toBeGolden('jscoverage-involved.txt');
     });
-    // @see https://crbug.com/990945
-    it.skip('should not hang when there is a debugger statement', async () => {
+    it('should not hang when there is a debugger statement', async () => {
       const {page, server} = await getTestState();
 
       await page.coverage.startJSCoverage();
@@ -149,18 +148,6 @@ describe('Coverage specs', function () {
       await page.coverage.stopJSCoverage();
     });
     describe('resetOnNavigation', function () {
-      it('should report scripts across navigations when disabled', async () => {
-        const {page, server} = await getTestState();
-
-        await page.coverage.startJSCoverage({resetOnNavigation: false});
-        await page.goto(server.PREFIX + '/jscoverage/multiple.html');
-        // TODO: navigating too fast might loose JS coverage data in the browser.
-        await page.waitForNetworkIdle();
-        await page.goto(server.EMPTY_PAGE);
-        const coverage = await page.coverage.stopJSCoverage();
-        expect(coverage).toHaveLength(2);
-      });
-
       it('should NOT report scripts across navigations when enabled', async () => {
         const {page, server} = await getTestState();
 
@@ -194,17 +181,6 @@ describe('Coverage specs', function () {
         expect(coverage).toHaveLength(1);
         expect(coverage[0]!.rawScriptCoverage).toBeTruthy();
       });
-    });
-    // @see https://crbug.com/990945
-    it.skip('should not hang when there is a debugger statement', async () => {
-      const {page, server} = await getTestState();
-
-      await page.coverage.startJSCoverage();
-      await page.goto(server.EMPTY_PAGE);
-      await page.evaluate(() => {
-        debugger; // eslint-disable-line no-debugger
-      });
-      await page.coverage.stopJSCoverage();
     });
   });
 

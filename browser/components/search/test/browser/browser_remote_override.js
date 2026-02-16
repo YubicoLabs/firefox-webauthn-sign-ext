@@ -15,14 +15,13 @@ const TEST_CONFIG = [
     base: {
       classification: "unknown",
       name: "override name",
+      partnerCode: "old-pc",
       urls: {
         search: {
           base: "https://www.example.com/search",
           params: [
-            {
-              name: "old_param",
-              value: "old_value",
-            },
+            { name: "old_param", value: "old_value" },
+            { name: "pc", value: "{partnerCode}" },
           ],
           searchTermParamName: "q",
         },
@@ -50,9 +49,13 @@ const TEST_CONFIG_OVERRIDE = [
     identifier: "override",
     urls: {
       search: {
-        params: [{ name: "new_param", value: "new_value" }],
+        params: [
+          { name: "new_param", value: "new_value" },
+          { name: "pc", value: "{partnerCode}" },
+        ],
       },
     },
+    partnerCode: "new_partner_code",
     telemetrySuffix: "tsfx",
     clickUrl: "https://example.org/somewhere",
   },
@@ -66,16 +69,30 @@ add_setup(async () => {
     TEST_CONFIG_OVERRIDE
   );
   Services.fog.testResetFOG();
-
-  // Sanity check that the search engine is set as default.
-  Assert.equal(
-    Services.search.defaultEngine.identifier,
-    "override-tsfx",
-    "Should have the expected engine set as default"
-  );
 });
 
 add_task(async function test_remote_override() {
+  // Sanity check that the search engine is set as default.
+  let defaultEngine = SearchService.defaultEngine;
+  Assert.equal(
+    defaultEngine.id,
+    "override",
+    "Should have the expected engine set as default"
+  );
+
+  Assert.equal(
+    defaultEngine.telemetryId,
+    "override-tsfx",
+    "Should have the expected telemtry id"
+  );
+
+  Assert.equal(
+    defaultEngine.partnerCode,
+    "new_partner_code",
+    "Should have the correct partner code"
+  );
+
+  // Now check the search query.
   let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser);
 
   await UrlbarTestUtils.promiseAutocompleteResultPopup({
@@ -89,29 +106,29 @@ add_task(async function test_remote_override() {
     "Should have at least one item in the results"
   );
 
-  let pingReceived = Promise.withResolvers();
-  GleanPings.searchWith.testBeforeNextSubmit(() => {
-    Assert.equal(
-      Glean.searchWith.reportingUrl.testGetValue(),
-      "https://example.org/somewhere",
-      "Should have recorded the reporting URL"
-    );
-    Assert.equal(
-      Glean.searchWith.contextId.testGetValue().length,
-      36,
-      "Should have sent a context id with the ping"
-    );
-    pingReceived.resolve();
-  });
-
-  let loadPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
-  EventUtils.sendKey("return");
-  await loadPromise;
-  await pingReceived.promise;
+  await GleanPings.searchWith.testSubmission(
+    () => {
+      Assert.equal(
+        Glean.searchWith.reportingUrl.testGetValue(),
+        "https://example.org/somewhere",
+        "Should have recorded the reporting URL"
+      );
+      Assert.equal(
+        Glean.searchWith.contextId.testGetValue().length,
+        36,
+        "Should have sent a context id with the ping"
+      );
+    },
+    async () => {
+      let loadPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+      EventUtils.sendKey("return");
+      await loadPromise;
+    }
+  );
 
   Assert.equal(
     tab.linkedBrowser.currentURI.spec,
-    "https://www.example.com/search?new_param=new_value&q=test",
+    "https://www.example.com/search?new_param=new_value&pc=new_partner_code&q=test",
     "Should have loaded the page with the overridden parameters"
   );
 

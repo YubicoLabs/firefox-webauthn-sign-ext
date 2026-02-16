@@ -8,7 +8,9 @@
 #define mozilla_dom_workers_serviceworkermanager_h
 
 #include <cstdint>
+
 #include "ErrorList.h"
+#include "ServiceWorkerDescriptor.h"
 #include "ServiceWorkerShutdownState.h"
 #include "js/ErrorReport.h"
 #include "mozilla/AlreadyAddRefed.h"
@@ -43,6 +45,10 @@ namespace ipc {
 class PrincipalInfo;
 }  // namespace ipc
 
+namespace net {
+class CookieStruct;
+}
+
 namespace dom {
 
 class ContentParent;
@@ -52,6 +58,7 @@ class ServiceWorkerManagerChild;
 class ServiceWorkerPrivate;
 class ServiceWorkerRegistrar;
 class ServiceWorkerShutdownBlocker;
+struct CookieListItem;
 
 class ServiceWorkerUpdateFinishCallback {
  protected:
@@ -170,7 +177,7 @@ class ServiceWorkerManager final : public nsIServiceWorkerManager,
 
   RefPtr<ServiceWorkerRegistrationPromise> Register(
       const ClientInfo& aClientInfo, const nsACString& aScopeURL,
-      const nsACString& aScriptURL,
+      const WorkerType& aType, const nsACString& aScriptURL,
       ServiceWorkerUpdateViaCache aUpdateViaCache);
 
   RefPtr<ServiceWorkerRegistrationPromise> GetRegistration(
@@ -187,8 +194,8 @@ class ServiceWorkerManager final : public nsIServiceWorkerManager,
       const nsACString& aScope) const;
 
   already_AddRefed<ServiceWorkerRegistrationInfo> CreateNewRegistration(
-      const nsCString& aScope, nsIPrincipal* aPrincipal,
-      ServiceWorkerUpdateViaCache aUpdateViaCache,
+      const nsCString& aScope, const WorkerType& aType,
+      nsIPrincipal* aPrincipal, ServiceWorkerUpdateViaCache aUpdateViaCache,
       IPCNavigationPreloadState aNavigationPreloadState =
           IPCNavigationPreloadState(false, "true"_ns));
 
@@ -257,6 +264,11 @@ class ServiceWorkerManager final : public nsIServiceWorkerManager,
       const nsTArray<ServiceWorkerRegistrationData>& aRegistrations);
 
   void MaybeCheckNavigationUpdate(const ClientInfo& aClientInfo);
+
+  nsresult SendCookieChangeEvent(const OriginAttributes& aOriginAttributes,
+                                 const nsACString& aScope,
+                                 const net::CookieStruct& aCookie,
+                                 bool aCookieDeleted);
 
   nsresult SendPushEvent(const nsACString& aOriginAttributes,
                          const nsACString& aScope, const nsAString& aMessageId,
@@ -428,11 +440,6 @@ class ServiceWorkerManager final : public nsIServiceWorkerManager,
   void UpdateTimerFired(nsIPrincipal* aPrincipal, const nsACString& aScope);
 
   void MaybeSendUnregister(nsIPrincipal* aPrincipal, const nsACString& aScope);
-
-  nsresult SendNotificationEvent(const nsAString& aEventName,
-                                 const nsACString& aOriginSuffix,
-                                 const nsAString& aScope,
-                                 const IPCNotification& aNotification);
 
   // Used by remove() and removeAll() when clearing history.
   // MUST ONLY BE CALLED FROM UnregisterIfMatchesHost!

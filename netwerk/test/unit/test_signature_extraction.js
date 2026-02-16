@@ -45,8 +45,8 @@ function getTempFile(leafName) {
  * @param aOnTargetChangeFn
  *        Optional callback invoked with the target file name when it changes.
  *
- * @return {Promise}
- * @resolves When onSaveComplete is called with a success code.
+ * @returns {Promise<void>}
+ *   Resolves when onSaveComplete is called with a success code.
  * @rejects With an exception, if onSaveComplete is called with a failure code.
  */
 function promiseSaverComplete(aSaver, aOnTargetChangeFn) {
@@ -78,8 +78,8 @@ function promiseSaverComplete(aSaver, aOnTargetChangeFn) {
  * @param aCloseWhenDone
  *        If true, the output stream will be closed when the copy finishes.
  *
- * @return {Promise}
- * @resolves When the copy completes with a success code.
+ * @returns {Promise<void>}
+ *   Resolves when the copy completes with a success code.
  * @rejects With an exception, if the copy fails.
  */
 function promiseCopyToSaver(aSourceString, aSaverOutputStream, aCloseWhenDone) {
@@ -165,11 +165,11 @@ add_task(async function test_signature() {
   // There's only one Array of certs(raw bytes) in the signature array.
   Assert.equal(1, saver.signatureInfo.length);
   let certLists = saver.signatureInfo;
-  Assert.ok(certLists.length === 1);
+  Assert.strictEqual(certLists.length, 1);
 
   // Check that it has 3 certs(raw bytes).
   let certs = certLists[0];
-  Assert.ok(certs.length === 3);
+  Assert.strictEqual(certs.length, 3);
 
   const certDB = Cc["@mozilla.org/security/x509certdb;1"].getService(
     Ci.nsIX509CertDB

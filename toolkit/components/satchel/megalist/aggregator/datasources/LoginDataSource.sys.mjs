@@ -81,8 +81,8 @@ export class LoginDataSource extends DataSourceBase {
   #originPrototype;
   #usernamePrototype;
   #passwordPrototype;
-  #enabled;
   #header;
+  #initialized;
   #exportPasswordsStrings;
   #displayMode;
 
@@ -90,72 +90,64 @@ export class LoginDataSource extends DataSourceBase {
     super(...args);
     // Wait for Fluent to provide strings before loading data
     this.localizeStrings({
-      headerLabel: { id: "passwords-section-label" },
-      expandSection: { id: "passwords-expand-section-tooltip" },
-      collapseSection: { id: "passwords-collapse-section-tooltip" },
-      originLabel: { id: "passwords-origin-label" },
-      usernameLabel: { id: "passwords-username-label" },
-      passwordLabel: { id: "passwords-password-label" },
-      passwordsDisabled: { id: "passwords-disabled" },
+      originLabel: { id: "contextual-manager-passwords-origin-label" },
+      usernameLabel: { id: "contextual-manager-passwords-username-label" },
+      passwordLabel: { id: "contextual-manager-passwords-password-label" },
       revealPasswordOSAuthDialogPrompt: {
         id: this.getPlatformFtl(
-          "passwords-reveal-password-os-auth-dialog-message"
+          "contextual-manager-passwords-reveal-password-os-auth-dialog-message"
         ),
       },
       copyPasswordOSAuthDialogPrompt: {
         id: this.getPlatformFtl(
-          "passwords-copy-password-os-auth-dialog-message"
+          "contextual-manager-passwords-copy-password-os-auth-dialog-message"
         ),
       },
       editPasswordOSAuthDialogPrompt: {
         id: this.getPlatformFtl(
-          "passwords-edit-password-os-auth-dialog-message"
+          "contextual-manager-passwords-edit-password-os-auth-dialog-message"
         ),
       },
-      passwordOSAuthDialogCaption: { id: "passwords-os-auth-dialog-caption" },
+      passwordOSAuthDialogCaption: {
+        id: "contextual-manager-passwords-os-auth-dialog-caption",
+      },
       passwordsImportFilePickerTitle: {
-        id: "passwords-import-file-picker-title",
+        id: "contextual-manager-passwords-import-file-picker-title",
       },
       passwordsImportFilePickerImportButton: {
-        id: "passwords-import-file-picker-import-button",
+        id: "contextual-manager-passwords-import-file-picker-import-button",
       },
       passwordsImportFilePickerCsvFilterTitle: {
-        id: "passwords-import-file-picker-csv-filter-title",
+        id: "contextual-manager-passwords-import-file-picker-csv-filter-title",
       },
       passwordsImportFilePickerTsvFilterTitle: {
-        id: "passwords-import-file-picker-tsv-filter-title",
+        id: "contextual-manager-passwords-import-file-picker-tsv-filter-title",
       },
       exportPasswordsOSReauthMessage: {
-        id: this.getPlatformFtl("passwords-export-os-auth-dialog-message"),
+        id: this.getPlatformFtl(
+          "contextual-manager-passwords-export-os-auth-dialog-message"
+        ),
       },
       passwordsExportFilePickerTitle: {
-        id: "passwords-export-file-picker-title",
+        id: "contextual-manager-passwords-export-file-picker-title",
       },
       passwordsExportFilePickerDefaultFileName: {
-        id: "passwords-export-file-picker-default-filename",
+        id: "contextual-manager-passwords-export-file-picker-default-filename",
       },
       passwordsExportFilePickerExportButton: {
-        id: "passwords-export-file-picker-export-button",
+        id: "contextual-manager-passwords-export-file-picker-export-button",
       },
       passwordsExportFilePickerCsvFilterTitle: {
-        id: "passwords-export-file-picker-csv-filter-title",
-      },
-      dismissBreachCommandLabel: {
-        id: "passwords-dismiss-breach-alert-command",
+        id: "contextual-manager-passwords-export-file-picker-csv-filter-title",
       },
     }).then(strings => {
-      const copyCommand = { id: "Copy", label: "command-copy" };
-      const editCommand = { id: "Edit", label: "command-edit" };
-      const deleteCommand = { id: "Delete", label: "command-delete" };
+      const copyCommand = { id: "Copy" };
+      const editCommand = { id: "Edit" };
+      const deleteCommand = { id: "Delete" };
       const dismissBreachCommand = {
         id: "DismissBreach",
-        label: strings.dismissBreachCommandLabel,
       };
-      const tooltip = {
-        expand: strings.expandSection,
-        collapse: strings.collapseSection,
-      };
-      this.#header = this.createHeaderLine(strings.headerLabel, tooltip);
+      this.#header = this.createHeaderLine();
       this.#header.commands.push(
         { id: "AddLogin" },
         { id: "UpdateLogin" },
@@ -164,17 +156,15 @@ export class LoginDataSource extends DataSourceBase {
         { id: "ConfirmDiscardChanges" },
         {
           id: "ImportFromBrowser",
-          label: "passwords-command-import-from-browser",
         },
-        { id: "Import", label: "passwords-command-import" },
-        { id: "Export", label: "passwords-command-export" },
-        { id: "RemoveAll", label: "passwords-command-remove-all" },
+        { id: "Import" },
+        { id: "Export" },
+        { id: "RemoveAll" },
         {
           id: "Settings",
-          label: "passwords-command-settings",
           url: PREFERENCES_URL,
         },
-        { id: "Help", label: "passwords-command-help", url: SUPPORT_URL },
+        { id: "Help", url: SUPPORT_URL },
         { id: "UpdateDisplayMode" },
         { id: "OpenLink" }
       );
@@ -194,8 +184,8 @@ export class LoginDataSource extends DataSourceBase {
       this.#header.executeUpdateLogin = login => this.#updateLogin(login);
       this.#header.executeDeleteLogin = login => this.#deleteLogin(login);
       this.#header.executeDiscardChanges = options => this.#cancelEdit(options);
-      this.#header.executeConfirmDiscardChanges = options =>
-        this.#discardChangesConfirmed(options);
+      this.#header.executeConfirmDiscardChanges = () =>
+        this.discardChangesConfirmed();
 
       this.#exportPasswordsStrings = {
         OSReauthMessage: strings.exportPasswordsOSReauthMessage,
@@ -245,7 +235,7 @@ export class LoginDataSource extends DataSourceBase {
         },
         commands: {
           value: [
-            { id: "Open", label: "command-open" },
+            { id: "Open" },
             copyCommand,
             editCommand,
             deleteCommand,
@@ -325,12 +315,11 @@ export class LoginDataSource extends DataSourceBase {
             },
             {
               id: "Reveal",
-              label: "command-reveal",
               verify: true,
               OSAuthPromptMessage: strings.revealPasswordOSAuthDialogPrompt,
               OSAuthCaptionMessage: strings.passwordOSAuthDialogCaption,
             },
-            { id: "Conceal", label: "command-conceal" },
+            { id: "Conceal" },
             {
               ...editCommand,
               verify: true,
@@ -338,7 +327,7 @@ export class LoginDataSource extends DataSourceBase {
               OSAuthCaptionMessage: strings.passwordOSAuthDialogCaption,
             },
             deleteCommand,
-            { id: "Cancel", label: "command-cancel" },
+            { id: "Cancel" },
           ],
         },
         executeReveal: {
@@ -373,19 +362,46 @@ export class LoginDataSource extends DataSourceBase {
 
       // Sort by origin, then by username, then by GUID
       this.#displayMode = DISPLAY_MODES.ALL;
-      Services.obs.addObserver(this, "passwordmgr-storage-changed");
-      Services.obs.addObserver(this, "passwordmgr-crypto-login");
-      Services.prefs.addObserver("signon.rememberSignons", this);
-      Services.prefs.addObserver(
-        "signon.management.page.breach-alerts.enabled",
-        this
-      );
-      Services.prefs.addObserver(
-        "signon.management.page.vulnerable-passwords.enabled",
-        this
-      );
+      this.#addObservers();
       this.#reloadDataSource();
+      this.#initialized = true;
     });
+  }
+
+  willDestroy() {
+    this.#removeObservers();
+  }
+
+  #addObservers() {
+    Services.obs.addObserver(this, "passwordmgr-storage-changed");
+    Services.obs.addObserver(this, "passwordmgr-crypto-login");
+    Services.obs.addObserver(this, "passwordmgr-crypto-loginCanceled");
+
+    Services.prefs.addObserver("signon.rememberSignons", this);
+    Services.prefs.addObserver(
+      "signon.management.page.breach-alerts.enabled",
+      this
+    );
+    Services.prefs.addObserver(
+      "signon.management.page.vulnerable-passwords.enabled",
+      this
+    );
+  }
+
+  #removeObservers() {
+    Services.obs.removeObserver(this, "passwordmgr-storage-changed");
+    Services.obs.removeObserver(this, "passwordmgr-crypto-login");
+    Services.obs.removeObserver(this, "passwordmgr-crypto-loginCanceled");
+
+    Services.prefs.removeObserver("signon.rememberSignons", this);
+    Services.prefs.removeObserver(
+      "signon.management.page.breach-alerts.enabled",
+      this
+    );
+    Services.prefs.removeObserver(
+      "signon.management.page.vulnerable-passwords.enabled",
+      this
+    );
   }
 
   #recordLoginsUpdate(changeType) {
@@ -398,7 +414,9 @@ export class LoginDataSource extends DataSourceBase {
     const { BrowserWindowTracker } = ChromeUtils.importESModule(
       "resource:///modules/BrowserWindowTracker.sys.mjs"
     );
-    const browsingContext = BrowserWindowTracker.getTopWindow().browsingContext;
+    const browsingContext = BrowserWindowTracker.getTopWindow({
+      allowFromInactiveWorkspace: true,
+    }).browsingContext;
     let { result, path } = await this.openFilePickerDialog(
       title,
       buttonLabel,
@@ -418,26 +436,34 @@ export class LoginDataSource extends DataSourceBase {
     if (result != Ci.nsIFilePicker.returnCancel) {
       try {
         const summary = await LoginCSVImport.importFromCSV(path);
-        const counts = { added: 0, modified: 0 };
+        const counts = { added: 0, modified: 0, no_change: 0, error: 0 };
 
         for (const item of summary) {
-          if (item.result in counts) {
-            counts[item.result] += 1;
+          const type = item.result;
+          if (type.includes("error")) {
+            counts.error++;
+          } else {
+            counts[type]++;
           }
         }
+
         this.setNotification({
           id: "import-success",
           l10nArgs: counts,
           url: IMPORT_FILE_REPORT_URL,
         });
+
+        this.#recordLoginsUpdate("import");
       } catch (e) {
-        this.setNotification({
-          id: "import-error",
-          url: IMPORT_FILE_SUPPORT_URL,
-          commands: {
-            onRetry: "Import",
-          },
-        });
+        if (e.result !== Cr.NS_ERROR_ABORT) {
+          this.setNotification({
+            id: "import-error",
+            url: IMPORT_FILE_SUPPORT_URL,
+            commands: {
+              onRetry: "Import",
+            },
+          });
+        }
       }
     }
   }
@@ -466,7 +492,9 @@ export class LoginDataSource extends DataSourceBase {
     const { BrowserWindowTracker } = ChromeUtils.importESModule(
       "resource:///modules/BrowserWindowTracker.sys.mjs"
     );
-    const browser = BrowserWindowTracker.getTopWindow().gBrowser;
+    const browser = BrowserWindowTracker.getTopWindow({
+      allowFromInactiveWorkspace: true,
+    }).gBrowser;
     try {
       lazy.MigrationUtils.showMigrationWizard(browser.ownerGlobal, {
         entrypoint: lazy.MigrationUtils.MIGRATION_ENTRYPOINTS.PASSWORDS,
@@ -484,17 +512,28 @@ export class LoginDataSource extends DataSourceBase {
   async #removeAllPasswords() {
     const { total } = this.#header.value;
     const messageId = this.#isPasswordSyncEnabled()
-      ? "passwords-remove-all-message-sync"
-      : "passwords-remove-all-message";
+      ? "contextual-manager-passwords-remove-all-message-sync"
+      : "contextual-manager-passwords-remove-all-message";
 
-    const confirmed = await this.#showWindowPrompt(
-      { id: "passwords-remove-all-title", args: { total } },
+    const { confirmed, checked } = await this.#showWindowPrompt(
+      { id: "contextual-manager-passwords-remove-all-title", args: { total } },
       { id: messageId, args: { total } },
-      { id: "passwords-remove-all-confirm-button", args: { total } }
+      {
+        id: "contextual-manager-passwords-remove-all-confirm-button",
+        args: { total },
+      },
+      {
+        id: "contextual-manager-passwords-remove-all-passwords-checkbox",
+        args: { total },
+      }
     );
 
+    if (!confirmed || !checked) {
+      return;
+    }
+
     if (confirmed) {
-      Services.logins.removeAllLogins();
+      await Services.logins.removeAllLoginsAsync();
       this.setNotification({
         id: "delete-login-success",
         l10nArgs: { total },
@@ -504,8 +543,8 @@ export class LoginDataSource extends DataSourceBase {
     }
   }
 
-  confirmRemoveLogin([record]) {
-    Services.logins.removeLogin(record);
+  async confirmRemoveLogin([record]) {
+    await Services.logins.removeLoginAsync(record);
     this.cancelDialog();
   }
 
@@ -518,11 +557,11 @@ export class LoginDataSource extends DataSourceBase {
     const { BrowserWindowTracker } = ChromeUtils.importESModule(
       "resource:///modules/BrowserWindowTracker.sys.mjs"
     );
-    const browsingContext = BrowserWindowTracker.getTopWindow().browsingContext;
+    const browsingContext = BrowserWindowTracker.getTopWindow({
+      allowFromInactiveWorkspace: true,
+    }).browsingContext;
 
-    const isOSAuthEnabled = LoginHelper.getOSAuthEnabled(
-      LoginHelper.OS_AUTH_FOR_PASSWORDS_PREF
-    );
+    const isOSAuthEnabled = LoginHelper.getOSAuthEnabled();
 
     const reason = "export_cpm";
     let { isAuthorized, telemetryEvent } = await LoginHelper.requestReauth(
@@ -544,10 +583,10 @@ export class LoginDataSource extends DataSourceBase {
       return;
     }
 
-    const confirmed = await this.#showWindowPrompt(
-      { id: "export-passwords-dialog-title" },
-      { id: "export-passwords-dialog-message" },
-      { id: "export-passwords-dialog-confirm-button" }
+    const { confirmed } = await this.#showWindowPrompt(
+      { id: "contextual-manager-export-passwords-dialog-title" },
+      { id: "contextual-manager-export-passwords-dialog-message" },
+      { id: "contextual-manager-export-passwords-dialog-confirm-button" }
     );
 
     if (confirmed) {
@@ -586,17 +625,26 @@ export class LoginDataSource extends DataSourceBase {
     const { BrowserWindowTracker } = ChromeUtils.importESModule(
       "resource:///modules/BrowserWindowTracker.sys.mjs"
     );
-    const browser = BrowserWindowTracker.getTopWindow().gBrowser;
+    const browser = BrowserWindowTracker.getTopWindow({
+      allowFromInactiveWorkspace: true,
+    }).gBrowser;
     browser.ownerGlobal.switchToTabHavingURI(url, true, {
       ignoreFragment: "whenComparingAndReplace",
     });
   }
 
-  async #showWindowPrompt(titleL10n, messageL10n, confirmButtonL10n) {
+  async #showWindowPrompt(
+    titleL10n,
+    messageL10n,
+    confirmButtonL10n,
+    checkboxL10n = null
+  ) {
     const { BrowserWindowTracker } = ChromeUtils.importESModule(
       "resource:///modules/BrowserWindowTracker.sys.mjs"
     );
-    const win = BrowserWindowTracker.getTopWindow();
+    const win = BrowserWindowTracker.getTopWindow({
+      allowFromInactiveWorkspace: true,
+    });
 
     const { title, message, confirmButton } = await this.localizeStrings({
       title: titleL10n,
@@ -604,28 +652,44 @@ export class LoginDataSource extends DataSourceBase {
       confirmButton: confirmButtonL10n,
     });
 
+    let checkbox = null;
+    if (checkboxL10n) {
+      const { checkboxArg } = await this.localizeStrings({
+        checkboxArg: checkboxL10n,
+      });
+      checkbox = checkboxArg;
+    }
+
     // For more context on what these flags mean:
     // https://firefox-source-docs.mozilla.org/toolkit/components/prompts/prompts/nsIPromptService-reference.html#Prompter.confirmEx
     const flags =
       Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_0 +
       Services.prompt.BUTTON_TITLE_CANCEL * Services.prompt.BUTTON_POS_1;
 
-    // buttonPressed will be:
-    //  - 0 for confirm
-    //  - 1 for cancelling/declining.
-    const buttonPressed = Services.prompt.confirmEx(
-      win,
+    const result = await Services.prompt.asyncConfirmEx(
+      win.browsingContext,
+      Services.prompt.MODAL_TYPE_INTERNAL_WINDOW,
       title,
       message,
       flags,
       confirmButton,
       null,
       null,
-      null,
+      checkbox,
+      false,
       {}
     );
 
-    return buttonPressed == 0;
+    const propBag = result.QueryInterface(Ci.nsIPropertyBag2);
+    const options = {
+      // buttonNumClicked will be:
+      //  - 0 for confirm
+      //  - 1 for cancelling/declining.
+      confirmed: propBag.get("buttonNumClicked") == 0,
+      checked: propBag.get("checked"),
+    };
+
+    return options;
   }
 
   async #addLogin(newLogin) {
@@ -659,17 +723,28 @@ export class LoginDataSource extends DataSourceBase {
     if (logins.length != 1) {
       return;
     }
+
+    let notificationId = "update-login-success";
     const modifiedLogin = logins[0].clone();
+
     if (login.hasOwnProperty("username")) {
+      const passwordModified = modifiedLogin.password !== login.password;
+      const usernameModified = modifiedLogin.username !== login.username;
+
+      if (!passwordModified && usernameModified) {
+        notificationId = "update-username-success";
+      }
       modifiedLogin.username = login.username;
     }
+
     if (login.hasOwnProperty("password")) {
       modifiedLogin.password = login.password;
     }
+
     try {
-      Services.logins.modifyLogin(logins[0], modifiedLogin);
+      await Services.logins.modifyLoginAsync(logins[0], modifiedLogin);
       this.setNotification({
-        id: "update-login-success",
+        id: notificationId,
         viewMode: VIEW_MODES.LIST,
       });
       this.#recordLoginsUpdate("edit");
@@ -678,24 +753,8 @@ export class LoginDataSource extends DataSourceBase {
     }
   }
 
-  #cancelEdit(options = {}) {
-    this.setNotification({
-      id: "discard-changes",
-      fromSidebar: options.fromSidebar,
-      passwordIndex: options.passwordIndex,
-    });
-  }
-
-  #discardChangesConfirmed(options = {}) {
-    if (options.fromSidebar) {
-      const { BrowserWindowTracker } = ChromeUtils.importESModule(
-        "resource:///modules/BrowserWindowTracker.sys.mjs"
-      );
-      const window = BrowserWindowTracker.getTopWindow();
-      window.SidebarController.hide();
-    } else {
-      this.discardChangesConfirmed();
-    }
+  #cancelEdit() {
+    this.setNotification({ id: "discard-changes" });
   }
 
   #handleLoginStorageErrors(origin, error) {
@@ -717,7 +776,7 @@ export class LoginDataSource extends DataSourceBase {
     if (logins.length != 1) {
       return;
     }
-    Services.logins.removeLogin(logins[0]);
+    await Services.logins.removeLoginAsync(logins[0]);
     this.setNotification({
       id: "delete-login-success",
       l10nArgs: { total: 1 },
@@ -732,16 +791,13 @@ export class LoginDataSource extends DataSourceBase {
    * @param {string} searchText used to filter data
    */
   *enumerateLines(searchText) {
-    if (this.#enabled === undefined) {
+    if (!this.#initialized) {
       // Async Fluent API makes it possible to have data source waiting
       // for the localized strings, which can be detected by undefined in #enabled.
       return;
     }
 
     yield this.#header;
-    if (this.#header.collapsed || !this.#enabled) {
-      return;
-    }
 
     const stats = { count: 0, total: 0 };
     searchText = searchText.toUpperCase();
@@ -749,7 +805,7 @@ export class LoginDataSource extends DataSourceBase {
       searchText,
       stats,
       login =>
-        login.displayOrigin.toUpperCase().includes(searchText) ||
+        login.origin.toUpperCase().includes(searchText) ||
         login.username.toUpperCase().includes(searchText) ||
         login.password.toUpperCase().includes(searchText)
     );
@@ -764,19 +820,24 @@ export class LoginDataSource extends DataSourceBase {
    */
   async #reloadDataSource() {
     this.doneReloadDataSource = false;
-    this.#enabled = Services.prefs.getBoolPref("signon.rememberSignons");
-    if (!this.#enabled) {
-      this.#reloadEmptyDataSource();
-      this.doneReloadDataSource = true;
-      return;
-    }
 
     const logins = await LoginHelper.getAllUserFacingLogins();
-    this.beforeReloadingDataSource();
-
     const breachesMap = lazy.BREACH_ALERTS_ENABLED
       ? await lazy.LoginBreaches.getPotentialBreachesByLoginGUID(logins)
       : new Map();
+
+    this.#syncReloadDataSource(logins, breachesMap);
+
+    this.doneReloadDataSource = true;
+  }
+
+  /**
+   * Implementation between `beforeReloadingDataSource` and `afterReloadingDataSource`
+   * should be synchronous because the two functions operates on member variable
+   * #linesToForget and they don't expect it to be changed in the middle of reloading.
+   */
+  #syncReloadDataSource(logins, breachesMap) {
+    this.beforeReloadingDataSource();
 
     const loginsWithAlerts = logins.filter(
       login =>
@@ -838,15 +899,6 @@ export class LoginDataSource extends DataSourceBase {
     this.#header.value.total = logins.length;
     this.#header.value.alerts = loginsWithAlerts.length;
     this.afterReloadingDataSource();
-    this.doneReloadDataSource = true;
-  }
-
-  #reloadEmptyDataSource() {
-    this.lines.length = 0;
-    //todo: user can enable passwords by activating Passwords header line
-    this.#header.value.total = 0;
-    this.#header.value.alerts = 0;
-    this.refreshAllLinesOnScreen();
   }
 
   getAuthTimeoutMs() {
@@ -861,14 +913,13 @@ export class LoginDataSource extends DataSourceBase {
       message == "signon.management.page.breach-alerts.enabled" ||
       message == "signon.management.page.vulnerable-passwords.enabled"
     ) {
-      if (
-        topic == "passwordmgr-storage-changed" &&
-        message === "importLogins"
-      ) {
-        this.#recordLoginsUpdate("import");
-      }
-
       this.#reloadDataSource();
+
+      if (topic === "passwordmgr-crypto-login") {
+        this.setPrimaryPasswordAuthenticated(true);
+      }
+    } else if (topic == "passwordmgr-crypto-loginCanceled") {
+      this.setPrimaryPasswordAuthenticated(false);
     }
   }
 }

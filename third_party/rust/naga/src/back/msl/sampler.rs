@@ -1,21 +1,17 @@
+use core::{num::NonZeroU32, ops::Range};
+
 #[cfg(feature = "deserialize")]
 use serde::Deserialize;
 #[cfg(feature = "serialize")]
 use serde::Serialize;
-use std::{num::NonZeroU32, ops::Range};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serialize", derive(Serialize))]
 #[cfg_attr(feature = "deserialize", derive(Deserialize))]
 pub enum Coord {
+    #[default]
     Normalized,
     Pixel,
-}
-
-impl Default for Coord {
-    fn default() -> Self {
-        Self::Normalized
-    }
 }
 
 impl Coord {
@@ -27,21 +23,16 @@ impl Coord {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serialize", derive(Serialize))]
 #[cfg_attr(feature = "deserialize", derive(Deserialize))]
 pub enum Address {
     Repeat,
     MirroredRepeat,
+    #[default]
     ClampToEdge,
     ClampToZero,
     ClampToBorder,
-}
-
-impl Default for Address {
-    fn default() -> Self {
-        Self::ClampToEdge
-    }
 }
 
 impl Address {
@@ -56,19 +47,14 @@ impl Address {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serialize", derive(Serialize))]
 #[cfg_attr(feature = "deserialize", derive(Deserialize))]
 pub enum BorderColor {
+    #[default]
     TransparentBlack,
     OpaqueBlack,
     OpaqueWhite,
-}
-
-impl Default for BorderColor {
-    fn default() -> Self {
-        Self::TransparentBlack
-    }
 }
 
 impl BorderColor {
@@ -81,10 +67,11 @@ impl BorderColor {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serialize", derive(Serialize))]
 #[cfg_attr(feature = "deserialize", derive(Deserialize))]
 pub enum Filter {
+    #[default]
     Nearest,
     Linear,
 }
@@ -98,16 +85,11 @@ impl Filter {
     }
 }
 
-impl Default for Filter {
-    fn default() -> Self {
-        Self::Nearest
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serialize", derive(Serialize))]
 #[cfg_attr(feature = "deserialize", derive(Deserialize))]
 pub enum CompareFunc {
+    #[default]
     Never,
     Less,
     LessEqual,
@@ -116,12 +98,6 @@ pub enum CompareFunc {
     Equal,
     NotEqual,
     Always,
-}
-
-impl Default for CompareFunc {
-    fn default() -> Self {
-        Self::Never
-    }
 }
 
 impl CompareFunc {
@@ -156,10 +132,8 @@ pub struct InlineSampler {
 
 impl Eq for InlineSampler {}
 
-#[allow(renamed_and_removed_lints)]
-#[allow(clippy::derive_hash_xor_eq)]
-impl std::hash::Hash for InlineSampler {
-    fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+impl core::hash::Hash for InlineSampler {
+    fn hash<H: core::hash::Hasher>(&self, hasher: &mut H) {
         self.coord.hash(hasher);
         self.address.hash(hasher);
         self.border_color.hash(hasher);

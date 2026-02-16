@@ -4,15 +4,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsIGlobalObject_h__
-#define nsIGlobalObject_h__
+#ifndef nsIGlobalObject_h_
+#define nsIGlobalObject_h_
 
+#include "js/TypeDecls.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/OriginTrials.h"
 #include "mozilla/dom/ClientInfo.h"
 #include "mozilla/dom/ClientState.h"
 #include "mozilla/dom/ServiceWorkerDescriptor.h"
-#include "mozilla/OriginTrials.h"
 #include "nsContentUtils.h"
 #include "nsHashKeys.h"
 #include "nsISupports.h"
@@ -20,7 +21,6 @@
 #include "nsStringFwd.h"
 #include "nsTArray.h"
 #include "nsTHashtable.h"
-#include "js/TypeDecls.h"
 
 // Must be kept in sync with xpcom/rust/xpcom/src/interfaces/nonidl.rs
 #define NS_IGLOBALOBJECT_IID \
@@ -53,6 +53,7 @@ class ServiceWorkerContainer;
 class ServiceWorkerRegistration;
 class ServiceWorkerRegistrationDescriptor;
 class StorageManager;
+class WebTaskSchedulingState;
 enum class CallerType : uint32_t;
 }  // namespace dom
 namespace ipc {
@@ -78,7 +79,6 @@ class nsIGlobalObject : public nsISupports {
   mozilla::LinkedList<mozilla::GlobalFreezeObserver> mGlobalFreezeObservers;
 
   bool mIsDying;
-  bool mIsScriptForbidden;
 
  protected:
   bool mIsInnerWindow;
@@ -88,7 +88,7 @@ class nsIGlobalObject : public nsISupports {
  public:
   using RTPCallerType = mozilla::RTPCallerType;
   using RFPTarget = mozilla::RFPTarget;
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IGLOBALOBJECT_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_IGLOBALOBJECT_IID)
 
   /**
    * This check is added to deal with Promise microtask queues. On the main
@@ -194,6 +194,13 @@ class nsIGlobalObject : public nsISupports {
     return nullptr;
   }
 
+  virtual void SetWebTaskSchedulingState(
+      mozilla::dom::WebTaskSchedulingState* aState) {}
+  virtual mozilla::dom::WebTaskSchedulingState* GetWebTaskSchedulingState()
+      const {
+    return nullptr;
+  }
+
   // For globals with a concept of a Base URI (windows, workers), the base URI,
   // nullptr otherwise.
   virtual nsIURI* GetBaseURI() const;
@@ -288,6 +295,9 @@ class nsIGlobalObject : public nsISupports {
 
   RTPCallerType GetRTPCallerType() const;
 
+  bool IsRFPTargetActive(const nsAString& aTargetName,
+                         mozilla::ErrorResult& aRv);
+
   /**
    * Get the module loader to use for this global, if any. By default this
    * returns null.
@@ -328,7 +338,7 @@ class nsIGlobalObject : public nsISupports {
   }
   // Return true if there is any active IndexedDB databases which could block
   // timeout-throttling.
-  virtual bool HasActiveIndexedDBDatabases() { return false; }
+  virtual bool HasActiveIndexedDBDatabases() const { return false; }
   /**
    * Check whether the active peer connection count is non-zero.
    */
@@ -338,6 +348,15 @@ class nsIGlobalObject : public nsISupports {
   virtual bool HasOpenWebSockets() const { return false; }
 
   virtual bool IsXPCSandbox() { return false; }
+
+  virtual bool HasScheduledNormalOrHighPriorityWebTasks() const {
+    return false;
+  }
+
+  virtual void UpdateWebSocketCount(int32_t aDelta) {};
+  // Increase/Decrease the number of active IndexedDB databases for the
+  // decision making of timeout-throttling.
+  virtual void UpdateActiveIndexedDBDatabaseCount(int32_t aDelta) {}
 
   /**
    * Report a localized error message to the error console.  Currently this
@@ -379,9 +398,6 @@ class nsIGlobalObject : public nsISupports {
 
   void StartDying() { mIsDying = true; }
 
-  void StartForbiddingScript() { mIsScriptForbidden = true; }
-  void StopForbiddingScript() { mIsScriptForbidden = false; }
-
   void DisconnectGlobalTeardownObservers();
   void DisconnectGlobalFreezeObservers();
   void NotifyGlobalFrozen();
@@ -390,9 +406,14 @@ class nsIGlobalObject : public nsISupports {
   size_t ShallowSizeOfExcludingThis(mozilla::MallocSizeOf aSizeOf) const;
 
  private:
+  void ClearReports();
+
+ private:
   // List of Report objects for ReportingObservers.
   nsTArray<RefPtr<mozilla::dom::ReportingObserver>> mReportingObservers;
-  nsTArray<RefPtr<mozilla::dom::Report>> mReportRecords;
+  // https://w3c.github.io/reporting/#windoworworkerglobalscope-report-buffer
+  nsTArray<RefPtr<mozilla::dom::Report>> mReportBuffer;
+  nsTHashMap<nsString, uint32_t> mReportPerTypeCount;
 
   // https://streams.spec.whatwg.org/#count-queuing-strategy-size-function
   RefPtr<mozilla::dom::Function> mCountQueuingStrategySizeFunction;
@@ -401,6 +422,4 @@ class nsIGlobalObject : public nsISupports {
   RefPtr<mozilla::dom::Function> mByteLengthQueuingStrategySizeFunction;
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIGlobalObject, NS_IGLOBALOBJECT_IID)
-
-#endif  // nsIGlobalObject_h__
+#endif  // nsIGlobalObject_h_

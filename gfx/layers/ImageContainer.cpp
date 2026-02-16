@@ -14,6 +14,7 @@
 #include "gfx2DGlue.h"
 #include "gfxPlatform.h"  // for gfxPlatform
 #include "gfxUtils.h"     // for gfxUtils
+#include "GPUVideoImage.h"
 #include "libyuv.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/ProfilerLabels.h"
@@ -239,7 +240,68 @@ ImageContainer::~ImageContainer() {
 nsresult Image::BuildSurfaceDescriptorBuffer(
     SurfaceDescriptorBuffer& aSdBuffer, BuildSdbFlags aFlags,
     const std::function<MemoryOrShmem(uint32_t)>& aAllocate) {
-  return NS_ERROR_NOT_IMPLEMENTED;
+  RefPtr<SourceSurface> surface = GetAsSourceSurface();
+  if (NS_WARN_IF(!surface)) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  RefPtr<DataSourceSurface> dataSurface = surface->GetDataSurface();
+  if (NS_WARN_IF(!dataSurface)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  DataSourceSurface::ScopedMap map(dataSurface, DataSourceSurface::READ);
+  if (NS_WARN_IF(!map.IsMapped())) {
+    return NS_ERROR_FAILURE;
+  }
+
+  SurfaceFormat format = dataSurface->GetFormat();
+  IntSize size = dataSurface->GetSize();
+  uint8_t* output = nullptr;
+  int32_t stride = 0;
+  nsresult rv = AllocateSurfaceDescriptorBufferRgb(
+      size, format, output, aSdBuffer, stride, aAllocate);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
+  if (NS_WARN_IF(!SwizzleData(map.GetData(), map.GetStride(), format, output,
+                              stride, format, size))) {
+    return NS_ERROR_FAILURE;
+  }
+
+  return NS_OK;
+}
+
+nsresult Image::BuildSurfaceDescriptorGPUVideoOrBuffer(
+    SurfaceDescriptor& aSd, BuildSdbFlags aFlags,
+    const Maybe<VideoBridgeSource>& aDest,
+    const std::function<MemoryOrShmem(uint32_t)>& aAllocate,
+    const std::function<void(MemoryOrShmem&&)>& aFree) {
+  if (auto* gpuImage = AsGPUVideoImage()) {
+    if (auto maybeSd = gpuImage->GetDesc()) {
+      if (!aDest ||
+          (maybeSd->type() == SurfaceDescriptor::TSurfaceDescriptorGPUVideo &&
+           maybeSd->get_SurfaceDescriptorGPUVideo()
+                   .get_SurfaceDescriptorRemoteDecoder()
+                   .source() == aDest)) {
+        aSd = std::move(*maybeSd);
+        return NS_OK;
+      }
+    }
+  }
+
+  SurfaceDescriptorBuffer sdb;
+  nsresult rv = BuildSurfaceDescriptorBuffer(sdb, aFlags, aAllocate);
+  if (NS_FAILED(rv)) {
+    if (sdb.data().type() != MemoryOrShmem::Type::T__None) {
+      aFree(std::move(sdb.data()));
+    }
+    return rv;
+  }
+
+  aSd = std::move(sdb);
+  return NS_OK;
 }
 
 Maybe<SurfaceDescriptor> Image::GetDesc() { return GetDescFromTexClient(); }
@@ -446,7 +508,7 @@ void ImageContainer::GetCurrentImages(nsTArray<OwningImage>* aImages,
                                       uint32_t* aGenerationCounter) {
   RecursiveMutexAutoLock lock(mRecursiveMutex);
 
-  *aImages = mCurrentImages.Clone();
+  aImages->Assign(mCurrentImages);
   if (aGenerationCounter) {
     *aGenerationCounter = mGenerationCounter;
   }
@@ -652,6 +714,42 @@ Maybe<PlanarYCbCrData> PlanarYCbCrData::From(
                        << ", " << yuvDesc.cbCrSize().width << ","
                        << yuvDesc.cbCrSize().height << ", " << yuvData.mYStride
                        << "," << yuvData.mCbCrStride << ", "
+                       << yuvData.mYChannel << "," << yuvData.mCbChannel << ","
+                       << yuvData.mCrChannel;
+    return {};
+  }
+
+  return Some(yuvData);
+}
+
+Maybe<PlanarYCbCrData> PlanarYCbCrData::From(
+    const VideoData::YCbCrBuffer& yuvDesc) {
+  constexpr int YPlane = 0;
+  constexpr int CbPlane = 1;
+  constexpr int CrPlane = 2;
+
+  PlanarYCbCrData yuvData;
+  yuvData.mYStride = yuvDesc.mPlanes[YPlane].mStride;
+  yuvData.mCbCrStride = yuvDesc.mPlanes[CbPlane].mStride;
+  yuvData.mYSkip = yuvDesc.mPlanes[YPlane].mSkip;
+  yuvData.mCbSkip = yuvDesc.mPlanes[CbPlane].mSkip;
+  yuvData.mCrSkip = yuvDesc.mPlanes[CrPlane].mSkip;
+  yuvData.mPictureRect = gfx::IntRect(0, 0, yuvDesc.mPlanes[YPlane].mWidth,
+                                      yuvDesc.mPlanes[YPlane].mHeight);
+  yuvData.mColorDepth = yuvDesc.mColorDepth;
+  yuvData.mYUVColorSpace = yuvDesc.mYUVColorSpace;
+  yuvData.mColorRange = yuvDesc.mColorRange;
+  yuvData.mChromaSubsampling = yuvDesc.mChromaSubsampling;
+  yuvData.mYChannel = yuvDesc.mPlanes[YPlane].mData;
+  yuvData.mCbChannel = yuvDesc.mPlanes[CbPlane].mData;
+  yuvData.mCrChannel = yuvDesc.mPlanes[CrPlane].mData;
+
+  if (yuvData.mYSkip || yuvData.mCbSkip || yuvData.mCrSkip ||
+      yuvData.mYStride < 0 || yuvData.mCbCrStride < 0 || !yuvData.mYChannel ||
+      !yuvData.mCbChannel || !yuvData.mCrChannel) {
+    gfxCriticalError() << "Unusual PlanarYCbCrData: " << yuvData.mYSkip << ","
+                       << yuvData.mCbSkip << "," << yuvData.mCrSkip << ","
+                       << yuvData.mYStride << "," << yuvData.mCbCrStride << ", "
                        << yuvData.mYChannel << "," << yuvData.mCbChannel << ","
                        << yuvData.mCrChannel;
     return {};

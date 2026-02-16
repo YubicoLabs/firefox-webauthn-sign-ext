@@ -18,11 +18,13 @@ import { MozBaseInputElement } from "../lit-utils.mjs";
  * @property {string} description - The text for the description element that helps describe the input control
  * @property {string} supportPage - Name of the SUMO support page to link to.
  * @property {string} placeholder - Text to display when the input has no value.
+ * @property {string} ariaLabel - The aria-label text when there is no visible label.
+ * @property {string} ariaDescription - The aria-description text when there is no visible description.
  */
 export default class MozInputText extends MozBaseInputElement {
   static properties = {
     placeholder: { type: String, fluent: true },
-    readonly: { type: Boolean, mapped: true },
+    readonly: { type: Boolean, reflect: true },
   };
   static inputLayout = "block";
 
@@ -43,20 +45,26 @@ export default class MozInputText extends MozBaseInputElement {
     this.value = e.target.value;
   }
 
-  inputTemplate(classes, styles, inputValue) {
+  inputTemplate(options = {}) {
+    let { type = "text", classes, styles, inputValue } = options;
+
     return html`
       <input
         id="input"
-        type="text"
+        type=${type}
         class=${ifDefined(classes)}
         style=${ifDefined(styles)}
         name=${this.name}
-        value=${inputValue || this.value}
-        ?disabled=${this.disabled}
+        .value=${inputValue || this.value}
+        ?disabled=${this.disabled || this.parentDisabled}
         ?readonly=${this.readonly}
         accesskey=${ifDefined(this.accessKey)}
         placeholder=${ifDefined(this.placeholder)}
+        aria-label=${ifDefined(this.ariaLabel ?? undefined)}
         aria-describedby="description"
+        aria-description=${ifDefined(
+          this.hasDescription ? undefined : this.ariaDescription
+        )}
         @input=${this.handleInput}
         @change=${this.redispatchEvent}
       />

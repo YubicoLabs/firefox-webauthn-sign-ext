@@ -15,6 +15,7 @@ const { TelemetryTestUtils } = ChromeUtils.importESModule(
  * A mock toolkit profile.
  */
 class MockProfile {
+  // eslint-disable-next-line no-unused-private-class-members
   #service = null;
   #storeID = null;
 
@@ -33,12 +34,6 @@ class MockProfile {
 
   set storeID(val) {
     this.#storeID = val;
-
-    if (val) {
-      this.#service.groupProfile = this;
-    } else {
-      this.#service.groupProfile = null;
-    }
   }
 }
 
@@ -48,12 +43,11 @@ class MockProfile {
 class MockProfileService {
   constructor() {
     this.currentProfile = new MockProfile(this);
-    this.groupProfile = null;
   }
 
   async asyncFlush() {}
 
-  async asyncFlushGroupProfile() {}
+  async asyncFlushCurrentProfile() {}
 }
 
 const gProfileService = new MockProfileService();
@@ -80,7 +74,7 @@ defProfRt.append("DefProfRt");
 let defProflLRt = testRoot.clone();
 defProflLRt.append("DefProfLRt");
 
-SelectableProfileService.overrideDirectoryService({
+ProfilesDatastoreService.overrideDirectoryService({
   UAppData: uAppData,
   DefProfRt: defProfRt,
   DefProfLRt: defProflLRt,
@@ -97,11 +91,19 @@ async function openDatabase() {
 }
 
 add_setup(async () => {
-  await SelectableProfileService.resetProfileService(gProfileService);
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.profiles.created", false]],
+  });
+  await ProfilesDatastoreService.resetProfileService(gProfileService);
+  await SelectableProfileService.uninit();
+  await SelectableProfileService.init();
 
   registerCleanupFunction(async () => {
-    SelectableProfileService.overrideDirectoryService(null);
-    await SelectableProfileService.resetProfileService(null);
+    await SpecialPowers.popPrefEnv();
+    ProfilesDatastoreService.overrideDirectoryService(null);
+    await ProfilesDatastoreService.resetProfileService(null);
+    await ProfilesDatastoreService.uninit();
+    await SelectableProfileService.uninit();
   });
 });
 

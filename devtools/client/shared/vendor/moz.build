@@ -12,18 +12,15 @@ DIRS += [
 DevToolsModules(
     'fluent-react.js',
     'fuzzaldrin-plus.js',
-    'immutable.js',
     'md5.js',
     'react-dom-factories.mjs',
     'react-redux.js',
     'react-router-dom.js',
-    'react-test-renderer-shallow.mjs',
     'react-test-renderer.mjs',
     'redux.js',
     'reselect.js',
     'WasmDis.js',
     'WasmParser.js',
-    'whatwg-url.js',
 )
 
 # react dev versions are used if enable-debug-js-modules is set in .mozconfig.

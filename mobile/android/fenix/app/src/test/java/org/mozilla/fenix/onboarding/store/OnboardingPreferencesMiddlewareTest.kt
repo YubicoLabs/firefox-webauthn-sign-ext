@@ -6,17 +6,13 @@ package org.mozilla.fenix.onboarding.store
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.emptyFlow
-import mozilla.components.lib.state.MiddlewareContext
+import kotlinx.coroutines.test.runTest
 import mozilla.components.support.test.mock
-import mozilla.components.support.test.rule.MainCoroutineRule
-import mozilla.components.support.test.rule.runTestOnMain
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mock
 import org.mockito.Mockito.verify
-import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.verifyNoMoreInteractions
 import org.mockito.Mockito.`when`
 import org.mockito.MockitoAnnotations
@@ -26,29 +22,22 @@ import org.mozilla.fenix.onboarding.view.ToolbarOptionType
 @RunWith(AndroidJUnit4::class)
 class OnboardingPreferencesMiddlewareTest {
 
-    @get:Rule
-    val mainCoroutineTestRule = MainCoroutineRule()
-
     @Mock
     private lateinit var repository: OnboardingPreferencesRepository
-
-    @Mock
-    private lateinit var context: MiddlewareContext<OnboardingState, OnboardingAction>
-
-    private lateinit var middleware: OnboardingPreferencesMiddleware
 
     @Before
     fun setup() {
         MockitoAnnotations.openMocks(this)
-        repository = mock()
-        middleware = OnboardingPreferencesMiddleware(repository)
     }
 
     @Test
     fun `GIVEN init action WHEN middleware is invoked THEN the repo is initialized`() =
-        runTestOnMain {
+        runTest {
+            val middleware = OnboardingPreferencesMiddleware(repository, this)
+
             `when`(repository.onboardingPreferenceUpdates).thenReturn(emptyFlow())
-            middleware.invoke(context = context, next = {}, action = OnboardingAction.Init)
+            middleware.invoke(store = mock(), next = {}, action = OnboardingAction.Init)
+            testScheduler.advanceUntilIdle()
 
             verify(repository).init()
             verify(repository).onboardingPreferenceUpdates
@@ -57,12 +46,15 @@ class OnboardingPreferencesMiddlewareTest {
 
     @Test
     fun `GIVEN update selected theme action with WHEN middleware is invoked THEN the repo update function is called with the selected theme`() =
-        runTestOnMain {
+        runTest {
+            val middleware = OnboardingPreferencesMiddleware(repository, this)
+
             middleware.invoke(
-                context = context,
+                store = mock(),
                 next = {},
                 action = OnboardingAction.OnboardingThemeAction.UpdateSelected(ThemeOptionType.THEME_DARK),
             )
+            testScheduler.advanceUntilIdle()
 
             verify(repository).updateOnboardingPreference(
                 OnboardingPreferencesRepository.OnboardingPreferenceUpdate(
@@ -74,12 +66,15 @@ class OnboardingPreferencesMiddlewareTest {
 
     @Test
     fun `GIVEN update selected toolbar action with WHEN middleware is invoked THEN the repo update function is called with the selected toolbar`() =
-        runTestOnMain {
+        runTest {
+            val middleware = OnboardingPreferencesMiddleware(repository, this)
+
             middleware.invoke(
-                context = context,
+                store = mock(),
                 next = {},
                 action = OnboardingAction.OnboardingToolbarAction.UpdateSelected(ToolbarOptionType.TOOLBAR_BOTTOM),
             )
+            testScheduler.advanceUntilIdle()
 
             verify(repository).updateOnboardingPreference(
                 OnboardingPreferencesRepository.OnboardingPreferenceUpdate(
@@ -87,20 +82,5 @@ class OnboardingPreferencesMiddlewareTest {
                 ),
             )
             verifyNoMoreInteractions(repository)
-        }
-
-    @Test
-    fun `GIVEN no op actions with WHEN middleware is invoked THEN nothing happens`() =
-        runTestOnMain {
-            middleware.invoke(
-                context = context,
-                next = {},
-                action = OnboardingAction.OnboardingAddOnsAction.UpdateStatus(
-                    addOnId = "test",
-                    status = OnboardingAddonStatus.INSTALLED,
-                ),
-            )
-
-            verifyNoInteractions(repository)
         }
 }

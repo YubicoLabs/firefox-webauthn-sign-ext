@@ -16,10 +16,11 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiScrollable
 import androidx.test.uiautomator.UiSelector
 import junit.framework.TestCase.assertTrue
-import mozilla.components.support.utils.ext.getPackageInfoCompat
+import mozilla.components.support.utils.ext.packageManagerCompatHelper
 import org.hamcrest.Matchers.allOf
 import org.mozilla.focus.R
 import org.mozilla.focus.helpers.TestHelper.appName
+import org.mozilla.focus.helpers.TestHelper.getStringResource
 import org.mozilla.focus.helpers.TestHelper.mDevice
 import org.mozilla.focus.helpers.TestHelper.packageName
 import org.mozilla.focus.helpers.TestHelper.waitingTime
@@ -33,7 +34,7 @@ class SettingsMozillaMenuRobot {
         mozillaSettingsList.waitForExists(waitingTime)
         aboutFocusPageLink.check(matches(isDisplayed()))
         helpPageLink.check(matches(isDisplayed()))
-        yourRightsLink.check(matches(isDisplayed()))
+        termsOfUseLink.check(matches(isDisplayed()))
         privacyNoticeLink.check(matches(isDisplayed()))
         licenseInfo.check(matches(isDisplayed()))
         librariesUsedLink.check(matches(isDisplayed()))
@@ -41,7 +42,8 @@ class SettingsMozillaMenuRobot {
 
     fun verifyVersionNumbers() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val packageInfo = context.packageManager.getPackageInfoCompat(context.packageName, 0)
+        val packageInfo =
+            context.packageManagerCompatHelper.getPackageInfoCompat(context.packageName, 0)
         val versionName = packageInfo.versionName ?: ""
         val gvBuildId = org.mozilla.geckoview.BuildConfig.MOZ_APP_BUILDID
         val gvVersion = org.mozilla.geckoview.BuildConfig.MOZ_APP_VERSION
@@ -99,8 +101,8 @@ class SettingsMozillaMenuRobot {
             return BrowserRobot.Transition()
         }
 
-        fun openYourRightsPage(interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
-            yourRightsLink
+        fun openTermsOfUsePage(interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
+            termsOfUseLink
                 .check(matches(isDisplayed()))
                 .perform(click())
 
@@ -161,10 +163,10 @@ private val helpPageLink =
         ),
     )
 
-private val yourRightsLink =
+private val termsOfUseLink =
     onView(
         allOf(
-            withText("Your Rights"),
+            withText(getStringResource(R.string.menu_terms_of_use)),
             withParent(
                 hasSibling(withId(R.id.icon_frame)),
             ),

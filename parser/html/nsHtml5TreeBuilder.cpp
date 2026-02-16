@@ -155,11 +155,11 @@ void nsHtml5TreeBuilder::startTokenization(nsHtml5Tokenizer* self) {
       mode = FRAMESET_OK;
     } else if (contextNamespace == kNameSpaceID_MathML) {
       nsHtml5ElementName* elementName = nsHtml5ElementName::ELT_MATH;
-      if (nsGkAtoms::mi_ == contextName || nsGkAtoms::mo_ == contextName ||
-          nsGkAtoms::mn_ == contextName || nsGkAtoms::ms_ == contextName ||
-          nsGkAtoms::mtext_ == contextName) {
+      if (nsGkAtoms::mi == contextName || nsGkAtoms::mo == contextName ||
+          nsGkAtoms::mn == contextName || nsGkAtoms::ms == contextName ||
+          nsGkAtoms::mtext == contextName) {
         elementName = nsHtml5ElementName::ELT_MTEXT;
-      } else if (nsGkAtoms::annotation_xml_ == contextName) {
+      } else if (nsGkAtoms::annotation_xml == contextName) {
         elementName = nsHtml5ElementName::ELT_ANNOTATION_XML;
       }
       nsHtml5StackNode* node =
@@ -2126,9 +2126,12 @@ nsIContentHandle* nsHtml5TreeBuilder::getDeclarativeShadowRoot(
       attributes->contains(nsHtml5AttributeName::ATTR_SHADOWROOTSERIALIZABLE);
   bool shadowRootDelegatesFocus =
       attributes->contains(nsHtml5AttributeName::ATTR_SHADOWROOTDELEGATESFOCUS);
+  nsHtml5String shadowRootReferenceTarget = attributes->getValue(
+      nsHtml5AttributeName::ATTR_SHADOWROOTREFERENCETARGET);
   return getShadowRootFromHost(currentNode, templateNode, shadowRootMode,
                                shadowRootIsClonable, shadowRootIsSerializable,
-                               shadowRootDelegatesFocus);
+                               shadowRootDelegatesFocus,
+                               shadowRootReferenceTarget);
 }
 
 nsHtml5String nsHtml5TreeBuilder::extractCharsetFromContent(

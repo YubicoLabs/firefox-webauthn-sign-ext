@@ -43,6 +43,7 @@ if (Services.appinfo.processType != Ci.nsIXULRuntime.PROCESS_TYPE_DEFAULT) {
 // - remote/test/puppeteer/packages/browsers/src/browser-data/firefox.ts
 // - testing/geckodriver/src/prefs.rs
 // - testing/marionette/client/marionette_driver/geckoinstance.py
+// - testing/profiles/
 //
 // The preferences in `firefox.ts`, `prefs.rs` and `geckoinstance.py`
 // will be applied before the application starts, and should typically be used
@@ -51,7 +52,7 @@ if (Services.appinfo.processType != Ci.nsIXULRuntime.PROCESS_TYPE_DEFAULT) {
 // The preferences in `RecommendedPreferences.sys.mjs` are applied after
 // the application has started, which means that the application must apply this
 // change dynamically and behave correctly. Note that you can also define
-// protocol specific preferences (CDP, WebDriver, ...) which are merged with the
+// protocol specific preferences (WebDriver, ...) which are merged with the
 // COMMON_PREFERENCES from `RecommendedPreferences.sys.mjs`.
 //
 // Additionally, users relying on the Marionette Python client (ie. using
@@ -60,6 +61,10 @@ if (Services.appinfo.processType != Ci.nsIXULRuntime.PROCESS_TYPE_DEFAULT) {
 // be added to the list of preferences in that Python file. Note that there are
 // several lists of preferences, either common or specific to a given application
 // (Firefox Desktop, Fennec, Thunderbird).
+//
+// Some test types may disable recommended preferences. Search for
+// `"remote.prefs.recommended", false` in `/testing/profiles` to find
+// `user.js` files that do so.
 //
 // Depending on how users interact with the Remote Agent, they will use different
 // combinations of preferences. So it's important to update the preferences files
@@ -73,6 +78,8 @@ if (Services.appinfo.processType != Ci.nsIXULRuntime.PROCESS_TYPE_DEFAULT) {
 //   - Create a PR to upstream the change on `browser-data/firefox.ts` to puppeteer
 // - Otherwise, if the preference can be set after startup:
 //   - Add the preference to `RecommendedPreferences.sys.mjs`
+// - If a `user.js` file in `/testing/profiles` disables recommended preferences,
+//   identify affected test suites and set the new preference where needed.
 const COMMON_PREFERENCES = new Map([
   // Make sure Shield doesn't hit the network.
   ["app.normandy.api_url", ""],
@@ -93,10 +100,19 @@ const COMMON_PREFERENCES = new Map([
   // (bug 1176798, bug 1177018, bug 1210465)
   ["apz.content_response_timeout", 60000],
 
+  // Disable the profile backup service.
+  ["browser.backup.enabled", false],
+
   // Don't show the content blocking introduction panel.
   // We use a larger number than the default 22 to have some buffer
   // This can be removed once Firefox 69 and 68 ESR and are no longer supported.
   ["browser.contentblocking.introCount", 99],
+
+  // Disable extension discovery
+  ["browser.discovery.enabled", false],
+
+  // Set global `dump` function to log strings to `stdout` for release builds as well.
+  ["browser.dom.window.dump.enabled", true],
 
   // Indicate that the download panel has been shown once so that
   // whichever download test runs first doesn't show the popup
@@ -106,21 +122,17 @@ const COMMON_PREFERENCES = new Map([
   // Make sure error page is not shown for blank pages with 4xx or 5xx response code
   ["browser.http.blank_page_with_error_response.enabled", true],
 
-  // Make sure newtab weather doesn't hit the network to retrieve weather data.
-  [
-    "browser.newtabpage.activity-stream.discoverystream.region-weather-config",
-    "",
-  ],
+  // Disable all machine learning features by default
+  ["browser.ml.enable", false],
 
-  // Make sure newtab wallpapers don't hit the network to retrieve wallpaper data.
-  ["browser.newtabpage.activity-stream.newtabWallpapers.enabled", false],
-  ["browser.newtabpage.activity-stream.newtabWallpapers.v2.enabled", false],
+  // Disable CFR features for automated tests.
+  ["browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features", false],
+
+  // Do not initialize any activitystream features
+  ["browser.newtabpage.activity-stream.testing.shouldInitializeFeeds", false],
 
   // Make sure Topsites doesn't hit the network to retrieve sponsored tiles.
   ["browser.newtabpage.activity-stream.showSponsoredTopSites", false],
-
-  // Always display a blank page
-  ["browser.newtabpage.enabled", false],
 
   // Background thumbnails in particular cause grief, and disabling
   // thumbnails in general cannot hurt
@@ -180,12 +192,17 @@ const COMMON_PREFERENCES = new Map([
   // Make sure Topsites doesn't hit the network to retrieve tiles from Contile.
   ["browser.topsites.contile.enabled", false],
 
+  // Disable translations
+  ["browser.translations.enable", false],
+
   // Disable first run splash page on Windows 10
   ["browser.usedOnWindows10.introURL", ""],
 
   // Turn off Merino suggestions in the location bar so as not to trigger
   // network connections.
   ["browser.urlbar.merino.endpointURL", ""],
+  ["browser.urlbar.merino.ohttpConfigURL", ""],
+  ["browser.urlbar.merino.ohttpRelayURL", ""],
 
   // Turn off search suggestions in the location bar so as not to trigger
   // network connections.
@@ -207,6 +224,8 @@ const COMMON_PREFERENCES = new Map([
   ["datareporting.policy.dataSubmissionEnabled", false],
   ["datareporting.policy.dataSubmissionPolicyAccepted", false],
   ["datareporting.policy.dataSubmissionPolicyBypassNotification", true],
+  ["datareporting.usage.uploadEnabled", false],
+  ["telemetry.fog.test.localhost_port", -1],
 
   // Disable popup-blocker
   ["dom.disable_open_during_load", false],
@@ -220,6 +239,14 @@ const COMMON_PREFERENCES = new Map([
 
   // Disable the ProcessHangMonitor
   ["dom.ipc.reportProcessHangs", false],
+
+  // Disable the QoS manager on MacOS and the priority manager on all other
+  // platforms to not cause stalled processes in background tabs when the
+  // overall CPU load on the machine is high.
+  //
+  // TODO: Should be considered to get removed once bug 1960741 is fixed.
+  ["threads.lower_mainthread_priority_in_background.enabled", false],
+  ["dom.ipc.processPriorityManager.enabled", false],
 
   // Disable slow script dialogues
   ["dom.max_chrome_script_run_time", 0],
@@ -243,6 +270,10 @@ const COMMON_PREFERENCES = new Map([
   // Should be set in profile.
   ["extensions.autoDisableScopes", 0],
   ["extensions.enabledScopes", 5],
+
+  // Disable form autofill for extensions and credit cards
+  ["extensions.formautofill.addresses.enabled", false],
+  ["extensions.formautofill.creditCards.enabled", false],
 
   // Disable metadata caching for installed add-ons by default
   ["extensions.getAddons.cache.enabled", false],
@@ -305,11 +336,11 @@ const COMMON_PREFERENCES = new Map([
   // Disable Firefox accounts ping
   ["identity.fxaccounts.auth.uri", "https://{server}/dummy/fxa"],
 
+  // Allow scroll amount larger than one page on a single mouse wheel event.
+  ["mousewheel.allow_scrolling_more_than_one_page", true],
+
   // Disable connectivity service pings
   ["network.connectivity-service.enabled", false],
-
-  // Do not prompt with long usernames or passwords in URLs
-  ["network.http.phishy-userpass-length", 255],
 
   // Do not prompt for temporary redirects
   ["network.http.prompt-temp-redirect", false],
@@ -320,8 +351,13 @@ const COMMON_PREFERENCES = new Map([
   // Make sure SNTP requests do not hit the network
   ["network.sntp.pools", "%(server)s"],
 
+  // Turn off semantic history search as it triggers network connections to
+  // download ML models.
+  ["places.semanticHistory.featureGate", false],
+
   // Privacy and Tracking Protection
   ["privacy.trackingprotection.enabled", false],
+  ["privacy.trackingprotection.pbmode.enabled", false],
 
   // Used to check if recommended preferences are applied
   ["remote.prefs.recommended.applied", true],
@@ -349,6 +385,10 @@ const COMMON_PREFERENCES = new Map([
   // passwords
   ["signon.autofillForms", false],
 
+  // Disable alerts for credential issues
+  ["signon.management.page.breach-alerts.enabled", false],
+  ["signon.management.page.vulnerable-passwords.enabled", false],
+
   // Disable password capture, so that tests that include forms are not
   // influenced by the presence of the persistent doorhanger notification
   ["signon.rememberSignons", false],
@@ -356,6 +396,9 @@ const COMMON_PREFERENCES = new Map([
   // Disable first-run welcome page
   ["startup.homepage_welcome_url", "about:blank"],
   ["startup.homepage_welcome_url.additional", ""],
+
+  // Do not show TOU new user modal which can interfere with tests
+  ["termsofuse.bypassNotification", true],
 
   // Prevent starting into safe mode after application crashes
   ["toolkit.startup.max_resumed_crashes", -1],
@@ -426,7 +469,6 @@ export const RecommendedPreferences = {
 
   observe(subject, topic) {
     if (topic === "quit-application") {
-      Services.obs.removeObserver(this, "quit-application");
       this.restoreAllPreferences();
     }
   },
@@ -436,6 +478,9 @@ export const RecommendedPreferences = {
    */
   restoreAllPreferences() {
     this.restorePreferences(this.alteredPrefs);
+    if (this.isInitialized) {
+      Services.obs.removeObserver(this, "quit-application");
+    }
     this.isInitialized = false;
   },
 

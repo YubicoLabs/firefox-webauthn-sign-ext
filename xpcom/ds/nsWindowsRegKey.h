@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsWindowsRegKey_h__
-#define nsWindowsRegKey_h__
+#ifndef nsWindowsRegKey_h_
+#define nsWindowsRegKey_h_
 
 //-----------------------------------------------------------------------------
 
@@ -28,12 +28,11 @@ extern "C" void NS_NewWindowsRegKey(nsIWindowsRegKey** aResult);
 #ifdef IMPL_LIBXUL
 
 // a53bc624-d577-4839-b8ec-bb5040a52ff4
-#  define NS_WINDOWSREGKEY_CID                         \
-    {                                                  \
-      0xa53bc624, 0xd577, 0x4839, {                    \
-        0xb8, 0xec, 0xbb, 0x50, 0x40, 0xa5, 0x2f, 0xf4 \
-      }                                                \
-    }
+#  define NS_WINDOWSREGKEY_CID \
+    {0xa53bc624,               \
+     0xd577,                   \
+     0x4839,                   \
+     {0xb8, 0xec, 0xbb, 0x50, 0x40, 0xa5, 0x2f, 0xf4}}
 
 [[nodiscard]] extern nsresult nsWindowsRegKeyConstructor(const nsIID& aIID,
                                                          void** aResult);
@@ -42,4 +41,4 @@ extern "C" void NS_NewWindowsRegKey(nsIWindowsRegKey** aResult);
 
 //-----------------------------------------------------------------------------
 
-#endif  // nsWindowsRegKey_h__
+#endif  // nsWindowsRegKey_h_

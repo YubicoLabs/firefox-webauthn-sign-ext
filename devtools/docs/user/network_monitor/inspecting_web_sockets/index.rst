@@ -2,7 +2,7 @@
 Inspecting web sockets
 ======================
 
-Since Firefox 71, the :doc:`Network Monitor <../index>` has had the ability to inspect `web socket <https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API>`_ connections. This article explores what functionality the Web Socket Inspector makes available.
+The :doc:`Network Monitor <../index>` has the ability to inspect `web socket <https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API>`_ connections. This article explores what functionality the Web Socket Inspector makes available.
 
 Accessing the inspector
 ***********************
@@ -12,7 +12,7 @@ When you are inspecting a web app that utilizes a web socket connection, the web
 .. image:: wsi-filter.png
   :alt: WS filter in the network inspector
 
-You can use the WS button to filter the list for just web socket connections. Only requests with the `101 status code <https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/101>`_ (WebSocket Protocol Handshake) are visible, which indicates that the server is switching to a web socket connection.
+You can use the WS button to filter the list for just web socket connections. Only requests with the `101 status code <https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/101>`_ (WebSocket Protocol Handshake) are visible, which indicates that the server is switching to a web socket connection.
 
 Clicking on a web socket request opens the usual sidebar to reveal additional details. Choose the **Response** tab to inspect web socket frames sent and received through the selected connection.
 
@@ -60,7 +60,7 @@ The following filters are available:
      - Displays only messages received from the server (by default, except control messages).
 
    * - **Control**
-     - (Available starting in Firefox 76). Displays messages for control frames (Ping, Pong, or Close). This filter can be combined with the others, to display, for example, only messages for control frames sent by the browser.
+     - Displays messages for control frames (Ping, Pong, or Close). This filter can be combined with the others, to display, for example, only messages for control frames sent by the browser.
 
 Columns in the Response pane
 ****************************

@@ -2,12 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/*
+/**
  * Implements a service used to access storage and communicate with content.
  *
  * A "fields" array is used to communicate with FormAutofillChild. Each item
  * represents a single input field in the content page as well as its
- * @autocomplete properties. The schema is as below. Please refer to
+ * `@autocomplete` properties. The schema is as below. Please refer to
  * FormAutofillChild.js for more details.
  *
  * [
@@ -27,17 +27,14 @@
 
 // We expose a singleton from this module. Some tests may import the
 // constructor via the system global.
+import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { FormAutofill } from "resource://autofill/FormAutofill.sys.mjs";
 import { FormAutofillUtils } from "resource://gre/modules/shared/FormAutofillUtils.sys.mjs";
-
-const { FIELD_STATES } = FormAutofillUtils;
 
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   AddressComponent: "resource://gre/modules/shared/AddressComponent.sys.mjs",
-  // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
-  BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
   FormAutofillAddressSection:
     "resource://gre/modules/shared/FormAutofillSection.sys.mjs",
   FormAutofillCreditCardSection:
@@ -51,7 +48,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   FormAutofillPrompter: "resource://autofill/FormAutofillPrompter.sys.mjs",
   FirefoxRelay: "resource://gre/modules/FirefoxRelay.sys.mjs",
   LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
-  MLAutofill: "resource://autofill/MLAutofill.sys.mjs",
+  NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   OSKeyStore: "resource://gre/modules/OSKeyStore.sys.mjs",
 });
 
@@ -62,7 +59,7 @@ ChromeUtils.defineLazyGetter(lazy, "log", () =>
 const { ENABLED_AUTOFILL_ADDRESSES_PREF, ENABLED_AUTOFILL_CREDITCARDS_PREF } =
   FormAutofill;
 
-const { ADDRESSES_COLLECTION_NAME, CREDITCARDS_COLLECTION_NAME } =
+const { ADDRESSES_COLLECTION_NAME, CREDITCARDS_COLLECTION_NAME, FIELD_STATES } =
   FormAutofillUtils;
 
 let gMessageObservers = new Set();
@@ -113,6 +110,7 @@ export let FormAutofillStatus = {
 
     Services.obs.removeObserver(this, "privacy-pane-loaded");
     Services.prefs.removeObserver(ENABLED_AUTOFILL_ADDRESSES_PREF, this);
+    Services.obs.removeObserver(this, "formautofill-storage-changed");
     Services.wm.removeListener(this);
 
     if (FormAutofill.isAutofillCreditCardsAvailable) {
@@ -205,11 +203,7 @@ export let FormAutofillStatus = {
       case "privacy-pane-loaded": {
         let formAutofillPreferences = new lazy.FormAutofillPreferences();
         let document = subject.document;
-        let prefFragment = formAutofillPreferences.init(document);
-        let formAutofillGroupBox = document.getElementById(
-          "formAutofillGroupBox"
-        );
-        formAutofillGroupBox.appendChild(prefFragment);
+        formAutofillPreferences.init(document);
         break;
       }
 
@@ -343,9 +337,11 @@ export class FormAutofillParent extends JSWindowActorParent {
         this.onFieldFilledModified(data);
         break;
       }
-      case "FormAutofill:FillFieldsOnFormChange": {
+      case "FormAutofill:FieldsUpdatedDuringAutofill": {
+        // TODO bug 1953231: The parent should introduce profile ids, so that
+        // the child can simply send a profile id instead of the whole profile data
         const { elementId, profile } = data;
-        this.onFillOnFormChange(elementId, profile);
+        this.onFieldsUpdatedDuringAutofill(elementId, profile);
         break;
       }
 
@@ -542,10 +538,6 @@ export class FormAutofillParent extends JSWindowActorParent {
     // in a form are changed, we treat the "updated" section as a new detected section.
     sections.forEach(section => section.onDetected());
 
-    if (FormAutofill.isMLExperimentEnabled) {
-      sections.forEach(section => lazy.MLAutofill.runInference(section));
-    }
-
     // Inform all the child actors of the updated 'fieldDetails'
     const detailsByBC =
       lazy.FormAutofillSection.groupFieldDetailsByBrowsingContext(fieldDetails);
@@ -578,9 +570,10 @@ export class FormAutofillParent extends JSWindowActorParent {
    *
    * @param {string} elementId element id of focused element that triggered
    *                           the initial autocompletion process
-   * @param {object} profile
+   * @param {object} profile that was used for the previous autofill action
+   *                         causing the form change
    */
-  async onFillOnFormChange(elementId, profile) {
+  async onFieldsUpdatedDuringAutofill(elementId, profile) {
     const section = this.getSectionByElementId(elementId);
     const msg = "FormAutofill:FillFieldsOnFormChange";
     const fields = section.getAutofillFields();
@@ -590,10 +583,14 @@ export class FormAutofillParent extends JSWindowActorParent {
       fields,
       profile
     );
-
-    // Todo: P7. Add telemetry to capture the fields that were filled on dynamic form change
-
-    result.forEach((value, key) => this.filledResult.set(key, value));
+    result.forEach((value, key) => {
+      const filledField = this.filledResult.get(key);
+      const isFilledOnFieldsUpdate =
+        !filledField || filledField.filledState != FIELD_STATES.AUTO_FILLED;
+      this.filledResult.set(key, value);
+      value.isFilledOnFieldsUpdate = isFilledOnFieldsUpdate;
+    });
+    section.onFilledOnFieldsUpdate(result);
 
     // For testing only
     Services.obs.notifyObservers(
@@ -680,6 +677,17 @@ export class FormAutofillParent extends JSWindowActorParent {
       } else {
         throw new Error("Unknown section type");
       }
+    }
+
+    try {
+      // The child is ignoring any detected field updates during a form submission.
+      // So we're notifying the child that the form submission is completed. Additionally the child
+      // disconnects any form change observers from the submitted form/fields.
+      this.sendAsyncMessage("FormAutofill:onFormSubmissionComplete", {
+        rootElementId,
+      });
+    } catch (e) {
+      // The child might be destroyed immediately after submission
     }
 
     const browser = this.manager?.browsingContext.top.embedderElement;
@@ -857,10 +865,6 @@ export class FormAutofillParent extends JSWindowActorParent {
     // from the new address.
     let newRecord = {};
     if (mergeableFields.length) {
-      // TODO: This is only temporarily, should be removed after Bug 1836438 is fixed
-      if (mergeableFields.includes("name")) {
-        mergeableFields.push("given-name", "additional-name", "family-name");
-      }
       mergeableFields.forEach(f => {
         if (f in newAddress.record) {
           newRecord[f] = newAddress.record[f];
@@ -990,6 +994,11 @@ export class FormAutofillParent extends JSWindowActorParent {
       return null;
     }
 
+    const fieldDetail = section.getFieldDetailByElementId(elementId);
+    if (!section.shouldAutofillField(fieldDetail)) {
+      return null;
+    }
+
     const relayPromise = lazy.FirefoxRelay.autocompleteItemsAsync({
       origin: this.formOrigin,
       scenarioName,
@@ -1018,9 +1027,13 @@ export class FormAutofillParent extends JSWindowActorParent {
    */
   async onAutoCompleteEntrySelected(message, data) {
     switch (message) {
-      case "FormAutofill:OpenPreferences": {
-        const win = lazy.BrowserWindowTracker.getTopWindow();
-        win.openPreferences("privacy-form-autofill");
+      case "FormAutofill:OpenPaymentPreferences": {
+        lazy.FormAutofillPreferences.openPaymentPreference();
+        break;
+      }
+
+      case "FormAutofill:OpenAddressPreferences": {
+        lazy.FormAutofillPreferences.openAddressPreference();
         break;
       }
 
@@ -1065,7 +1078,13 @@ export class FormAutofillParent extends JSWindowActorParent {
   #FIELDS_FILLED_WHEN_SAME_ORIGIN = ["cc-number"];
 
   /**
-   * Determines if the field should be autofilled based on its origin.
+   * Determines whether a field is eligible for autofill based on its origin.
+   *
+   * The rules for autofill eligibility are as follows:
+   * 1. Autofill is permitted if the field resides in a frame that shares the same origin
+   *    as the field that triggered the autofill action.
+   * 2. Autofill is also allowed if the field is same-origin with the top-level frame
+   *    and is not designated as a credit card number field.
    *
    * @param {BorwsingContext} bc
    *        The browsing context the field is in.
@@ -1135,12 +1154,12 @@ export class FormAutofillParent extends JSWindowActorParent {
       entries.push(entry);
     }
 
-    for (const [bcId, fieldDetails] of entries) {
+    for (const [bcId, bcFieldDetails] of entries) {
       const bc = BrowsingContext.get(bcId);
 
       // For sensitive fields, we ONLY fill them when they are same-origin with
       // the triggered frame.
-      const ids = fieldDetails
+      const ids = bcFieldDetails
         .filter(detail => this.shouldAutofill(bc, detail))
         .map(detail => detail.elementId);
 
@@ -1210,7 +1229,15 @@ export class FormAutofillParent extends JSWindowActorParent {
     const section = this.getSectionByElementId(elementId);
     if (!(await section.prepareFillingProfile(profile))) {
       lazy.log.debug("profile cannot be filled");
+      // For testing only
+      Services.obs.notifyObservers(null, "formautofill-autofill-complete");
       return;
+    }
+
+    if (AppConstants.platform !== "android") {
+      lazy.NimbusFeatures["address-autofill-feature"].recordExposureEvent({
+        once: true,
+      });
     }
 
     const msg = "FormAutofill:FillFields";
@@ -1222,7 +1249,10 @@ export class FormAutofillParent extends JSWindowActorParent {
       profile
     );
 
-    result.forEach((value, key) => this.filledResult.set(key, value));
+    result.forEach((value, key) => {
+      this.filledResult.set(key, value);
+      value.isFilledOnFieldsUpdate = false;
+    });
     section.onFilled(result);
 
     // For testing only

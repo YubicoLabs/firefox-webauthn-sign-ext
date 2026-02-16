@@ -10,10 +10,10 @@
 #include "ImgDrawResult.h"
 #include "gfxMatrix.h"
 #include "gfxRect.h"
-#include "nsRegionFwd.h"
-#include "mozilla/gfx/Rect.h"
 #include "mozilla/ServoStyleConsts.h"
+#include "mozilla/gfx/Rect.h"
 #include "mozilla/webrender/WebRenderTypes.h"
+#include "nsRegionFwd.h"
 
 class gfxContext;
 class gfxDrawable;
@@ -21,6 +21,9 @@ class nsIFrame;
 struct nsPoint;
 struct nsRect;
 struct nsSize;
+
+// zipstruct.h defines this and causes issues if in the same translation unit.
+#undef UNSUPPORTED
 
 enum class WrFiltersStatus {
   // Image will be rendered unftilered - the filter graph contains invalid refs
@@ -252,17 +255,18 @@ class SVGIntegrationUtils final {
    * background-repeat:no-repeat and background-size:auto. For normal background
    * images, this would be the intrinsic size of the image; for gradients and
    * patterns this would be the whole target frame fill area.
-   * @param aFlags pass FLAG_SYNC_DECODE_IMAGES and any images in the paint
+   * @param aFlags pass SyncDecodeImages and any images in the paint
    * server will be decoding synchronously if they are not decoded already.
    */
-  enum {
-    FLAG_SYNC_DECODE_IMAGES = 0x01,
+  enum class DecodeFlag {
+    SyncDecodeImages,
   };
+  using DecodeFlags = EnumSet<DecodeFlag>;
 
   static already_AddRefed<gfxDrawable> DrawableFromPaintServer(
       nsIFrame* aFrame, nsIFrame* aTarget, const nsSize& aPaintServerSize,
       const gfx::IntSize& aRenderSize, const DrawTarget* aDrawTarget,
-      const gfxMatrix& aContextMatrix, uint32_t aFlags);
+      const gfxMatrix& aContextMatrix, DecodeFlags aFlags);
 
   /**
    * For non-SVG frames, this gives the offset to the frame's "user space".

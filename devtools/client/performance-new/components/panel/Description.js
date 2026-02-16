@@ -12,7 +12,7 @@
 const {
   PureComponent,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const {
   div,
   button,
@@ -25,7 +25,8 @@ const Localized = createFactory(
 /**
  * This component provides a helpful description for what is going on in the component
  * and provides some external links.
- * @extends {React.PureComponent<Props>}
+ *
+ * @augments {React.PureComponent<Props>}
  */
 class Description extends PureComponent {
   /**

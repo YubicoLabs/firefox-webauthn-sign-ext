@@ -26,9 +26,8 @@
 
 #include "mozilla/dom/DirectionalityUtils.h"
 
-#include "nsINode.h"
-#include "nsIContent.h"
-#include "nsIContentInlines.h"
+#include "mozilla/Maybe.h"
+#include "mozilla/dom/CharacterDataBuffer.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/HTMLInputElement.h"
@@ -38,10 +37,11 @@
 #include "mozilla/dom/Text.h"
 #include "mozilla/dom/UnbindContext.h"
 #include "mozilla/intl/UnicodeProperties.h"
-#include "mozilla/Maybe.h"
-#include "nsUnicodeProperties.h"
-#include "nsTextFragment.h"
 #include "nsAttrValue.h"
+#include "nsIContent.h"
+#include "nsIContentInlines.h"
+#include "nsINode.h"
+#include "nsUnicodeProperties.h"
 
 namespace mozilla {
 
@@ -205,12 +205,15 @@ static Directionality GetDirectionFromText(const char* aText,
 
 static Directionality GetDirectionFromText(const Text* aTextNode,
                                            uint32_t* aFirstStrong = nullptr) {
-  const nsTextFragment* frag = &aTextNode->TextFragment();
-  if (frag->Is2b()) {
-    return GetDirectionFromText(frag->Get2b(), frag->GetLength(), aFirstStrong);
+  const dom::CharacterDataBuffer* characterDataBuffer =
+      &aTextNode->DataBuffer();
+  if (characterDataBuffer->Is2b()) {
+    return GetDirectionFromText(characterDataBuffer->Get2b(),
+                                characterDataBuffer->GetLength(), aFirstStrong);
   }
 
-  return GetDirectionFromText(frag->Get1b(), frag->GetLength(), aFirstStrong);
+  return GetDirectionFromText(characterDataBuffer->Get1b(),
+                              characterDataBuffer->GetLength(), aFirstStrong);
 }
 
 /**
@@ -265,10 +268,10 @@ static Directionality ComputeAutoDirectionality(Element* aElement,
  * https://html.spec.whatwg.org/#auto-directionality step 2
  */
 Directionality ComputeAutoDirectionFromAssignedNodes(
-    HTMLSlotElement* aSlot, const nsTArray<RefPtr<nsINode>>& assignedNodes,
+    HTMLSlotElement* aSlot, Span<const RefPtr<nsINode>> aAssignedNodes,
     bool aNotify) {
   // Step 2.1. For each node child of element's assigned nodes:
-  for (const RefPtr<nsINode>& assignedNode : assignedNodes) {
+  for (const RefPtr<nsINode>& assignedNode : aAssignedNodes) {
     // Step 2.1.1. Let childDirection be null.
     Directionality childDirection = Directionality::Unset;
 
@@ -313,9 +316,8 @@ static Directionality ComputeAutoDirectionality(Element* aElement,
   // Step 2. If element is a slot element whose root is a shadow root and
   // element's assigned nodes are not empty:
   if (auto* slot = HTMLSlotElement::FromNode(aElement)) {
-    const nsTArray<RefPtr<nsINode>>& assignedNodes = slot->AssignedNodes();
-    if (!assignedNodes.IsEmpty()) {
-      MOZ_ASSERT(slot->IsInShadowTree());
+    const Span assignedNodes = slot->AssignedNodes();
+    if (!assignedNodes.IsEmpty() && slot->IsInShadowTree()) {
       return ComputeAutoDirectionFromAssignedNodes(slot, assignedNodes,
                                                    aNotify);
     }
@@ -488,7 +490,9 @@ static void WalkAncestorsResetAutoDirection(Element* aElement, bool aNotify) {
 }
 
 void SlotStateChanged(HTMLSlotElement* aSlot) {
-  if (aSlot->HasDirAuto()) {
+  MOZ_ASSERT_IF(!aSlot->IsInShadowTree() && !aSlot->AssignedNodes().IsEmpty(),
+                !aSlot->IsInComposedDoc());
+  if (aSlot->HasDirAuto() && aSlot->IsInShadowTree()) {
     ResetAutoDirection(aSlot, true);
   }
 }
@@ -559,6 +563,19 @@ static void MaybeClearAffectsDirAutoSlot(nsIContent* aContent) {
 }
 
 void SlotAssignedNodeAdded(HTMLSlotElement* aSlot, nsIContent& aAssignedNode) {
+  MOZ_ASSERT(aSlot);
+  if (StaticPrefs::dom_shadowdom_selection_across_boundary_enabled()) {
+    if (aSlot->IsMaybeSelected()) {
+      // Normally it's nsRange::ContentAppended's responsibility to
+      // mark new descendants, however this doesn't work for slotted
+      // content because nsRange observes the common ancestor of
+      // start/end, whereas slotted element may not have the same
+      // ancestor as them.
+      dom::AbstractRange::UpdateDescendantsInFlattenedTree(
+          aAssignedNode, true /* aMarkDesendants*/);
+    }
+  }
+
   if (aSlot->HasDirAuto()) {
     aAssignedNode.SetAffectsDirAutoSlot();
     DownwardPropagateDirAutoFlags(&aAssignedNode);
@@ -568,6 +585,19 @@ void SlotAssignedNodeAdded(HTMLSlotElement* aSlot, nsIContent& aAssignedNode) {
 
 void SlotAssignedNodeRemoved(HTMLSlotElement* aSlot,
                              nsIContent& aUnassignedNode) {
+  if (StaticPrefs::dom_shadowdom_selection_across_boundary_enabled() &&
+      aUnassignedNode.IsMaybeSelected()) {
+    // Normally, this shouldn't happen because nsRange::ContentRemoved
+    // should be called for content removal, and then
+    // AbstractRange::UnmarkDescendants will be used to clear the flags.
+    // Though this doesn't work for slotted element because nsRange
+    // observers the common ancestor of start/end, whereas slotted element
+    // may not have the same ancestor as them, so we have to clear
+    // the flags manually here.
+    dom::AbstractRange::UpdateDescendantsInFlattenedTree(
+        aUnassignedNode, false /* aMarkDesendants*/);
+  }
+
   if (aSlot->HasDirAuto()) {
     MaybeClearAffectsDirAutoSlot(&aUnassignedNode);
   }

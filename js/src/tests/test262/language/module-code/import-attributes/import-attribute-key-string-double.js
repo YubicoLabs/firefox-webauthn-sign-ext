@@ -1,4 +1,4 @@
-// |reftest| shell-option(--enable-import-attributes) skip-if(!xulRuntime.shell) error:SyntaxError module -- requires shell-options
+// |reftest| error:SyntaxError module
 // Copyright (C) 2021 the V8 project authors. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 /*---
@@ -29,7 +29,7 @@ flags: [module]
 
 $DONOTEVALUATE();
 
-import "../resources/ensure-linking-error_FIXTURE.js";
+import "./ensure-linking-error_FIXTURE.js";
 
 import x from './import-attribute-1_FIXTURE.js' with {"test262\u0078":''};
 import './import-attribute-2_FIXTURE.js' with {"test262\u0078":''};

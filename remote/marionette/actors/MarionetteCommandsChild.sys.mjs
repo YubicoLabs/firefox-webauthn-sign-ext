@@ -2,14 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-disable no-restricted-globals */
-
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  LayoutUtils: "resource://gre/modules/LayoutUtils.sys.mjs",
+
   accessibility:
     "chrome://remote/content/shared/webdriver/Accessibility.sys.mjs",
-  actions: "chrome://remote/content/shared/webdriver/Actions.sys.mjs",
   AnimationFramePromise: "chrome://remote/content/shared/Sync.sys.mjs",
   assertTargetInViewPort:
     "chrome://remote/content/shared/webdriver/Actions.sys.mjs",
@@ -31,8 +30,6 @@ ChromeUtils.defineLazyGetter(lazy, "logger", () =>
 );
 
 export class MarionetteCommandsChild extends JSWindowActorChild {
-  #actionsOptions;
-  #actionState;
   #processActor;
 
   constructor() {
@@ -44,21 +41,6 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
 
     // sandbox storage and name of the current sandbox
     this.sandboxes = new lazy.Sandboxes(() => this.document.defaultView);
-
-    // Bug 1920959: Remove if we no longer need to dispatch in content.
-    this.#actionState = null;
-    // Options for actions to pass through performActions and releaseActions.
-    this.#actionsOptions = {
-      // Callbacks as defined in the WebDriver specification.
-      getElementOrigin: this.#getElementOriginFromContent.bind(this),
-      isElementOrigin: this.#isElementOriginFromContent.bind(this),
-
-      // Custom callbacks.
-      assertInViewPort: this.#assertInViewPortFromContent.bind(this),
-      dispatchEvent: this.#dispatchEventFromContent.bind(this),
-      getClientRects: this.#getClientRectsFromContent.bind(this),
-      getInViewCentrePoint: this.#getInViewCentrePointFromContent.bind(this),
-    };
   }
 
   get innerWindowId() {
@@ -79,46 +61,23 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
     );
   }
 
-  //////////////////////////////////////////////////////////////
-  // Start: Wrapper callbacks for action dispatching in content
-
-  #dispatchEventFromContent(eventName, _context, details) {
-    return this.#dispatchEvent({ eventName, details });
-  }
-
-  #assertInViewPortFromContent(target, _context) {
-    return lazy.assertTargetInViewPort(target, this.contentWindow);
-  }
-
-  #getClientRectsFromContent(element, _context) {
-    return element.getClientRects();
-  }
-
-  #getElementOriginFromContent(origin, _context) {
-    return origin;
-  }
-
-  #getInViewCentrePointFromContent(rect, _context) {
-    return lazy.dom.getInViewCentrePoint(rect, this.contentWindow);
-  }
-
-  #isElementOriginFromContent(origin, _context) {
-    return lazy.dom.isElement(origin);
-  }
-
-  // End: Wrapper callbacks for action dispatching in content
-  //////////////////////////////////////////////////////////////
-
   #assertInViewPort(options) {
     const { target } = options;
 
     return lazy.assertTargetInViewPort(target, this.contentWindow);
   }
 
-  #dispatchEvent(options) {
+  async #dispatchEvent(options) {
     const { eventName, details } = options;
     const win = this.contentWindow;
 
+    const windowUtils = win.windowUtils;
+    const microTaskLevel = windowUtils.microTaskLevel;
+    // Since we're being called as a webidl callback,
+    // CallbackObjectBase::CallSetup::CallSetup has increased the microtask
+    // level. Undo that temporarily so that microtask handling works closer
+    // the way it would work when dispatching events natively.
+    windowUtils.microTaskLevel = 0;
     try {
       switch (eventName) {
         case "synthesizeKeyDown":
@@ -128,7 +87,7 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
           lazy.event.sendKeyUp(details.eventData, win);
           break;
         case "synthesizeMouseAtPoint":
-          lazy.event.synthesizeMouseAtPoint(
+          await lazy.event.synthesizeMouseAtPoint(
             details.x,
             details.y,
             details.eventData,
@@ -139,7 +98,7 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
           lazy.event.synthesizeMultiTouch(details.eventData, win);
           break;
         case "synthesizeWheelAtPoint":
-          lazy.event.synthesizeWheelAtPoint(
+          await lazy.event.synthesizeWheelAtPoint(
             details.x,
             details.y,
             details.eventData,
@@ -162,13 +121,15 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
       }
 
       throw e;
+    } finally {
+      windowUtils.microTaskLevel = microTaskLevel;
     }
   }
 
   async #finalizeAction() {
     // Terminate the current wheel transaction if there is one. Wheel
     // transactions should not live longer than a single action chain.
-    ChromeUtils.endWheelTransaction();
+    await ChromeUtils.endWheelTransaction(this.contentWindow);
 
     // Wait for the next animation frame to make sure the page's content
     // was updated.
@@ -185,6 +146,17 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
     const { rect } = options;
 
     return lazy.dom.getInViewCentrePoint(rect, this.contentWindow);
+  }
+
+  #toBrowserWindowCoordinates(options, _context) {
+    const { position } = options;
+
+    return lazy.LayoutUtils.rectToTopLevelWidgetRect(this.contentWindow, {
+      left: position[0],
+      top: position[1],
+      height: 0,
+      width: 0,
+    });
   }
 
   // eslint-disable-next-line complexity
@@ -210,7 +182,7 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
           result = this.#assertInViewPort(data);
           break;
         case "MarionetteCommandsParent:_dispatchEvent":
-          this.#dispatchEvent(data);
+          await this.#dispatchEvent(data);
           waitForNextTick = true;
           break;
         case "MarionetteCommandsParent:_getClientRects":
@@ -221,6 +193,9 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
           break;
         case "MarionetteCommandsParent:_finalizeAction":
           this.#finalizeAction();
+          break;
+        case "MarionetteCommandsParent:_toBrowserWindowCoordinates":
+          result = this.#toBrowserWindowCoordinates(data);
           break;
         case "MarionetteCommandsParent:clearElement":
           this.clearElement(data);
@@ -239,6 +214,9 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
           break;
         case "MarionetteCommandsParent:findElements":
           result = await this.findElements(data);
+          break;
+        case "MarionetteCommandsParent:generateTestReport":
+          result = await this.generateTestReport(data);
           break;
         case "MarionetteCommandsParent:getActiveElement":
           result = await this.getActiveElement();
@@ -285,13 +263,6 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
         case "MarionetteCommandsParent:isElementSelected":
           result = await this.isElementSelected(data);
           break;
-        case "MarionetteCommandsParent:performActions":
-          result = await this.performActions(data);
-          waitForNextTick = true;
-          break;
-        case "MarionetteCommandsParent:releaseActions":
-          result = await this.releaseActions();
-          break;
         case "MarionetteCommandsParent:sendKeysToElement":
           result = await this.sendKeysToElement(data);
           waitForNextTick = true;
@@ -334,7 +305,8 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
 
   // Implementation of WebDriver commands
 
-  /** Clear the text of an element.
+  /**
+   * Clear the text of an element.
    *
    * @param {object} options
    * @param {Element} options.elem
@@ -410,6 +382,17 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
 
     const container = { frame: this.document.defaultView };
     return lazy.dom.find(container, strategy, selector, opts);
+  }
+
+  /**
+   * Generates and sends a test report to be observed by any registered reporting observers
+   */
+  async generateTestReport(options = {}) {
+    const { message, group } = options;
+    return this.browsingContext.window.TestReportGenerator.generateReport({
+      message,
+      group,
+    });
   }
 
   /**
@@ -619,55 +602,6 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
       elem,
       capabilities["moz:accessibilityChecks"]
     );
-  }
-
-  /**
-   * Perform a series of grouped actions at the specified points in time.
-   *
-   * @param {object} options
-   * @param {object} options.actions
-   *     Array of objects with each representing an action sequence.
-   * @param {object} options.capabilities
-   *     Object with a list of WebDriver session capabilities.
-   */
-  async performActions(options = {}) {
-    const { actions } = options;
-
-    if (this.#actionState === null) {
-      this.#actionState = new lazy.actions.State();
-    }
-
-    const actionChain = await lazy.actions.Chain.fromJSON(
-      this.#actionState,
-      actions,
-      this.#actionsOptions
-    );
-    await actionChain.dispatch(this.#actionState, this.#actionsOptions);
-
-    // Terminate the current wheel transaction if there is one. Wheel
-    // transactions should not live longer than a single action chain.
-    ChromeUtils.endWheelTransaction();
-  }
-
-  /**
-   * The release actions command is used to release all the keys and pointer
-   * buttons that are currently depressed. This causes events to be fired
-   * as if the state was released by an explicit series of actions. It also
-   * clears all the internal state of the virtual devices.
-   */
-  async releaseActions() {
-    if (this.#actionState === null) {
-      return;
-    }
-
-    const undoActions = this.#actionState.inputCancelList.reverse();
-    await undoActions.dispatch(this.#actionState, this.#actionsOptions);
-
-    this.#actionState = null;
-
-    // Terminate the current wheel transaction if there is one. Wheel
-    // transactions should not live longer than a single action chain.
-    ChromeUtils.endWheelTransaction();
   }
 
   /*

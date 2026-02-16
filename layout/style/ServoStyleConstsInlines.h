@@ -9,16 +9,19 @@
 #ifndef mozilla_ServoStyleConstsInlines_h
 #define mozilla_ServoStyleConstsInlines_h
 
-#include "mozilla/ServoStyleConsts.h"
+#include <new>
+#include <type_traits>
+
+#include "MainThreadUtils.h"
 #include "mozilla/AspectRatio.h"
 #include "mozilla/EndianUtils.h"
+#include "mozilla/IntegerRange.h"
+#include "mozilla/SVGContentUtils.h"
+#include "mozilla/ServoStyleConsts.h"
 #include "mozilla/URLExtraData.h"
 #include "mozilla/dom/WorkerCommon.h"
 #include "nsGkAtoms.h"
-#include "MainThreadUtils.h"
 #include "nsNetUtil.h"
-#include <type_traits>
-#include <new>
 
 // TODO(emilio): there are quite a few other implementations scattered around
 // that should move here.
@@ -43,6 +46,7 @@ template struct StyleStrong<StyleLockedStyleRule>;
 template struct StyleStrong<StyleLockedImportRule>;
 template struct StyleStrong<StyleLockedKeyframesRule>;
 template struct StyleStrong<StyleMediaRule>;
+template struct StyleStrong<StyleCustomMediaRule>;
 template struct StyleStrong<StyleDocumentRule>;
 template struct StyleStrong<StyleNamespaceRule>;
 template struct StyleStrong<StyleMarginRule>;
@@ -731,21 +735,6 @@ nscoord StyleCalcLengthPercentage::Resolve(nscoord aBasis,
   return aRounder(result * AppUnitsPerCSSPixel());
 }
 
-nscoord StyleCalcLengthPercentage::ResolveWithAnchor(
-    nscoord aBasis, mozilla::StylePhysicalAxis aAxis,
-    mozilla::StylePositionProperty aProp) const {
-  float value{};
-  bool unused{};
-  bool result = Servo_ResolveCalcLengthPercentageWithAnchorFunctions(
-      this, CSSPixel::FromAppUnits(aBasis), aAxis, aProp, &value, &unused);
-  if (!result) {
-    MOZ_ASSERT_UNREACHABLE(
-        "Was expecting initial anchor resolution to determine validity");
-    return 0;
-  }
-  return detail::DefaultPercentLengthToAppUnits(value * AppUnitsPerCSSPixel());
-}
-
 template <>
 void StyleCalcNode::ScaleLengthsBy(float);
 
@@ -801,23 +790,6 @@ nscoord LengthPercentage::Resolve(nscoord aPercentageBasis,
   return Resolve([aPercentageBasis] { return aPercentageBasis; }, aRounder);
 }
 
-nscoord LengthPercentage::ResolveWithAnchor(
-    nscoord aPercentageBasis, mozilla::StylePhysicalAxis aAxis,
-    mozilla::StylePositionProperty aProp) const {
-  if (ConvertsToLength()) {
-    return ToLength();
-  }
-  if (IsPercentage()) {
-    const auto percent = AsPercentage()._0;
-    if (percent == 0.0f) {
-      return 0;
-    }
-    return detail::DefaultPercentLengthToAppUnits(
-        static_cast<float>(aPercentageBasis) * percent);
-  }
-  return AsCalc().ResolveWithAnchor(aPercentageBasis, aAxis, aProp);
-}
-
 void LengthPercentage::ScaleLengthsBy(float aScale) {
   if (IsLength()) {
     AsLength().ScaleBy(aScale);
@@ -864,8 +836,29 @@ IMPL_LENGTHPERCENTAGE_FORWARDS(StyleInset)
 IMPL_LENGTHPERCENTAGE_FORWARDS(StyleMargin)
 
 template <>
-inline bool StyleInset::IsAnchorPositioningFunction() const {
-  return IsAnchorFunction() || IsAnchorSizeFunction();
+inline bool StyleInset::HasAnchorPositioningFunction() const {
+  return IsAnchorFunction() || IsAnchorSizeFunction() ||
+         IsAnchorContainingCalcFunction();
+}
+
+template <>
+inline bool StyleMargin::HasAnchorPositioningFunction() const {
+  return IsAnchorSizeFunction() || IsAnchorContainingCalcFunction();
+}
+
+template <>
+inline bool StyleSize::HasAnchorPositioningFunction() const {
+  return IsAnchorSizeFunction() || IsAnchorContainingCalcFunction();
+}
+
+template <>
+inline StyleSize StyleSize::FromAppUnits(nscoord aAppUnits) {
+  return StyleSize::LengthPercentage(LengthPercentage::FromAppUnits(aAppUnits));
+}
+
+template <>
+inline bool StyleMaxSize::HasAnchorPositioningFunction() const {
+  return IsAnchorSizeFunction() || IsAnchorContainingCalcFunction();
 }
 
 #undef IMPL_LENGTHPERCENTAGE_FORWARDS
@@ -1035,7 +1028,7 @@ inline bool RestyleHint::DefinitelyRecascadesAllSubtree() const {
 }
 
 template <>
-ImageResolution StyleImage::GetResolution(const ComputedStyle&) const;
+ImageResolution StyleImage::GetResolution(const ComputedStyle*) const;
 
 template <>
 inline const StyleImage& StyleImage::FinalImage() const {
@@ -1116,6 +1109,10 @@ inline void StyleFontStyle::ToString(nsACString& aString) const {
 }
 
 inline bool StyleFontWeight::IsBold() const { return *this >= BOLD_THRESHOLD; }
+
+inline bool StyleFontWeight::PreferBold() const {
+  return *this > PREFER_BOLD_THRESHOLD;
+}
 
 inline bool StyleFontStyle::IsItalic() const { return *this == ITALIC; }
 
@@ -1289,17 +1286,196 @@ inline gfx::Point StyleCoordinatePair<LengthPercentage>::ToGfxPoint(
                     y.ResolveToCSSPixels(aBasis->Height()));
 }
 
-inline StylePhysicalAxis GetStylePhysicalAxis(mozilla::Side aSide) {
-  return aSide == mozilla::Side::eSideTop || aSide == mozilla::Side::eSideBottom
+template <>
+inline gfx::Point StyleShapePosition<StyleCSSFloat>::ToGfxPoint(
+    const CSSSize* aBasis) const {
+  return gfx::Point(horizontal, vertical);
+}
+
+template <>
+inline gfx::Point StyleShapePosition<LengthPercentage>::ToGfxPoint(
+    const CSSSize* aBasis) const {
+  MOZ_ASSERT(aBasis);
+  return gfx::Point(horizontal.ResolveToCSSPixels(aBasis->Width()),
+                    vertical.ResolveToCSSPixels(aBasis->Height()));
+}
+
+template <>
+inline gfx::Point
+StyleCommandEndPoint<StyleShapePosition<StyleCSSFloat>,
+                     StyleCSSFloat>::ToGfxPoint(const CSSSize* aBasis) const {
+  if (IsToPosition()) {
+    auto& pos = AsToPosition();
+    return pos.ToGfxPoint();
+  } else {
+    auto& coord = AsByCoordinate();
+    return coord.ToGfxPoint();
+  }
+}
+
+template <>
+inline gfx::Point StyleCommandEndPoint<
+    StyleShapePosition<LengthPercentage>,
+    LengthPercentage>::ToGfxPoint(const CSSSize* aBasis) const {
+  MOZ_ASSERT(aBasis);
+  if (IsToPosition()) {
+    auto& pos = AsToPosition();
+    return pos.ToGfxPoint(aBasis);
+  } else {
+    auto& coord = AsByCoordinate();
+    return coord.ToGfxPoint(aBasis);
+  }
+}
+
+template <>
+inline gfx::Coord StyleAxisEndPoint<StyleCSSFloat>::ToGfxCoord(
+    const StyleCSSFloat* aBasis) const {
+  if (IsToPosition()) {
+    const auto pos = AsToPosition();
+    MOZ_ASSERT(pos.IsLengthPercent());
+    return gfx::Coord(pos.AsLengthPercent());
+  }
+  return gfx::Coord(AsByCoordinate());
+}
+
+template <>
+inline gfx::Coord StyleAxisEndPoint<LengthPercentage>::ToGfxCoord(
+    const StyleCSSFloat* aBasis) const {
+  MOZ_ASSERT(aBasis);
+  if (IsToPosition()) {
+    const auto pos = AsToPosition();
+    MOZ_ASSERT(pos.IsLengthPercent());
+    return gfx::Coord(pos.AsLengthPercent().ResolveToCSSPixels(*aBasis));
+  }
+  return gfx::Coord(AsByCoordinate().ResolveToCSSPixels(*aBasis));
+}
+
+template <>
+inline gfx::Point
+StyleControlPoint<StyleShapePosition<StyleCSSFloat>, StyleCSSFloat>::ToGfxPoint(
+    const gfx::Point aStatePos, const gfx::Point aEndPoint,
+    const CSSSize* aBasis) const {
+  if (IsAbsolute()) {
+    auto& pos = AsAbsolute();
+    return pos.ToGfxPoint();
+  }
+
+  // Else
+  auto& point = AsRelative();
+  auto cp = point.coord.ToGfxPoint();
+  if (point.reference == StyleControlReference::Start) {
+    return cp + aStatePos;
+  } else if (point.reference == StyleControlReference::End) {
+    return cp + aEndPoint;
+  } else {
+    return cp;
+  }
+}
+
+template <>
+inline gfx::Point
+StyleControlPoint<StyleShapePosition<LengthPercentage>,
+                  LengthPercentage>::ToGfxPoint(const gfx::Point aStatePos,
+                                                const gfx::Point aEndPoint,
+                                                const CSSSize* aBasis) const {
+  MOZ_ASSERT(aBasis);
+  if (IsAbsolute()) {
+    auto& pos = AsAbsolute();
+    return pos.ToGfxPoint(aBasis);
+  }
+
+  // Else
+  auto& point = AsRelative();
+  auto cp = point.coord.ToGfxPoint(aBasis);
+  if (point.reference == StyleControlReference::Start) {
+    return cp + aStatePos;
+  } else if (point.reference == StyleControlReference::End) {
+    return cp + aEndPoint;
+  } else {
+    return cp;
+  }
+}
+
+template <>
+inline gfx::Point StyleArcRadii<StyleCSSFloat>::ToGfxPoint(
+    const CSSSize* aBasis) const {
+  return ry.IsSome() ? gfx::Point(rx, ry.AsSome()) : gfx::Point(rx, rx);
+}
+
+template <>
+inline gfx::Point StyleArcRadii<LengthPercentage>::ToGfxPoint(
+    const CSSSize* aBasis) const {
+  MOZ_ASSERT(aBasis);
+  if (ry.IsSome()) {
+    return gfx::Point(rx.ResolveToCSSPixels(aBasis->Width()),
+                      ry.AsSome().ResolveToCSSPixels(aBasis->Height()));
+  }
+
+  // Else percentages are resolved against the direction-agnostic size
+  // of the reference box for both radiuses.
+  // https://drafts.csswg.org/css-shapes-1/#typedef-shape-arc-command
+  const auto directionAgnostic = SVGContentUtils::ComputeNormalizedHypotenuse(
+      aBasis->Width(), aBasis->Height());
+  const auto radius = rx.ResolveToCSSPixels(directionAgnostic);
+  return gfx::Point(radius, radius);
+}
+
+inline StylePhysicalSide ToStylePhysicalSide(mozilla::Side aSide) {
+  // TODO(dshin): Should look into merging these two types...
+  static_assert(static_cast<uint8_t>(mozilla::Side::eSideLeft) ==
+                    static_cast<uint8_t>(StylePhysicalSide::Left),
+                "Left side doesn't match");
+  static_assert(static_cast<uint8_t>(mozilla::Side::eSideRight) ==
+                    static_cast<uint8_t>(StylePhysicalSide::Right),
+                "Left side doesn't match");
+  static_assert(static_cast<uint8_t>(mozilla::Side::eSideTop) ==
+                    static_cast<uint8_t>(StylePhysicalSide::Top),
+                "Left side doesn't match");
+  static_assert(static_cast<uint8_t>(mozilla::Side::eSideBottom) ==
+                    static_cast<uint8_t>(StylePhysicalSide::Bottom),
+                "Left side doesn't match");
+  return static_cast<StylePhysicalSide>(static_cast<uint8_t>(aSide));
+}
+
+inline StylePhysicalAxis ToStylePhysicalAxis(StylePhysicalSide aSide) {
+  return aSide == StylePhysicalSide::Top || aSide == StylePhysicalSide::Bottom
              ? StylePhysicalAxis::Vertical
              : StylePhysicalAxis::Horizontal;
 }
 
-inline StylePhysicalAxis ToStylePhysicalAxis(PhysicalAxis aAxis) {
-  // TODO(dhsin): Should look into merging these two values...
-  // Assert for this casting lives in `nsStyleStruct.cpp` since
-  // `PhysicalAxis` is a forward decl here.
-  return static_cast<StylePhysicalAxis>(static_cast<uint8_t>(aAxis));
+inline StylePhysicalAxis ToStylePhysicalAxis(mozilla::Side aSide) {
+  return ToStylePhysicalAxis(ToStylePhysicalSide(aSide));
+}
+
+inline mozilla::Side ToSide(StylePhysicalSide aSide) {
+  return static_cast<mozilla::Side>(static_cast<uint8_t>(aSide));
+}
+
+#define DEFINE_LENGTH_PERCENTAGE_CTOR(ty_)                               \
+  template <>                                                            \
+  inline Style##ty_::StyleGeneric##ty_(const StyleLengthPercentage& aLP) \
+      : tag{Tag::LengthPercentage} {                                     \
+    ::new (&length_percentage._0)(StyleLengthPercentage)(aLP);           \
+  }
+
+DEFINE_LENGTH_PERCENTAGE_CTOR(Inset)
+DEFINE_LENGTH_PERCENTAGE_CTOR(Margin)
+DEFINE_LENGTH_PERCENTAGE_CTOR(Size)
+DEFINE_LENGTH_PERCENTAGE_CTOR(MaxSize)
+
+inline bool StylePositionArea::IsNone() const {
+  return first == StylePositionAreaKeyword::None;
+}
+
+template <>
+inline bool StyleTreeScoped<StyleAnchorNameIdent>::IsEmpty() const {
+  return value.IsEmpty();
+}
+
+template <>
+inline Span<const mozilla::StyleAtom>
+StyleTreeScoped<StyleAnchorNameIdent>::AsSpan() const {
+  return value.AsSpan();
 }
 
 }  // namespace mozilla

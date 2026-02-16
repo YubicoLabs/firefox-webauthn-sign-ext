@@ -8,12 +8,12 @@
 #define mozilla_dom_RTCCertificate_h
 
 #include <cstdint>
+
 #include "ScopedNSSTypes.h"
 #include "certt.h"
 #include "js/RootingAPI.h"
 #include "keythi.h"
 #include "mozilla/AlreadyAddRefed.h"
-#include "mozilla/Assertions.h"
 #include "mozilla/RefPtr.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsIGlobalObject.h"
@@ -40,6 +40,7 @@ namespace dom {
 class GlobalObject;
 class ObjectOrString;
 class Promise;
+struct RTCDtlsFingerprint;
 
 class RTCCertificate final : public nsISupports, public nsWrapperCache {
  public:
@@ -63,6 +64,7 @@ class RTCCertificate final : public nsISupports, public nsWrapperCache {
   // WebIDL expires attribute.  Note: JS dates are milliseconds since epoch;
   // NSPR PRTime is in microseconds since the same epoch.
   uint64_t Expires() const { return mExpires / PR_USEC_PER_MSEC; }
+  void GetFingerprints(nsTArray<dom::RTCDtlsFingerprint>& aFingerprintsOut);
 
   // Accessors for use by PeerConnectionImpl.
   RefPtr<DtlsIdentity> CreateDtlsIdentity() const;
@@ -90,6 +92,7 @@ class RTCCertificate final : public nsISupports, public nsWrapperCache {
   UniqueCERTCertificate mCertificate;
   SSLKEAType mAuthType;
   PRTime mExpires;
+  nsTArray<RTCDtlsFingerprint> mFingerprints;
 };
 
 }  // namespace dom

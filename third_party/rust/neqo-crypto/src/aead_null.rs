@@ -7,6 +7,7 @@
 use std::fmt;
 
 use crate::{
+    aead::Aead,
     constants::{Cipher, Version},
     err::{sec::SEC_ERROR_BAD_DATA, Error, Res},
     p11::SymKey,
@@ -17,23 +18,39 @@ pub const AEAD_NULL_TAG: &[u8] = &[0x0a; 16];
 pub struct AeadNull {}
 
 impl AeadNull {
-    #[allow(clippy::missing_errors_doc)]
-    pub const fn new(
-        _version: Version,
-        _cipher: Cipher,
-        _secret: &SymKey,
-        _prefix: &str,
-    ) -> Res<Self> {
+    fn decrypt_check(&self, _count: u64, _aad: &[u8], input: &[u8]) -> Res<usize> {
+        if input.len() < self.expansion() {
+            return Err(Error::from(SEC_ERROR_BAD_DATA));
+        }
+
+        let len_encrypted = input
+            .len()
+            .checked_sub(self.expansion())
+            .ok_or_else(|| Error::from(SEC_ERROR_BAD_DATA))?;
+        // Check that:
+        // 1) expansion is all zeros and
+        // 2) if the encrypted data is also supplied that at least some values are no zero
+        //    (otherwise padding will be interpreted as a valid packet)
+        if &input[len_encrypted..] == AEAD_NULL_TAG
+            && (len_encrypted == 0 || input[..len_encrypted].iter().any(|x| *x != 0x0))
+        {
+            Ok(len_encrypted)
+        } else {
+            Err(Error::from(SEC_ERROR_BAD_DATA))
+        }
+    }
+}
+
+impl Aead for AeadNull {
+    fn new(_version: Version, _cipher: Cipher, _secret: &SymKey, _prefix: &str) -> Res<Self> {
         Ok(Self {})
     }
 
-    #[must_use]
-    pub const fn expansion(&self) -> usize {
+    fn expansion(&self) -> usize {
         AEAD_NULL_TAG.len()
     }
 
-    #[allow(clippy::missing_errors_doc)]
-    pub fn encrypt<'a>(
+    fn encrypt<'a>(
         &self,
         _count: u64,
         _aad: &[u8],
@@ -42,35 +59,31 @@ impl AeadNull {
     ) -> Res<&'a [u8]> {
         let l = input.len();
         output[..l].copy_from_slice(input);
-        output[l..l + 16].copy_from_slice(AEAD_NULL_TAG);
-        Ok(&output[..l + 16])
+        output[l..l + self.expansion()].copy_from_slice(AEAD_NULL_TAG);
+        Ok(&output[..l + self.expansion()])
     }
 
-    #[allow(clippy::missing_errors_doc)]
-    pub fn decrypt<'a>(
+    fn encrypt_in_place(&self, _count: u64, _aad: &[u8], data: &mut [u8]) -> Res<usize> {
+        let pos = data.len() - self.expansion();
+        data[pos..].copy_from_slice(AEAD_NULL_TAG);
+        Ok(data.len())
+    }
+
+    fn decrypt<'a>(
         &self,
-        _count: u64,
-        _aad: &[u8],
+        count: u64,
+        aad: &[u8],
         input: &[u8],
         output: &'a mut [u8],
     ) -> Res<&'a [u8]> {
-        if input.len() < AEAD_NULL_TAG.len() {
-            return Err(Error::from(SEC_ERROR_BAD_DATA));
-        }
+        self.decrypt_check(count, aad, input).map(|len| {
+            output[..len].copy_from_slice(&input[..len]);
+            &output[..len]
+        })
+    }
 
-        let len_encrypted = input.len() - AEAD_NULL_TAG.len();
-        // Check that:
-        // 1) expansion is all zeros and
-        // 2) if the encrypted data is also supplied that at least some values are no zero
-        //    (otherwise padding will be interpreted as a valid packet)
-        if &input[len_encrypted..] == AEAD_NULL_TAG
-            && (len_encrypted == 0 || input[..len_encrypted].iter().any(|x| *x != 0x0))
-        {
-            output[..len_encrypted].copy_from_slice(&input[..len_encrypted]);
-            Ok(&output[..len_encrypted])
-        } else {
-            Err(Error::from(SEC_ERROR_BAD_DATA))
-        }
+    fn decrypt_in_place(&self, count: u64, aad: &[u8], data: &mut [u8]) -> Res<usize> {
+        self.decrypt_check(count, aad, data)
     }
 }
 

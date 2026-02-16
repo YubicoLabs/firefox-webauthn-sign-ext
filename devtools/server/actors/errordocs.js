@@ -31,10 +31,14 @@ loader.lazyGetter(this, "supportBaseURL", () => {
   return url;
 });
 
+const { getMdnLinkParams } = ChromeUtils.importESModule(
+  "resource://devtools/shared/mdn.mjs",
+  { global: "contextual" }
+);
+
 const baseErrorURL =
   "https://developer.mozilla.org/docs/Web/JavaScript/Reference/Errors/";
-const params =
-  "?utm_source=mozilla&utm_medium=firefox-console-errors&utm_campaign=default";
+const params = "?" + getMdnLinkParams("firefox-console-errors");
 
 const ErrorDocs = {
   JSMSG_READ_ONLY: "Read-only",
@@ -120,25 +124,25 @@ const ErrorDocs = {
 const MIXED_CONTENT_LEARN_MORE =
   "https://developer.mozilla.org/docs/Web/Security/Mixed_content";
 const TRACKING_PROTECTION_LEARN_MORE =
-  "https://developer.mozilla.org/Firefox/Privacy/Tracking_Protection";
+  "https://developer.mozilla.org/Web/Privacy/Guides/Firefox_tracking_protection";
 const INSECURE_PASSWORDS_LEARN_MORE =
   "https://developer.mozilla.org/docs/Web/Security/Insecure_passwords";
 const PUBLIC_KEY_PINS_LEARN_MORE =
-  "https://developer.mozilla.org/docs/Web/HTTP/Public_Key_Pinning";
+  "https://developer.mozilla.org/docs/Web/Security/Certificate_Transparency";
 const STRICT_TRANSPORT_SECURITY_LEARN_MORE =
-  "https://developer.mozilla.org/docs/Web/HTTP/Headers/Strict-Transport-Security";
+  "https://developer.mozilla.org/docs/Web/HTTP/Reference/Headers/Strict-Transport-Security";
 const MIME_TYPE_MISMATCH_LEARN_MORE =
-  "https://developer.mozilla.org/docs/Web/HTTP/Headers/X-Content-Type-Options";
+  "https://developer.mozilla.org/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options";
 const SOURCE_MAP_LEARN_MORE =
   "https://firefox-source-docs.mozilla.org/devtools-user/debugger/source_map_errors/";
 const TLS_LEARN_MORE =
   "https://blog.mozilla.org/security/2018/10/15/removing-old-versions-of-tls/";
 const X_FRAME_OPTIONS_LEARN_MORE =
-  "https://developer.mozilla.org/docs/Web/HTTP/Headers/X-Frame-Options";
+  "https://developer.mozilla.org/docs/Web/HTTP/Reference/Headers/X-Frame-Options";
 const REQUEST_STORAGE_ACCESS_LEARN_MORE =
   "https://developer.mozilla.org/docs/Web/API/Document/requestStorageAccess";
 const DOCTYPE_MODES_LEARN_MORE =
-  "https://developer.mozilla.org/docs/Web/HTML/Quirks_Mode_and_Standards_Mode";
+  "https://developer.mozilla.org/docs/Web/HTML/Guides/Quirks_Mode_and_Standards_Mode";
 const BOUNCE_TRACKING_PROTECTION_LEARN_MORE =
   "https://firefox-source-docs.mozilla.org/toolkit/components/antitracking/anti-tracking/bounce-tracking-protection/index.html";
 
@@ -161,9 +165,8 @@ const ErrorCategories = {
 };
 
 const baseCorsErrorUrl =
-  "https://developer.mozilla.org/docs/Web/HTTP/CORS/Errors/";
-const corsParams =
-  "?utm_source=devtools&utm_medium=firefox-cors-errors&utm_campaign=default";
+  "https://developer.mozilla.org/docs/Web/HTTP/Guides/CORS/Errors/";
+const corsParams = "?" + getMdnLinkParams("firefox-cors-errors");
 const CorsErrorDocs = {
   CORSDisabled: "CORSDisabled",
   CORSDidNotSucceed2: "CORSDidNotSucceed",
@@ -183,9 +186,9 @@ const CorsErrorDocs = {
 };
 
 const baseStorageAccessPolicyErrorUrl =
-  "https://developer.mozilla.org/docs/Mozilla/Firefox/Privacy/Storage_access_policy/Errors/";
+  "https://developer.mozilla.org/docs/Web/Privacy/Guides/Storage_Access_Policy/Errors/";
 const storageAccessPolicyParams =
-  "?utm_source=devtools&utm_medium=firefox-cookie-errors&utm_campaign=default";
+  "?" + getMdnLinkParams("firefox-cookie-errors");
 const StorageAccessPolicyErrorDocs = {
   cookieBlockedPermission: "CookieBlockedByPermission",
   cookieBlockedTracker: "CookieBlockedTracker",

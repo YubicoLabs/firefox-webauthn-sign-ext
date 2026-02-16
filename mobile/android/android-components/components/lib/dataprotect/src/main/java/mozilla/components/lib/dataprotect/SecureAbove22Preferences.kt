@@ -7,10 +7,8 @@ package mozilla.components.lib.dataprotect
 import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import android.content.SharedPreferences
-import android.os.Build
-import android.os.Build.VERSION_CODES.M
 import android.util.Base64
-import androidx.annotation.RequiresApi
+import androidx.core.content.edit
 import mozilla.components.support.base.log.logger.Logger
 import java.nio.charset.StandardCharsets
 import java.security.GeneralSecurityException
@@ -60,12 +58,11 @@ private interface KeyValuePreferences {
  * @param context A [Context], used for accessing [SharedPreferences].
  * @param name A name for this storage, used for isolating different instances of [SecureAbove22Preferences].
  * @param forceInsecure A flag indicating whether to force plaintext storage. If set to `true`,
- * [InsecurePreferencesImpl21] will be used as a storage layer, otherwise a storage implementation
- * will be decided based on Android API version, with a preference given to secure storage
+ * [InsecurePreferencesImpl21] will be used as a storage layer
  */
 class SecureAbove22Preferences(context: Context, name: String, forceInsecure: Boolean = false) :
     KeyValuePreferences {
-    private val impl = if (Build.VERSION.SDK_INT >= M && !forceInsecure) {
+    private val impl = if (!forceInsecure) {
         SecurePreferencesImpl23(context, name)
     } else {
         InsecurePreferencesImpl21(context, name)
@@ -102,7 +99,7 @@ private class InsecurePreferencesImpl21(
 
     init {
         // Check if we have any encrypted values stored on disk.
-        if (migrateFromSecureStorage && Build.VERSION.SDK_INT >= M && prefs.all.isEmpty()) {
+        if (migrateFromSecureStorage && prefs.all.isEmpty()) {
             val secureStorage = SecurePreferencesImpl23(context, name, false)
             // Copy over any old values.
             try {
@@ -132,17 +129,22 @@ private class InsecurePreferencesImpl21(
 
     override fun getString(key: String) = prefs.getString(key, null)
 
-    override fun putString(key: String, value: String) = prefs.edit().putString(key, value).apply()
+    override fun putString(key: String, value: String) {
+        prefs.edit { putString(key, value) }
+    }
 
-    override fun remove(key: String) = prefs.edit().remove(key).apply()
+    override fun remove(key: String) {
+        prefs.edit { remove(key) }
+    }
 
-    override fun clear() = prefs.edit().clear().apply()
+    override fun clear() {
+        prefs.edit { clear() }
+    }
 }
 
 /**
  * A [KeyValuePreferences] which is backed by [SharedPreferences] and performs encryption/decryption of values.
  */
-@RequiresApi(M)
 private class SecurePreferencesImpl23(
     context: Context,
     name: String,
@@ -206,17 +208,19 @@ private class SecurePreferencesImpl23(
 
     override fun putString(key: String, value: String) {
         generateManagedKeyIfNecessary()
-        val editor = prefs.edit()
-
         val encrypted = keystore.encryptBytes(value.toByteArray(StandardCharsets.UTF_8))
         val data = Base64.encodeToString(encrypted, BASE_64_FLAGS)
 
-        editor.putString(key, data).apply()
+        prefs.edit { putString(key, data) }
     }
 
-    override fun remove(key: String) = prefs.edit().remove(key).apply()
+    override fun remove(key: String) {
+        prefs.edit { remove(key) }
+    }
 
-    override fun clear() = prefs.edit().clear().apply()
+    override fun clear() {
+        prefs.edit { clear() }
+    }
 
     /**
      * Generates a "managed key" - a key used to encrypt data stored by this class. This key is "managed" by [Keystore],

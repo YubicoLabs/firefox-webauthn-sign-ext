@@ -11,7 +11,7 @@ from mozharness.base.config import parse_config_file
 
 
 # LocalesMixin {{{1
-class LocalesMixin(object):
+class LocalesMixin:
     def __init__(self, **kwargs):
         """Mixins generally don't have an __init__.
         This breaks super().__init__() for children.
@@ -112,7 +112,7 @@ class LocalesMixin(object):
     def query_abs_dirs(self):
         if self.abs_dirs:
             return self.abs_dirs
-        abs_dirs = super(LocalesMixin, self).query_abs_dirs()
+        abs_dirs = super().query_abs_dirs()
         c = self.config
         dirs = {}
         dirs["abs_work_dir"] = os.path.join(c["base_work_dir"], c["work_dir"])

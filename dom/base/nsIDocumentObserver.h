@@ -3,12 +3,12 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-#ifndef nsIDocumentObserver_h___
-#define nsIDocumentObserver_h___
+#ifndef nsIDocumentObserver_h_
+#define nsIDocumentObserver_h_
 
-#include "nsISupports.h"
-#include "nsIMutationObserver.h"
 #include "mozilla/dom/RustTypes.h"
+#include "nsIMutationObserver.h"
+#include "nsISupports.h"
 
 namespace mozilla {
 
@@ -18,17 +18,13 @@ class Element;
 }  // namespace dom
 }  // namespace mozilla
 
-#define NS_IDOCUMENT_OBSERVER_IID                    \
-  {                                                  \
-    0x71041fa3, 0x6dd7, 0x4cde, {                    \
-      0xbb, 0x76, 0xae, 0xcc, 0x69, 0xe1, 0x75, 0x78 \
-    }                                                \
-  }
+#define NS_IDOCUMENT_OBSERVER_IID \
+  {0x71041fa3, 0x6dd7, 0x4cde, {0xbb, 0x76, 0xae, 0xcc, 0x69, 0xe1, 0x75, 0x78}}
 
 // Document observer interface
 class nsIDocumentObserver : public nsIMutationObserver {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IDOCUMENT_OBSERVER_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_IDOCUMENT_OBSERVER_IID)
 
   /**
    * Notify that a content model update is beginning. This call can be
@@ -73,8 +69,6 @@ class nsIDocumentObserver : public nsIMutationObserver {
                                    mozilla::dom::ElementState) = 0;
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIDocumentObserver, NS_IDOCUMENT_OBSERVER_IID)
-
 #define NS_DECL_NSIDOCUMENTOBSERVER_BEGINUPDATE \
   virtual void BeginUpdate(mozilla::dom::Document*) override;
 
@@ -117,4 +111,4 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsIDocumentObserver, NS_IDOCUMENT_OBSERVER_IID)
 #define NS_IMPL_NSIDOCUMENTOBSERVER_CONTENT(_class) \
   NS_IMPL_NSIMUTATIONOBSERVER_CONTENT(_class)
 
-#endif /* nsIDocumentObserver_h___ */
+#endif /* nsIDocumentObserver_h_ */

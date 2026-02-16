@@ -4,8 +4,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef BASE_PICKLE_H__
-#define BASE_PICKLE_H__
+#ifndef BASE_PICKLE_H_
+#define BASE_PICKLE_H_
 
 #include <string>
 
@@ -13,7 +13,6 @@
 #include "base/logging.h"
 #include "base/string16.h"
 
-#include "mozilla/Attributes.h"
 #include "mozilla/BufferList.h"
 #include "mozilla/mozalloc.h"
 #include "mozilla/TimeStamp.h"
@@ -217,6 +216,8 @@ class Pickle {
   struct Header {
     uint32_t payload_size;  // Specifies the size of the payload.
   };
+  static_assert(std::has_unique_object_representations_v<Header>,
+                "Header must not contain padding bytes");
 
   // Returns the header, cast to a user-specified type T.  The type T must be a
   // subclass of Header and its size must correspond to the header_size passed
@@ -293,4 +294,4 @@ class Pickle {
   uint32_t header_size_;
 };
 
-#endif  // BASE_PICKLE_H__
+#endif  // BASE_PICKLE_H_

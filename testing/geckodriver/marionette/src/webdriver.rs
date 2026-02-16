@@ -174,6 +174,7 @@ pub enum AuthenticatorTransport {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthenticatorParameters {
     pub protocol: WebAuthnProtocol,
     pub transport: AuthenticatorTransport,
@@ -184,6 +185,7 @@ pub struct AuthenticatorParameters {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct CredentialParameters {
     pub credential_id: String,
     pub is_resident_credential: bool,
@@ -194,8 +196,15 @@ pub struct CredentialParameters {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct UserVerificationParameters {
     pub is_user_verified: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalPrivacyControlParameters {
+    pub gpc: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -351,6 +360,10 @@ pub enum Command {
     SwitchToWindow(Window),
     #[serde(rename = "WebDriver:TakeScreenshot")]
     TakeScreenshot(ScreenshotOptions),
+    #[serde(rename = "GPC:GetGlobalPrivacyControl")]
+    GPCGetGlobalPrivacyControl,
+    #[serde(rename = "GPC:SetGlobalPrivacyControl")]
+    GPCSetGlobalPrivacyControl(GlobalPrivacyControlParameters),
     #[serde(rename = "WebAuthn:AddVirtualAuthenticator")]
     WebAuthnAddVirtualAuthenticator(AuthenticatorParameters),
     #[serde(rename = "WebAuthn:RemoveVirtualAuthenticator")]

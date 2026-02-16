@@ -10,9 +10,9 @@
 // META: variant=?16-20
 // META: variant=?21-25
 // META: variant=?26-30
-// META: variant=?30-35
+// META: variant=?30-last
 
-"use strict;"
+"use strict";
 
 // These tests focus on making sure AuctionConfig fields are passed to seller worklets,
 // and are normalized if necessary. This test does not check the behaviors of the
@@ -281,22 +281,4 @@ makeTest({
   name: 'AuctionConfig.auctionSignals is "null"',
   fieldName: 'auctionSignals',
   fieldValue: 'null',
-});
-
-makeTest({
-  name: 'AuctionConfig.sendCreativeScanningMetadata is explicit undefined',
-  fieldName: 'sendCreativeScanningMetadata',
-  fieldValue: undefined
-});
-
-makeTest({
-  name: 'AuctionConfig.sendCreativeScanningMetadata is true',
-  fieldName: 'sendCreativeScanningMetadata',
-  fieldValue: true
-});
-
-makeTest({
-  name: 'AuctionConfig.sendCreativeScanningMetadata is false',
-  fieldName: 'sendCreativeScanningMetadata',
-  fieldValue: false
 });

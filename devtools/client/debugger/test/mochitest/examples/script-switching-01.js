@@ -8,3 +8,24 @@ function firstCall() {
   secondCall();
   return 43;
 }
+
+function logPointTest(){
+  firstCall();
+}
+
+function dbgTestTimeout(cb, delay) {
+  setTimeout(cb, delay);
+}
+
+function dbgTestPromiseThen(cb) {
+  Promise.resolve().then(cb);
+}
+
+const dbgTestOnTimeout = () => {
+  return "hello";
+};
+const dbgTestOnPromiseThen = () => dbgTestTimeout(dbgTestOnTimeout, 1);
+
+function dbgTestAsyncStack() {
+  dbgTestPromiseThen(dbgTestOnPromiseThen);
+}

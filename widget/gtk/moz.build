@@ -19,6 +19,10 @@ with Files("*IMContextWrapper*"):
 with Files("*nsGtkKeyUtils*"):
     BUG_COMPONENT = ("Core", "DOM: UI Events & Focus Handling")
 
+DIRS += [
+    "/third_party/gbm/libgbm",
+]
+
 if CONFIG["COMPILE_ENVIRONMENT"]:
     DIRS += ["mozgtk"]
 
@@ -33,6 +37,7 @@ if CONFIG["MOZ_ENABLE_V4L2"]:
 
 EXPORTS += [
     "MozContainer.h",
+    "nsAppShell.h",
     "nsGTKToolkit.h",
     "nsGtkUtils.h",
     "nsImageToPixbuf.h",
@@ -49,10 +54,10 @@ EXPORTS.mozilla += [
 EXPORTS.mozilla.widget += [
     "CompositorWidgetChild.h",
     "CompositorWidgetParent.h",
+    "DMABufDevice.h",
     "DMABufFormats.h",
-    "DMABufLibWrapper.h",
     "DMABufSurface.h",
-    "gbm.h",
+    "GSettings.h",
     "GtkCompositorWidget.h",
     "InProcessGtkCompositorWidget.h",
     "va_drmcommon.h",
@@ -65,12 +70,13 @@ UNIFIED_SOURCES += [
     "AsyncGtkClipboardRequest.cpp",
     "CompositorWidgetChild.cpp",
     "CompositorWidgetParent.cpp",
+    "DMABufDevice.cpp",
     "DMABufFormats.cpp",
-    "DMABufLibWrapper.cpp",
     "DMABufSurface.cpp",
     "GfxInfo.cpp",
-    "gtk3drawing.cpp",
+    "GSettings.cpp",
     "GtkCompositorWidget.cpp",
+    "GtkWidgets.cpp",
     "IMContextWrapper.cpp",
     "InProcessGtkCompositorWidget.cpp",
     "MozContainer.cpp",
@@ -96,7 +102,6 @@ UNIFIED_SOURCES += [
     "TaskbarProgress.cpp",
     "WakeLockListener.cpp",
     "WaylandSurfaceLock.cpp",
-    "WidgetStyleCache.cpp",
     "WidgetUtilsGtk.cpp",
     "WindowSurfaceProvider.cpp",
 ]
@@ -157,12 +162,27 @@ LOCAL_INCLUDES += [
     "/layout/xul",
     "/other-licenses/atk-1.0",
     "/third_party/cups/include",
-    "/third_party/drm/",
-    "/third_party/drm/drm/include/libdrm/",
     "/widget",
     "/widget/headless",
     "/widget/x11",
 ]
+
+CXXFLAGS += CONFIG["MOZ_GBM_CFLAGS"]
+if not CONFIG["MOZ_SYSTEM_GBM"]:
+    LOCAL_INCLUDES += [
+        "/third_party/gbm/gbm/",
+    ]
+    DIRS += [
+        "/third_party/gbm/gbm/",
+    ]
+
+CXXFLAGS += CONFIG["MOZ_LIBDRM_CFLAGS"]
+if not CONFIG["MOZ_SYSTEM_LIBDRM"]:
+    LOCAL_INCLUDES += [
+        "/third_party/drm/drm/",
+        "/third_party/drm/drm/include",
+        "/third_party/drm/drm/include/libdrm",
+    ]
 
 DEFINES["CAIRO_GFX"] = True
 

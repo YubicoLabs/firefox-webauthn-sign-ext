@@ -33,7 +33,7 @@ class InvalidatingRealmFuse : public InvalidatingFuse {
  public:
   virtual void popFuse(JSContext* cx, RealmFuses& realmFuses);
   virtual bool addFuseDependency(JSContext* cx,
-                                 Handle<JSScript*> script) override;
+                                 const jit::IonScriptKey& ionScript) override;
 
  protected:
   virtual void popFuse(JSContext* cx) override {
@@ -150,6 +150,167 @@ struct OptimizeArraySpeciesFuse final : public InvalidatingRealmFuse {
   virtual void popFuse(JSContext* cx, RealmFuses& realmFuses) override;
 };
 
+// Fuse used to optimize @@species lookups for ArrayBuffers. If this fuse is
+// intact, the following invariants must hold:
+//
+// - The builtin `ArrayBuffer.prototype` object has a `constructor` property
+//   that's the builtin `ArrayBuffer` constructor.
+// - This `ArrayBuffer` constructor has a `Symbol.species` property that's the
+//   original accessor.
+struct OptimizeArrayBufferSpeciesFuse final : public RealmFuse {
+  virtual const char* name() override {
+    return "OptimizeArrayBufferSpeciesFuse";
+  }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
+// Fuse used to optimize @@species lookups for SharedArrayBuffers. If this fuse
+// is intact, the following invariants must hold:
+//
+// - The builtin `SharedArrayBuffer.prototype` object has a `constructor`
+//   property that's the builtin `SharedArrayBuffer` constructor.
+// - This `SharedArrayBuffer` constructor has a `Symbol.species` property that's
+//   the original accessor.
+struct OptimizeSharedArrayBufferSpeciesFuse final : public RealmFuse {
+  virtual const char* name() override {
+    return "OptimizeSharedArrayBufferSpeciesFuse";
+  }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
+// Fuse used to optimize @@species lookups for TypedArrays. If this fuse is
+// intact, the following invariants must hold:
+//
+// - The builtin `%TypedArray%.prototype` object has a `constructor` property
+//   that's the builtin `%TypedArray%` constructor.
+// - This `%TypedArray%` constructor has a `Symbol.species` property that's the
+//   original accessor.
+// - The builtin `<TypedArray>.prototype` object has a `constructor` property
+//   that's the builtin `<TypedArray>` constructor and the prototype of
+//   `<TypedArray>.prototype` is %TypedArray%.prototype.
+//   Where `<TypedArray>` is all concrete built-in TypedArray types:
+//   - Int8Array
+//   - Uint8Array
+//   - Uint8ClampedArray
+//   - Int16Array
+//   - Uint16Array
+//   - Int32Array
+//   - Uint32Array
+//   - BigInt64Array
+//   - BigUint64Array
+//   - Float16Array
+//   - Float32Array
+//   - Float64Array
+struct OptimizeTypedArraySpeciesFuse final : public InvalidatingRealmFuse {
+  virtual const char* name() override {
+    return "OptimizeTypedArraySpeciesFuse";
+  }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
+// Fuse used to optimize various property lookups for promises. If this fuse is
+// intact, the following invariants must hold:
+//
+// - The builtin `Promise.prototype` object has unchanged `constructor` and
+//   `then` properties.
+// - The builtin `Promise` constructor has unchanged `Symbol.species` and
+//   `resolve` properties.
+struct OptimizePromiseLookupFuse final : public RealmFuse {
+  virtual const char* name() override { return "OptimizePromiseLookupFuse"; }
+  virtual bool checkInvariant(JSContext* cx) override;
+  virtual void popFuse(JSContext* cx, RealmFuses& realmFuses) override;
+};
+
+// Fuse used to guard against changes to various properties on RegExp.prototype.
+//
+// If this fuse is intact, RegExp.prototype must have the following original
+// getter properties:
+// - .flags ($RegExpFlagsGetter)
+// - .global (regexp_global)
+// - .hasIndices (regexp_hasIndices)
+// - .ignoreCase (regexp_ignoreCase)
+// - .multiline (regexp_multiline)
+// - .sticky (regexp_sticky)
+// - .unicode (regexp_unicode)
+// - .unicodeSets (regexp_unicodeSets)
+// - .dotAll (regexp_dotAll)
+//
+// And the following unchanged data properties:
+// - .exec (RegExp_prototype_Exec)
+// - [@@match] (RegExpMatch)
+// - [@@matchAll] (RegExpMatchAll)
+// - [@@replace] (RegExpReplace)
+// - [@@search] (RegExpSearch)
+// - [@@split] (RegExpSplit)
+struct OptimizeRegExpPrototypeFuse final : public InvalidatingRealmFuse {
+  virtual const char* name() override { return "OptimizeRegExpPrototypeFuse"; }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
+// Guard used to optimize iterating over Map objects. If this fuse is intact,
+// the following invariants must hold:
+//
+// - The builtin `Map.prototype` object has a `Symbol.iterator` property that's
+//   the original `%Map.prototype.entries%` function.
+// - The builtin `%MapIteratorPrototype%` object has a `next` property that's
+//   the original `MapIteratorNext` self-hosted function.
+//
+// Note: because this doesn't guard against `return` properties on the iterator
+// prototype, this should only be used in places where we don't have to call
+// `IteratorClose`.
+struct OptimizeMapObjectIteratorFuse final : public RealmFuse {
+  virtual const char* name() override {
+    return "OptimizeMapObjectIteratorFuse";
+  }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
+// Guard used to optimize iterating over Set objects. If this fuse is intact,
+// the following invariants must hold:
+//
+// - The builtin `Set.prototype` object has a `Symbol.iterator` property that's
+//   the original `%Set.prototype.values%` function.
+// - The builtin `%SetIteratorPrototype%` object has a `next` property that's
+//   the original `SetIteratorNext` self-hosted function.
+//
+// Note: because this doesn't guard against `return` properties on the iterator
+// prototype, this should only be used in places where we don't have to call
+// `IteratorClose`.
+struct OptimizeSetObjectIteratorFuse final : public RealmFuse {
+  virtual const char* name() override {
+    return "OptimizeSetObjectIteratorFuse";
+  }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
+// This fuse is popped when the `Map.prototype.set` property is mutated.
+struct OptimizeMapPrototypeSetFuse final : public RealmFuse {
+  virtual const char* name() override { return "OptimizeMapPrototypeSetFuse"; }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
+// This fuse is popped when the `Set.prototype.add` property is mutated.
+struct OptimizeSetPrototypeAddFuse final : public RealmFuse {
+  virtual const char* name() override { return "OptimizeSetPrototypeAddFuse"; }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
+// This fuse is popped when the `WeakMap.prototype.set` property is mutated.
+struct OptimizeWeakMapPrototypeSetFuse final : public RealmFuse {
+  virtual const char* name() override {
+    return "OptimizeWeakMapPrototypeSetFuse";
+  }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
+// This fuse is popped when the `WeakSet.prototype.add` property is mutated.
+struct OptimizeWeakSetPrototypeAddFuse final : public RealmFuse {
+  virtual const char* name() override {
+    return "OptimizeWeakSetPrototypeAddFuse";
+  }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
 #define FOR_EACH_REALM_FUSE(FUSE)                                              \
   FUSE(OptimizeGetIteratorFuse, optimizeGetIteratorFuse)                       \
   FUSE(OptimizeArrayIteratorPrototypeFuse, optimizeArrayIteratorPrototypeFuse) \
@@ -163,7 +324,19 @@ struct OptimizeArraySpeciesFuse final : public InvalidatingRealmFuse {
        arrayIteratorPrototypeHasIteratorProto)                                 \
   FUSE(IteratorPrototypeHasObjectProto, iteratorPrototypeHasObjectProto)       \
   FUSE(ObjectPrototypeHasNoReturnProperty, objectPrototypeHasNoReturnProperty) \
-  FUSE(OptimizeArraySpeciesFuse, optimizeArraySpeciesFuse)
+  FUSE(OptimizeArraySpeciesFuse, optimizeArraySpeciesFuse)                     \
+  FUSE(OptimizeArrayBufferSpeciesFuse, optimizeArrayBufferSpeciesFuse)         \
+  FUSE(OptimizeSharedArrayBufferSpeciesFuse,                                   \
+       optimizeSharedArrayBufferSpeciesFuse)                                   \
+  FUSE(OptimizeTypedArraySpeciesFuse, optimizeTypedArraySpeciesFuse)           \
+  FUSE(OptimizePromiseLookupFuse, optimizePromiseLookupFuse)                   \
+  FUSE(OptimizeRegExpPrototypeFuse, optimizeRegExpPrototypeFuse)               \
+  FUSE(OptimizeMapObjectIteratorFuse, optimizeMapObjectIteratorFuse)           \
+  FUSE(OptimizeSetObjectIteratorFuse, optimizeSetObjectIteratorFuse)           \
+  FUSE(OptimizeMapPrototypeSetFuse, optimizeMapPrototypeSetFuse)               \
+  FUSE(OptimizeSetPrototypeAddFuse, optimizeSetPrototypeAddFuse)               \
+  FUSE(OptimizeWeakMapPrototypeSetFuse, optimizeWeakMapPrototypeSetFuse)       \
+  FUSE(OptimizeWeakSetPrototypeAddFuse, optimizeWeakSetPrototypeAddFuse)
 
 struct RealmFuses {
   RealmFuses() = default;
@@ -202,7 +375,7 @@ struct RealmFuses {
     MOZ_CRASH("Fuse Not Found");
   }
 
-  DependentScriptGroup fuseDependencies;
+  DependentIonScriptGroup fuseDependencies;
 
   static int32_t fuseOffsets[];
   static const char* fuseNames[];

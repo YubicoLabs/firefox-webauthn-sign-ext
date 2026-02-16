@@ -1,21 +1,31 @@
 "use strict";
 
+// test_newtab calls SpecialPowers.spawn, which injects ContentTaskUtils in the
+// scope of the callback. Eslint doesn't know about that.
+/* global ContentTaskUtils */
+
 const { WeatherFeed } = ChromeUtils.importESModule(
   "resource://newtab/lib/WeatherFeed.sys.mjs"
 );
 
 ChromeUtils.defineESModuleGetters(this, {
+  GeolocationTestUtils:
+    "resource://testing-common/GeolocationTestUtils.sys.mjs",
   MerinoTestUtils: "resource://testing-common/MerinoTestUtils.sys.mjs",
 });
 
 const { WEATHER_SUGGESTION } = MerinoTestUtils;
 
+add_setup(async function () {
+  GeolocationTestUtils.init(this);
+  GeolocationTestUtils.stubGeolocation(GeolocationTestUtils.SAN_FRANCISCO);
+});
+
 test_newtab({
   async before({ pushPrefs }) {
     await pushPrefs(
       ["browser.newtabpage.activity-stream.feeds.topsites", false],
-      ["browser.newtabpage.activity-stream.feeds.section.topstories", false],
-      ["browser.newtabpage.activity-stream.feeds.section.highlights", false]
+      ["browser.newtabpage.activity-stream.feeds.section.topstories", false]
     );
   },
   test: async function test_render_customizeMenu() {
@@ -32,8 +42,6 @@ test_newtab({
       );
     }
     const TOPSITES_PREF = "browser.newtabpage.activity-stream.feeds.topsites";
-    const HIGHLIGHTS_PREF =
-      "browser.newtabpage.activity-stream.feeds.section.highlights";
     const TOPSTORIES_PREF =
       "browser.newtabpage.activity-stream.feeds.section.topstories";
 
@@ -49,7 +57,7 @@ test_newtab({
     await ContentTaskUtils.waitForCondition(
       () =>
         content.getComputedStyle(
-          content.document.querySelector(".customize-menu")
+          content.document.querySelector(".customize-menu-animate-wrapper")
         ).transform === defaultPos,
       "Customize Menu should be visible on screen"
     );
@@ -93,26 +101,6 @@ test_newtab({
     await sectionShownPromise;
 
     Assert.ok(getSection("topstories"), "Pocket section is rendered");
-
-    // Test that clicking the recent activity toggle will make the
-    // recent activity section appear on the newtab page.
-    //
-    // We waive XRay wrappers because we want to call the click()
-    // method defined on the toggle from this context.
-    let highlightsSwitch = Cu.waiveXrays(
-      content.document.querySelector("#recent-section moz-toggle")
-    );
-    Assert.ok(
-      !Services.prefs.getBoolPref(HIGHLIGHTS_PREF),
-      "Highlights pref is turned off"
-    );
-    Assert.ok(!getSection("highlights"), "Highlights section is not rendered");
-
-    sectionShownPromise = promiseSectionShown("highlights");
-    highlightsSwitch.click();
-    await sectionShownPromise;
-
-    Assert.ok(getSection("highlights"), "Highlights section is rendered");
   },
   async after() {
     Services.prefs.clearUserPref(
@@ -120,9 +108,6 @@ test_newtab({
     );
     Services.prefs.clearUserPref(
       "browser.newtabpage.activity-stream.feeds.section.topstories"
-    );
-    Services.prefs.clearUserPref(
-      "browser.newtabpage.activity-stream.feeds.section.highlights"
     );
   },
 });
@@ -165,7 +150,7 @@ test_newtab({
     await ContentTaskUtils.waitForCondition(
       () =>
         content.getComputedStyle(
-          content.document.querySelector(".customize-menu")
+          content.document.querySelector(".customize-menu-animate-wrapper")
         ).transform === defaultPos,
       "Customize Menu should be visible on screen"
     );
@@ -191,6 +176,7 @@ test_newtab({
     Assert.ok(getWeatherWidget(), "Weather widget is rendered");
   },
   async after() {
+    sinon.restore();
     Services.prefs.clearUserPref(
       "browser.newtabpage.activity-stream.showWeather"
     );
@@ -215,13 +201,13 @@ test_newtab({
     await ContentTaskUtils.waitForCondition(
       () =>
         content.getComputedStyle(
-          content.document.querySelector(".customize-menu")
+          content.document.querySelector(".customize-menu-animate-wrapper")
         ).transform === defaultPos,
       "Customize Menu should be visible on screen"
     );
 
     await ContentTaskUtils.waitForCondition(
-      () => content.document.activeElement.classList.contains("close-button"),
+      () => content.document.activeElement.id === "close-button",
       "Close button should be focused when menu becomes visible"
     );
 
@@ -234,12 +220,12 @@ test_newtab({
     );
 
     // Test close button.
-    let closeButton = content.document.querySelector(".close-button");
+    let closeButton = content.document.querySelector("#close-button");
     closeButton.click();
     await ContentTaskUtils.waitForCondition(
       () =>
         content.getComputedStyle(
-          content.document.querySelector(".customize-menu")
+          content.document.querySelector(".customize-menu-animate-wrapper")
         ).transform !== defaultPos,
       "Customize Menu should not be visible anymore"
     );
@@ -263,7 +249,7 @@ test_newtab({
     await ContentTaskUtils.waitForCondition(
       () =>
         content.getComputedStyle(
-          content.document.querySelector(".customize-menu")
+          content.document.querySelector(".customize-menu-animate-wrapper")
         ).transform === defaultPos,
       "Customize Menu should be visible on screen now"
     );
@@ -273,7 +259,7 @@ test_newtab({
     await ContentTaskUtils.waitForCondition(
       () =>
         content.getComputedStyle(
-          content.document.querySelector(".customize-menu")
+          content.document.querySelector(".customize-menu-animate-wrapper")
         ).transform !== defaultPos,
       "Customize Menu should not be visible anymore"
     );
@@ -283,7 +269,7 @@ test_newtab({
     await ContentTaskUtils.waitForCondition(
       () =>
         content.getComputedStyle(
-          content.document.querySelector(".customize-menu")
+          content.document.querySelector(".customize-menu-animate-wrapper")
         ).transform === defaultPos,
       "Customize Menu should be visible on screen now"
     );
@@ -294,7 +280,7 @@ test_newtab({
     await ContentTaskUtils.waitForCondition(
       () =>
         content.getComputedStyle(
-          content.document.querySelector(".customize-menu")
+          content.document.querySelector(".customize-menu-animate-wrapper")
         ).transform !== defaultPos,
       "Customize Menu should not be visible anymore"
     );

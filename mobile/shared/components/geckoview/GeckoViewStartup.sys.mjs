@@ -9,6 +9,7 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   ActorManagerParent: "resource://gre/modules/ActorManagerParent.sys.mjs",
+  DoHController: "moz-src:///toolkit/components/doh/DoHController.sys.mjs",
   EventDispatcher: "resource://gre/modules/Messaging.sys.mjs",
   PdfJs: "resource://pdf.js/PdfJs.sys.mjs",
 });
@@ -67,6 +68,7 @@ const JSWINDOWACTORS = {
         "mozshowdropdown-sourcetouch": {},
         MozOpenDateTimePicker: {},
         DOMPopupBlocked: { capture: false, mozSystemGroup: true },
+        DOMRedirectBlocked: { capture: false, mozSystemGroup: true },
       },
     },
     allFrames: true,
@@ -198,6 +200,7 @@ export class GeckoViewStartup {
 
           lazy.EventDispatcher.instance.registerListener(this, [
             "GeckoView:StorageDelegate:Attached",
+            "GeckoView:CrashPullController.Delegate:Attached",
           ]);
         }
 
@@ -215,6 +218,27 @@ export class GeckoViewStartup {
             "GeckoView:Translations:GetNeverTranslateSpecifiedSites",
             "GeckoView:Translations:SetNeverTranslateSpecifiedSite",
             "GeckoView:Translations:GetTranslateDownloadSize",
+          ],
+        });
+
+        GeckoViewUtils.addLazyGetter(this, "GeckoViewPageExtractor", {
+          module: "resource://gre/modules/GeckoViewPageExtractor.sys.mjs",
+          ged: ["GeckoView:PageExtractor:GetTextContent"],
+        });
+
+        GeckoViewUtils.addLazyGetter(this, "GeckoViewAutofillRuntime", {
+          module: "resource://gre/modules/GeckoViewAutofill.sys.mjs",
+          ged: ["GeckoView:Autofill:GetAddressStructure"],
+        });
+
+        GeckoViewUtils.addLazyGetter(this, "GeckoViewPreferences", {
+          module: "resource://gre/modules/GeckoViewPreferences.sys.mjs",
+          ged: [
+            "GeckoView:Preferences:GetPref",
+            "GeckoView:Preferences:SetPref",
+            "GeckoView:Preferences:ClearPref",
+            "GeckoView:Preferences:RegisterObserver",
+            "GeckoView:Preferences:UnregisterObserver",
           ],
         });
 
@@ -241,14 +265,6 @@ export class GeckoViewStartup {
           module: "resource://gre/modules/GeckoViewWebExtension.sys.mjs",
           ged: ["GeckoView:WebExtension:DownloadChanged"],
         });
-
-        ChromeUtils.importESModule(
-          "resource://gre/modules/MemoryNotificationDB.sys.mjs"
-        );
-
-        ChromeUtils.importESModule(
-          "resource://gre/modules/NotificationDB.sys.mjs"
-        );
 
         // Listen for global EventDispatcher messages
         lazy.EventDispatcher.instance.registerListener(this, [
@@ -302,6 +318,24 @@ export class GeckoViewStartup {
         // moved into the foreground later. That is because "application-foreground"
         // is only going to be notified when the application was first paused.
         Services.obs.notifyObservers(null, "geckoview-initial-foreground");
+
+        // This pref is set when during GeckoEngine initialization
+        // and holds the value of FxNimbus.doh.autoselect-enabled (see nimbus.fml.yaml)
+        // We check it here insead of using GeckoViewUtils.addLazyPrefObserver
+        // because GeckoView:ResetUserPrefs also clears it during startup.
+        if (
+          Services.prefs.getBoolPref("network.android_doh.autoselect_enabled")
+        ) {
+          debug`init DoH controller`;
+          lazy.DoHController.init();
+        } else {
+          // When the autoselect isn't enabled, these prefs should be
+          // cleared. Otherwise doh-rollout.mode will override
+          // network.trr.mode forever as DoHController isn't running.
+          debug`cleanup DoH prefs`;
+          lazy.DoHController.cleanupPrefs();
+        }
+
         break;
       }
       case "GeckoView:ResetUserPrefs": {
@@ -335,7 +369,7 @@ export class GeckoViewStartup {
         }
         break;
       }
-      case "GeckoView:SetLocale":
+      case "GeckoView:SetLocale": {
         if (aData.requestedLocales) {
           Services.locale.requestedLocales = aData.requestedLocales;
         }
@@ -349,6 +383,7 @@ export class GeckoViewStartup {
           pls
         );
         break;
+      }
 
       case "GeckoView:StorageDelegate:Attached":
         InitLater(() => {
@@ -357,6 +392,20 @@ export class GeckoViewStartup {
           ].createInstance(Ci.nsILoginDetectionService);
           loginDetection.init();
         });
+        break;
+
+      case "GeckoView:CrashPullController.Delegate:Attached":
+        if (!this.RemoteSettingsCrashPull) {
+          GeckoViewUtils.addLazyGetter(this, "RemoteSettingsCrashPull", {
+            module: "resource://gre/modules/RemoteSettingsCrashPull.sys.mjs",
+          });
+          GeckoViewUtils.addLazyGetter(this, "crashPullCallback", {
+            module: "resource://gre/modules/ChildCrashHandler.sys.mjs",
+          });
+          InitLater(() =>
+            this.RemoteSettingsCrashPull.start(this.crashPullCallback)
+          );
+        }
         break;
     }
   }

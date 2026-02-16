@@ -9,6 +9,7 @@ import android.content.res.Resources
 import android.net.Uri
 import android.util.JsonReader
 import androidx.annotation.RawRes
+import androidx.core.net.toUri
 import java.io.InputStreamReader
 import java.io.Reader
 import java.nio.charset.StandardCharsets.UTF_8
@@ -95,7 +96,7 @@ class UrlMatcher {
      * indicates the category of the match if available otherwise null.
      */
     fun matches(resourceURI: String, pageURI: String): Pair<Boolean, String?> {
-        return matches(Uri.parse(resourceURI), Uri.parse(pageURI))
+        return matches(resourceURI.toUri(), pageURI.toUri())
     }
 
     /**
@@ -108,7 +109,7 @@ class UrlMatcher {
      * @return a [Pair] of <Boolean, String?> the first indicates, if the URI matches and the second
      * indicates the category of the match if available otherwise null.
      */
-    @Suppress("ReturnCount", "ComplexMethod")
+    @Suppress("ReturnCount")
     fun matches(resourceURI: Uri, pageURI: Uri): Pair<Boolean, String?> {
         val resourceURLString = resourceURI.toString()
         val resourceHost = resourceURI.host
@@ -211,8 +212,7 @@ class UrlMatcher {
         ): UrlMatcher {
             val categoryMap = HashMap<String, Trie>()
 
-            JsonReader(block).use {
-                    jsonReader ->
+            JsonReader(block).use { jsonReader ->
                 loadCategories(jsonReader, categoryMap)
             }
 
@@ -252,7 +252,7 @@ class UrlMatcher {
             return categoryMap
         }
 
-        @Suppress("ThrowsCount", "ComplexMethod", "NestedBlockDepth")
+        @Suppress("ThrowsCount", "NestedBlockDepth", "CognitiveComplexMethod")
         private fun extractCategories(reader: JsonReader, categoryMap: MutableMap<String, Trie>, override: Boolean) {
             reader.beginObject()
 

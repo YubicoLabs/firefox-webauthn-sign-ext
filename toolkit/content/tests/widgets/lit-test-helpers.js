@@ -51,7 +51,19 @@ class LitTestHelpers {
         return lit.noChange;
       }
     };
+    this.PropertySpreadDirective = class extends lit.Directive {
+      render() {
+        return lit.nothing;
+      }
+      update(part, [attrs]) {
+        for (let [key, value] of Object.entries(attrs)) {
+          part[key] = value;
+        }
+        return lit.noChange;
+      }
+    };
     this.spread = lit.directive(this.SpreadDirective);
+    this.propertySpread = lit.directive(this.PropertySpreadDirective);
     return lit;
   }
 
@@ -103,12 +115,12 @@ class InputTestHelpers extends LitTestHelpers {
     let { activatedProperty } = this;
 
     function trackEvent(event) {
-      let reactiveProps = event.target.constructor.properties;
+      let reactiveProps = event.target.constructor?.properties;
       seenEvents.push({
         type: event.type,
-        value: event.target.value,
+        value: event.currentTarget.value,
         localName: event.currentTarget.localName,
-        ...(reactiveProps.hasOwnProperty(activatedProperty) && {
+        ...(reactiveProps?.hasOwnProperty(activatedProperty) && {
           [activatedProperty]: event.target[activatedProperty],
         }),
       });
@@ -151,9 +163,13 @@ class InputTestHelpers extends LitTestHelpers {
    * all reusable moz- input elements.
    *
    * @param {string} elementName - HTML tag of the element under test.
+   * @param {object} options - Custom properties to assert. Currently only type is supported.
+   * @param {string} options.type - The input type to verify. Defaults to "text".
    */
-  async testCommonInputProperties(elementName) {
+  async testCommonInputProperties(elementName, { type = "text" } = {}) {
     await this.verifyLabel(elementName);
+    await this.verifyAriaLabel(elementName);
+    await this.verifyAriaDescription(elementName);
     await this.verifyName(elementName);
     await this.verifyValue(elementName);
     await this.verifyIcon(elementName);
@@ -162,6 +178,7 @@ class InputTestHelpers extends LitTestHelpers {
     await this.verifySupportPage(elementName);
     await this.verifyAccesskey(elementName);
     await this.verifyNoWhitespace(elementName);
+    await this.verifyType(elementName, type);
     if (this.activatedProperty) {
       await this.verifyActivated(elementName);
       await this.verifyNestedFields(elementName);
@@ -240,6 +257,83 @@ class InputTestHelpers extends LitTestHelpers {
     firstInput.value = NEW_VALUE;
     await firstInput.updateComplete;
     is(firstInput.inputEl.value, NEW_VALUE, "Input value is updated.");
+  }
+
+  /**
+   * Verifies input value property remains in sync with its inner HTMLInputElement's value in both directions.
+   *
+   * @param {string} selector - HTML tag of the element under test.
+   */
+  async verifyValueSync(selector) {
+    const INITIAL_VALUE = "value";
+    const USER_INPUT = "new value";
+    const UNIQUE_INPUT = "unique value";
+
+    const valueTemplate = this.templateFn({
+      label: "Testing value",
+      value: INITIAL_VALUE,
+    });
+    const renderTarget = await this.renderTemplate(valueTemplate);
+
+    const wrapper = renderTarget.querySelector(selector);
+    ok(wrapper, `Found ${selector} wrapper`);
+
+    const innerInput = wrapper.inputEl;
+    ok(
+      HTMLInputElement.isInstance(innerInput),
+      "Wrapper inner element is an <input>"
+    );
+
+    is(
+      innerInput.value,
+      INITIAL_VALUE,
+      "Inner input starts with the initial template value."
+    );
+    is(
+      wrapper.value,
+      INITIAL_VALUE,
+      "Wrapper value starts with the initial template value."
+    );
+
+    wrapper.value = INITIAL_VALUE;
+    await wrapper.updateComplete;
+    is(
+      innerInput.value,
+      INITIAL_VALUE,
+      "Inner input value is in sync with wrapper value (after direct set)."
+    );
+
+    wrapper.value = "";
+    await wrapper.updateComplete;
+
+    innerInput.focus();
+    sendString(USER_INPUT);
+    innerInput.blur();
+    await TestUtils.waitForTick();
+
+    is(
+      wrapper.value,
+      USER_INPUT,
+      "Wrapper value is updated after typing into inner input."
+    );
+    is(
+      innerInput.value,
+      USER_INPUT,
+      "Inner input value is updated after typing into inner input."
+    );
+
+    wrapper.value = UNIQUE_INPUT;
+    await wrapper.updateComplete;
+    is(
+      wrapper.value,
+      UNIQUE_INPUT,
+      "Wrapper value is updated to unique value."
+    );
+    is(
+      innerInput.value,
+      UNIQUE_INPUT,
+      "Inner input value is in sync with unique wrapper value."
+    );
   }
 
   /**
@@ -410,10 +504,23 @@ class InputTestHelpers extends LitTestHelpers {
     await firstInput.updateComplete;
 
     is(
-      getSupportLink().parentElement.id,
+      getSupportLink().previousElementSibling.id,
       "description",
-      "Support link is rendered in the description if a description is present."
+      "Support link is rendered next to the description if a description is present."
     );
+
+    if (firstInput.isInlineLayout) {
+      ok(
+        !getSupportLink().getAttribute("aria-describedby"),
+        "aria-describedby is not set on the support link."
+      );
+    } else {
+      is(
+        getSupportLink().getAttribute("aria-describedby"),
+        "label description",
+        "Support link is described by the label and description elements."
+      );
+    }
 
     let getSlottedSupportLink = () =>
       secondInput.shadowRoot
@@ -456,9 +563,9 @@ class InputTestHelpers extends LitTestHelpers {
     await slottedDescriptionPresent;
 
     is(
-      getSlottedSupportLink().assignedSlot.parentElement.id,
+      getSlottedSupportLink().assignedSlot.previousElementSibling.id,
       "description",
-      "Support link is rendered in the slotted description if a slotted description is present."
+      "Support link is rendered next to the slotted description if a slotted description is present."
     );
   }
 
@@ -618,7 +725,7 @@ class InputTestHelpers extends LitTestHelpers {
     let renderTarget = await this.renderTemplate(whitespaceTemplate);
     let firstInput = renderTarget.querySelector(selector);
 
-    if (firstInput.constructor.inputLayout == "block") {
+    if (!firstInput.isInlineLayout) {
       return;
     }
 
@@ -663,6 +770,12 @@ class InputTestHelpers extends LitTestHelpers {
     );
   }
 
+  async verifyType(selector, type) {
+    let renderTarget = await this.renderTemplate();
+    let firstInput = renderTarget.querySelector(selector);
+    is(firstInput.inputEl.type, type, `The input type is ${type}`);
+  }
+
   async testTextBasedInputEvents(selector) {
     let { trackEvent, verifyEvents } = this.getInputEventHelpers();
     let target = await this.renderTemplate();
@@ -691,6 +804,11 @@ class InputTestHelpers extends LitTestHelpers {
     ]);
   }
 
+  /**
+   * Verifies that the aria-label attribute is applied to the input element.
+   *
+   * @param {string} selector - HTML tag of the element under test.
+   */
   async verifyAriaLabel(selector) {
     const ARIA_LABEL = "I'm not visible";
     let ariaLabelTemplate = this.templateFn({
@@ -714,6 +832,32 @@ class InputTestHelpers extends LitTestHelpers {
   }
 
   /**
+   * Verifies that the aria-description attribute is applied to the input element.
+   *
+   * @param {string} selector - HTML tag of the element under test.
+   */
+  async verifyAriaDescription(selector) {
+    const ARIA_DESCRIPTION = "I'm not visible";
+    let ariaDescriptionTemplate = this.templateFn({
+      value: "default",
+      "aria-description": ARIA_DESCRIPTION,
+    });
+    let renderTarget = await this.renderTemplate(ariaDescriptionTemplate);
+    let input = renderTarget.querySelector(selector);
+
+    ok(!input.hasDescription, "No visible description text is rendered.");
+    ok(
+      !input.getAttribute("aria-description"),
+      "aria-description is not set on the outer element."
+    );
+    is(
+      input.inputEl.getAttribute("aria-description"),
+      ARIA_DESCRIPTION,
+      "The aria-description is set on the input element."
+    );
+  }
+
+  /**
    * Verifies the behavior of nested elements for inputs that support nesting.
    *
    * @param {string} selector - HTML tag of the element under test.
@@ -728,6 +872,7 @@ class InputTestHelpers extends LitTestHelpers {
     let renderTarget = await this.renderTemplate(nestedTemplate);
     let parentInput = renderTarget.querySelector(selector);
     let nestedEls = [];
+    let disabledEls = [];
 
     async function waitForUpdateComplete() {
       await parentInput.updateComplete;
@@ -762,14 +907,45 @@ class InputTestHelpers extends LitTestHelpers {
     nestedSelect.append(...options);
 
     parentInput.append(...nestedEls);
+
+    let nestedDisabledCheckbox = document.createElement("moz-checkbox");
+    nestedDisabledCheckbox.slot = "nested";
+    nestedDisabledCheckbox.label = "nested disabled checkbox";
+    nestedDisabledCheckbox.disabled = true;
+    parentInput.append(nestedDisabledCheckbox);
+    disabledEls.push(nestedDisabledCheckbox);
+
+    let nestedDisabledRadioGroup = document.createElement("moz-radio-group");
+    nestedDisabledRadioGroup.slot = "nested";
+    nestedDisabledRadioGroup.label = "nested disabled radio group";
+    nestedDisabledRadioGroup.disabled = true;
+    parentInput.append(nestedDisabledRadioGroup);
+
+    let nestedDisabledRadioOptions = ["one", "two", "three"].map(val => {
+      let nestedDisabledRadioOption = document.createElement("moz-radio");
+      nestedDisabledRadioOption.label = `nested disabled radio ${val}`;
+      nestedDisabledRadioOption.value = val;
+      nestedDisabledRadioOption.disabled = val == "two";
+      nestedDisabledRadioGroup.append(nestedDisabledRadioOption);
+      return nestedDisabledRadioOption;
+    });
+    disabledEls.push(...nestedDisabledRadioOptions);
+
     await waitForUpdateComplete();
 
     // Test the initial state when parent input is enabled and activated.
     nestedEls.forEach(nestedEl => {
       is(
-        nestedEl.disabled,
+        (nestedEl.inputEl ?? nestedEl.buttonEl).disabled,
         false,
         `The nested ${nestedEl.localName} element is enabled when the parent input is activated.`
+      );
+    });
+    disabledEls.forEach(disabledEl => {
+      is(
+        disabledEl.inputEl.disabled,
+        true,
+        `The nested disabled ${disabledEl.localName} element is disabled when the parent input is activated.`
       );
     });
 
@@ -779,9 +955,16 @@ class InputTestHelpers extends LitTestHelpers {
 
     nestedEls.forEach(nestedEl => {
       is(
-        nestedEl.disabled,
+        (nestedEl.inputEl ?? nestedEl.buttonEl).disabled,
         true,
         `The nested ${nestedEl.localName} element is disabled when the parent input is deactivated.`
+      );
+    });
+    disabledEls.forEach(disabledEl => {
+      is(
+        disabledEl.inputEl.disabled,
+        true,
+        `The nested disabled ${disabledEl.localName} element is disabled when the parent input is deactivated.`
       );
     });
 
@@ -798,7 +981,7 @@ class InputTestHelpers extends LitTestHelpers {
     parentInput.append(anotherNestedCheckbox);
     await checkboxSlotted;
     is(
-      anotherNestedCheckbox.disabled,
+      anotherNestedCheckbox.inputEl.disabled,
       true,
       "Newly slotted checkbox is initially disabled."
     );
@@ -809,9 +992,16 @@ class InputTestHelpers extends LitTestHelpers {
 
     nestedEls.forEach(nestedEl => {
       is(
-        nestedEl.disabled,
+        (nestedEl.inputEl ?? nestedEl.buttonEl).disabled,
         false,
         `The nested ${nestedEl.localName} element is enabled when the parent input is reactivated.`
+      );
+    });
+    disabledEls.forEach(disabledEl => {
+      is(
+        disabledEl.inputEl.disabled,
+        true,
+        `The nested disabled ${disabledEl.localName} element is disabled when the parent input is reactivated.`
       );
     });
 
@@ -828,7 +1018,7 @@ class InputTestHelpers extends LitTestHelpers {
     firstNestedCheckbox.append(deeplyNestedCheckbox);
     await checkboxSlotted;
     is(
-      deeplyNestedCheckbox.disabled,
+      deeplyNestedCheckbox.inputEl.disabled,
       false,
       "Deeply nested checkbox is initially enabled."
     );
@@ -839,9 +1029,16 @@ class InputTestHelpers extends LitTestHelpers {
 
     nestedEls.forEach(nestedEl => {
       is(
-        nestedEl.disabled,
+        (nestedEl.inputEl ?? nestedEl.buttonEl).disabled,
         true,
         `The nested ${nestedEl.localName} element is disabled when parent input is disabled.`
+      );
+    });
+    disabledEls.forEach(disabledEl => {
+      is(
+        disabledEl.inputEl.disabled,
+        true,
+        `The nested disabled ${disabledEl.localName} element is disabled when the parent input is disabled.`
       );
     });
 
@@ -851,10 +1048,75 @@ class InputTestHelpers extends LitTestHelpers {
 
     nestedEls.forEach(nestedEl => {
       is(
-        nestedEl.disabled,
+        (nestedEl.inputEl ?? nestedEl.buttonEl).disabled,
         false,
         `The nested ${nestedEl.localName} element is enabled when parent input is reenabled.`
       );
     });
+    disabledEls.forEach(disabledEl => {
+      is(
+        disabledEl.inputEl.disabled,
+        true,
+        `The nested disabled ${disabledEl.localName} element is disabled when the parent input is reenabled.`
+      );
+    });
+  }
+
+  /**
+   * Verifies it is possible to set readonly attribute to the input element and remove it.
+   *
+   * @param {string} selector - HTML tag of the element under test.
+   */
+  async verifyReadonly(selector) {
+    const INITIAL_VALUE = "value";
+    const NEW_VALUE = "new value";
+    let renderTarget = await this.renderTemplate();
+    let firstInput = renderTarget.querySelector(selector);
+
+    async function enterInputValue(inputComponent, inputValue) {
+      synthesizeMouseAtCenter(inputComponent.inputEl, {});
+      sendString(inputValue);
+      inputComponent.blur();
+      await TestUtils.waitForTick();
+    }
+
+    ok(
+      !firstInput.readonly,
+      "Input has a readonly property set to false on initial render."
+    );
+    is(
+      firstInput.inputEl.value,
+      "",
+      "The initial value of the input element is an empty string."
+    );
+
+    await enterInputValue(firstInput, INITIAL_VALUE);
+    is(
+      firstInput.inputEl.value,
+      INITIAL_VALUE,
+      "The value of the input element has changed."
+    );
+
+    firstInput.readonly = true;
+    await firstInput.updateComplete;
+
+    ok(firstInput.readonly, "Input is readonly.");
+    ok(firstInput.inputEl.readOnly, "Readonly state is propagated.");
+
+    await enterInputValue(firstInput, NEW_VALUE);
+    is(
+      firstInput.inputEl.value,
+      INITIAL_VALUE,
+      "The value of the input element hasn't changed."
+    );
+
+    firstInput.readonly = false;
+    await firstInput.updateComplete;
+
+    ok(
+      !firstInput.readonly,
+      "Input has a readonly property set to false again."
+    );
+    ok(!firstInput.inputEl.readOnly, "Readonly state is propagated.");
   }
 }

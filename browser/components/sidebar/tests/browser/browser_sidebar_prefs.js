@@ -7,13 +7,11 @@ add_task(async function test_tools_prefs() {
   const win = await BrowserTestUtils.openNewBrowserWindow();
   const { document } = win;
   const sidebar = document.querySelector("sidebar-main");
-  ok(sidebar, "Sidebar is shown.");
   await sidebar.updateComplete;
 
-  is(
-    Services.prefs.getStringPref("sidebar.main.tools"),
-    "aichat,syncedtabs,history",
-    "Default tools pref unchanged"
+  Services.prefs.setStringPref(
+    "sidebar.main.tools",
+    "aichat,syncedtabs,history,bookmarks"
   );
 
   // Open customize sidebar
@@ -32,24 +30,24 @@ add_task(async function test_tools_prefs() {
     `${toolEntrypointsCount} inputs to toggle Firefox Tools are shown in the Customize Menu.`
   );
   let bookmarksInput = Array.from(customizeComponent.toolInputs).find(
-    input => input.name === "viewBookmarksSidebar"
+    input => input.id === "viewBookmarksSidebar"
   );
   ok(
-    !bookmarksInput.checked,
-    "The bookmarks input is unchecked initially as Bookmarks are disabled initially."
+    bookmarksInput.checked,
+    "The bookmarks input is checked initially as Bookmarks is a default tool."
   );
   for (const toolInput of customizeComponent.toolInputs) {
-    let toolDisabledInitialState = !toolInput.checked;
+    // deselect all tools that are selected in the Customize Sidebar panel except bookmarks
+    if (toolInput.id == "viewBookmarksSidebar" || !toolInput.checked) {
+      continue;
+    }
     toolInput.click();
-    await BrowserTestUtils.waitForCondition(
-      () => {
-        let toggledTool = win.SidebarController.toolsAndExtensions.get(
-          toolInput.name
-        );
-        return toggledTool.disabled === !toolDisabledInitialState;
-      },
-      `The entrypoint for ${toolInput.name} has been ${toolDisabledInitialState ? "enabled" : "disabled"} in the sidebar.`
-    );
+    await BrowserTestUtils.waitForCondition(() => {
+      let toggledTool = win.SidebarController.toolsAndExtensions.get(
+        toolInput.id
+      );
+      return toggledTool.disabled === !toolInput.checked;
+    }, `The entrypoint for ${toolInput.name} has been disabled in the sidebar.`);
     toolEntrypointsCount = sidebar.toolButtons.length;
     checkedInputs = Array.from(customizeComponent.toolInputs).filter(
       input => input.checked
@@ -57,9 +55,7 @@ add_task(async function test_tools_prefs() {
     is(
       toolEntrypointsCount,
       checkedInputs.length,
-      `The button for the ${toolInput.name} entrypoint has been ${
-        toolDisabledInitialState ? "added" : "removed"
-      }.`
+      `The button for the ${toolInput.name} entrypoint has been removed.`
     );
   }
 
@@ -67,18 +63,24 @@ add_task(async function test_tools_prefs() {
   is(
     updatedTools,
     "bookmarks",
-    "History, aichat and syncedtabs have been removed from the pref, and bookmarks added"
+    "All tools have been removed from the launcher except bookmarks"
   );
 
   await BrowserTestUtils.closeWindow(win);
 
   //   Open a new window to check that it uses the pref
   const newWin = await BrowserTestUtils.openNewBrowserWindow();
+  await newWin.SidebarController.waitUntilStable();
   const newSidebar = newWin.document.querySelector("sidebar-main");
-  ok(newSidebar, "New Window sidebar is shown.");
-  await BrowserTestUtils.waitForCondition(
-    async () => (await newSidebar.updateComplete) && newSidebar.customizeButton,
-    `The sidebar-main component has fully rendered, and the customize button is present.`
+
+  // toggle open the sidebar launcher to check which tools are visible
+  await ensureSidebarLauncherIsVisible(newWin);
+
+  info("Waiting for customize button to be present");
+  await BrowserTestUtils.waitForMutationCondition(
+    newSidebar,
+    { childList: true, subTree: true },
+    () => !!newSidebar.customizeButton
   );
 
   // TO DO: opening the customize category can be removed once bug 1898613 is resolved.
@@ -103,7 +105,7 @@ add_task(async function test_tools_prefs() {
     "The number of tool inputs checked matches that of the other window's sidebar"
   );
   let newBookmarksInput = Array.from(newCustomizeComponent.toolInputs).find(
-    input => input.name === "viewBookmarksSidebar"
+    input => input.id === "viewBookmarksSidebar"
   );
   is(
     newBookmarksInput.checked,
@@ -127,6 +129,9 @@ add_task(async function test_tool_pref_change() {
   const sidebar = document.querySelector("sidebar-main");
   await sidebar.updateComplete;
 
+  // Ensure the sidebar is visible so toolButtons are in the DOM
+  await ensureSidebarLauncherIsVisible();
+
   const origCount = sidebar.toolButtons.length;
   is(origCount, 1, "Expected number of initial tools");
 
@@ -136,11 +141,13 @@ add_task(async function test_tool_pref_change() {
   });
   is(sidebar.toolButtons.length, origCount - 1, "Removed tool");
 
-  await SpecialPowers.pushPrefEnv({ set: [["sidebar.main.tools", origTools]] });
+  await SpecialPowers.pushPrefEnv({
+    set: [["sidebar.main.tools", origTools]],
+  });
   is(sidebar.toolButtons.length, origCount, "Restored tool");
 
   await SpecialPowers.pushPrefEnv({ clear: [["sidebar.main.tools"]] });
-  is(sidebar.toolButtons.length, 3, "Restored default tools");
+  is(sidebar.toolButtons.length, 0, "Cleared default tools");
 });
 
 /**
@@ -150,7 +157,7 @@ add_task(async function test_tool_pref_change() {
 add_task(async function test_flip_revamp_pref() {
   const win = await BrowserTestUtils.openNewBrowserWindow();
   await waitForTabstripOrientation("horizontal", win);
-  const sidebar = win.document.querySelector("sidebar-main");
+  const { sidebarMain, sidebarContainer } = win.SidebarController;
 
   let verticalTabs = win.document.querySelector("#vertical-tabs");
   ok(
@@ -160,13 +167,19 @@ add_task(async function test_flip_revamp_pref() {
   // Open history sidebar
   await toggleSidebarPanel(win, "viewHistorySidebar");
 
-  await SpecialPowers.pushPrefEnv({ set: [["sidebar.verticalTabs", true]] });
+  await SpecialPowers.pushPrefEnv({ set: [[VERTICAL_TABS_PREF, true]] });
   await waitForTabstripOrientation("vertical", win);
   ok(BrowserTestUtils.isVisible(verticalTabs), "Vertical tabs slot is visible");
-
-  ok(sidebar, "Revamped sidebar is shown initially.");
+  ok(
+    BrowserTestUtils.isVisible(sidebarMain),
+    "Revamped sidebar main is shown initially."
+  );
+  ok(
+    BrowserTestUtils.isVisible(sidebarContainer),
+    "Revamped sidebar container is shown initially."
+  );
   Assert.equal(
-    Services.prefs.getStringPref("sidebar.visibility"),
+    Services.prefs.getStringPref(SIDEBAR_VISIBILITY_PREF),
     "always-show",
     "Sanity check the visibilty pref when verticalTabs are enabled"
   );
@@ -174,31 +187,66 @@ add_task(async function test_flip_revamp_pref() {
   await SpecialPowers.pushPrefEnv({ set: [["sidebar.revamp", false]] });
   await waitForTabstripOrientation("horizontal", win);
 
-  await TestUtils.waitForCondition(() => {
-    let isSidebarMainShown =
-      !win.document.getElementById("sidebar-main").hidden;
-    let isSwitcherPanelShown =
-      !win.document.getElementById("sidebar-header").hidden;
-    // Vertical tabs pref should be turned off when revamp pref is turned off
-    let isVerticalTabsShown = BrowserTestUtils.isVisible(verticalTabs);
-    return !isSidebarMainShown && isSwitcherPanelShown && !isVerticalTabsShown;
-  }, "The new sidebar is hidden and the old sidebar is shown.");
-
+  info("Waiting for sidebar container to be visible");
+  await BrowserTestUtils.waitForMutationCondition(
+    sidebarContainer,
+    { subTree: true, attributes: true, attributeFilter: ["hidden"] },
+    () =>
+      sidebarContainer.hidden &&
+      !BrowserTestUtils.isVisible(verticalTabs) &&
+      win.document.getElementById("sidebar-header")
+  );
+  const sidebarHeader = win.document.getElementById("sidebar-header");
+  ok(sidebarHeader, "Sidebar header is shown");
+  info("Waiting for sidebar header to be visible");
+  await BrowserTestUtils.waitForMutationCondition(
+    sidebarHeader,
+    { attributes: true, attributeFilter: ["hidden"] },
+    () => !sidebarHeader.hidden
+  );
   ok(true, "The new sidebar is hidden and the old sidebar is shown.");
 
   await SpecialPowers.pushPrefEnv({
     set: [["sidebar.revamp", true]],
   });
-  await sidebar.updateComplete;
-  await TestUtils.waitForCondition(() => {
-    let isSidebarMainShown = !document.getElementById("sidebar-main").hidden;
-    let isSwitcherPanelShown =
-      !win.document.getElementById("sidebar-header").hidden;
-    return isSidebarMainShown && !isSwitcherPanelShown;
-  }, "The old sidebar is hidden and the new sidebar is shown.");
-
+  await sidebarMain.updateComplete;
+  info("Waiting for sidebar container to be visible");
+  await BrowserTestUtils.waitForMutationCondition(
+    sidebarContainer,
+    { attributes: true, attributeFilter: ["hidden"] },
+    () => !sidebarContainer.hidden
+  );
+  info("Waiting for sidebar header to be hidden");
+  await BrowserTestUtils.waitForMutationCondition(
+    sidebarHeader,
+    { attributes: true, attributeFilter: ["hidden"] },
+    () => sidebarHeader.hidden
+  );
   ok(true, "The old sidebar is hidden and the new sidebar is shown.");
+
   await BrowserTestUtils.closeWindow(win);
+});
+
+/**
+ * Check that panels can stay open when flipping sidebar.revamp
+ */
+add_task(async function test_flip_revamp_pref_with_panel() {
+  await toggleSidebarPanel(window, "viewGenaiChatSidebar");
+  ok(SidebarController.isOpen, "panel open with revamp");
+
+  await SpecialPowers.pushPrefEnv({
+    set: [["sidebar.revamp", false]],
+  });
+
+  ok(SidebarController.isOpen, "panel still open after old");
+
+  await SpecialPowers.pushPrefEnv({
+    set: [["sidebar.revamp", true]],
+  });
+
+  ok(SidebarController.isOpen, "panel still open after new");
+
+  await SidebarController.hide();
 });
 
 add_task(async function test_opening_panel_flips_has_used_pref() {

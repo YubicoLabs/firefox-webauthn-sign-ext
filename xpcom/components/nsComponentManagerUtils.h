@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsComponentManagerUtils_h__
-#define nsComponentManagerUtils_h__
+#ifndef nsComponentManagerUtils_h_
+#define nsComponentManagerUtils_h_
 
 #include "nscore.h"
 #include "nsCOMPtr.h"
@@ -125,7 +125,7 @@ inline nsresult CallCreateInstance(const nsCID& aClass,
                                    DestinationType** aDestination) {
   MOZ_ASSERT(aDestination, "null parameter");
 
-  return CallCreateInstance(aClass, NS_GET_TEMPLATE_IID(DestinationType),
+  return CallCreateInstance(aClass, NS_GET_IID(DestinationType),
                             reinterpret_cast<void**>(aDestination));
 }
 
@@ -135,7 +135,7 @@ inline nsresult CallCreateInstance(const char* aContractID,
   MOZ_ASSERT(aContractID, "null parameter");
   MOZ_ASSERT(aDestination, "null parameter");
 
-  return CallCreateInstance(aContractID, NS_GET_TEMPLATE_IID(DestinationType),
+  return CallCreateInstance(aContractID, NS_GET_IID(DestinationType),
                             reinterpret_cast<void**>(aDestination));
 }
 
@@ -145,7 +145,7 @@ inline nsresult CallCreateInstance(nsIFactory* aFactory,
   MOZ_ASSERT(aFactory, "null parameter");
   MOZ_ASSERT(aDestination, "null parameter");
 
-  return aFactory->CreateInstance(nullptr, NS_GET_TEMPLATE_IID(DestinationType),
+  return aFactory->CreateInstance(nullptr, NS_GET_IID(DestinationType),
                                   reinterpret_cast<void**>(aDestination));
 }
 
@@ -154,7 +154,7 @@ inline nsresult CallGetClassObject(const nsCID& aClass,
                                    DestinationType** aDestination) {
   MOZ_ASSERT(aDestination, "null parameter");
 
-  return CallGetClassObject(aClass, NS_GET_TEMPLATE_IID(DestinationType),
+  return CallGetClassObject(aClass, NS_GET_IID(DestinationType),
                             reinterpret_cast<void**>(aDestination));
 }
 
@@ -163,8 +163,8 @@ inline nsresult CallGetClassObject(const char* aContractID,
                                    DestinationType** aDestination) {
   MOZ_ASSERT(aDestination, "null parameter");
 
-  return CallGetClassObject(aContractID, NS_GET_TEMPLATE_IID(DestinationType),
+  return CallGetClassObject(aContractID, NS_GET_IID(DestinationType),
                             reinterpret_cast<void**>(aDestination));
 }
 
-#endif /* nsComponentManagerUtils_h__ */
+#endif /* nsComponentManagerUtils_h_ */

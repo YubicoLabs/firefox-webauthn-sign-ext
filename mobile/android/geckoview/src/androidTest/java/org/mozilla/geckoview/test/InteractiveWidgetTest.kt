@@ -5,13 +5,20 @@
 package org.mozilla.geckoview.test
 
 import android.content.Context
-import android.graphics.* // ktlint-disable no-wildcard-imports
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
 import android.view.inputmethod.InputMethodManager
+import androidx.core.graphics.createBitmap
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.MediumTest
-import org.hamcrest.Matchers.* // ktlint-disable no-wildcard-imports
+import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.not
+import org.hamcrest.Matchers.notNullValue
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -19,10 +26,13 @@ import org.junit.Test
 import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 import org.mozilla.geckoview.Autofill
+import org.mozilla.geckoview.GeckoSession
+import org.mozilla.geckoview.GeckoSession.ContentDelegate
 import org.mozilla.geckoview.GeckoView
 import org.mozilla.geckoview.PanZoomController
 import org.mozilla.geckoview.ScreenLength
 import org.mozilla.geckoview.test.rule.GeckoSessionTestRule
+import org.mozilla.geckoview.test.rule.GeckoSessionTestRule.AssertCalled
 import org.mozilla.geckoview.test.util.AssertUtils
 
 @RunWith(AndroidJUnit4::class)
@@ -54,19 +64,11 @@ class InteractiveWidgetTest : BaseSessionTest() {
             activityRule.scenario.onActivity { activity ->
                 activity.view.releaseSession()
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            }
     }
 
-    @GeckoSessionTestRule.NullDelegate(Autofill.Delegate::class)
-    @Test
-    fun stickyElementWithDynamicToolbarOnResizesVisual() {
-        mainSession.setActive(true)
-
-        mainSession.loadTestPath(BaseSessionTest.INTERACTIVE_WIDGET_HTML_PATH)
-        mainSession.waitForPageStop()
-        mainSession.promiseAllPaintsDone()
-        mainSession.flushApzRepaints()
-
+    private fun ensureKeyboardOpen() {
         view.requestFocus()
 
         var promise = mainSession.evaluatePromiseJS(
@@ -90,6 +92,19 @@ class InteractiveWidgetTest : BaseSessionTest() {
             promise.value as Boolean,
             equalTo(true),
         )
+    }
+
+    @GeckoSessionTestRule.NullDelegate(Autofill.Delegate::class)
+    @Test
+    fun stickyElementWithDynamicToolbarOnResizesVisual() {
+        mainSession.setActive(true)
+
+        mainSession.loadTestPath(BaseSessionTest.INTERACTIVE_WIDGET_HTML_PATH)
+        mainSession.waitForPageStop()
+        mainSession.promiseAllPaintsDone()
+        mainSession.flushApzRepaints()
+
+        ensureKeyboardOpen()
 
         // Hide the dynamic toolbar.
         view.setVerticalClipping(-dynamicToolbarMaxHeight)
@@ -112,7 +127,7 @@ class InteractiveWidgetTest : BaseSessionTest() {
             val rect = Rect()
             mainSession.getSurfaceBounds(rect)
 
-            val bitmap = Bitmap.createBitmap(rect.width(), height.toInt(), Bitmap.Config.ARGB_8888)
+            val bitmap = createBitmap(rect.width(), height.toInt(), Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             val paint = Paint()
             paint.color = Color.rgb(255, 255, 255)
@@ -186,7 +201,7 @@ class InteractiveWidgetTest : BaseSessionTest() {
             val rect = Rect()
             mainSession.getSurfaceBounds(rect)
 
-            val bitmap = Bitmap.createBitmap(rect.width(), height.toInt(), Bitmap.Config.ARGB_8888)
+            val bitmap = createBitmap(rect.width(), height.toInt(), Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             val paint = Paint()
             paint.color = Color.rgb(0, 128, 0)
@@ -202,6 +217,173 @@ class InteractiveWidgetTest : BaseSessionTest() {
         val reference = createReferenceImage(result.height.toDouble())
 
         AssertUtils.assertScreenshotResult(result, reference)
+
+        // Close the software keyboard.
+        imm.hideSoftInputFromWindow(view.getWindowToken(), 0)
+    }
+
+    @GeckoSessionTestRule.NullDelegate(Autofill.Delegate::class)
+    @Test
+    fun hideDynamicToolbarOnResizesVisual() {
+        mainSession.setActive(true)
+
+        mainSession.loadTestPath(BaseSessionTest.HIDE_DYNAMIC_TOOLBAR_ON_RESIZES_VISUAL_HTML_PATH)
+        mainSession.waitForPageStop()
+        mainSession.promiseAllPaintsDone()
+        mainSession.flushApzRepaints()
+
+        ensureKeyboardOpen()
+
+        mainSession.evaluateJS("document.getElementById('input1').focus();")
+        mainSession.zoomToFocusedInput()
+
+        mainSession.flushApzRepaints()
+        mainSession.promiseAllPaintsDone()
+
+        mainSession.waitUntilCalled(object : ContentDelegate {
+            @AssertCalled(count = 1)
+            override fun onHideDynamicToolbar(session: GeckoSession) {
+            }
+        })
+
+        // Close the software keyboard.
+        imm.hideSoftInputFromWindow(view.getWindowToken(), 0)
+    }
+
+    @GeckoSessionTestRule.NullDelegate(Autofill.Delegate::class)
+    @Test
+    fun bug1994311() {
+        mainSession.setActive(true)
+        sessionRule.display?.run { setDynamicToolbarMaxHeight(0) }
+
+        mainSession.loadTestPath(BaseSessionTest.BUG1994311_HTML_PATH)
+        mainSession.waitForPageStop()
+        mainSession.promiseAllPaintsDone()
+        mainSession.flushApzRepaints()
+
+        val viewportHeight = mainSession.evaluateJS("window.visualViewport.height") as Double
+
+        // Open the software keyboard.
+        ensureKeyboardOpen()
+
+        mainSession.flushApzRepaints()
+        mainSession.promiseAllPaintsDone()
+
+        // Scroll down visually.
+        mainSession.panZoomController.scrollBy(
+            ScreenLength.zero(),
+            ScreenLength.fromPixels(viewportHeight),
+            PanZoomController.SCROLL_BEHAVIOR_AUTO,
+        )
+
+        mainSession.flushApzRepaints()
+        mainSession.promiseAllPaintsDone()
+
+        var scrollY = mainSession.evaluateJS("window.scrollY") as Double
+
+        // Now the layout scroll offset is different from the visual scroll offset.
+        assertThat(
+              "The layout scroll offset hasn't reached the destination",
+              scrollY,
+              not(equalTo(viewportHeight)),
+            )
+
+        var resizeEventPromise = mainSession.evaluatePromiseJS(
+            """
+              new Promise(resolve => {
+                visualViewport.addEventListener('resize', () => {
+                  resolve(true);
+                }, { once: true });
+              });
+            """.trimIndent(),
+        )
+        // Explicitly call `waitForRoundTrip()` to make sure the above event listener
+        // has set up in the content.
+        mainSession.waitForRoundTrip()
+
+        // Dismiss the software keyboard.
+        imm.hideSoftInputFromWindow(view.getWindowToken(), 0)
+
+        assertThat(
+            "The visual viewport height should be changed",
+            resizeEventPromise.value as Boolean,
+            equalTo(true),
+        )
+
+        val currentViewportHeight = mainSession.evaluateJS("window.visualViewport.height") as Double
+        assertThat(
+            "The visual viewport height is restored to the original one",
+            currentViewportHeight,
+            equalTo(viewportHeight),
+        )
+
+        // Dismissing the software keyboard changes the root composition size,
+        // and the new composition size is propagated to APZ and the root
+        // content APZC notifies to the main-thread that there's a pending visual
+        // scroll offset change which needs to be reflected to the main-thread.
+        // Because of this round trip of the information we need to wait for it.
+        mainSession.flushApzRepaints()
+        mainSession.promiseAllPaintsDone()
+
+        scrollY = mainSession.evaluateJS("window.scrollY") as Double
+
+        assertThat(
+              "Now the layout scroll offset is equal to the visual scroll destination",
+              scrollY,
+              equalTo(viewportHeight),
+            )
+    }
+
+    @GeckoSessionTestRule.NullDelegate(Autofill.Delegate::class)
+    @Test
+    fun bug1993407() {
+        mainSession.setActive(true)
+
+        mainSession.loadTestPath(BaseSessionTest.BUG1993407_HTML_PATH)
+        mainSession.waitForPageStop()
+        mainSession.promiseAllPaintsDone()
+        mainSession.flushApzRepaints()
+
+        val caretRect = mainSession.evaluateJS(
+            """
+            const inputRect = document.querySelector('input').getBoundingClientRect();
+            document.caretPositionFromPoint(0, inputRect.y)?.getClientRect();
+        """.trimIndent(),
+        )
+        assertThat("The caretRect should not be null", caretRect, notNullValue())
+
+        val caretRectObject = caretRect as JSONObject
+        val caretY = caretRectObject.getDouble("y")
+        val caretHeight = caretRectObject.getDouble("height")
+        val caretBottom = caretRectObject.getDouble("bottom")
+
+        // Open the software keyboard.
+        ensureKeyboardOpen()
+
+        mainSession.evaluateJS("document.querySelector('input').focus();")
+        mainSession.zoomToFocusedInput()
+
+        mainSession.flushApzRepaints()
+        mainSession.promiseAllPaintsDone()
+
+        val scrollY = mainSession.evaluateJS("window.scrollY") as Double
+        val offsetTop = mainSession.evaluateJS("window.visualViewport.offsetTop") as Double
+        val pageTop = mainSession.evaluateJS("window.visualViewport.pageTop") as Double
+        val visualViewportHeight = mainSession.evaluateJS("window.visualViewport.height") as Double
+
+        assertThat(
+              "The offsetTop and pageTop of visual viewport is not diverged",
+              offsetTop,
+              equalTo(pageTop),
+            )
+        assertThat("The offsetTop is not 0", offsetTop, not(equalTo(0.0)))
+        assertThat("The offsetTop is ", offsetTop, equalTo(caretBottom - visualViewportHeight))
+
+        assertThat(
+              "The layout scroll offset stays at 0",
+              scrollY,
+              equalTo(0.0),
+            )
 
         // Close the software keyboard.
         imm.hideSoftInputFromWindow(view.getWindowToken(), 0)

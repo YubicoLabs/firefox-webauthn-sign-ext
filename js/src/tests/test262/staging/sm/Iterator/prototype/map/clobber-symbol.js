@@ -1,4 +1,3 @@
-// |reftest| shell-option(--enable-iterator-helpers) skip-if(!this.hasOwnProperty('Iterator')||!xulRuntime.shell) -- iterator-helpers is not enabled unconditionally, requires shell-options
 // Copyright (C) 2024 Mozilla Corporation. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
@@ -7,17 +6,14 @@ esid: pending
 description: |
   %Iterator.prototype%.map works even if the global Symbol has been clobbered..
 features:
-- Symbol
-- Symbol.iterator
-- iterator-helpers
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
+  - Symbol
+  - Symbol.iterator
+  - iterator-helpers
 info: |
   Iterator is not enabled unconditionally
 ---*/
 Symbol = undefined;
-assertThrowsInstanceOf(() => Symbol.iterator, TypeError);
+assert.throws(TypeError, () => Symbol.iterator);
 
 const iterator = [0].values();
 assert.sameValue(

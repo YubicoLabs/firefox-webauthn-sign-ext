@@ -2,17 +2,17 @@ import argparse
 import os
 import sys
 from collections import OrderedDict
+from urllib.parse import urlparse
 
 import mozinfo
 import mozlog
-from six.moves.urllib.parse import urlparse
 
 here = os.path.abspath(os.path.dirname(__file__))
 
 
 class ReftestArgumentsParser(argparse.ArgumentParser):
     def __init__(self, **kwargs):
-        super(ReftestArgumentsParser, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         # Try to import a MozbuildObject. Success indicates that we are
         # running from a source tree. This allows some defaults to be set
@@ -152,8 +152,7 @@ class ReftestArgumentsParser(argparse.ArgumentParser):
             dest="ignoreWindowSize",
             action="store_true",
             default=False,
-            help="ignore the window size, which may cause spurious "
-            "failures and passes",
+            help="ignore the window size, which may cause spurious failures and passes",
         )
 
         self.add_argument(
@@ -188,7 +187,7 @@ class ReftestArgumentsParser(argparse.ArgumentParser):
             default=[],
             dest="environment",
             metavar="NAME=VALUE",
-            help="sets the given variable in the application's " "environment",
+            help="sets the given variable in the application's environment",
         )
 
         self.add_argument(
@@ -368,13 +367,11 @@ class ReftestArgumentsParser(argparse.ArgumentParser):
         return moznetwork.get_ip()
 
     def set_default_suite(self, options):
-        manifests = OrderedDict(
-            [
-                ("reftest.list", "reftest"),
-                ("crashtests.list", "crashtest"),
-                ("jstests.list", "jstestbrowser"),
-            ]
-        )
+        manifests = OrderedDict([
+            ("reftest.list", "reftest"),
+            ("crashtests.list", "crashtest"),
+            ("jstests.list", "jstestbrowser"),
+        ])
 
         for test_path in options.tests:
             file_name = os.path.basename(test_path)
@@ -465,7 +462,7 @@ class ReftestArgumentsParser(argparse.ArgumentParser):
 
 class DesktopArgumentsParser(ReftestArgumentsParser):
     def __init__(self, **kwargs):
-        super(DesktopArgumentsParser, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.add_argument(
             "--run-tests-in-parallel",
@@ -476,7 +473,7 @@ class DesktopArgumentsParser(ReftestArgumentsParser):
         )
 
     def validate(self, options, reftest):
-        super(DesktopArgumentsParser, self).validate(options, reftest)
+        super().validate(options, reftest)
 
         if options.runTestsInParallel:
             if options.logFile is not None:
@@ -509,7 +506,7 @@ class DesktopArgumentsParser(ReftestArgumentsParser):
                 try:
                     bin_dir = self.build_obj.get_binary_path()
                 except BinaryNotFoundException as e:
-                    print("{}\n\n{}\n".format(e, e.help()), file=sys.stderr)
+                    print(f"{e}\n\n{e.help()}\n", file=sys.stderr)
                     sys.exit(1)
             else:
                 bin_dir = None
@@ -525,7 +522,7 @@ class DesktopArgumentsParser(ReftestArgumentsParser):
 
 class RemoteArgumentsParser(ReftestArgumentsParser):
     def __init__(self, **kwargs):
-        super(RemoteArgumentsParser, self).__init__()
+        super().__init__()
 
         # app, xrePath and utilityPath variables are set in main function
         self.set_defaults(

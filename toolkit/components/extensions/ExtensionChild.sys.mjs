@@ -15,22 +15,16 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
-/** @type {Lazy} */
-const lazy = {};
-
-XPCOMUtils.defineLazyServiceGetter(
-  lazy,
-  "finalizationService",
-  "@mozilla.org/toolkit/finalizationwitness;1",
-  "nsIFinalizationWitnessService"
-);
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   ExtensionContent: "resource://gre/modules/ExtensionContent.sys.mjs",
   ExtensionPageChild: "resource://gre/modules/ExtensionPageChild.sys.mjs",
   ExtensionProcessScript:
     "resource://gre/modules/ExtensionProcessScript.sys.mjs",
   NativeApp: "resource://gre/modules/NativeMessaging.sys.mjs",
+  finalizationService: {
+    service: "@mozilla.org/toolkit/finalizationwitness;1",
+    iid: Ci.nsIFinalizationWitnessService,
+  },
 });
 
 import { ExtensionCommon } from "resource://gre/modules/ExtensionCommon.sys.mjs";
@@ -749,7 +743,7 @@ export class ChildLocalAPIImplementation extends LocalAPIImplementation {
    */
   callAndLog(callable, args) {
     this.context.logActivity("api_call", this.fullname, { args });
-    let start = Cu.now();
+    let start = ChromeUtils.now();
     try {
       return callable();
     } finally {

@@ -7,7 +7,9 @@ ChromeUtils.defineESModuleGetters(this, {
   ASRouter: "resource:///modules/asrouter/ASRouter.sys.mjs",
   MenuMessage: "resource:///modules/asrouter/MenuMessage.sys.mjs",
   NewTabUtils: "resource://gre/modules/NewTabUtils.sys.mjs",
-  PanelMultiView: "resource:///modules/PanelMultiView.sys.mjs",
+  PanelMultiView:
+    "moz-src:///browser/components/customizableui/PanelMultiView.sys.mjs",
+  updateZoomUI: "resource:///modules/ZoomUI.sys.mjs",
 });
 
 /**
@@ -51,6 +53,7 @@ const PanelUI = {
     this.menuButton.addEventListener("mousedown", this);
     this.menuButton.addEventListener("keypress", this);
 
+    Services.obs.addObserver(this, "ai-window-state-changed");
     Services.obs.addObserver(this, "fullscreen-nav-toolbox");
     Services.obs.addObserver(this, "appMenu-notifications");
     Services.obs.addObserver(this, "show-update-progress");
@@ -81,6 +84,16 @@ const PanelUI = {
       autoHidePref => autoHidePref && Services.appinfo.OS !== "Darwin"
     );
 
+    XPCOMUtils.defineLazyPreferenceGetter(
+      this,
+      "isAIWindowEnabled",
+      "browser.smartwindow.enabled",
+      false,
+      (_pref, _previousValue, _newValue) => {
+        this._showAIMenuItem();
+      }
+    );
+
     if (this.autoHideToolbarInFullScreen) {
       window.addEventListener("fullscreen", this);
     } else {
@@ -108,6 +121,7 @@ const PanelUI = {
       "refresh"
     );
 
+    this._showAIMenuItem();
     this._initialized = true;
   },
 
@@ -176,6 +190,7 @@ const PanelUI = {
       }
     }
 
+    Services.obs.removeObserver(this, "ai-window-state-changed");
     Services.obs.removeObserver(this, "fullscreen-nav-toolbox");
     Services.obs.removeObserver(this, "appMenu-notifications");
     Services.obs.removeObserver(this, "show-update-progress");
@@ -261,6 +276,12 @@ const PanelUI = {
 
   observe(subject, topic, status) {
     switch (topic) {
+      case "ai-window-state-changed":
+        if (subject == window) {
+          this._showAIMenuItem();
+        }
+        break;
+
       case "fullscreen-nav-toolbox":
         if (this._notifications) {
           this.updateNotifications(false);
@@ -488,6 +509,7 @@ const PanelUI = {
       return;
     }
 
+    this._ensureShortcutsShown(viewNode);
     this.ensurePanicViewInitialized(viewNode);
 
     let container = aAnchor.closest("panelmultiview");
@@ -515,9 +537,7 @@ const PanelUI = {
         tempPanel.setAttribute("animate", "false");
       }
       tempPanel.setAttribute("context", "");
-      document
-        .getElementById(CustomizableUI.AREA_NAVBAR)
-        .appendChild(tempPanel);
+      document.getElementById("mainPopupSet").appendChild(tempPanel);
 
       let multiView = document.createXULElement("panelmultiview");
       multiView.setAttribute("id", "customizationui-widget-multiview");
@@ -661,6 +681,7 @@ const PanelUI = {
       let message = ASRouter.getMessageById(messageId);
       ASRouter.addImpression(message);
     }
+    updateZoomUI(gBrowser.selectedBrowser);
   },
 
   _onHelpViewShow() {
@@ -744,9 +765,6 @@ const PanelUI = {
         break;
       case "appMenu_troubleShooting":
         openTroubleshootingPage();
-        break;
-      case "appMenu_help_reportSiteIssue":
-        ReportSiteIssue();
         break;
       case "appMenu_menu_HelpPopup_reportPhishingtoolmenu":
         openUILink(gSafeBrowsing.getReportURL("Phish"), aEvent, {
@@ -1053,6 +1071,27 @@ const PanelUI = {
     popupnotification.show();
   },
 
+  _showAIMenuItem() {
+    const isAIWindowActive = document.documentElement.hasAttribute("ai-window");
+    const aiMenuItem = PanelMultiView.getViewNode(
+      document,
+      "appMenu-new-ai-window-button"
+    );
+    const classicWindowMenuItem = PanelMultiView.getViewNode(
+      document,
+      "appMenu-new-classic-window-button"
+    );
+    const chatHistoryMenuItem = PanelMultiView.getViewNode(
+      document,
+      "appMenu-chats-history-button"
+    );
+
+    aiMenuItem.hidden = !this.isAIWindowEnabled || isAIWindowActive;
+    classicWindowMenuItem.hidden = !this.isAIWindowEnabled || !isAIWindowActive;
+
+    chatHistoryMenuItem.hidden = !this.isAIWindowEnabled || !isAIWindowActive;
+  },
+
   _showBadge(notification) {
     let badgeStatus = this._getBadgeStatus(notification);
     this.menuButton.setAttribute("badge-status", badgeStatus);
@@ -1076,8 +1115,18 @@ const PanelUI = {
       this._panelBannerItem = this.mainView.querySelector(".panel-banner-item");
     }
 
-    let l10nId = "appmenuitem-banner-" + notification.id;
-    document.l10n.setAttributes(this._panelBannerItem, l10nId);
+    const messageIDs = {
+      "update-downloading": "appmenuitem-banner-update-downloading",
+      "update-available": "appmenuitem-banner-update-available",
+      "update-manual": "appmenuitem-banner-update-manual",
+      "update-unsupported": "appmenuitem-banner-update-unsupported",
+      "update-restart": "appmenuitem-banner-update-restart",
+    };
+
+    document.l10n.setAttributes(
+      this._panelBannerItem,
+      messageIDs[notification.id]
+    );
 
     this._panelBannerItem.setAttribute("notificationid", notification.id);
     this._panelBannerItem.hidden = false;

@@ -1,9 +1,10 @@
 //! The [`HandleVec`] type and associated definitions.
 
 use super::handle::Handle;
+use alloc::{vec, vec::Vec};
 
-use std::marker::PhantomData;
-use std::ops;
+use core::marker::PhantomData;
+use core::ops;
 
 /// A [`Vec`] indexed by [`Handle`]s.
 ///
@@ -13,11 +14,11 @@ use std::ops;
 /// Rather than a `push` method, `HandleVec` has an [`insert`] method, analogous
 /// to [`HashMap::insert`], that requires you to provide the handle at which the
 /// new value should appear. However, since `HandleVec` only supports insertion
-/// at the end, the given handle's index must be equal to the the `HandleVec`'s
+/// at the end, the given handle's index must be equal to the `HandleVec`'s
 /// current length; otherwise, the insertion will panic.
 ///
 /// [`insert`]: HandleVec::insert
-/// [`HashMap::insert`]: std::collections::HashMap::insert
+/// [`HashMap::insert`]: hashbrown::HashMap::insert
 #[derive(Debug)]
 pub(crate) struct HandleVec<T, U> {
     inner: Vec<U>,
@@ -49,7 +50,7 @@ impl<T, U> HandleVec<T, U> {
         }
     }
 
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.inner.len()
     }
 
@@ -59,7 +60,7 @@ impl<T, U> HandleVec<T, U> {
     /// the end, like [`Vec::push`]. So the index of `handle` must equal
     /// [`self.len()`].
     ///
-    /// [`HashMap`]: std::collections::HashMap
+    /// [`HashMap`]: hashbrown::HashMap
     /// [`self.len()`]: HandleVec::len
     pub(crate) fn insert(&mut self, handle: Handle<T>, value: U) {
         assert_eq!(handle.index(), self.inner.len());

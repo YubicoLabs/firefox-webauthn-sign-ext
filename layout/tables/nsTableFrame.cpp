@@ -6,54 +6,49 @@
 
 #include "nsTableFrame.h"
 
-#include "mozilla/gfx/2D.h"
-#include "mozilla/gfx/Helpers.h"
-#include "mozilla/Likely.h"
-#include "mozilla/MathAlgorithms.h"
+#include <algorithm>
+
+#include "BasicTableLayoutStrategy.h"
+#include "FixedTableLayoutStrategy.h"
+#include "gfxContext.h"
+#include "mozilla/ComputedStyle.h"
 #include "mozilla/IntegerRange.h"
+#include "mozilla/Likely.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/PresShellInlines.h"
+#include "mozilla/Range.h"
+#include "mozilla/RestyleManager.h"
+#include "mozilla/ServoStyleSet.h"
 #include "mozilla/WritingModes.h"
-
-#include "gfxContext.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/gfx/Helpers.h"
+#include "mozilla/layers/RenderRootStateManager.h"
+#include "mozilla/layers/StackingContextHelper.h"
 #include "nsCOMPtr.h"
-#include "mozilla/ComputedStyle.h"
-#include "nsIFrameInlines.h"
-#include "nsFrameList.h"
-#include "nsStyleConsts.h"
-#include "nsIContent.h"
+#include "nsCSSFrameConstructor.h"
+#include "nsCSSProps.h"
+#include "nsCSSRendering.h"
 #include "nsCellMap.h"
-#include "nsTableCellFrame.h"
+#include "nsContentUtils.h"
+#include "nsDisplayList.h"
+#include "nsError.h"
+#include "nsFrameList.h"
+#include "nsFrameManager.h"
+#include "nsGkAtoms.h"
 #include "nsHTMLParts.h"
+#include "nsIContent.h"
+#include "nsIFrameInlines.h"
+#include "nsIScriptError.h"
+#include "nsLayoutUtils.h"
+#include "nsPresContext.h"
+#include "nsStyleChangeList.h"
+#include "nsStyleConsts.h"
+#include "nsTableCellFrame.h"
 #include "nsTableColFrame.h"
 #include "nsTableColGroupFrame.h"
 #include "nsTableRowFrame.h"
 #include "nsTableRowGroupFrame.h"
 #include "nsTableWrapperFrame.h"
-
-#include "BasicTableLayoutStrategy.h"
-#include "FixedTableLayoutStrategy.h"
-
-#include "nsPresContext.h"
-#include "nsContentUtils.h"
-#include "nsCSSRendering.h"
-#include "nsGkAtoms.h"
-#include "nsCSSAnonBoxes.h"
-#include "nsIScriptError.h"
-#include "nsFrameManager.h"
-#include "nsError.h"
-#include "nsCSSFrameConstructor.h"
-#include "mozilla/Range.h"
-#include "mozilla/RestyleManager.h"
-#include "mozilla/ServoStyleSet.h"
-#include "nsDisplayList.h"
-#include "nsCSSProps.h"
-#include "nsLayoutUtils.h"
-#include "nsStyleChangeList.h"
-#include <algorithm>
-
-#include "mozilla/layers/StackingContextHelper.h"
-#include "mozilla/layers/RenderRootStateManager.h"
 
 using namespace mozilla;
 using namespace mozilla::image;
@@ -215,12 +210,6 @@ void nsTableFrame::Destroy(DestroyContext& aContext) {
   nsContainerFrame::Destroy(aContext);
 }
 
-// Make sure any views are positioned properly
-void nsTableFrame::RePositionViews(nsIFrame* aFrame) {
-  nsContainerFrame::PositionFrameView(aFrame);
-  nsContainerFrame::PositionChildViews(aFrame);
-}
-
 static bool IsRepeatedFrame(nsIFrame* kidFrame) {
   return (kidFrame->IsTableRowFrame() || kidFrame->IsTableRowGroupFrame()) &&
          kidFrame->HasAnyStateBits(NS_REPEATED_ROW_OR_ROWGROUP);
@@ -250,7 +239,7 @@ bool nsTableFrame::PageBreakAfter(nsIFrame* aSourceFrame,
 }
 
 /* static */
-void nsTableFrame::PositionedTablePartMaybeChanged(nsIFrame* aFrame,
+void nsTableFrame::PositionedTablePartMaybeChanged(nsContainerFrame* aFrame,
                                                    ComputedStyle* aOldStyle) {
   const bool wasPositioned =
       aOldStyle && aOldStyle->IsAbsPosContainingBlock(aFrame);
@@ -265,13 +254,13 @@ void nsTableFrame::PositionedTablePartMaybeChanged(nsIFrame* aFrame,
   tableFrame = static_cast<nsTableFrame*>(tableFrame->FirstContinuation());
 
   // Retrieve the positioned parts array for this table.
-  FrameTArray* positionedParts =
-      tableFrame->GetProperty(PositionedTablePartArray());
+  TablePartsArray* positionedParts =
+      tableFrame->GetProperty(PositionedTablePartsProperty());
 
   // Lazily create the array if it doesn't exist yet.
   if (!positionedParts) {
-    positionedParts = new FrameTArray;
-    tableFrame->SetProperty(PositionedTablePartArray(), positionedParts);
+    positionedParts = new TablePartsArray;
+    tableFrame->SetProperty(PositionedTablePartsProperty(), positionedParts);
   }
 
   if (isPositioned) {
@@ -283,7 +272,8 @@ void nsTableFrame::PositionedTablePartMaybeChanged(nsIFrame* aFrame,
 }
 
 /* static */
-void nsTableFrame::MaybeUnregisterPositionedTablePart(nsIFrame* aFrame) {
+void nsTableFrame::MaybeUnregisterPositionedTablePart(
+    nsContainerFrame* aFrame) {
   if (!aFrame->IsAbsPosContainingBlock()) {
     return;
   }
@@ -295,8 +285,8 @@ void nsTableFrame::MaybeUnregisterPositionedTablePart(nsIFrame* aFrame) {
   }
 
   // Retrieve the positioned parts array for this table.
-  FrameTArray* positionedParts =
-      tableFrame->GetProperty(PositionedTablePartArray());
+  TablePartsArray* positionedParts =
+      tableFrame->GetProperty(PositionedTablePartsProperty());
 
   // Remove the frame.
   MOZ_ASSERT(
@@ -637,7 +627,7 @@ nsTableColGroupFrame* nsTableFrame::CreateSyntheticColGroupFrame() {
 
   RefPtr<ComputedStyle> colGroupStyle;
   colGroupStyle = presShell->StyleSet()->ResolveNonInheritingAnonymousBoxStyle(
-      PseudoStyleType::tableColGroup);
+      PseudoStyleType::MozTableColumnGroup);
   // Create a col group frame
   nsTableColGroupFrame* newFrame =
       NS_NewTableColGroupFrame(presShell, colGroupStyle);
@@ -691,7 +681,7 @@ void nsTableFrame::AppendAnonymousColFrames(
     nsIContent* iContent = aColGroupFrame->GetContent();
     RefPtr<ComputedStyle> computedStyle =
         presShell->StyleSet()->ResolveNonInheritingAnonymousBoxStyle(
-            PseudoStyleType::tableCol);
+            PseudoStyleType::MozTableColumn);
     // ASSERTION to check for bug 54454 sneaking back in...
     NS_ASSERTION(iContent, "null content in CreateAnonymousColFrames");
 
@@ -1203,8 +1193,10 @@ void nsTableFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
     }
   }
 
-  for (nsIFrame* kid : PrincipalChildList()) {
-    BuildDisplayListForChild(aBuilder, kid, lists);
+  if (!mFrames.IsEmpty() && !HidesContent()) {
+    for (nsIFrame* kid : mFrames) {
+      BuildDisplayListForChild(aBuilder, kid, lists);
+    }
   }
 
   tableBGs.MoveTo(aLists);
@@ -1383,16 +1375,16 @@ nsTableFrame::IntrinsicISizeOffsets(nscoord aPercentageBasis) {
 
 /* virtual */
 nsIFrame::SizeComputationResult nsTableFrame::ComputeSize(
-    gfxContext* aRenderingContext, WritingMode aWM, const LogicalSize& aCBSize,
-    nscoord aAvailableISize, const LogicalSize& aMargin,
-    const LogicalSize& aBorderPadding, const StyleSizeOverrides& aSizeOverrides,
-    ComputeSizeFlags aFlags) {
+    const SizeComputationInput& aSizingInput, WritingMode aWM,
+    const LogicalSize& aCBSize, nscoord aAvailableISize,
+    const LogicalSize& aMargin, const LogicalSize& aBorderPadding,
+    const StyleSizeOverrides& aSizeOverrides, ComputeSizeFlags aFlags) {
   // Only table wrapper calls this method, and it should use our writing mode.
   MOZ_ASSERT(aWM == GetWritingMode(),
              "aWM should be the same as our writing mode!");
 
   auto result = nsContainerFrame::ComputeSize(
-      aRenderingContext, aWM, aCBSize, aAvailableISize, aMargin, aBorderPadding,
+      aSizingInput, aWM, aCBSize, aAvailableISize, aMargin, aBorderPadding,
       aSizeOverrides, aFlags);
 
   // If our containing block wants to override inner table frame's inline-size
@@ -1408,7 +1400,8 @@ nsIFrame::SizeComputationResult nsTableFrame::ComputeSize(
   AutoMaybeDisableFontInflation an(this);
 
   // Tables never shrink below their min inline-size.
-  const IntrinsicSizeInput input(aRenderingContext, Some(aCBSize), Nothing());
+  const IntrinsicSizeInput input(aSizingInput.mRenderingContext, Some(aCBSize),
+                                 Nothing());
   nscoord minISize = GetMinISize(input);
   if (minISize > result.mLogicalSize.ISize(aWM)) {
     result.mLogicalSize.ISize(aWM) = minISize;
@@ -1448,15 +1441,16 @@ nscoord nsTableFrame::TableShrinkISizeToFit(gfxContext* aRenderingContext,
 
 /* virtual */
 LogicalSize nsTableFrame::ComputeAutoSize(
-    gfxContext* aRenderingContext, WritingMode aWM, const LogicalSize& aCBSize,
-    nscoord aAvailableISize, const LogicalSize& aMargin,
-    const LogicalSize& aBorderPadding, const StyleSizeOverrides& aSizeOverrides,
-    ComputeSizeFlags aFlags) {
+    const SizeComputationInput& aSizingInput, WritingMode aWM,
+    const LogicalSize& aCBSize, nscoord aAvailableISize,
+    const LogicalSize& aMargin, const LogicalSize& aBorderPadding,
+    const StyleSizeOverrides& aSizeOverrides, ComputeSizeFlags aFlags) {
   // Tables always shrink-wrap.
   nscoord cbBased =
       aAvailableISize - aMargin.ISize(aWM) - aBorderPadding.ISize(aWM);
-  return LogicalSize(aWM, TableShrinkISizeToFit(aRenderingContext, cbBased),
-                     NS_UNCONSTRAINEDSIZE);
+  return LogicalSize(
+      aWM, TableShrinkISizeToFit(aSizingInput.mRenderingContext, cbBased),
+      NS_UNCONSTRAINEDSIZE);
 }
 
 // Return true if aParentReflowInput.frame or any of its ancestors within
@@ -1470,15 +1464,17 @@ bool nsTableFrame::AncestorsHaveStyleBSize(
     if (LayoutFrameType::TableCell == frameType ||
         LayoutFrameType::TableRow == frameType ||
         LayoutFrameType::TableRowGroup == frameType) {
-      const auto& bsize = rs->mStylePosition->BSize(wm);
+      const auto bsize =
+          rs->mStylePosition->BSize(wm, AnchorPosResolutionParams::From(rs));
       // calc() with both lengths and percentages treated like 'auto' on
       // internal table elements
-      if (!bsize.IsAuto() && !bsize.HasLengthAndPercentage()) {
+      if (!bsize->IsAuto() && !bsize->HasLengthAndPercentage()) {
         return true;
       }
     } else if (LayoutFrameType::Table == frameType) {
       // we reached the containing table, so always return
-      return !rs->mStylePosition->BSize(wm).IsAuto();
+      return !rs->mStylePosition->BSize(wm, AnchorPosResolutionParams::From(rs))
+                  ->IsAuto();
     }
   }
   return false;
@@ -1498,8 +1494,9 @@ void nsTableFrame::CheckRequestSpecialBSizeReflow(
       (NS_UNCONSTRAINEDSIZE ==
            aReflowInput.ComputedBSize() ||  // no computed bsize
        0 == aReflowInput.ComputedBSize()) &&
-      aReflowInput.mStylePosition->BSize(wm)
-          .ConvertsToPercentage() &&  // pct bsize
+      aReflowInput.mStylePosition
+          ->BSize(wm, AnchorPosResolutionParams::From(&aReflowInput))
+          ->ConvertsToPercentage() &&  // pct bsize
       nsTableFrame::AncestorsHaveStyleBSize(*aReflowInput.mParentReflowInput)) {
     nsTableFrame::RequestSpecialBSizeReflow(aReflowInput);
   }
@@ -1784,7 +1781,6 @@ void nsTableFrame::Reflow(nsPresContext* aPresContext,
     if (0 != xAdjustmentForAllKids) {
       for (nsIFrame* kid : mFrames) {
         kid->MovePositionBy(nsPoint(xAdjustmentForAllKids, 0));
-        RePositionViews(kid);
       }
     }
   }
@@ -1824,7 +1820,8 @@ void nsTableFrame::Reflow(nsPresContext* aPresContext,
 void nsTableFrame::FixupPositionedTableParts(nsPresContext* aPresContext,
                                              ReflowOutput& aDesiredSize,
                                              const ReflowInput& aReflowInput) {
-  FrameTArray* positionedParts = GetProperty(PositionedTablePartArray());
+  TablePartsArray* positionedParts =
+      GetProperty(PositionedTablePartsProperty());
   if (!positionedParts) {
     return;
   }
@@ -1832,9 +1829,7 @@ void nsTableFrame::FixupPositionedTableParts(nsPresContext* aPresContext,
   OverflowChangedTracker overflowTracker;
   overflowTracker.SetSubtreeRoot(this);
 
-  for (size_t i = 0; i < positionedParts->Length(); ++i) {
-    nsIFrame* positionedPart = positionedParts->ElementAt(i);
-
+  for (nsContainerFrame* positionedPart : *positionedParts) {
     // As we've already finished reflow, positionedParts's size and overflow
     // areas have already been assigned, so we just pull them back out.
     const WritingMode wm = positionedPart->GetWritingMode();
@@ -1859,8 +1854,8 @@ void nsTableFrame::FixupPositionedTableParts(nsPresContext* aPresContext,
     // FIXME: Unconditionally using NS_UNCONSTRAINEDSIZE for the bsize and
     // ignoring any change to the reflow status aren't correct. We'll never
     // paginate absolutely positioned frames.
-    positionedPart->FinishReflowWithAbsoluteFrames(
-        PresContext(), desiredSize, reflowInput, reflowStatus, true);
+    positionedPart->FinishReflowWithAbsoluteFrames(PresContext(), desiredSize,
+                                                   reflowInput, reflowStatus);
 
     // FinishReflowWithAbsoluteFrames has updated overflow on
     // |positionedPart|.  We need to make sure that update propagates
@@ -2882,7 +2877,6 @@ void nsTableFrame::ReflowChildren(TableReflowInput& aReflowInput,
         // move to the new position
         kidFrame->MovePositionBy(
             wm, LogicalPoint(wm, 0, aReflowInput.mBCoord - kidRect.BStart(wm)));
-        RePositionViews(kidFrame);
         // invalidate the new position
         kidFrame->InvalidateFrameSubtree();
       }
@@ -3086,7 +3080,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
             amountUsed += amountForRow;
             amountUsedByRG += amountForRow;
             // rowFrame->DidResize();
-            nsTableFrame::RePositionViews(rowFrame);
 
             rgFrame->InvalidateFrameWithRect(origRowRect);
             rgFrame->InvalidateFrame();
@@ -3097,7 +3090,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
             rowFrame->InvalidateFrameSubtree();
             rowFrame->MovePositionBy(
                 wm, LogicalPoint(wm, 0, bOriginRow - rowNormalRect.BStart(wm)));
-            nsTableFrame::RePositionViews(rowFrame);
             rowFrame->InvalidateFrameSubtree();
           }
           bOriginRow += rowNormalRect.BSize(wm) + rowSpacing;
@@ -3127,7 +3119,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
       rgFrame->MovePositionBy(
           wm, LogicalPoint(wm, 0, bOriginRG - rgNormalRect.BStart(wm)));
       // Make sure child views are properly positioned
-      nsTableFrame::RePositionViews(rgFrame);
       rgFrame->InvalidateFrameSubtree();
     }
     bOriginRG = bEndRG;
@@ -3261,8 +3252,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
           amountUsedByRG += amountForRow;
           NS_ASSERTION((amountUsed <= aAmount), "invalid row allocation");
           // rowFrame->DidResize();
-          nsTableFrame::RePositionViews(rowFrame);
-
           nsTableFrame::InvalidateTableFrame(rowFrame, origRowRect,
                                              rowInkOverflow, false);
         } else {
@@ -3270,7 +3259,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
             rowFrame->InvalidateFrameSubtree();
             rowFrame->MovePositionBy(
                 wm, LogicalPoint(wm, 0, bOriginRow - rowNormalRect.BStart(wm)));
-            nsTableFrame::RePositionViews(rowFrame);
             rowFrame->InvalidateFrameSubtree();
           }
           bOriginRow += rowNormalRect.BSize(wm) + rowSpacing;
@@ -3306,7 +3294,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
              rowFrame = rowFrame->GetNextRow()) {
           rowFrame->InvalidateFrameSubtree();
           rowFrame->MovePositionBy(nsPoint(rgWidth, 0));
-          nsTableFrame::RePositionViews(rowFrame);
           rowFrame->InvalidateFrameSubtree();
         }
       }
@@ -3315,7 +3302,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
       rgFrame->MovePositionBy(
           wm, LogicalPoint(wm, 0, bOriginRG - rgNormalRect.BStart(wm)));
       // Make sure child views are properly positioned
-      nsTableFrame::RePositionViews(rgFrame);
       rgFrame->InvalidateFrameSubtree();
     }
     bOriginRG = bEndRG;
@@ -3463,11 +3449,12 @@ nsTableFrame* nsTableFrame::GetTableFrame(nsIFrame* aFrame) {
 }
 
 bool nsTableFrame::IsAutoBSize(WritingMode aWM) {
-  const auto& bsize = StylePosition()->BSize(aWM);
-  if (bsize.IsAuto()) {
+  const auto bsize =
+      StylePosition()->BSize(aWM, AnchorPosResolutionParams::From(this));
+  if (bsize->IsAuto()) {
     return true;
   }
-  return bsize.ConvertsToPercentage() && bsize.ToPercentage() <= 0.0f;
+  return bsize->ConvertsToPercentage() && bsize->ToPercentage() <= 0.0f;
 }
 
 nscoord nsTableFrame::CalcBorderBoxBSize(const ReflowInput& aReflowInput,
@@ -3493,8 +3480,9 @@ bool nsTableFrame::IsAutoLayout() {
   // and tables with inline size set to 'max-content' must be
   // auto-layout (at least as long as
   // FixedTableLayoutStrategy::GetPrefISize returns nscoord_MAX)
-  const auto& iSize = StylePosition()->ISize(GetWritingMode());
-  return iSize.IsAuto() || iSize.IsMaxContent();
+  const auto iSize = StylePosition()->ISize(
+      GetWritingMode(), AnchorPosResolutionParams::From(this));
+  return iSize->IsAuto() || iSize->IsMaxContent();
 }
 
 #ifdef DEBUG_FRAME_DUMP
@@ -3638,15 +3626,19 @@ bool nsTableFrame::ColumnHasCellSpacingBefore(int32_t aColIndex) const {
   // Check if we have a <col> element with a non-zero definite inline size.
   // Note: percentages and calc(%) are intentionally not considered.
   if (const auto* col = fif->GetColFrame(aColIndex)) {
-    const auto& iSize = col->StylePosition()->ISize(GetWritingMode());
-    if (iSize.ConvertsToLength() && iSize.ToLength() > 0) {
-      const auto& maxISize = col->StylePosition()->MaxISize(GetWritingMode());
-      if (!maxISize.ConvertsToLength() || maxISize.ToLength() > 0) {
+    const auto anchorResolutionParams = AnchorPosResolutionParams::From(col);
+    const auto iSize =
+        col->StylePosition()->ISize(GetWritingMode(), anchorResolutionParams);
+    if (iSize->ConvertsToLength() && iSize->ToLength() > 0) {
+      const auto maxISize = col->StylePosition()->MaxISize(
+          GetWritingMode(), anchorResolutionParams);
+      if (!maxISize->ConvertsToLength() || maxISize->ToLength() > 0) {
         return true;
       }
     }
-    const auto& minISize = col->StylePosition()->MinISize(GetWritingMode());
-    if (minISize.ConvertsToLength() && minISize.ToLength() > 0) {
+    const auto minISize = col->StylePosition()->MinISize(
+        GetWritingMode(), anchorResolutionParams);
+    if (minISize->ConvertsToLength() && minISize->ToLength() > 0) {
       return true;
     }
   }
@@ -6027,8 +6019,7 @@ BCPaintBorderIterator::BCPaintBorderIterator(nsTableFrame* aTable)
 bool BCPaintBorderIterator::SetDamageArea(const nsRect& aDirtyRect) {
   nsSize containerSize = mTable->GetSize();
   LogicalRect dirtyRect(mTableWM, aDirtyRect, containerSize);
-  uint32_t startRowIndex, endRowIndex, startColIndex, endColIndex;
-  startRowIndex = endRowIndex = startColIndex = endColIndex = 0;
+  uint32_t startRowIndex = 0, endRowIndex = 0;
   bool done = false;
   bool haveIntersect = false;
   // find startRowIndex, endRowIndex
@@ -6094,8 +6085,8 @@ bool BCPaintBorderIterator::SetDamageArea(const nsRect& aDirtyRect) {
   mInitialOffsetI = bp.IStart(mTableWM);
 
   nscoord x = 0;
-  int32_t colIdx;
-  for (colIdx = 0; colIdx != mNumTableCols; colIdx++) {
+  uint32_t startColIndex = 0, endColIndex = 0;
+  for (int32_t colIdx = 0; colIdx != mNumTableCols; colIdx++) {
     nsTableColFrame* colFrame = mTableFirstInFlow->GetColFrame(colIdx);
     if (!colFrame) ABORT1(false);
     const nscoord onePx = mTable->PresContext()->DevPixelsToAppUnits(1);
@@ -6124,9 +6115,9 @@ bool BCPaintBorderIterator::SetDamageArea(const nsRect& aDirtyRect) {
   if (!haveIntersect) {
     return false;
   }
+  MOZ_ASSERT(endColIndex >= startColIndex);
   mDamageArea =
-      TableArea(startColIndex, startRowIndex,
-                1 + DeprecatedAbs<int32_t>(endColIndex - startColIndex),
+      TableArea(startColIndex, startRowIndex, 1 + endColIndex - startColIndex,
                 1 + endRowIndex - startRowIndex);
 
   Reset();
@@ -7312,8 +7303,9 @@ void nsTableFrame::InvalidateTableFrame(nsIFrame* aFrame,
 void nsTableFrame::AppendDirectlyOwnedAnonBoxes(
     nsTArray<OwnedAnonBox>& aResult) {
   nsIFrame* wrapper = GetParent();
-  MOZ_ASSERT(wrapper->Style()->GetPseudoType() == PseudoStyleType::tableWrapper,
-             "What happened to our parent?");
+  MOZ_ASSERT(
+      wrapper->Style()->GetPseudoType() == PseudoStyleType::MozTableWrapper,
+      "What happened to our parent?");
   aResult.AppendElement(
       OwnedAnonBox(wrapper, &UpdateStyleOfOwnedAnonBoxesForTableWrapper));
 }
@@ -7322,13 +7314,13 @@ void nsTableFrame::AppendDirectlyOwnedAnonBoxes(
 void nsTableFrame::UpdateStyleOfOwnedAnonBoxesForTableWrapper(
     nsIFrame* aOwningFrame, nsIFrame* aWrapperFrame,
     ServoRestyleState& aRestyleState) {
-  MOZ_ASSERT(
-      aWrapperFrame->Style()->GetPseudoType() == PseudoStyleType::tableWrapper,
-      "What happened to our parent?");
+  MOZ_ASSERT(aWrapperFrame->Style()->GetPseudoType() ==
+                 PseudoStyleType::MozTableWrapper,
+             "What happened to our parent?");
 
   RefPtr<ComputedStyle> newStyle =
       aRestyleState.StyleSet().ResolveInheritingAnonymousBoxStyle(
-          PseudoStyleType::tableWrapper, aOwningFrame->Style());
+          PseudoStyleType::MozTableWrapper, aOwningFrame->Style());
 
   // Figure out whether we have an actual change.  It's important that we do
   // this, even though all the wrapper's changes are due to properties it
@@ -7372,8 +7364,7 @@ nsDisplayTableBackgroundSet::nsDisplayTableBackgroundSet(
     nsDisplayListBuilder* aBuilder, nsIFrame* aTable)
     : mBuilder(aBuilder),
       mColGroupBackgrounds(aBuilder),
-      mColBackgrounds(aBuilder),
-      mCurrentScrollParentId(aBuilder->GetCurrentScrollParentId()) {
+      mColBackgrounds(aBuilder) {
   mPrevTableBackgroundSet = mBuilder->SetTableBackgroundSet(this);
   mozilla::DebugOnly<const nsIFrame*> reference =
       mBuilder->FindReferenceFrameFor(aTable, &mToReferenceFrame);

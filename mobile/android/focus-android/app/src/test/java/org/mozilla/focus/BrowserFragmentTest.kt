@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.view.View
+import kotlinx.coroutines.flow.flowOf
 import mozilla.components.browser.state.state.ContentState
 import mozilla.components.browser.state.state.CustomTabConfig
 import mozilla.components.browser.state.state.CustomTabSessionState
@@ -25,9 +26,9 @@ import org.junit.runner.RunWith
 import org.mockito.Mockito.spy
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoMoreInteractions
+import org.mozilla.focus.browser.BrowserCoordinatorLayout
 import org.mozilla.focus.databinding.FragmentBrowserBinding
 import org.mozilla.focus.fragment.BrowserFragment
-import org.mozilla.focus.widget.ResizableKeyboardCoordinatorLayout
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
@@ -65,7 +66,7 @@ class BrowserFragmentTest {
 
         // Get the layout parent of the EngineView
         val engineViewParent = spy(
-            (engineView as View).parent as ResizableKeyboardCoordinatorLayout,
+            (engineView as View).parent as BrowserCoordinatorLayout,
         )
 
         assertNotNull(engineViewParent)
@@ -109,6 +110,9 @@ class DummyEngineView(context: Context) : View(context), EngineView {
     init {
         id = R.id.engineView
     }
+
+    override val verticalScrollPosition = flowOf(0f)
+    override val verticalScrollDelta = flowOf(0f)
 
     override fun render(session: EngineSession) {
         // no-op

@@ -7,17 +7,13 @@
 #include "SVGFilters.h"
 
 #include <algorithm>
-#include "DOMSVGAnimatedNumberList.h"
+
 #include "DOMSVGAnimatedLength.h"
-#include "nsGkAtoms.h"
-#include "nsCOMPtr.h"
-#include "nsIFrame.h"
-#include "nsLayoutUtils.h"
+#include "DOMSVGAnimatedNumberList.h"
 #include "SVGAnimatedEnumeration.h"
 #include "SVGAnimatedNumberPair.h"
 #include "SVGAnimatedString.h"
 #include "SVGNumberList.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/ComputedStyle.h"
 #include "mozilla/SVGContentUtils.h"
 #include "mozilla/SVGFilterInstance.h"
@@ -32,6 +28,10 @@
 #include "mozilla/dom/SVGFESpotLightElement.h"
 #include "mozilla/dom/SVGFilterElement.h"
 #include "mozilla/dom/SVGLengthBinding.h"
+#include "nsCOMPtr.h"
+#include "nsGkAtoms.h"
+#include "nsIFrame.h"
+#include "nsLayoutUtils.h"
 
 #if defined(XP_WIN)
 // Prevent Windows redefining LoadImage
@@ -46,13 +46,13 @@ namespace mozilla::dom {
 
 SVGElement::LengthInfo SVGFilterPrimitiveElement::sLengthInfo[4] = {
     {nsGkAtoms::x, 0, SVGLength_Binding::SVG_LENGTHTYPE_PERCENTAGE,
-     SVGContentUtils::X},
+     SVGLength::Axis::X},
     {nsGkAtoms::y, 0, SVGLength_Binding::SVG_LENGTHTYPE_PERCENTAGE,
-     SVGContentUtils::Y},
+     SVGLength::Axis::Y},
     {nsGkAtoms::width, 100, SVGLength_Binding::SVG_LENGTHTYPE_PERCENTAGE,
-     SVGContentUtils::X},
+     SVGLength::Axis::X},
     {nsGkAtoms::height, 100, SVGLength_Binding::SVG_LENGTHTYPE_PERCENTAGE,
-     SVGContentUtils::Y}};
+     SVGLength::Axis::Y}};
 
 //----------------------------------------------------------------------
 // Implementation
@@ -119,13 +119,26 @@ bool SVGFilterPrimitiveElement::HasValidDimensions() const {
 Size SVGFilterPrimitiveElement::GetKernelUnitLength(
     SVGFilterInstance* aInstance, SVGAnimatedNumberPair* aKernelUnitLength) {
   if (!aKernelUnitLength->IsExplicitlySet()) {
-    return Size(1, 1);
+    return Size(aInstance->GetPrimitiveUserSpaceUnitValue(SVGLength::Axis::X),
+                aInstance->GetPrimitiveUserSpaceUnitValue(SVGLength::Axis::Y));
   }
 
-  float kernelX = aInstance->GetPrimitiveNumber(
-      SVGContentUtils::X, aKernelUnitLength, SVGAnimatedNumberPair::eFirst);
-  float kernelY = aInstance->GetPrimitiveNumber(
-      SVGContentUtils::Y, aKernelUnitLength, SVGAnimatedNumberPair::eSecond);
+  float kernelX =
+      aInstance->GetPrimitiveNumber(SVGLength::Axis::X, aKernelUnitLength,
+                                    SVGAnimatedNumberPairWhichOne::First);
+  if (kernelX <= 0.0f) {
+    kernelX = aInstance->GetPrimitiveUserSpaceUnitValue(SVGLength::Axis::X);
+  } else {
+    kernelX = std::min(kernelX, float(kReasonableSurfaceSize));
+  }
+  float kernelY =
+      aInstance->GetPrimitiveNumber(SVGLength::Axis::Y, aKernelUnitLength,
+                                    SVGAnimatedNumberPairWhichOne::Second);
+  if (kernelY <= 0.0f) {
+    kernelY = aInstance->GetPrimitiveUserSpaceUnitValue(SVGLength::Axis::Y);
+  } else {
+    kernelY = std::min(kernelY, float(kReasonableSurfaceSize));
+  }
   return Size(kernelX, kernelY);
 }
 
@@ -332,7 +345,7 @@ SVGElement::NumberInfo SVGFELightingElement::sNumberInfo[4] = {
     {nsGkAtoms::specularExponent, 1}};
 
 SVGElement::NumberPairInfo SVGFELightingElement::sNumberPairInfo[1] = {
-    {nsGkAtoms::kernelUnitLength, 0, 0}};
+    {nsGkAtoms::kernelUnitLength, 0}};
 
 SVGElement::StringInfo SVGFELightingElement::sStringInfo[2] = {
     {nsGkAtoms::result, kNameSpaceID_None, true},
@@ -363,7 +376,7 @@ LightType SVGFELightingElement::ComputeLightAttributes(
 }
 
 bool SVGFELightingElement::AddLightingAttributes(
-    mozilla::gfx::DiffuseLightingAttributes* aAttributes,
+    mozilla::gfx::LightingAttributes* aAttributes,
     SVGFilterInstance* aInstance) {
   const auto* frame = GetPrimaryFrame();
   if (!frame) {
@@ -378,12 +391,8 @@ bool SVGFELightingElement::AddLightingAttributes(
   Size kernelUnitLength = GetKernelUnitLength(
       aInstance, &mNumberPairAttributes[KERNEL_UNIT_LENGTH]);
 
-  if (kernelUnitLength.width <= 0 || kernelUnitLength.height <= 0) {
-    // According to spec, A negative or zero value is an error. See link below
-    // for details.
-    // https://www.w3.org/TR/SVG/filters.html#feSpecularLightingKernelUnitLengthAttribute
-    return false;
-  }
+  MOZ_ASSERT(kernelUnitLength.width > 0.0f && kernelUnitLength.height > 0.0f,
+             "Expecting positive kernelUnitLength values");
 
   aAttributes->mLightType =
       ComputeLightAttributes(aInstance, aAttributes->mLightValues);

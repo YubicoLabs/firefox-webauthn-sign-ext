@@ -24,14 +24,6 @@ loader.lazyRequireGetter(
   true
 );
 
-
-loader.lazyRequireGetter(
-  this,
-  "EnvironmentActor",
-  "resource://devtools/server/actors/environment.js",
-  true
-);
-
 /**
  * Get thisDebugger.Object referent's `promiseState`.
  *
@@ -108,15 +100,16 @@ function unwrapDebuggeeValue(value) {
 /**
  * Create a grip for the given debuggee value. If the value is an object or a long string,
  * it will create an actor and add it to the pool
+ *
  * @param {ThreadActor} threadActor 
  *        The related Thread Actor.
  * @param {any} value
  *        The debuggee value.
  * @param {Pool} pool
  *        The pool where the created actor will be added to.
- * @param {Number} [depth]
+ * @param {number} [depth]
  *        The current depth within the chain of nested object actor being previewed.
- * @param {Object} [objectActorAttributes]
+ * @param {object} [objectActorAttributes]
  *        An optional object whose properties will be assigned to the ObjectActor if one
  *        is created.
  */
@@ -141,10 +134,7 @@ function createValueGrip(threadActor, value, pool, depth = 0, objectActorAttribu
       return value;
 
     case "bigint":
-      return {
-        type: "BigInt",
-        text: value.toString(),
-      };
+      return createBigIntValueGrip(value);
 
     // TODO(bug 1772157)
     // Record/tuple grips aren't fully implemented yet.
@@ -189,6 +179,19 @@ function createValueGrip(threadActor, value, pool, depth = 0, objectActorAttribu
       assert(false, "Failed to provide a grip for: " + value);
       return null;
   }
+}
+
+/**
+ * Returns a grip for the passed BigInt
+ *
+ * @param {bigint} value
+ * @returns {object}
+ */
+function createBigIntValueGrip(value) {
+  return {
+    type: "BigInt",
+    text: value.toString(),
+  };
 }
 
 /**
@@ -520,6 +523,7 @@ module.exports = {
   getPromiseState,
   makeDebuggeeValueIfNeeded,
   unwrapDebuggeeValue,
+  createBigIntValueGrip,
   createValueGrip,
   stringIsLong,
   isTypedArray,

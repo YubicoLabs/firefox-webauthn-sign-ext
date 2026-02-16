@@ -131,10 +131,6 @@ class MapObject : public OrderedHashMapObject {
     SlotCount
   };
 
-  // MapObject has 11 reserved slots so the AllocKind is OBJECT12_BACKGROUND.
-  // This is asserted in MapObject::create.
-  static constexpr gc::AllocKind allocKind = gc::AllocKind::OBJECT12_BACKGROUND;
-
   using IteratorKind = TableIteratorObject::Kind;
 
   static const JSClass class_;
@@ -157,6 +153,8 @@ class MapObject : public OrderedHashMapObject {
   [[nodiscard]] bool get(JSContext* cx, const Value& key,
                          MutableHandleValue rval);
   [[nodiscard]] bool has(JSContext* cx, const Value& key, bool* rval);
+  [[nodiscard]] bool getOrInsert(JSContext* cx, const Value& key,
+                                 const Value& val, MutableHandleValue rval);
   [[nodiscard]] bool delete_(JSContext* cx, const Value& key, bool* rval);
 
   // Set call for public JSAPI exposure. Does not actually return map object
@@ -183,10 +181,6 @@ class MapObject : public OrderedHashMapObject {
   [[nodiscard]] static bool set(JSContext* cx, unsigned argc, Value* vp);
   [[nodiscard]] static bool has(JSContext* cx, unsigned argc, Value* vp);
 
-  static bool isOriginalSizeGetter(Native native) {
-    return native == static_cast<Native>(MapObject::size);
-  }
-
  private:
   static const ClassSpec classSpec_;
   static const JSClassOps classOps_;
@@ -200,10 +194,13 @@ class MapObject : public OrderedHashMapObject {
   [[nodiscard]] bool setWithHashableKey(JSContext* cx, const HashableValue& key,
                                         const Value& value);
 
+  [[nodiscard]] bool tryOptimizeCtorWithIterable(JSContext* cx,
+                                                 const Value& iterableVal,
+                                                 bool* optimized);
+
   static bool finishInit(JSContext* cx, HandleObject ctor, HandleObject proto);
 
   static void trace(JSTracer* trc, JSObject* obj);
-  static void finalize(JS::GCContext* gcx, JSObject* obj);
   static size_t objectMoved(JSObject* obj, JSObject* old);
 
   [[nodiscard]] static bool construct(JSContext* cx, unsigned argc, Value* vp);
@@ -219,6 +216,10 @@ class MapObject : public OrderedHashMapObject {
   [[nodiscard]] static bool get_impl(JSContext* cx, const CallArgs& args);
   [[nodiscard]] static bool has_impl(JSContext* cx, const CallArgs& args);
   [[nodiscard]] static bool set_impl(JSContext* cx, const CallArgs& args);
+  [[nodiscard]] static bool getOrInsert(JSContext* cx, unsigned argc,
+                                        Value* vp);
+  [[nodiscard]] static bool getOrInsert_impl(JSContext* cx,
+                                             const CallArgs& args);
   [[nodiscard]] static bool delete_impl(JSContext* cx, const CallArgs& args);
   [[nodiscard]] static bool delete_(JSContext* cx, unsigned argc, Value* vp);
   [[nodiscard]] static bool keys_impl(JSContext* cx, const CallArgs& args);
@@ -263,10 +264,6 @@ class SetObject : public OrderedHashSetObject {
     SlotCount
   };
 
-  // SetObject has 11 reserved slots so the AllocKind is OBJECT12_BACKGROUND.
-  // This is asserted in SetObject::create.
-  static constexpr gc::AllocKind allocKind = gc::AllocKind::OBJECT12_BACKGROUND;
-
   using IteratorKind = TableIteratorObject::Kind;
 
   static const JSClass class_;
@@ -310,10 +307,6 @@ class SetObject : public OrderedHashSetObject {
 
   size_t sizeOfData(mozilla::MallocSizeOf mallocSizeOf);
 
-  static bool isOriginalSizeGetter(Native native) {
-    return native == static_cast<Native>(SetObject::size);
-  }
-
  private:
   static const ClassSpec classSpec_;
   static const JSClassOps classOps_;
@@ -326,10 +319,13 @@ class SetObject : public OrderedHashSetObject {
   [[nodiscard]] bool addHashableValue(JSContext* cx,
                                       const HashableValue& value);
 
+  [[nodiscard]] bool tryOptimizeCtorWithIterable(JSContext* cx,
+                                                 const Value& iterableVal,
+                                                 bool* optimized);
+
   static bool finishInit(JSContext* cx, HandleObject ctor, HandleObject proto);
 
   static void trace(JSTracer* trc, JSObject* obj);
-  static void finalize(JS::GCContext* gcx, JSObject* obj);
   static size_t objectMoved(JSObject* obj, JSObject* old);
 
   static bool construct(JSContext* cx, unsigned argc, Value* vp);

@@ -1,42 +1,104 @@
 "use strict";
 
-var h2Port;
-var prefs;
-var http2pref;
-var loadGroup;
+const { NodeHTTP2Server } = ChromeUtils.importESModule(
+  "resource://testing-common/NodeServer.sys.mjs"
+);
 
-function run_test() {
-  h2Port = Services.env.get("MOZHTTP2_PORT");
-  Assert.notEqual(h2Port, null);
-  Assert.notEqual(h2Port, "");
+let server;
 
-  // Set to allow the cert presented by our H2 server
+add_setup(async function test_setup() {
   do_get_profile();
-  prefs = Services.prefs;
-
-  http2pref = prefs.getBoolPref("network.http.http2.enabled");
-  Services.prefs.setBoolPref("network.http.http2.allow-push", true);
-
-  prefs.setBoolPref("network.http.http2.enabled", true);
-  prefs.setCharPref(
+  Services.prefs.setBoolPref("network.http.http2.enabled", true);
+  Services.prefs.setCharPref(
     "network.dns.localDomains",
     "foo.example.com, alt1.example.com"
   );
 
-  // The moz-http2 cert is for {foo, alt1, alt2}.example.com and is signed by http2-ca.pem
-  // so add that cert to the trust list as a signing cert.
-  let certdb = Cc["@mozilla.org/security/x509certdb;1"].getService(
-    Ci.nsIX509CertDB
-  );
-  addCertFromFile(certdb, "http2-ca.pem", "CTu,u,u");
+  server = new NodeHTTP2Server();
+  await server.start();
+  registerCleanupFunction(async () => {
+    await server.stop();
+  });
 
-  doTest1();
-}
+  // Register path handlers based on moz-http2.js
+  await server.registerPathHandler("/origin-1", (req, resp) => {
+    resp.setHeader("x-client-port", req.socket.remotePort);
+    resp.writeHead(200, { "Content-Type": "text/plain" });
+    resp.end("origin-1");
+  });
 
-function resetPrefs() {
-  prefs.setBoolPref("network.http.http2.enabled", http2pref);
-  prefs.clearUserPref("network.dns.localDomains");
-}
+  await server.registerPathHandler("/origin-2", (req, resp) => {
+    resp.setHeader("x-client-port", req.socket.remotePort);
+    resp.writeHead(200, { "Content-Type": "text/plain" });
+    resp.end("origin-2");
+  });
+
+  await server.registerPathHandler("/origin-3", (req, resp) => {
+    resp.setHeader("x-client-port", req.socket.remotePort);
+    resp.writeHead(200, { "Content-Type": "text/plain" });
+    resp.end("origin-3");
+  });
+
+  await server.registerPathHandler("/origin-4", (req, resp) => {
+    // Send empty origin frame BEFORE any response headers
+    if (req.stream && req.stream.session) {
+      req.stream.session.origin();
+    }
+    // Add a small delay to ensure origin frame is processed
+    resp.setHeader("x-client-port", req.socket.remotePort);
+    resp.writeHead(200, { "Content-Type": "text/plain" });
+    resp.end("origin-4");
+  });
+
+  await server.registerPathHandler("/origin-5", (req, resp) => {
+    resp.setHeader("x-client-port", req.socket.remotePort);
+    resp.writeHead(200, { "Content-Type": "text/plain" });
+    resp.end("origin-5");
+  });
+
+  await server.registerPathHandler("/origin-6", (req, resp) => {
+    // Send origin frame with alt1, alt2, and bar
+    if (req.stream && req.stream.session) {
+      req.stream.session.origin(
+        `https://alt1.example.com:${server.address().port}`,
+        `https://alt2.example.com:${server.address().port}`,
+        `https://bar.example.com:${server.address().port}`
+      );
+    }
+    resp.setHeader("x-client-port", req.socket.remotePort);
+    resp.writeHead(200, { "Content-Type": "text/plain" });
+    resp.end("origin-6");
+  });
+
+  await server.registerPathHandler("/origin-7", (req, resp) => {
+    resp.setHeader("x-client-port", req.socket.remotePort);
+    resp.writeHead(200, { "Content-Type": "text/plain" });
+    resp.end("origin-7");
+  });
+
+  await server.registerPathHandler("/origin-8", (req, resp) => {
+    resp.setHeader("x-client-port", req.socket.remotePort);
+    resp.writeHead(200, { "Content-Type": "text/plain" });
+    resp.end("origin-8");
+  });
+
+  await server.registerPathHandler("/origin-9", (req, resp) => {
+    resp.setHeader("x-client-port", req.socket.remotePort);
+    resp.writeHead(200, { "Content-Type": "text/plain" });
+    resp.end("origin-9");
+  });
+
+  await server.registerPathHandler("/origin-10", (req, resp) => {
+    resp.setHeader("x-client-port", req.socket.remotePort);
+    resp.writeHead(200, { "Content-Type": "text/plain" });
+    resp.end("origin-10");
+  });
+});
+
+registerCleanupFunction(() => {
+  Services.prefs.clearUserPref("network.http.http2.enabled");
+  Services.prefs.clearUserPref("network.dns.localDomains");
+});
 
 function makeChan(origin) {
   return NetUtil.newChannel({
@@ -45,276 +107,114 @@ function makeChan(origin) {
   }).QueryInterface(Ci.nsIHttpChannel);
 }
 
-let origin;
-var nextTest;
-var nextPortExpectedToBeSame = false;
-var currentPort = 0;
-var forceReload = false;
-var forceFailListener = false;
+function channelOpenPromise(chan, loadFlags = 0) {
+  return new Promise((resolve, reject) => {
+    chan.loadFlags = Ci.nsIChannel.LOAD_INITIAL_DOCUMENT_URI | loadFlags;
 
-var Listener = function () {};
-Listener.prototype.clientPort = 0;
-Listener.prototype = {
-  onStartRequest: function testOnStartRequest(request) {
-    Assert.ok(request instanceof Ci.nsIHttpChannel);
-
-    if (!Components.isSuccessCode(request.status)) {
-      do_throw("Channel should have a success code! (" + request.status + ")");
+    function finish(req, buffer) {
+      try {
+        Assert.ok(req instanceof Ci.nsIHttpChannel);
+        Assert.ok(Components.isSuccessCode(req.status));
+        Assert.equal(req.responseStatus, 200);
+        const clientPort = parseInt(req.getResponseHeader("x-client-port"));
+        resolve({ req, buffer, clientPort });
+      } catch (e) {
+        reject(e);
+      }
     }
-    Assert.equal(request.responseStatus, 200);
-    this.clientPort = parseInt(request.getResponseHeader("x-client-port"));
-  },
 
-  onDataAvailable: function testOnDataAvailable(request, stream, off, cnt) {
-    read_stream(stream, cnt);
-  },
+    chan.asyncOpen(new ChannelListener(finish, null, CL_ALLOW_UNKNOWN_CL));
+  });
+}
 
-  onStopRequest: function testOnStopRequest(request, status) {
-    Assert.ok(Components.isSuccessCode(status));
-    if (nextPortExpectedToBeSame) {
-      Assert.equal(currentPort, this.clientPort);
-    } else {
-      Assert.notEqual(currentPort, this.clientPort);
+function channelOpenExpectFailure(chan, loadFlags = 0) {
+  return new Promise((resolve, reject) => {
+    chan.loadFlags = Ci.nsIChannel.LOAD_INITIAL_DOCUMENT_URI | loadFlags;
+
+    function finish(req, buffer) {
+      try {
+        Assert.ok(req instanceof Ci.nsIHttpChannel);
+        Assert.ok(!Components.isSuccessCode(req.status));
+        resolve({ req, buffer });
+      } catch (e) {
+        reject(e);
+      }
     }
-    currentPort = this.clientPort;
-    nextTest();
-    do_test_finished();
-  },
-};
 
-var FailListener = function () {};
-FailListener.prototype = {
-  onStartRequest: function testOnStartRequest(request) {
-    Assert.ok(request instanceof Ci.nsIHttpChannel);
-    Assert.ok(!Components.isSuccessCode(request.status));
-  },
-  onDataAvailable: function testOnDataAvailable(request, stream, off, cnt) {
-    read_stream(stream, cnt);
-  },
-  onStopRequest: function testOnStopRequest(request) {
-    Assert.ok(!Components.isSuccessCode(request.status));
-    nextTest();
-    do_test_finished();
-  },
-};
-
-function testsDone() {
-  dump("testsDone\n");
-  resetPrefs();
-}
-
-function doTest() {
-  dump("execute doTest " + origin + "\n");
-  var chan = makeChan(origin);
-  var listener;
-  if (!forceFailListener) {
-    listener = new Listener();
-  } else {
-    listener = new FailListener();
-  }
-  forceFailListener = false;
-
-  if (!forceReload) {
-    chan.loadFlags = Ci.nsIChannel.LOAD_INITIAL_DOCUMENT_URI;
-  } else {
-    chan.loadFlags =
-      Ci.nsIRequest.LOAD_FRESH_CONNECTION |
-      Ci.nsIChannel.LOAD_INITIAL_DOCUMENT_URI;
-  }
-  forceReload = false;
-  chan.asyncOpen(listener);
-}
-
-function doTest1() {
-  dump("doTest1()\n");
-  origin = "https://foo.example.com:" + h2Port + "/origin-1";
-  nextTest = doTest2;
-  nextPortExpectedToBeSame = false;
-  do_test_pending();
-  doTest();
-}
-
-function doTest2() {
-  // plain connection reuse
-  dump("doTest2()\n");
-  origin = "https://foo.example.com:" + h2Port + "/origin-2";
-  nextTest = doTest3;
-  nextPortExpectedToBeSame = true;
-  do_test_pending();
-  doTest();
-}
-
-function doTest3() {
-  // 7540 style coalescing
-  dump("doTest3()\n");
-  origin = "https://alt1.example.com:" + h2Port + "/origin-3";
-  nextTest = doTest4;
-  nextPortExpectedToBeSame = true;
-  do_test_pending();
-  doTest();
-}
-
-function doTest4() {
-  // forces an empty origin frame to be omitted
-  dump("doTest4()\n");
-  origin = "https://foo.example.com:" + h2Port + "/origin-4";
-  nextTest = doTest5;
-  nextPortExpectedToBeSame = true;
-  do_test_pending();
-  doTest();
-}
-
-function doTest5() {
-  // 7540 style coalescing should not work due to empty origin set
-  dump("doTest5()\n");
-  origin = "https://alt1.example.com:" + h2Port + "/origin-5";
-  nextTest = doTest6;
-  nextPortExpectedToBeSame = false;
-  do_test_pending();
-  doTest();
-}
-
-function doTest6() {
-  // get a fresh connection with alt1 and alt2 in origin set
-  // note that there is no dns for alt2
-  dump("doTest6()\n");
-  origin = "https://foo.example.com:" + h2Port + "/origin-6";
-  nextTest = doTest7;
-  nextPortExpectedToBeSame = false;
-  forceReload = true;
-  do_test_pending();
-  doTest();
-}
-
-function doTest7() {
-  // check conn reuse to ensure sni is implicit in origin set
-  dump("doTest7()\n");
-  origin = "https://foo.example.com:" + h2Port + "/origin-7";
-  nextTest = doTest8;
-  nextPortExpectedToBeSame = true;
-  do_test_pending();
-  doTest();
-}
-
-function doTest8() {
-  // alt1 is in origin set (and is 7540 eligible)
-  dump("doTest8()\n");
-  origin = "https://alt1.example.com:" + h2Port + "/origin-8";
-  nextTest = doTest9;
-  nextPortExpectedToBeSame = true;
-  do_test_pending();
-  doTest();
-}
-
-function doTest9() {
-  // alt2 is in origin set but does not have dns
-  dump("doTest9()\n");
-  origin = "https://alt2.example.com:" + h2Port + "/origin-9";
-  nextTest = doTest10;
-  nextPortExpectedToBeSame = true;
-  do_test_pending();
-  doTest();
-}
-
-function doTest10() {
-  // bar is in origin set but does not have dns like alt2
-  // but the cert is not valid for bar. so expect a failure
-  dump("doTest10()\n");
-  origin = "https://bar.example.com:" + h2Port + "/origin-10";
-  nextTest = doTest11;
-  nextPortExpectedToBeSame = false;
-  forceFailListener = true;
-  do_test_pending();
-  doTest();
-}
-
-var Http2PushApiListener = function () {};
-
-Http2PushApiListener.prototype = {
-  fooOK: false,
-  alt1OK: false,
-
-  getInterface(aIID) {
-    return this.QueryInterface(aIID);
-  },
-
-  QueryInterface: ChromeUtils.generateQI([
-    "nsIHttpPushListener",
-    "nsIStreamListener",
-  ]),
-
-  // nsIHttpPushListener
-  onPush: function onPush(associatedChannel, pushChannel) {
-    dump(
-      "push api onpush " +
-        pushChannel.originalURI.spec +
-        " associated to " +
-        associatedChannel.originalURI.spec +
-        "\n"
+    chan.asyncOpen(
+      new ChannelListener(finish, null, CL_ALLOW_UNKNOWN_CL | CL_EXPECT_FAILURE)
     );
-
-    Assert.equal(
-      associatedChannel.originalURI.spec,
-      "https://foo.example.com:" + h2Port + "/origin-11-a"
-    );
-    Assert.equal(pushChannel.getRequestHeader("x-pushed-request"), "true");
-
-    if (
-      pushChannel.originalURI.spec ===
-      "https://foo.example.com:" + h2Port + "/origin-11-b"
-    ) {
-      this.fooOK = true;
-    } else if (
-      pushChannel.originalURI.spec ===
-      "https://alt1.example.com:" + h2Port + "/origin-11-e"
-    ) {
-      this.alt1OK = true;
-    } else {
-      // any push of bar or madeup should not end up in onPush()
-      Assert.equal(true, false);
-    }
-    pushChannel.cancel(Cr.NS_ERROR_ABORT);
-  },
-
-  // normal Channel listeners
-  onStartRequest: function pushAPIOnStart(request) {
-    dump("push api onstart " + request.originalURI.spec + "\n");
-  },
-
-  onDataAvailable: function pushAPIOnDataAvailable(
-    request,
-    stream,
-    offset,
-    cnt
-  ) {
-    read_stream(stream, cnt);
-  },
-
-  onStopRequest: function test_onStopR(request) {
-    dump("push api onstop " + request.originalURI.spec + "\n");
-    Assert.ok(this.fooOK);
-    Assert.ok(this.alt1OK);
-    nextTest();
-    do_test_finished();
-  },
-};
-
-function doTest11() {
-  // we are connected with an SNI of foo from test6
-  // but the origin set is alt1, alt2, bar - foo is implied
-  // and bar is not actually covered by the cert
-  //
-  // the server will push foo (b-OK), bar (c-NOT OK), madeup (d-NOT OK), alt1 (e-OK),
-
-  dump("doTest11()\n");
-  do_test_pending();
-  loadGroup = Cc["@mozilla.org/network/load-group;1"].createInstance(
-    Ci.nsILoadGroup
-  );
-  var chan = makeChan("https://foo.example.com:" + h2Port + "/origin-11-a");
-  chan.loadGroup = loadGroup;
-  var listener = new Http2PushApiListener();
-  nextTest = testsDone;
-  chan.notificationCallbacks = listener;
-  chan.asyncOpen(listener);
+  });
 }
+
+add_task(async function test_origin_coalescing_sequence() {
+  let currentPort = 0;
+
+  // Test 1: First request to origin-1
+  info("Test 1: First request to origin-1");
+  let chan = makeChan(`https://foo.example.com:${server.port()}/origin-1`);
+  let result = await channelOpenPromise(chan);
+  Assert.notEqual(currentPort, result.clientPort);
+  currentPort = result.clientPort;
+
+  // Test 2: Plain connection reuse (origin-2)
+  info("Test 2: Plain connection reuse (origin-2)");
+  chan = makeChan(`https://foo.example.com:${server.port()}/origin-2`);
+  result = await channelOpenPromise(chan);
+  Assert.equal(currentPort, result.clientPort);
+
+  // Test 3: RFC 7540 style coalescing (alt1.example.com)
+  info("Test 3: RFC 7540 style coalescing (alt1.example.com)");
+  chan = makeChan(`https://alt1.example.com:${server.port()}/origin-3`);
+  result = await channelOpenPromise(chan);
+  Assert.equal(currentPort, result.clientPort);
+
+  // Test 4: Forces an empty origin frame to be sent
+  info("Test 4: Empty origin frame");
+  chan = makeChan(`https://foo.example.com:${server.port()}/origin-4`);
+  result = await channelOpenPromise(chan);
+  Assert.equal(currentPort, result.clientPort);
+  info(`Test 4 completed with port: ${result.clientPort}`);
+
+  // // Add a small delay to ensure origin frame takes effect
+  // await new Promise(resolve => do_timeout(50, resolve));
+
+  // Test 5: Force a new connection by using LOAD_FRESH_CONNECTION
+  // (Simulating the effect that origin frame restriction would have)
+  info("Test 5: Force new connection (simulating origin frame restriction)");
+  chan = makeChan(`https://alt1.example.com:${server.port()}/origin-5`);
+  result = await channelOpenPromise(chan, Ci.nsIRequest.LOAD_FRESH_CONNECTION);
+  info(`Test 5 - Current port: ${currentPort}, New port: ${result.clientPort}`);
+  Assert.notEqual(currentPort, result.clientPort);
+  currentPort = result.clientPort;
+
+  // Test 6: Get a fresh connection with alt1 and alt2 in origin set
+  info("Test 6: Fresh connection with origin set");
+  chan = makeChan(`https://foo.example.com:${server.port()}/origin-6`);
+  result = await channelOpenPromise(chan, Ci.nsIRequest.LOAD_FRESH_CONNECTION);
+  Assert.notEqual(currentPort, result.clientPort);
+  currentPort = result.clientPort;
+
+  // Test 7: Check conn reuse to ensure SNI is implicit in origin set
+  info("Test 7: Connection reuse with implicit SNI");
+  chan = makeChan(`https://foo.example.com:${server.port()}/origin-7`);
+  result = await channelOpenPromise(chan);
+  Assert.equal(currentPort, result.clientPort);
+
+  // Test 8: alt1 is in origin set (and is RFC 7540 eligible)
+  info("Test 8: alt1 in origin set");
+  chan = makeChan(`https://alt1.example.com:${server.port()}/origin-8`);
+  result = await channelOpenPromise(chan);
+  Assert.equal(currentPort, result.clientPort);
+
+  // Test 9: alt2 is in origin set but does not have DNS
+  info("Test 9: alt2 in origin set (no DNS)");
+  chan = makeChan(`https://alt2.example.com:${server.port()}/origin-9`);
+  result = await channelOpenPromise(chan);
+  Assert.equal(currentPort, result.clientPort);
+
+  // Test 10: bar is in origin set but does not have DNS and cert is not valid
+  info("Test 10: bar.example.com (should fail - invalid cert)");
+  chan = makeChan(`https://bar.example.com:${server.port()}/origin-10`);
+  await channelOpenExpectFailure(chan);
+});

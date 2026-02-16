@@ -12,6 +12,7 @@
 #include "nsHttpTransaction.h"
 #include "nsIClassOfService.h"
 #include "nsISocketTransport.h"
+#include "nsISupportsPriority.h"
 #include "nsSocketTransportService2.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
@@ -24,7 +25,7 @@ namespace mozilla {
 namespace net {
 
 Http3StreamBase::Http3StreamBase(nsAHttpTransaction* trans,
-                                 Http3Session* session)
+                                 Http3SessionBase* session)
     : mTransaction(trans), mSession(session) {}
 
 Http3StreamBase::~Http3StreamBase() = default;
@@ -120,7 +121,7 @@ nsresult Http3Stream::TryActivating() {
 }
 
 void Http3Stream::CurrentBrowserIdChanged(uint64_t id) {
-  MOZ_ASSERT(gHttpHandler->ActiveTabPriority());
+  MOZ_ASSERT(StaticPrefs::network_http_active_tab_priority());
 
   bool previouslyFocused = (mCurrentBrowserId == mTransactionBrowserId);
   mCurrentBrowserId = id;
@@ -184,6 +185,7 @@ nsresult Http3Stream::OnReadSegment(const char* buf, uint32_t count,
       rv = mSession->SendRequestBody(mStreamId, buf, count, countRead);
       if (rv == NS_BASE_STREAM_WOULD_BLOCK) {
         mSendingBlockedByFlowControlCount++;
+        mBlockedByFlowControl = true;
       }
 
       if (NS_FAILED(rv)) {

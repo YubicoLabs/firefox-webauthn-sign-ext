@@ -40,12 +40,15 @@ interface nsIWebAuthnRegisterArgs : nsISupports {
     // WebAuthn AuthenticationExtensionsClientInputs. That's not feasible here.
     // So we define a getter for each supported extension input and use the
     // return code to signal presence.
+    [must_use] readonly attribute AUTF8String credentialProtectionPolicy;
+    [must_use] readonly attribute boolean enforceCredentialProtectionPolicy;
     [must_use] readonly attribute boolean credProps;
     [must_use] readonly attribute boolean hmacCreateSecret;
     [must_use] readonly attribute boolean minPinLength;
     [must_use] readonly attribute boolean prf;
     [must_use] readonly attribute Array<octet> prfEvalFirst;
     [must_use] readonly attribute Array<octet> prfEvalSecond;
+    [must_use] readonly attribute boolean largeBlobSupportRequired;
     [must_use] readonly attribute boolean signExtension;
     [must_use] readonly attribute Array<int32_t> signExtensionGenerateKeyAlgorithms;
 
@@ -63,6 +66,10 @@ interface nsIWebAuthnRegisterArgs : nsISupports {
     // We might overwrite the provided value with "none" if the user declines the
     // consent popup.
     [must_use] readonly attribute AString attestationConveyancePreference;
+
+    readonly attribute Array<AString> hints;
+
+    readonly attribute AString json;
 
     readonly attribute boolean privateBrowsing;
 };
@@ -99,6 +106,8 @@ interface nsIWebAuthnSignArgs : nsISupports {
     [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalFirst;
     [must_use] readonly attribute Array<boolean> prfEvalByCredentialEvalSecondMaybe;
     [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalSecond;
+    [must_use] readonly attribute boolean largeBlobRead;
+    [must_use] readonly attribute Array<octet> largeBlobWrite;
     [must_use] readonly attribute boolean signExtension;
     [must_use] readonly attribute Array<ACString> signExtensionSignByCredentialCredentialIdBase64url;
     [must_use] readonly attribute Array<Array<octet> > signExtensionSignByCredentialKeyHandle;
@@ -113,6 +122,10 @@ interface nsIWebAuthnSignArgs : nsISupports {
     // Arguably we don't need to pass it through since WebAuthnController can
     // cancel transactions.
     readonly attribute unsigned long timeoutMS;
+
+    readonly attribute Array<AString> hints;
+
+    readonly attribute AString json;
 
     readonly attribute boolean conditionallyMediated;
 

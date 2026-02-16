@@ -8,7 +8,7 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 TIMEOUT = 60
 
 
-class TPS(object):
+class TPS:
     logger = logging.getLogger()
 
     def __init__(self, firefox, firefox_log, tps_log, profile):
@@ -21,17 +21,15 @@ class TPS(object):
         self.firefox_log.write(line + "\n")
 
     def run(self, test, phase="phase1", ignore_unused_engines=True):
-        self.profile.set_preferences(
-            {
-                "testing.tps.testFile": os.path.abspath(test),
-                "testing.tps.testPhase": phase,
-                "testing.tps.ignoreUnusedEngines": ignore_unused_engines,
-            }
-        )
+        self.profile.set_preferences({
+            "testing.tps.testFile": os.path.abspath(test),
+            "testing.tps.testPhase": phase,
+            "testing.tps.ignoreUnusedEngines": ignore_unused_engines,
+        })
         args = ["-marionette"]
         process_args = {"processOutputLine": [self._log]}
         self.logger.info("Running: {} {}".format(self.firefox, " ".join(args)))
-        self.logger.info("Using profile at: {}".format(self.profile.profile))
+        self.logger.info(f"Using profile at: {self.profile.profile}")
         runner = FirefoxRunner(
             binary=self.firefox,
             cmdargs=args,
@@ -48,7 +46,7 @@ class TPS(object):
                     raise TPSError(line.partition("CROSSWEAVE ERROR: ")[-1])
 
         with open(self.tps_log) as f:
-            assert "test phase {}: PASS".format(phase) in f.read()
+            assert f"test phase {phase}: PASS" in f.read()
 
 
 class TPSError(Exception):

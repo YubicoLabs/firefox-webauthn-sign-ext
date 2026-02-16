@@ -2,14 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-env module */
-
 const { AppConstants } = ChromeUtils.importESModule(
   "resource://gre/modules/AppConstants.sys.mjs"
 );
 
 const { Interactions } = ChromeUtils.importESModule(
-  "resource:///modules/Interactions.sys.mjs"
+  "moz-src:///browser/components/places/Interactions.sys.mjs"
 );
 const { PlacesUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/PlacesUtils.sys.mjs"
@@ -657,8 +655,18 @@ function setupListeners() {
   });
 }
 
-checkPrefs();
-// Set the initial handler here.
-let gCurrentHandler = metadataHandler;
-gCurrentHandler.start().catch(console.error);
-setupListeners();
+let gCurrentHandler;
+if (
+  Services.prefs.getBoolPref(
+    "browser.places.interactions.viewer.enabled",
+    false
+  )
+) {
+  document.body.classList.remove("hidden");
+
+  checkPrefs();
+  // Set the initial handler here.
+  gCurrentHandler = metadataHandler;
+  gCurrentHandler.start().catch(console.error);
+  setupListeners();
+}

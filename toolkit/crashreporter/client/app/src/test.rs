@@ -11,7 +11,7 @@ use crate::config::{test::MINIDUMP_PRUNE_SAVE_COUNT, Config};
 use crate::settings::Settings;
 use crate::std::{
     ffi::OsString,
-    fs::{MockFS, MockFiles},
+    fs::{MockFS, MockFiles, OpenOptions},
     io::ErrorKind,
     mock,
     process::{Command, Output},
@@ -62,27 +62,19 @@ impl<T: std::fmt::Display> std::fmt::Display for FluentArg<T> {
 }
 
 /// Run a gui and interaction on separate threads.
-fn gui_interact<G, I, R>(gui: G, interact: I) -> R
+///
+/// If the `gui` function returns an error, any panics in the interaction thread are ignored.
+fn gui_interact<G, I, R>(gui: G, interact: I) -> anyhow::Result<R>
 where
-    G: FnOnce() -> R,
-    I: FnOnce(Interact) + Send + 'static,
+    G: FnOnce() -> anyhow::Result<R>,
+    I: FnOnce(&Interact) + Send + 'static,
 {
-    let i = Interact::hook();
-    let handle = {
-        let i = i.clone();
-        ::std::thread::spawn(move || {
-            i.wait_for_ready();
-            interact(i);
-        })
-    };
-    let ret = gui();
-    // In case the gui failed before launching.
-    i.cancel();
-    // If the gui failed, it's possible the interact thread hit a panic. However we can't check
-    // whether `R` is in a failure state, so we ignore the result of joining the thread. If there
-    // is an error, a backtrace will show the thread's panic message.
-    let _ = handle.join();
-    ret
+    let mut spawned_interact = Interact::spawn(interact);
+    let result = gui();
+    if result.is_err() {
+        spawned_interact.ignore_panic();
+    }
+    result
 }
 
 const MOCK_MINIDUMP_EXTRA: &str = r#"{
@@ -103,6 +95,33 @@ const MOCK_MINIDUMP_EXTRA: &str = r#"{
         "SomeNestedJson": { "foo": "bar" },
         "URL": "https://url.example.com"
     }"#;
+
+static MOCK_MINIDUMP_EXTRA_EXPECTED: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        r#"{{
+        "Vendor": "FooCorp",
+        "ProductName": "Bar",
+        "ReleaseChannel": "release",
+        "BuildID": "1234",
+        "AsyncShutdownTimeout": "{{}}",
+        "StackTraces": {{
+            "status": "OK"
+        }},
+        "Version": "100.0",
+        "ServerURL": "https://reports.example.com",
+        "TelemetryServerURL": "https://telemetry.example.com",
+        "TelemetryClientId": "telemetry_client",
+        "TelemetryProfileGroupId": "telemetry_profile_group",
+        "TelemetrySessionId": "telemetry_session",
+        "SomeNestedJson": {{ "foo": "bar" }},
+        "URL": "https://url.example.com",
+        "ProcessType": "main",
+        "CrashTime": "{time}",
+        "MinidumpSha256Hash": "{MOCK_MINIDUMP_SHA256}"
+    }}"#,
+        time = current_unix_time()
+    )
+});
 
 fn compact_json(json: &str) -> String {
     let value: serde_json::Value = serde_json::from_str(json).unwrap();
@@ -216,6 +235,7 @@ impl GuiTest {
             crate::std::env::MockCurrentExe,
             "work_dir/crashreporter".into(),
         )
+        .set(crate::std::env::MockTempDir, "tmp".into())
         .set(crate::std::time::MockCurrentTime, current_system_time())
         .set(mock::MockHook::new("enable_glean_pings"), false)
         .set(mock::MockHook::new("ping_uuid"), MOCK_PING_UUID);
@@ -244,7 +264,7 @@ impl GuiTest {
     /// Run the test as configured, using the given function to interact with the GUI.
     ///
     /// Returns the final result of the application logic.
-    pub fn try_run<F: FnOnce(Interact) + Send + 'static>(
+    pub fn try_run<F: FnOnce(&Interact) + Send + 'static>(
         &mut self,
         interact: F,
     ) -> anyhow::Result<bool> {
@@ -280,7 +300,7 @@ impl GuiTest {
     ///
     /// Panics if the application logic returns an error (which would normally be displayed to the
     /// user).
-    pub fn run<F: FnOnce(Interact) + Send + 'static>(&mut self, interact: F) {
+    pub fn run<F: FnOnce(&Interact) + Send + 'static>(&mut self, interact: F) {
         if let Err(e) = self.try_run(interact) {
             panic!(
                 "gui failure:{}",
@@ -364,7 +384,7 @@ impl AssertFiles {
         self.inner
             .check(
                 self.data("pending/minidump.extra"),
-                compact_json(MOCK_MINIDUMP_EXTRA),
+                compact_json(&*MOCK_MINIDUMP_EXTRA_EXPECTED),
             )
             .check_bytes(dmp, MOCK_MINIDUMP_FILE);
         self
@@ -405,6 +425,8 @@ impl AssertFiles {
                     "metadata": {
                         "AsyncShutdownTimeout": "{}",
                         "BuildID": "1234",
+                        "CrashTime": current_unix_time().to_string(),
+                        "ProcessType": "main",
                         "ProductName": "Bar",
                         "ReleaseChannel": "release",
                         "Version": "100.0",
@@ -461,12 +483,45 @@ fn error_dialog() {
     gui_interact(
         || {
             let cfg = Config::default();
-            ui::error_dialog(&cfg, "an error occurred")
+            ui::error_dialog(Arc::new(cfg), "an error occurred");
+            Ok(())
         },
         |interact| {
-            interact.element("close", |_style, b: &model::Button| b.click.fire(&()));
+            interact.element("quit", |_style, b: &model::Button| b.click.fire(&()));
         },
-    );
+    )
+    .unwrap();
+}
+
+#[test]
+fn error_dialog_restart() {
+    let mut config = Config::default();
+    config.restart_command = Some("my_process".into());
+    config.restart_args = vec!["a".into(), "b".into()];
+    let ran_process = Counter::new();
+    let mock_ran_process = ran_process.clone();
+    mock::builder()
+        .set(
+            Command::mock("my_process"),
+            Box::new(move |cmd| {
+                assert_eq!(cmd.args, &["a", "b"]);
+                mock_ran_process.inc();
+                Ok(crate::std::process::success_output())
+            }),
+        )
+        .run(|| {
+            gui_interact(
+                move || {
+                    ui::error_dialog(Arc::new(config), "an error occurred");
+                    Ok(())
+                },
+                |interact| {
+                    interact.element("restart", |_style, b: &model::Button| b.click.fire(&()));
+                },
+            )
+        })
+        .unwrap();
+    ran_process.assert_one();
 }
 
 #[test]
@@ -479,6 +534,14 @@ fn no_dump_file() {
     assert!(try_run(&mut cfg).is_err());
     Arc::get_mut(&mut cfg).unwrap().auto_submit = true;
     assert!(try_run(&mut cfg).is_ok());
+}
+
+#[test]
+fn dump_file_does_not_exist() {
+    let mut test = GuiTest::new();
+    test.config.dump_file = Some("does_not_exist.dmp".into());
+    test.try_run(|_interact| {})
+        .expect_err("the gui should fail with an error");
 }
 
 #[test]
@@ -547,24 +610,30 @@ fn no_restart_with_windows_error_reporting() {
     // Keep the files around so we can ensure they match what we expect.
     test.config.delete_dump = false;
     // Add the "WindowsErrorReporting" key to the extra file
-    const MINIDUMP_EXTRA_CONTENTS: &str = r#"{
-                            "Vendor": "FooCorp",
-                            "ProductName": "Bar",
-                            "ReleaseChannel": "release",
-                            "BuildID": "1234",
-                            "StackTraces": {
-                                "status": "OK"
-                            },
-                            "Version": "100.0",
-                            "ServerURL": "https://reports.example.com",
-                            "TelemetryServerURL": "https://telemetry.example.com",
-                            "TelemetryClientId": "telemetry_client",
-                            "TelemetryProfileGroupId": "telemetry_profile_group",
-                            "TelemetrySessionId": "telemetry_session",
-                            "SomeNestedJson": { "foo": "bar" },
-                            "URL": "https://url.example.com",
-                            "WindowsErrorReporting": "1"
-                        }"#;
+    let minidump_extra_contents: &str = &format!(
+        r#"{{
+            "Vendor": "FooCorp",
+            "ProductName": "Bar",
+            "ReleaseChannel": "release",
+            "BuildID": "1234",
+            "StackTraces": {{
+                "status": "OK"
+            }},
+            "Version": "100.0",
+            "ServerURL": "https://reports.example.com",
+            "TelemetryServerURL": "https://telemetry.example.com",
+            "TelemetryClientId": "telemetry_client",
+            "TelemetryProfileGroupId": "telemetry_profile_group",
+            "TelemetrySessionId": "telemetry_session",
+            "SomeNestedJson": {{ "foo": "bar" }},
+            "URL": "https://url.example.com",
+            "WindowsErrorReporting": "1",
+            "ProcessType": "main",
+            "CrashTime": "{time}",
+            "MinidumpSha256Hash": "{MOCK_MINIDUMP_SHA256}"
+        }}"#,
+        time = current_unix_time()
+    );
     test.files = {
         let mock_files = MockFiles::new();
         mock_files
@@ -575,7 +644,7 @@ fn no_restart_with_windows_error_reporting() {
             )
             .add_file_result(
                 "minidump.extra",
-                Ok(MINIDUMP_EXTRA_CONTENTS.into()),
+                Ok(minidump_extra_contents.into()),
                 current_system_time(),
             );
         test.mock.set(MockFS, mock_files.clone());
@@ -605,7 +674,7 @@ fn no_restart_with_windows_error_reporting() {
         let dmp = assert_files.data("pending/minidump.dmp");
         let extra = assert_files.data("pending/minidump.extra");
         assert_files
-            .check(extra, compact_json(MINIDUMP_EXTRA_CONTENTS))
+            .check(extra, compact_json(minidump_extra_contents))
             .check_bytes(dmp, MOCK_MINIDUMP_FILE);
     }
 
@@ -816,74 +885,11 @@ fn glean_ping() {
     let submitted_glean_ping = Counter::new();
     cc! { (submitted_glean_ping)
         test.before_run(move || {
-            crate::glean::crash.test_before_next_submit(move |_| {
+            crashping::test_before_next_send(move |_| {
                 submitted_glean_ping.inc();
             });
         })
     };
-    test.run(|interact| {
-        interact.element("quit", |_style, b: &model::Button| b.click.fire(&()));
-    });
-    submitted_glean_ping.assert_one();
-}
-
-#[test]
-fn glean_ping_extra_stack_trace_fields() {
-    let mut test = GuiTest::new();
-    test.enable_glean_pings();
-    let submitted_glean_ping = Counter::new();
-
-    const MINIDUMP_EXTRA_CONTENTS: &str = r#"{
-                            "Vendor": "FooCorp",
-                            "ProductName": "Bar",
-                            "ReleaseChannel": "release",
-                            "BuildID": "1234",
-                            "StackTraces": {
-                                "status": "OK",
-                                "foobar": "baz",
-                                "crash_info": {
-                                    "address": "0xcafe"
-                                }
-                            },
-                            "Version": "100.0",
-                            "ServerURL": "https://reports.example.com",
-                            "TelemetryServerURL": "https://telemetry.example.com",
-                            "TelemetryClientId": "telemetry_client",
-                            "TelemetryProfileGroupId": "telemetry_profile_group",
-                            "TelemetrySessionId": "telemetry_session",
-                            "SomeNestedJson": { "foo": "bar" },
-                            "URL": "https://url.example.com",
-                            "WindowsErrorReporting": "1"
-                        }"#;
-    test.files = {
-        let mock_files = MockFiles::new();
-        mock_files
-            .add_file_result(
-                "minidump.dmp",
-                Ok(MOCK_MINIDUMP_FILE.into()),
-                current_system_time(),
-            )
-            .add_file_result(
-                "minidump.extra",
-                Ok(MINIDUMP_EXTRA_CONTENTS.into()),
-                current_system_time(),
-            );
-        test.mock.set(MockFS, mock_files.clone());
-        mock_files
-    };
-
-    cc! { (submitted_glean_ping)
-        test.before_run(move || {
-            glean::crash.test_before_next_submit(move |_| {
-                assert_eq!(
-                    glean::crash::stack_traces.test_get_value(None),
-                    Some(serde_json::json! {{"crash_address":"0xcafe"}})
-                );
-                submitted_glean_ping.inc();
-            });
-        })
-    };
-
     test.run(|interact| {
         interact.element("quit", |_style, b: &model::Button| b.click.fire(&()));
     });
@@ -931,21 +937,21 @@ fn details_window() {
         assert_eq!(details_visible(), false);
         interact.element("quit", |_style, b: &model::Button| b.click.fire(&()));
         assert_eq!(details_text,
-            "AsyncShutdownTimeout: {}\n\
+            format!("AsyncShutdownTimeout: {{}}\n\
              BuildID: 1234\n\
+             CrashTime: {time}\n\
+             MinidumpSha256Hash: {MOCK_MINIDUMP_SHA256}\n\
+             ProcessType: main\n\
              ProductName: Bar\n\
              ReleaseChannel: release\n\
-             SomeNestedJson: {\"foo\":\"bar\"}\n\
              SubmittedFrom: Client\n\
-             TelemetryClientId: telemetry_client\n\
-             TelemetryProfileGroupId: telemetry_profile_group\n\
-             TelemetryServerURL: https://telemetry.example.com\n\
-             TelemetrySessionId: telemetry_session\n\
              Throttleable: 1\n\
              URL: https://url.example.com\n\
              Vendor: FooCorp\n\
              Version: 100.0\n\
-             This report also contains technical information about the state of the application when it crashed.\n"
+             This report also contains technical information about the state of the application when it crashed.\n",
+             time = current_unix_time()
+             )
         );
     });
 }
@@ -1016,6 +1022,43 @@ fn persistent_settings() {
 }
 
 #[test]
+fn partial_settings_default() {
+    let mut test = GuiTest::new();
+    test.files.add_dir("data_dir").add_file(
+        "data_dir/crashreporter_settings.json",
+        "{\"include_url\":false}",
+    );
+    test.run(|interact| {
+        interact.element("quit", |_style, b: &model::Button| b.click.fire(&()));
+    });
+    test.assert_files()
+        .saved_settings(Settings {
+            submit_report: true,
+            include_url: false,
+            test_hardware: true,
+        })
+        .submitted();
+}
+
+#[test]
+fn corrupt_settings_default() {
+    let mut test = GuiTest::new();
+    test.files
+        .add_dir("data_dir")
+        .add_file("data_dir/crashreporter_settings.json", "not valid json");
+    test.run(|interact| {
+        interact.element("quit", |_style, b: &model::Button| b.click.fire(&()));
+    });
+    test.assert_files()
+        .saved_settings(Settings {
+            submit_report: true,
+            include_url: true,
+            test_hardware: true,
+        })
+        .submitted();
+}
+
+#[test]
 fn send_memtest_output() {
     let mut test = GuiTest::new();
     test.config.run_memtest = true;
@@ -1067,7 +1110,8 @@ fn add_memtest_output_to_extra() {
         interact.element("quit", |_style, b: &model::Button| b.click.fire(&()));
     });
 
-    let mut value: serde_json::Value = serde_json::from_str(MOCK_MINIDUMP_EXTRA).unwrap();
+    let mut value: serde_json::Value =
+        serde_json::from_str(&*MOCK_MINIDUMP_EXTRA_EXPECTED).unwrap();
     value["MemtestOutput"] = "memtest output".into();
     let new_extra = serde_json::to_string(&value).unwrap();
 
@@ -1171,10 +1215,9 @@ fn assert_mock_memtest(cmd: &Command) -> std::io::Result<Output> {
     assert_eq!(cmd.args.len(), 3);
     assert_eq!(cmd.args[0], "--memtest");
     assert!(cmd.args[1].to_string_lossy().parse::<u32>().is_ok());
-    assert!(serde_json::from_str::<memtest::MemtestRunnerArgs>(
-        cmd.args[2].to_string_lossy().borrow()
-    )
-    .is_ok());
+    assert!(
+        serde_json::from_str::<memtest::RunnerArgs>(cmd.args[2].to_string_lossy().borrow()).is_ok()
+    );
 
     let mut output = crate::std::process::success_output();
     output.stdout = "memtest output".into();
@@ -1213,6 +1256,117 @@ fn comment() {
     }
 }
 
+fn platform_path(s: &str) -> String {
+    s.replace('/', std::path::MAIN_SEPARATOR_STR)
+}
+
+/// Test the interface to the primary network backend (Necko, through a background task).
+///
+/// This doesn't yet test Glean pings because of reliability issues (see Bug 1937295).
+#[test]
+fn background_task_network_backend() {
+    let mut test = GuiTest::new();
+    test.files.add_file("minidump.memory.json.gz", "");
+    let ran_process = Counter::new();
+    let mock_ran_process = ran_process.clone();
+    test.mock.set(
+        Command::mock("work_dir/firefox"),
+        Box::new(move |cmd| {
+            if cmd.spawning {
+                return Ok(crate::std::process::success_output());
+            }
+
+            mock_ran_process.inc();
+
+            let expected_args: Vec<OsString> = [
+                "--backgroundtask",
+                "crashreporterNetworkBackend",
+                "https://reports.example.com",
+                net::http::user_agent(),
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect();
+
+            assert_eq!(cmd.args.len(), 5);
+            assert_eq!(cmd.args[..4], expected_args);
+            let request_file = &cmd.args[4];
+
+            let expected_contents = serde_json::json!({
+                "type": "MimePost",
+                "parts": [
+                    {
+                        "name": "extra",
+                        "content": {
+                            "type": "String",
+                            "value": serde_json::json!({
+                                "Vendor":"FooCorp",
+                                "ProductName":"Bar",
+                                "ReleaseChannel":"release",
+                                "BuildID":"1234",
+                                "AsyncShutdownTimeout":"{}",
+                                "Version":"100.0",
+                                "URL":"https://url.example.com",
+                                "ProcessType": "main",
+                                "CrashTime": current_unix_time().to_string(),
+                                "MinidumpSha256Hash": MOCK_MINIDUMP_SHA256,
+                                "SubmittedFrom":"Client",
+                                "Throttleable":"1"
+                            }).to_string(),
+                        },
+                        "filename": "extra.json",
+                        "mime_type": "application/json",
+                    },
+                    {
+                        "name": "upload_file_minidump",
+                        "content": {
+                            "type": "File",
+                            "value": platform_path("data_dir/pending/minidump.dmp"),
+                        },
+                    },
+                    {
+                        "name": "memory_report",
+                        "content": {
+                            "type": "File",
+                            "value": platform_path("data_dir/pending/minidump.memory.json.gz"),
+                        },
+                    }
+                ]
+            })
+            .to_string();
+
+            use ::std::io::{Read, Seek, Write};
+            let mut file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(request_file)
+                .expect("cannot open request file");
+            {
+                let mut contents = String::new();
+                file.read_to_string(&mut contents)
+                    .expect("cannot read request file");
+                assert_eq!(contents, expected_contents);
+            }
+
+            file.rewind().expect("cannot rewind file");
+            file.set_len(0).expect("cannot truncate file");
+            file.write_all(format!("CrashID={MOCK_REMOTE_CRASH_ID}").as_bytes())
+                .expect("cannot write to request file");
+
+            Ok(crate::std::process::success_output())
+        }),
+    );
+    test.run(|interact| {
+        interact.element("quit", |_style, b: &model::Button| b.click.fire(&()));
+    });
+
+    ran_process.assert_one();
+
+    test.assert_files()
+        .saved_settings(Settings::default())
+        .submitted();
+}
+
 #[test]
 fn curl_binary() {
     let mut test = GuiTest::new();
@@ -1235,7 +1389,7 @@ fn curl_binary() {
 
             let expected_args: Vec<OsString> = [
                 "--user-agent",
-                net::http::USER_AGENT,
+                net::http::user_agent(),
                 "--form",
                 "extra=@-;filename=extra.json;type=application/json",
                 "--form",
@@ -1265,6 +1419,205 @@ fn curl_binary() {
     });
 
     ran_process.assert_one();
+}
+
+/// Test that the primary network backend (Necko) falls back to using curl if it fails.
+#[test]
+fn background_task_curl_fallback() {
+    let mut test = GuiTest::new();
+    let ran_bgtask = Counter::new();
+    let mock_ran_bgtask = ran_bgtask.clone();
+    let ran_curl = Counter::new();
+    let mock_ran_curl = ran_curl.clone();
+    let background_task_attempts = Arc::new(net::http::BackgroundTaskAttempts::new(2));
+    test.mock
+        .set(
+            net::http::BACKGROUND_TASK_ATTEMPTS,
+            background_task_attempts.clone(),
+        )
+        .set(
+            Command::mock("work_dir/firefox"),
+            Box::new(move |cmd| {
+                if cmd.spawning {
+                    return Ok(crate::std::process::success_output());
+                }
+                mock_ran_bgtask.inc();
+
+                let expected_args: Vec<OsString> = [
+                    "--backgroundtask",
+                    "crashreporterNetworkBackend",
+                    "https://reports.example.com",
+                    net::http::user_agent(),
+                ]
+                .into_iter()
+                .map(Into::into)
+                .collect();
+
+                assert_eq!(cmd.args.len(), 5);
+                assert_eq!(cmd.args[..4], expected_args);
+                let request_file = &cmd.args[4];
+
+                let expected_contents = serde_json::json!({
+                    "type": "MimePost",
+                    "parts": [
+                        {
+                            "name": "extra",
+                            "content": {
+                                "type": "String",
+                                "value": serde_json::json!({
+                                    "Vendor":"FooCorp",
+                                    "ProductName":"Bar",
+                                    "ReleaseChannel":"release",
+                                    "BuildID":"1234",
+                                    "AsyncShutdownTimeout":"{}",
+                                    "Version":"100.0",
+                                    "URL":"https://url.example.com",
+                                    "ProcessType": "main",
+                                    "CrashTime": current_unix_time().to_string(),
+                                    "MinidumpSha256Hash": MOCK_MINIDUMP_SHA256,
+                                    "SubmittedFrom":"Client",
+                                    "Throttleable":"1"
+                                }).to_string(),
+                            },
+                            "filename": "extra.json",
+                            "mime_type": "application/json",
+                        },
+                        {
+                            "name": "upload_file_minidump",
+                            "content": {
+                                "type": "File",
+                                "value": platform_path("data_dir/pending/minidump.dmp"),
+                            },
+                        }
+                    ]
+                })
+                .to_string();
+
+                use ::std::io::Read;
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(request_file)
+                    .expect("cannot open request file");
+                {
+                    let mut contents = String::new();
+                    file.read_to_string(&mut contents)
+                        .expect("cannot read request file");
+                    assert_eq!(contents, expected_contents);
+                }
+
+                Ok(crate::std::process::Output {
+                    status: crate::std::process::exit_status(3),
+                    stdout: vec![],
+                    stderr: vec![],
+                })
+            }),
+        )
+        .set(
+            Command::mock("curl"),
+            Box::new(move |cmd| {
+                if cmd.spawning {
+                    return Ok(crate::std::process::success_output());
+                }
+
+                // Curl strings need backslashes escaped.
+                let curl_escaped_separator = if std::path::MAIN_SEPARATOR == '\\' {
+                    "\\\\"
+                } else {
+                    std::path::MAIN_SEPARATOR_STR
+                };
+
+                let expected_args: Vec<OsString> = [
+                    "--user-agent",
+                    net::http::user_agent(),
+                    "--form",
+                    "extra=@-;filename=extra.json;type=application/json",
+                    "--form",
+                    &format!(
+                        "upload_file_minidump=@\"data_dir{0}pending{0}minidump.dmp\"",
+                        curl_escaped_separator
+                    ),
+                    "https://reports.example.com",
+                ]
+                .into_iter()
+                .map(Into::into)
+                .collect();
+                assert_eq!(cmd.args, expected_args);
+                let mut output = crate::std::process::success_output();
+                output.stdout = format!("CrashID={MOCK_REMOTE_CRASH_ID}").into();
+                mock_ran_curl.inc();
+                Ok(output)
+            }),
+        );
+    test.run(|interact| {
+        interact.element("quit", |_style, b: &model::Button| b.click.fire(&()));
+    });
+
+    ran_bgtask.assert_one();
+    ran_curl.assert_one();
+
+    // Verify that background tasks are still enabled.
+    assert!(background_task_attempts.should_attempt());
+
+    test.assert_files()
+        .saved_settings(Settings::default())
+        .submitted();
+}
+
+#[test]
+fn background_task_disables() {
+    let mut test = GuiTest::new();
+    let ran_bgtask = Counter::new();
+    let mock_ran_bgtask = ran_bgtask.clone();
+    let ran_curl = Counter::new();
+    let mock_ran_curl = ran_curl.clone();
+    let background_task_attempts = Arc::new(net::http::BackgroundTaskAttempts::new(1));
+    test.mock
+        .set(
+            net::http::BACKGROUND_TASK_ATTEMPTS,
+            background_task_attempts.clone(),
+        )
+        .set(
+            Command::mock("work_dir/firefox"),
+            Box::new(move |cmd| {
+                if cmd.spawning {
+                    return Ok(crate::std::process::success_output());
+                }
+                mock_ran_bgtask.inc();
+
+                Ok(crate::std::process::Output {
+                    status: crate::std::process::exit_status(255),
+                    stdout: vec![],
+                    stderr: vec![],
+                })
+            }),
+        )
+        .set(
+            Command::mock("curl"),
+            Box::new(move |cmd| {
+                if cmd.spawning {
+                    return Ok(crate::std::process::success_output());
+                }
+
+                let mut output = crate::std::process::success_output();
+                output.stdout = format!("CrashID={MOCK_REMOTE_CRASH_ID}").into();
+                mock_ran_curl.inc();
+                Ok(output)
+            }),
+        );
+    test.run(|interact| {
+        interact.element("quit", |_style, b: &model::Button| b.click.fire(&()));
+    });
+
+    ran_bgtask.assert_one();
+    ran_curl.assert_one();
+
+    // Verify that background tasks are now disabled.
+    assert_eq!(false, background_task_attempts.should_attempt());
+
+    test.assert_files()
+        .saved_settings(Settings::default())
+        .submitted();
 }
 
 #[test]

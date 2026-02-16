@@ -13,7 +13,6 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.content.res.Resources
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.Parcelable
@@ -57,6 +56,7 @@ import androidx.browser.customtabs.CustomTabsIntent.TOOLBAR_ACTION_BUTTON_ID
 import androidx.browser.customtabs.CustomTabsSessionToken
 import androidx.browser.customtabs.TrustedWebUtils.EXTRA_LAUNCH_AS_TRUSTED_WEB_ACTIVITY
 import androidx.core.content.ContextCompat.getColor
+import androidx.core.graphics.toColorInt
 import mozilla.components.browser.menu.BrowserMenuBuilder
 import mozilla.components.browser.menu.item.SimpleBrowserMenuItem
 import mozilla.components.browser.state.selector.findCustomTab
@@ -71,6 +71,7 @@ import mozilla.components.feature.customtabs.menu.sendWithUrl
 import mozilla.components.support.ktx.android.content.res.resolveAttribute
 import mozilla.components.support.utils.ColorUtils.getDisabledReadableTextColor
 import mozilla.components.support.utils.ColorUtils.getReadableTextColor
+import mozilla.components.support.utils.ColorUtils.getSecondaryReadableTextColor
 import mozilla.components.support.utils.SafeIntent
 import mozilla.components.support.utils.toSafeBundle
 import mozilla.components.support.utils.toSafeIntent
@@ -159,12 +160,12 @@ fun createCustomTabConfigFromIntent(
  * @param customTabSessionId ID of the custom tab session. No-op if null or invalid.
  * @param customTabMenuInsertIndex Optional index at which the custom menu items should be inserted.
  */
-fun BrowserMenuBuilder?.addCustomMenuItems(
+fun BrowserMenuBuilder.addCustomMenuItems(
     context: Context,
     browserStore: BrowserStore,
     customTabSessionId: String?,
     customTabMenuInsertIndex: Int = 0,
-): BrowserMenuBuilder? {
+): BrowserMenuBuilder {
     val customTab = customTabSessionId?.let { browserStore.state.findCustomTab(it) } ?: return this
 
     val customMenuItems = customTab.config.menuItems.map { item ->
@@ -178,9 +179,9 @@ fun BrowserMenuBuilder?.addCustomMenuItems(
         }
     }
 
-    val safeCustomMenuInsertIndex = customTabMenuInsertIndex.coerceIn(0, this?.items?.size ?: 0)
-    val defaultMenuItems = this?.items ?: emptyList()
-    val defaultMenuExtras = this?.extras ?: emptyMap()
+    val safeCustomMenuInsertIndex = customTabMenuInsertIndex.coerceIn(0, this.items.size)
+    val defaultMenuItems = this.items
+    val defaultMenuExtras = this.extras
 
     return BrowserMenuBuilder(
         items = defaultMenuItems.toMutableList().apply {
@@ -278,7 +279,10 @@ private fun getDarkColorSchemeParams(safeIntent: SafeIntent) =
  *
  * @see [CustomTabsIntent.Builder.setColorSchemeParams].
  */
-private fun getColorSchemeParams(safeIntent: SafeIntent, @ColorScheme colorScheme: Int): ColorSchemeParams? {
+private fun getColorSchemeParams(
+    safeIntent: SafeIntent,
+    @ColorScheme colorScheme: Int,
+): ColorSchemeParams? {
     val bundle = safeIntent.getColorSchemeParamsBundle()?.get(colorScheme)
 
     val toolbarColor = bundle?.getNullableSafeValue(EXTRA_TOOLBAR_COLOR)
@@ -389,6 +393,33 @@ fun ColorSchemeParams?.getToolbarContrastColor(
 }
 
 /**
+ * Get a secondary color with enough contrast over the toolbar color from the provided [ColorSchemeParams].
+ * but slightly more faded, suitable to show less important information.
+ *
+ * @param context The [Context] used to resolve the default text color.
+ * @param shouldUpdateTheme Whether the contrast color should be calculated based on the toolbar color
+ * or default to returning the default text color.
+ * @param fallbackColor The fallback color to use if the toolbar color is not set and [shouldUpdateTheme] is `true`.
+ */
+@ColorInt
+fun ColorSchemeParams?.getToolbarSecondaryContrastColor(
+    context: Context,
+    shouldUpdateTheme: Boolean,
+    @ColorInt fallbackColor: Int,
+): Int {
+    return if (shouldUpdateTheme) {
+        this?.toolbarColor?.let { getSecondaryReadableTextColor(it) }
+            ?: fallbackColor
+    } else {
+        // When in private mode, the readable color needs match the app.
+        // Note: The main app is configuring the private theme, Custom Tabs is adding the
+        // additional theming for the dynamic UI elements e.g. action & share buttons.
+        val colorResId = context.theme.resolveAttribute(android.R.attr.textColorSecondary)
+        getColor(context, colorResId)
+    }
+}
+
+/**
  * Get a disabled color with enough contrast over the toolbar color from the provided [ColorSchemeParams].
  *
  * @param shouldUpdateTheme Whether the contrast color should be calculated based on the toolbar color
@@ -406,7 +437,7 @@ fun ColorSchemeParams?.getToolbarContrastColorDisabled(
     } else {
         // When in private mode disabled elements need to have enough contrast to
         // differentiate themselves from the background and also from other enabled elements.
-        Color.parseColor(LIGHT_GRAY_HEX)
+        LIGHT_GRAY_HEX.toColorInt()
     }
 }
 

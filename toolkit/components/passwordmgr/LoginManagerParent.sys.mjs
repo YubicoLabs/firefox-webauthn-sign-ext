@@ -160,7 +160,7 @@ Services.ppmm.addMessageListener("PasswordManager:findRecipes", message => {
  * Lazily create a Map of origins to array of browsers with importable logins.
  *
  * @param {origin} formOrigin
- * @returns {Object?} containing array of migration browsers and experiment state.
+ * @returns {object?} containing array of migration browsers and experiment state.
  */
 async function getImportableLogins(formOrigin) {
   // Include the experiment state for data and UI decisions; otherwise skip
@@ -346,7 +346,7 @@ export class LoginManagerParent extends JSWindowActorParent {
       }
 
       case "PasswordManager:removeLogin": {
-        this.#onRemoveLogin(data.login);
+        await this.#onRemoveLogin(data.login);
         break;
       }
 
@@ -405,9 +405,9 @@ export class LoginManagerParent extends JSWindowActorParent {
     }
   }
 
-  #onRemoveLogin(login) {
+  async #onRemoveLogin(login) {
     login = lazy.LoginHelper.vanillaObjectToLogin(login);
-    Services.logins.removeLogin(login);
+    Services.logins.removeLoginAsync(login);
   }
 
   #onOpenImportableLearnMore() {
@@ -1084,7 +1084,7 @@ export class LoginManagerParent extends JSWindowActorParent {
     const prompter = this._getPrompter(browser);
 
     if (!canMatchExistingLogin) {
-      prompter.promptToChangePasswordWithUsernames(
+      await prompter.promptToChangePasswordWithUsernames(
         promptBrowser,
         logins,
         formLogin
@@ -1152,8 +1152,8 @@ export class LoginManagerParent extends JSWindowActorParent {
    * @param {string} formOrigin
    * @param {string} options.formActionOrigin
    * @param {string?} options.autoFilledLoginGuid
-   * @param {Object} options.newPasswordField
-   * @param {Object?} options.usernameField
+   * @param {object} options.newPasswordField
+   * @param {object?} options.usernameField
    * @param {Element?} options.oldPasswordField
    * @param {boolean} [options.triggeredByFillingGenerated = false]
    */
@@ -1383,7 +1383,7 @@ export class LoginManagerParent extends JSWindowActorParent {
       ) {
         lazy.log("Updating auto-saved login.");
 
-        Services.logins.modifyLogin(
+        await Services.logins.modifyLoginAsync(
           existingLogin,
           lazy.LoginHelper.newPropertyBag({
             password: formLogin.password,

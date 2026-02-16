@@ -3,11 +3,11 @@ import math
 import mozinfo
 
 
-class Bisect(object):
+class Bisect:
     "Class for creating, bisecting and summarizing for --bisect-chunk option."
 
     def __init__(self, harness):
-        super(Bisect, self).__init__()
+        super().__init__()
         self.summary = []
         self.contents = {}
         self.repeat = 10

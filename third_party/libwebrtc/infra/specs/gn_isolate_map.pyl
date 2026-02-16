@@ -84,6 +84,10 @@
     "label": "//media:rtc_media_unittests",
     "type": "console_test_launcher",
   },
+  "rtc_p2p_unittests": {
+    "label": "//:rtc_p2p_unittests",
+    "type": "console_test_launcher",
+  },
   "rtc_pc_unittests": {
     "label": "//pc:rtc_pc_unittests",
     "type": "console_test_launcher",
@@ -134,6 +138,10 @@
   },
   "video_engine_tests": {
     "label": "//:video_engine_tests",
+    "type": "console_test_launcher",
+  },
+  "video_timing_tests": {
+    "label": "//video/timing:video_timing_tests",
     "type": "console_test_launcher",
   },
   "voip_unittests": {

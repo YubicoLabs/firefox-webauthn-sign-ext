@@ -7,7 +7,7 @@
 #include "GPUVideoTextureHost.h"
 
 #include "ImageContainer.h"
-#include "mozilla/RemoteDecoderManagerParent.h"
+#include "mozilla/RemoteMediaManagerParent.h"
 #include "mozilla/layers/ImageBridgeParent.h"
 #include "mozilla/layers/VideoBridgeParent.h"
 #include "mozilla/webrender/RenderTextureHostWrapper.h"
@@ -209,6 +209,12 @@ void GPUVideoTextureHost::NotifyNotUsed() {
   TextureHost::NotifyNotUsed();
 }
 
+void GPUVideoTextureHost::SetReadFence(Fence* aReadFence) {
+  if (EnsureWrappedTextureHost()) {
+    EnsureWrappedTextureHost()->SetReadFence(aReadFence);
+  }
+}
+
 BufferTextureHost* GPUVideoTextureHost::AsBufferTextureHost() {
   if (EnsureWrappedTextureHost()) {
     return EnsureWrappedTextureHost()->AsBufferTextureHost();
@@ -219,6 +225,13 @@ BufferTextureHost* GPUVideoTextureHost::AsBufferTextureHost() {
 DXGITextureHostD3D11* GPUVideoTextureHost::AsDXGITextureHostD3D11() {
   if (EnsureWrappedTextureHost()) {
     return EnsureWrappedTextureHost()->AsDXGITextureHostD3D11();
+  }
+  return nullptr;
+}
+
+DXGIYCbCrTextureHostD3D11* GPUVideoTextureHost::AsDXGIYCbCrTextureHostD3D11() {
+  if (EnsureWrappedTextureHost()) {
+    return mWrappedTextureHost->AsDXGIYCbCrTextureHostD3D11();
   }
   return nullptr;
 }
@@ -242,6 +255,13 @@ bool GPUVideoTextureHost::NeedsDeferredDeletion() const {
     return TextureHost::NeedsDeferredDeletion();
   }
   return mWrappedTextureHost->NeedsDeferredDeletion();
+}
+
+bool GPUVideoTextureHost::NeedsYFlip() const {
+  if (!mWrappedTextureHost) {
+    return TextureHost::NeedsYFlip();
+  }
+  return mWrappedTextureHost->NeedsYFlip();
 }
 
 }  // namespace layers

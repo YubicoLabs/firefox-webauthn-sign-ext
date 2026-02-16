@@ -33,8 +33,8 @@
 // OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
 // EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef _JEMALLOC_TYPES_H_
-#define _JEMALLOC_TYPES_H_
+#ifndef JEMALLOC_TYPES_H_
+#define JEMALLOC_TYPES_H_
 
 #include <stdint.h>
 
@@ -82,12 +82,17 @@ typedef struct arena_params_s {
 
   uint32_t mFlags;
 
+  // The label will be copied into fixed-size storage (currently 128 bytes)
+  // within the arena.  It may be null for unamed arenas
+  const char* mLabel;
+
 #ifdef __cplusplus
   arena_params_s()
       : mMaxDirty(0),
         mMaxDirtyIncreaseOverride(0),
         mMaxDirtyDecreaseOverride(0),
-        mFlags(0) {}
+        mFlags(0),
+        mLabel(nullptr) {}
 #endif
 } arena_params_t;
 
@@ -104,10 +109,12 @@ typedef struct {
   size_t quantum_max;        // Max quantum-spaced allocation size.
   size_t quantum_wide;       // Allocation quantum (QuantuWide).
   size_t quantum_wide_max;   // Max quantum-wide-spaced allocation size.
-  size_t subpage_max;        // Max subpage allocation size.
+  size_t unused;             // Unused field.
   size_t large_max;          // Max sub-chunksize allocation size.
   size_t chunksize;          // Size of each virtual memory mapping.
-  size_t page_size;          // Size of pages.
+  size_t page_size;          // Size of pages in mozjemalloc internal
+                             // structures.
+  size_t real_page_size;     // Size of OS/hardware pages.
   size_t dirty_max;          // Max dirty pages per arena.
 
   // Current memory usage statistics.
@@ -139,6 +146,7 @@ typedef struct {
   size_t bytes_unused;       // The unallocated bytes across all these bins
   size_t bytes_total;        // The total storage area for runs in this bin,
   size_t bytes_per_run;      // The number of bytes per run, including headers.
+  size_t regions_per_run;    // The number of regions (aka cells) per run.
 } jemalloc_bin_stats_t;
 
 // jemalloc_stats_lite() is not a stable interface.  When using
@@ -214,12 +222,26 @@ static inline bool jemalloc_ptr_is_freed_page(jemalloc_ptr_info_t* info) {
   return info->tag == TagFreedPage;
 }
 
-// The result of a purge step.
-enum purge_result_t {
+// The result of purging memory from a sigle arena
+enum ArenaPurgeResult {
+  // The stop threshold of dirty pages was reached or all the remaining chunks
+  // that may have dirty pages are busy.  The allocator can't always tell the
+  // difference between these conditions.
+  ReachedThresholdOrBusy,
+
+  // There's more chunks in this arena that could be purged.
+  NotDone,
+
+  // The arena needs to be destroyed by the caller.
+  Dying,
+};
+
+// The result of calling moz_may_purge_now().
+enum may_purge_now_result_t {
   // Done: No more purge requests are pending.
   Done,
 
-  // There is at least one arena left whose reuse grace period expired and
+  // There may be one or more arenas whose reuse grace period expired and
   // needs purging asap.
   NeedsMore,
 
@@ -234,4 +256,4 @@ enum purge_result_t {
 }  // extern "C"
 #endif
 
-#endif  // _JEMALLOC_TYPES_H_
+#endif  // JEMALLOC_TYPES_H_

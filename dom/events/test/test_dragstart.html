@@ -16,6 +16,7 @@ SimpleTest.waitForExplicitFinish();
 var gDragInfo;
 var gDataTransfer = null;
 var gExtraDragTests = 0;
+var gIsMac = navigator.platform.includes("Mac");
 
 function runTests()
 {
@@ -158,8 +159,14 @@ function doDragStartSelection(event)
   ok(Array.isArray(types), "initial types is an Array");
   checkTypes(dt, ["text/_moz_htmlcontext", "text/_moz_htmlinfo", "text/html", "text/plain"], 0, "initial selection");
 
+  const includeCommonAncestor = SpecialPowers.getBoolPref(
+    "dom.serializer.includeCommonAncestor.enabled"
+  );
   is(dt.getData("text/plain"), "This is a draggable bit of text.", "initial selection text/plain");
-  is(dt.getData("text/html"), "<div id=\"draggable\" ondragstart=\"doDragStartSelection(event)\">This is a <em>draggable</em> bit of text.</div>",
+  is(dt.getData("text/html"),
+     `${includeCommonAncestor ? "<div id=\"draggable\" ondragstart=\"doDragStartSelection(event)\">" : ""}` +
+     `This is a <em>draggable</em> bit of text.` +
+     `${includeCommonAncestor ? "</div>" : ""}`,
      "initial selection text/html");
 
   // text/plain and Text are available for compatibility. They retrieve the
@@ -476,7 +483,10 @@ function doDragStartImage(event)
 
   var dt = event.dataTransfer;
   checkTypes(dt, ["text/x-moz-url", "text/x-moz-url-data", "text/x-moz-url-desc", "text/uri-list",
-                  "text/_moz_htmlcontext", "text/_moz_htmlinfo", "text/html", "text/plain"], 0, "initial image");
+                  "text/_moz_htmlcontext", "text/_moz_htmlinfo", "text/html", "text/plain",
+                  "application/x-moz-nativeimage", "application/x-moz-file-promise",
+                  "application/x-moz-file-promise-url", "application/x-moz-file-promise-dest-filename"],
+             0, "initial image");
 
   is(SpecialPowers.wrap(dt).mozItemCount, 1, "initial image item count");
   is(dt.getData("text/uri-list"), dataurl, "image text/uri-list");
@@ -516,7 +526,10 @@ function doDragStartShadowRootImage(event)
   var dt = event.dataTransfer;
 
   checkTypes(dt, ["text/x-moz-url", "text/x-moz-url-data", "text/x-moz-url-desc", "text/uri-list",
-                  "text/_moz_htmlcontext", "text/_moz_htmlinfo", "text/html", "text/plain"], 0, "shadow root link with image");
+                  "text/_moz_htmlcontext", "text/_moz_htmlinfo", "text/html", "text/plain",
+                  "application/x-moz-nativeimage", "application/x-moz-file-promise",
+                  "application/x-moz-file-promise-url", "application/x-moz-file-promise-dest-filename"],
+             0, "shadow root link with image");
 
   is(dt.getData("text/uri-list"), "http://example.org/", "shadow root link text/uri-list");
   is(dt.getData("text/plain"), "http://example.org/", "shadow root link text/plain");
@@ -610,6 +623,9 @@ function checkTypes(dt, expectedtypes, index, testid)
   }
 
   types = SpecialPowers.wrap(dt).mozTypesAt(index);
+  if (gIsMac && expectedtypes.find((t) => t === "application/x-moz-nativeimage")) {
+    expectedtypes.push("text/x-moz-requestmime");
+  }
   is(types.length, expectedtypes.length, testid + " typesAt length");
   for (var f = 0; f < expectedtypes.length; f++) {
     is(types[f], expectedtypes[f], testid + " " + types[f] + " at " + index + " check");

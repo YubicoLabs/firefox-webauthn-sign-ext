@@ -11,20 +11,17 @@ use std::{cell::RefCell, net::SocketAddr, rc::Rc, time::Duration};
 use common::{connect, connected_server, default_server, find_ticket, generate_ticket, new_server};
 use neqo_common::{qtrace, Datagram, Decoder, Encoder, Role};
 use neqo_crypto::{
-    generate_ech_keys, AllowZeroRtt, AuthenticationStatus, ZeroRttCheckResult, ZeroRttChecker,
+    generate_ech_keys, AeadTrait as _, AllowZeroRtt, AuthenticationStatus, ZeroRttCheckResult,
+    ZeroRttChecker,
 };
 use neqo_transport::{
     server::{ConnectionRef, Server, ValidateAddress},
-    version::WireVersion,
-    CloseReason, Connection, ConnectionParameters, Error, Output, State, StreamType, Version,
-    MIN_INITIAL_PACKET_SIZE,
+    version, CloseReason, Connection, ConnectionParameters, Error, Output, State, StreamType,
+    Version, MIN_INITIAL_PACKET_SIZE,
 };
 use test_fixture::{
     assertions, datagram, default_client,
-    header_protection::{
-        apply_header_protection, decode_initial_header, initial_aead_and_hp,
-        remove_header_protection,
-    },
+    header_protection::{self, decode_initial_header, initial_aead_and_hp},
     new_client, now, split_datagram, CountingConnectionIdGenerator,
 };
 
@@ -67,10 +64,11 @@ fn single_client() {
 #[test]
 fn connect_single_version_both() {
     fn connect_one_version(version: Version) {
-        let params = ConnectionParameters::default().versions(version, vec![version]);
-        let mut server = new_server(params.clone());
-
-        let mut client = new_client(params);
+        let mut server =
+            new_server(ConnectionParameters::default().versions(version, vec![version]));
+        let mut client = new_client::<CountingConnectionIdGenerator>(
+            ConnectionParameters::default().versions(version, vec![version]),
+        );
         let server_conn = connect(&mut client, &mut server);
         assert_eq!(client.version(), version);
         assert_eq!(server_conn.borrow().version(), version);
@@ -87,8 +85,9 @@ fn connect_single_version_client() {
     fn connect_one_version(version: Version) {
         let mut server = default_server();
 
-        let mut client =
-            new_client(ConnectionParameters::default().versions(version, vec![version]));
+        let mut client = new_client::<CountingConnectionIdGenerator>(
+            ConnectionParameters::default().versions(version, vec![version]),
+        );
         let server_conn = connect(&mut client, &mut server);
         assert_eq!(client.version(), version);
         assert_eq!(server_conn.borrow().version(), version);
@@ -158,7 +157,7 @@ fn duplicate_initial_new_path() {
     assert_eq!(*client.state(), State::Init);
     let initial = client.process_output(now()).dgram().unwrap();
     let other = Datagram::new(
-        SocketAddr::new(initial.source().ip(), initial.source().port() ^ 23),
+        SocketAddr::new(initial.source().ip(), initial.source().port() ^ 0b1_01110), // 23
         initial.destination(),
         initial.tos(),
         &initial[..],
@@ -311,6 +310,7 @@ fn zero_rtt() {
     };
 
     // Now generate a bunch of 0-RTT packets...
+    let c0 = client_send();
     let c1 = client_send();
     assertions::assert_coalesced_0rtt(&c1);
     let c2 = client_send();
@@ -322,11 +322,14 @@ fn zero_rtt() {
     assert!(server.active_connections().is_empty());
 
     // Now handshake and let another 0-RTT packet in.
+    _ = server.process(Some(c0), now);
     let shs = server.process(Some(c1), now);
     drop(server.process(Some(c3), now));
-    // The server will have received two STREAM frames now if it processed both packets.
-    // `ActiveConnectionRef` `Hash` implementation doesn’t access any of the interior mutable types.
-    #[allow(clippy::mutable_key_type)]
+    // The server will have received three STREAM frames now if it processed both packets.
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "ActiveConnectionRef::Hash doesn't access any of the interior mutable types."
+    )]
     let active = server.active_connections();
     assert_eq!(active.len(), 1);
     assert_eq!(
@@ -338,7 +341,7 @@ fn zero_rtt() {
             .stats()
             .frame_rx
             .stream,
-        2
+        3
     );
 
     // Complete the handshake.  As the client was pacing 0-RTT packets, extend the time
@@ -349,8 +352,10 @@ fn zero_rtt() {
 
     // The server will drop this last 0-RTT packet.
     drop(server.process(Some(c4), now));
-    // `ActiveConnectionRef` `Hash` implementation doesn’t access any of the interior mutable types.
-    #[allow(clippy::mutable_key_type)]
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "ActiveConnectionRef::Hash doesn't access any of the interior mutable types."
+    )]
     let active = server.active_connections();
     assert_eq!(active.len(), 1);
     assert_eq!(
@@ -362,7 +367,7 @@ fn zero_rtt() {
             .stats()
             .frame_rx
             .stream,
-        2
+        4
     );
 }
 
@@ -378,15 +383,19 @@ fn new_token_0rtt() {
     let client_stream = client.stream_create(StreamType::UniDi).unwrap();
     client.stream_send(client_stream, &[1, 2, 3]).unwrap();
 
-    let out = client.process_output(now()); // Initial w/0-RTT
-    assert!(out.as_dgram_ref().is_some());
+    let out = client.process_output(now());
+    let out2 = client.process_output(now()); // Initial w/0-RTT
+    assert!(out.as_dgram_ref().is_some() && out2.as_dgram_ref().is_some());
     assertions::assert_initial(out.as_dgram_ref().unwrap(), true);
-    assertions::assert_coalesced_0rtt(out.as_dgram_ref().unwrap());
-    let out = server.process(out.dgram(), now()); // Initial
+    assertions::assert_coalesced_0rtt(out2.as_dgram_ref().unwrap());
+    _ = server.process(out.dgram(), now()); // Initial
+    let out = server.process(out2.dgram(), now()); // Initial
     assert!(out.as_dgram_ref().is_some());
     assertions::assert_initial(out.as_dgram_ref().unwrap(), false);
 
     let dgram = client.process(out.as_dgram_ref().cloned(), now());
+    let dgram = server.process(dgram.as_dgram_ref().cloned(), now());
+    let dgram = client.process(dgram.as_dgram_ref().cloned(), now());
     // Note: the client doesn't need to authenticate the server here
     // as there is no certificate; authentication is based on the ticket.
     assert!(out.as_dgram_ref().is_some());
@@ -421,13 +430,17 @@ fn new_token_different_port() {
 
 #[test]
 fn bad_client_initial() {
-    let mut client = default_client();
-    let mut server = default_server();
+    const PN_LEN: usize = 2;
+    let mut client =
+        new_client::<CountingConnectionIdGenerator>(ConnectionParameters::default().mlkem(false));
+    // There's some precise size counting we do in this test, so disable randomization
+    // of packet numbers.
+    let mut server = new_server(ConnectionParameters::default().randomize_first_pn(false));
 
     let dgram = client.process_output(now()).dgram().expect("a datagram");
     let (header, d_cid, s_cid, payload) = decode_initial_header(&dgram, Role::Client).unwrap();
     let (aead, hp) = initial_aead_and_hp(d_cid, Role::Client);
-    let (fixed_header, pn) = remove_header_protection(&hp, header, payload);
+    let (fixed_header, pn) = header_protection::remove(&hp, header, payload);
     let payload = &payload[(fixed_header.len() - header.len())..];
 
     let mut plaintext_buf = vec![0; dgram.len()];
@@ -436,18 +449,19 @@ fn bad_client_initial() {
         .unwrap();
 
     let mut payload_enc = Encoder::from(plaintext);
-    payload_enc.encode(&[0x08, 0x02, 0x00, 0x00]); // Add a stream frame.
+    payload_enc.encode([0x08, 0x02, 0x00, 0x00]); // Add a stream frame.
 
     // Make a new header with a 1 byte packet number length.
-    let mut header_enc = Encoder::new();
+    let mut header_enc = Encoder::default();
     header_enc
-        .encode_byte(0xc0) // Initial with 1 byte packet number.
-        .encode_uint(4, Version::default().wire_version())
+        .encode_byte(0xc1) // Initial with 2 byte packet number.
+        .encode_uint(4, Version::Version1.wire_version())
         .encode_vec(1, d_cid)
         .encode_vec(1, s_cid)
         .encode_vvec(&[])
-        .encode_varint(u64::try_from(payload_enc.len() + aead.expansion() + 1).unwrap())
-        .encode_byte(u8::try_from(pn).unwrap());
+        .encode_varint(u64::try_from(payload_enc.len() + aead.expansion() + PN_LEN).unwrap())
+        .encode_byte(u8::try_from(pn >> 8).unwrap())
+        .encode_byte(u8::try_from(pn & 0xff).unwrap());
 
     let mut ciphertext = header_enc.as_ref().to_vec();
     ciphertext.resize(header_enc.len() + payload_enc.len() + aead.expansion(), 0);
@@ -463,10 +477,10 @@ fn bad_client_initial() {
     // Pad with zero to get up to MIN_INITIAL_PACKET_SIZE.
     ciphertext.resize(MIN_INITIAL_PACKET_SIZE, 0);
 
-    apply_header_protection(
+    header_protection::apply(
         &hp,
         &mut ciphertext,
-        (header_enc.len() - 1)..header_enc.len(),
+        (header_enc.len() - PN_LEN)..header_enc.len(),
     );
     let bad_dgram = Datagram::new(dgram.source(), dgram.destination(), dgram.tos(), ciphertext);
 
@@ -492,9 +506,13 @@ fn bad_client_initial() {
     assert_ne!(delay, Duration::from_secs(0));
     assert!(matches!(
         *client.state(),
-        State::Draining { error: CloseReason::Transport(Error::PeerError(code)), .. } if code == Error::ProtocolViolation.code()
+        State::Draining { error: CloseReason::Transport(Error::Peer(code)), .. } if code == Error::ProtocolViolation.code()
     ));
 
+    #[expect(
+        clippy::iter_over_hash_type,
+        reason = "OK to loop over active connections in an undefined order."
+    )]
     for server in server.active_connections() {
         assert_eq!(
             *server.borrow().state(),
@@ -509,19 +527,24 @@ fn bad_client_initial() {
 
 #[test]
 fn bad_client_initial_connection_close() {
-    let mut client = default_client();
+    // This test needs to decrypt the CI; turn off MLKEM and random client initial packet numbers.
+    let mut client = new_client::<CountingConnectionIdGenerator>(
+        ConnectionParameters::default()
+            .mlkem(false)
+            .randomize_first_pn(false),
+    );
     let mut server = default_server();
 
     let dgram = client.process_output(now()).dgram().expect("a datagram");
     let (header, d_cid, s_cid, payload) = decode_initial_header(&dgram, Role::Client).unwrap();
     let (aead, hp) = initial_aead_and_hp(d_cid, Role::Client);
-    let (_, pn) = remove_header_protection(&hp, header, payload);
+    let (_, pn) = header_protection::remove(&hp, header, payload);
 
     let mut payload_enc = Encoder::with_capacity(MIN_INITIAL_PACKET_SIZE);
-    payload_enc.encode(&[0x1c, 0x01, 0x00, 0x00]); // Add a CONNECTION_CLOSE frame.
+    payload_enc.encode([0x1c, 0x01, 0x00, 0x00]); // Add a CONNECTION_CLOSE frame.
 
     // Make a new header with a 1 byte packet number length.
-    let mut header_enc = Encoder::new();
+    let mut header_enc = Encoder::default();
     header_enc
         .encode_byte(0xc0) // Initial with 1 byte packet number.
         .encode_uint(4, Version::default().wire_version())
@@ -545,7 +568,7 @@ fn bad_client_initial_connection_close() {
     // Pad with zero to get up to MIN_INITIAL_PACKET_SIZE.
     ciphertext.resize(MIN_INITIAL_PACKET_SIZE, 0);
 
-    apply_header_protection(
+    header_protection::apply(
         &hp,
         &mut ciphertext,
         (header_enc.len() - 1)..header_enc.len(),
@@ -567,6 +590,7 @@ fn version_negotiation_ignored() {
 
     // Any packet will do, but let's make something that looks real.
     let dgram = client.process_output(now()).dgram().expect("a datagram");
+    _ = client.process_output(now()).dgram().expect("a datagram");
     let mut input = dgram.to_vec();
     input[1] ^= 0x12;
     let damaged = Datagram::new(
@@ -590,7 +614,9 @@ fn version_negotiation_ignored() {
     assert_eq!(dec.decode_vec(1).expect("VN SCID"), &d_cid[..]);
     let mut found = false;
     while dec.remaining() > 0 {
-        let v = dec.decode_uint::<WireVersion>().expect("supported version");
+        let v = dec
+            .decode_uint::<version::Wire>()
+            .expect("supported version");
         found |= v == Version::default().wire_version();
     }
     assert!(found, "valid version not found");
@@ -641,7 +667,7 @@ fn version_negotiation_and_compatible() {
     );
     // Note that the order of versions at the client only determines what it tries first.
     // The server will pick between VN_VERSION and COMPAT_VERSION.
-    let mut client = new_client(
+    let mut client = new_client::<CountingConnectionIdGenerator>(
         ConnectionParameters::default()
             .versions(ORIG_VERSION, vec![ORIG_VERSION, VN_VERSION, COMPAT_VERSION]),
     );
@@ -650,16 +676,22 @@ fn version_negotiation_and_compatible() {
 
     // Version Negotiation
     let dgram = client.process_output(now()).dgram();
-    assert!(dgram.is_some());
+    let dgram2 = client.process_output(now()).dgram();
+    assert!(dgram.is_some() && dgram2.is_some());
     assertions::assert_version(dgram.as_ref().unwrap(), ORIG_VERSION.wire_version());
-    let dgram = server.process(dgram, now()).dgram();
+    _ = server.process(dgram, now()).dgram();
+    let dgram = server.process(dgram2, now()).dgram();
     assertions::assert_vn(dgram.as_ref().unwrap());
     client.process_input(dgram.unwrap(), now());
 
     let dgram = client.process_output(now()).dgram(); // ClientHello
+    let dgram2 = client.process_output(now()).dgram(); // ClientHello
     assertions::assert_version(dgram.as_ref().unwrap(), VN_VERSION.wire_version());
-    let dgram = server.process(dgram, now()).dgram(); // ServerHello...
+    _ = server.process(dgram, now()).dgram(); // ServerHello...
+    let dgram = server.process(dgram2, now()).dgram(); // ServerHello...
     assertions::assert_version(dgram.as_ref().unwrap(), COMPAT_VERSION.wire_version());
+    let dgram = client.process(dgram, now()).dgram();
+    let dgram = server.process(dgram, now()).dgram();
     client.process_input(dgram.unwrap(), now());
 
     client.authenticated(AuthenticationStatus::Ok, now());
@@ -690,7 +722,7 @@ fn compatible_upgrade_resumption_and_vn() {
         ORIG_VERSION,
         vec![COMPAT_VERSION, ORIG_VERSION, RESUMPTION_VERSION],
     );
-    let mut client = new_client(client_params.clone());
+    let mut client = new_client::<CountingConnectionIdGenerator>(client_params.clone());
     assert_eq!(client.version(), ORIG_VERSION);
 
     let mut server = default_server();
@@ -704,7 +736,7 @@ fn compatible_upgrade_resumption_and_vn() {
     let ticket = find_ticket(&mut client);
 
     // This new server will reject the ticket, but it will also generate a VN packet.
-    let mut client = new_client(client_params);
+    let mut client = new_client::<CountingConnectionIdGenerator>(client_params);
     let mut server = new_server(
         ConnectionParameters::default().versions(RESUMPTION_VERSION, vec![RESUMPTION_VERSION]),
     );
@@ -742,11 +774,12 @@ fn closed() {
     assert_eq!(res, Output::None);
 }
 
+#[cfg(test)]
 fn can_create_streams(c: &mut Connection, t: StreamType, n: u64) {
     for _ in 0..n {
         c.stream_create(t).unwrap();
     }
-    assert_eq!(c.stream_create(t), Err(Error::StreamLimitError));
+    assert_eq!(c.stream_create(t), Err(Error::StreamLimit));
 }
 
 #[test]
@@ -826,6 +859,10 @@ fn max_streams_after_0rtt_rejection() {
     client.enable_resumption(now(), &token).unwrap();
     _ = client.stream_create(StreamType::BiDi).unwrap();
     let dgram = client.process_output(now()).dgram();
+    let dgram2 = client.process_output(now()).dgram();
+    _ = server.process(dgram, now()).dgram();
+    let dgram = server.process(dgram2, now()).dgram();
+    let dgram = client.process(dgram, now()).dgram();
     let dgram = server.process(dgram, now()).dgram();
     let dgram = client.process(dgram, now()).dgram();
     assert!(dgram.is_some()); // We're far enough along to complete the test now.
@@ -868,4 +905,56 @@ fn has_active_connections() {
     _ = server.process(initial.dgram(), now()).dgram();
 
     assert!(server.has_active_connections());
+}
+
+/// If a server has to react immediately to a datagram in a batch, it will
+/// service the remaining datagrams in consecutive calls.
+#[test]
+fn saved_datagrams() {
+    let mut server = default_server();
+
+    let valid_dgram = {
+        let mut client = default_client();
+        client.process_output(now()).dgram().expect("a datagram")
+    };
+
+    // Any packet will do, but let's make something that looks real.
+    let invalid_dgram = || {
+        let mut client = default_client();
+        let dgram = client.process_output(now()).dgram().expect("a datagram");
+        let mut input = dgram.to_vec();
+        input[1] ^= 0x12;
+        Datagram::new(
+            dgram.source(),
+            dgram.destination(),
+            dgram.tos(),
+            input.clone(),
+        )
+    };
+
+    // Server sends a version negotation immediately. Saves second and third
+    // input datagram for later.
+    server
+        .process_multiple(
+            vec![invalid_dgram(), valid_dgram, invalid_dgram()],
+            now(),
+            1.try_into().expect("1>0"),
+        )
+        .dgram()
+        .expect("first packet triggers first vn");
+
+    // Server processes the second (valid) datagram which doesn't require an
+    // immediate response. Server then processes the third (invalid) datagram
+    // which does require an immediate response. It thereby has to save the
+    // fourth (new) datagram for the next call.
+    server
+        .process_multiple(Some(invalid_dgram()), now(), 1.try_into().expect("1>0"))
+        .dgram()
+        .expect("third packet triggers second vn");
+
+    // Server processes the fourth datagram.
+    server
+        .process_multiple(Vec::<Datagram>::new(), now(), 1.try_into().expect("1>0"))
+        .dgram()
+        .expect("fourth packet triggers third vn");
 }

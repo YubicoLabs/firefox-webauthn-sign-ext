@@ -4,9 +4,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::ops::{Add, Sub};
+use std::{
+    fmt::{self, Display, Formatter},
+    ops::{Add, Sub},
+};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Default)]
 pub struct PushId(u64);
 
 impl PushId {
@@ -15,7 +18,7 @@ impl PushId {
         Self(id)
     }
 
-    pub fn next(&mut self) {
+    pub const fn next(&mut self) {
         self.0 += 1;
     }
 }
@@ -32,8 +35,8 @@ impl From<PushId> for u64 {
     }
 }
 
-impl ::std::fmt::Display for PushId {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl Display for PushId {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -52,4 +55,9 @@ impl Add<u64> for PushId {
     fn add(self, rhs: u64) -> Self {
         Self(self.0 + rhs)
     }
+}
+
+#[test]
+fn push_id_display() {
+    assert_eq!(PushId::new(42).to_string(), "42");
 }

@@ -9,18 +9,17 @@
 
 #include <cstdint>
 #include <functional>
-#include <utility>
 
-#include "nsISupportsImpl.h"
-#include "nsTArray.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/EnumSet.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/NotNull.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/dom/FlippedOnce.h"
 #include "mozilla/dom/Nullable.h"
 #include "mozilla/dom/quota/Client.h"
+#include "mozilla/dom/quota/ClientStorageScope.h"
 #include "mozilla/dom/quota/CommonMetadata.h"
 #include "mozilla/dom/quota/DirectoryLockCategory.h"
 #include "mozilla/dom/quota/ForwardDecls.h"
@@ -28,11 +27,14 @@
 #include "mozilla/dom/quota/PersistenceScope.h"
 #include "mozilla/dom/quota/PersistenceType.h"
 #include "nsCOMPtr.h"
+#include "nsISupportsImpl.h"
+#include "nsTArray.h"
 
 class nsITimer;
 
 namespace mozilla::dom::quota {
 
+class ClientDirectoryLockHandle;
 struct OriginMetadata;
 class QuotaManager;
 
@@ -45,6 +47,7 @@ class DirectoryLockImpl {
 
  private:
   friend class ClientDirectoryLock;
+  friend class ClientDirectoryLockHandle;
   friend class OriginDirectoryLock;
   friend class QuotaManager;
   friend class UniversalDirectoryLock;
@@ -53,7 +56,7 @@ class DirectoryLockImpl {
 
   const PersistenceScope mPersistenceScope;
   const OriginScope mOriginScope;
-  const Nullable<Client::Type> mClientType;
+  const ClientStorageScope mClientStorageScope;
 
   MozPromiseHolder<BoolPromise> mAcquirePromiseHolder;
   nsCOMPtr<nsITimer> mAcquireTimer;
@@ -85,12 +88,14 @@ class DirectoryLockImpl {
   DirectoryLockImpl(MovingNotNull<RefPtr<QuotaManager>> aQuotaManager,
                     const PersistenceScope& aPersistenceScope,
                     const OriginScope& aOriginScope,
-                    const Nullable<Client::Type>& aClientType, bool aExclusive,
-                    bool aInternal,
+                    const ClientStorageScope& aClientStorageScope,
+                    bool aExclusive, bool aInternal,
                     ShouldUpdateLockIdTableFlag aShouldUpdateLockIdTableFlag,
                     DirectoryLockCategory aCategory);
 
   NS_INLINE_DECL_REFCOUNTING(DirectoryLockImpl)
+
+  QuotaManager& MutableManagerRef() const { return *mQuotaManager; }
 
   int64_t Id() const { return mId; }
 
@@ -100,8 +105,8 @@ class DirectoryLockImpl {
 
   const OriginScope& GetOriginScope() const { return mOriginScope; }
 
-  const Nullable<Client::Type>& NullableClientType() const {
-    return mClientType;
+  const ClientStorageScope& ClientStorageScopeRef() const {
+    return mClientStorageScope;
   }
 
   DirectoryLockCategory Category() const { return mCategory; }
@@ -170,10 +175,11 @@ class DirectoryLockImpl {
   }
 
   Client::Type ClientType() const {
-    MOZ_DIAGNOSTIC_ASSERT(!mClientType.IsNull());
-    MOZ_DIAGNOSTIC_ASSERT(mClientType.Value() < Client::TypeMax());
+    MOZ_DIAGNOSTIC_ASSERT(mClientStorageScope.IsClient());
+    MOZ_DIAGNOSTIC_ASSERT(mClientStorageScope.GetClientType() <
+                          Client::TypeMax());
 
-    return mClientType.Value();
+    return mClientStorageScope.GetClientType();
   }
 
   bool IsInternal() const { return mInternal; }
@@ -192,11 +198,6 @@ class DirectoryLockImpl {
   // QuotaManager::mDirectoryLockIdTable. This can be improved in future after
   // some refactoring of the mutex locking.
   bool ShouldUpdateLockIdTable() const { return mShouldUpdateLockIdTable; }
-
-  bool ShouldUpdateLockTable() {
-    return !mInternal &&
-           mPersistenceScope.GetValue() != PERSISTENCE_TYPE_PERSISTENT;
-  }
 
   bool Overlaps(const DirectoryLockImpl& aLock) const;
 
@@ -256,6 +257,22 @@ class MOZ_RAII DirectoryLockImpl::PrepareInfo {
 
   const nsTArray<NotNull<DirectoryLockImpl*>>& BlockedOnRef() const {
     return mBlockedOn;
+  }
+
+  /**
+   * Returns true if this directory lock would be blocked by any other lock
+   * whose category is included in the given set.
+   *
+   * Used to detect whether an initialization operation should still run, even
+   * if the cached state indicates it has already been performed, because an
+   * in-progress or pending uninitialization operation will eventually
+   * invalidate that state.
+   */
+  bool IsBlockedBy(const EnumSet<DirectoryLockCategory>& aCategories) const {
+    return std::any_of(mBlockedOn.cbegin(), mBlockedOn.cend(),
+                       [&aCategories](const auto& lock) {
+                         return aCategories.contains(lock->Category());
+                       });
   }
 
  private:

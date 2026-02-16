@@ -7,6 +7,15 @@ const { XPCOMUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/XPCOMUtils.sys.mjs"
 );
 
+const lazy = {};
+
+XPCOMUtils.defineLazyServiceGetter(
+  lazy,
+  "FIPSUtils",
+  "@mozilla.org/security/fipsutils;1",
+  Ci.nsIFIPSUtils
+);
+
 var secmoddb;
 var skip_enable_buttons = false;
 
@@ -16,6 +25,38 @@ function LoadModules() {
     Ci.nsIPKCS11ModuleDB
   );
   RefreshDeviceList();
+
+  document
+    .getElementById("device_tree")
+    .addEventListener("select", () => enableButtons());
+  document
+    .getElementById("devicemanager")
+    .addEventListener("command", event => {
+      switch (event.target.id) {
+        case "login_button":
+          doLogin();
+          break;
+        case "logout_button":
+          doLogout();
+          break;
+        case "change_pw_button":
+          changePassword();
+          break;
+        case "load_button":
+          doLoad();
+          break;
+        case "unload_button":
+          doUnload();
+          break;
+        case "fipsbutton":
+          toggleFIPS();
+          break;
+        default:
+          // Default means that we are not handling a command so we should
+          // probably let people know.
+          throw new Error("Unhandled command event");
+      }
+    });
 }
 
 async function doPrompt(l10n_id) {
@@ -40,13 +81,13 @@ function RefreshDeviceList() {
 
 function SetFIPSButton() {
   var fipsButton = document.getElementById("fipsbutton");
-  if (secmoddb.isFIPSEnabled) {
+  if (lazy.FIPSUtils.isFIPSEnabled) {
     document.l10n.setAttributes(fipsButton, "devmgr-button-disable-fips");
   } else {
     document.l10n.setAttributes(fipsButton, "devmgr-button-enable-fips");
   }
 
-  var can_toggle = secmoddb.canToggleFIPS;
+  var can_toggle = lazy.FIPSUtils.canToggleFIPS;
   if (can_toggle) {
     fipsButton.removeAttribute("disabled");
   } else {
@@ -114,13 +155,13 @@ function enableButtons() {
     return;
   }
 
-  var login_toggle = "true";
-  var logout_toggle = "true";
-  var pw_toggle = "true";
-  var unload_toggle = "true";
+  var login_toggle = true;
+  var logout_toggle = true;
+  var pw_toggle = true;
+  var unload_toggle = true;
   getSelectedItem();
   if (selected_module) {
-    unload_toggle = "false";
+    unload_toggle = false;
     showModuleInfo();
   } else if (selected_slot) {
     // here's the workaround - login functions are all with token,
@@ -128,12 +169,12 @@ function enableButtons() {
     var selected_token = selected_slot.getToken();
     if (selected_token != null) {
       if (selected_token.needsLogin() || !selected_token.needsUserInit) {
-        pw_toggle = "false";
+        pw_toggle = false;
         if (selected_token.needsLogin()) {
           if (selected_token.isLoggedIn()) {
-            logout_toggle = "false";
+            logout_toggle = false;
           } else {
-            login_toggle = "false";
+            login_toggle = false;
           }
         }
       }
@@ -150,16 +191,16 @@ function enableButtons() {
   }
   document
     .getElementById("login_button")
-    .setAttribute("disabled", login_toggle);
+    .toggleAttribute("disabled", login_toggle);
   document
     .getElementById("logout_button")
-    .setAttribute("disabled", logout_toggle);
+    .toggleAttribute("disabled", logout_toggle);
   document
     .getElementById("change_pw_button")
-    .setAttribute("disabled", pw_toggle);
+    .toggleAttribute("disabled", pw_toggle);
   document
     .getElementById("unload_button")
-    .setAttribute("disabled", unload_toggle);
+    .toggleAttribute("disabled", unload_toggle);
 }
 
 // clear the display of information for the slot
@@ -402,7 +443,7 @@ function showTokenInfo() {
 }
 
 function toggleFIPS() {
-  if (!secmoddb.isFIPSEnabled) {
+  if (!lazy.FIPSUtils.isFIPSEnabled) {
     // A restriction of FIPS mode is, the password must be set
     // In FIPS mode the password must be non-empty.
     // This is different from what we allow in NON-Fips mode.
@@ -419,7 +460,7 @@ function toggleFIPS() {
   }
 
   try {
-    secmoddb.toggleFIPSMode();
+    lazy.FIPSUtils.toggleFIPSMode();
   } catch (e) {
     doPrompt("unable-to-toggle-fips");
     return;
@@ -431,3 +472,5 @@ function toggleFIPS() {
 
   RefreshDeviceList();
 }
+
+window.addEventListener("load", () => LoadModules());

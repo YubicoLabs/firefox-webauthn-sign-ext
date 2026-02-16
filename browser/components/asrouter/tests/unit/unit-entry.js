@@ -4,6 +4,7 @@ import {
   GlobalOverrider,
   FakeConsoleAPI,
   FakeLogger,
+  FakeNimbusFeatures,
 } from "tests/unit/utils";
 import Adapter from "enzyme-adapter-react-16";
 import chaiJsonSchema from "chai-json-schema";
@@ -13,6 +14,7 @@ import {
   MESSAGE_TYPE_LIST,
   MESSAGE_TYPE_HASH,
 } from "modules/ActorConstants.mjs";
+import { MESSAGING_EXPERIMENTS_DEFAULT_FEATURES } from "modules/MessagingExperimentConstants.sys.mjs";
 
 enzyme.configure({ adapter: new Adapter() });
 
@@ -41,11 +43,8 @@ chai.tv4.addSchema("file:///FxMSCommon.schema.json", FxMSCommonSchema);
 
 const overrider = new GlobalOverrider();
 
-const RemoteSettings = name => ({
+const RemoteSettings = _cid => ({
   get: () => {
-    if (name === "attachment") {
-      return Promise.resolve([{ attachment: {} }]);
-    }
     return Promise.resolve([]);
   },
   on: () => {},
@@ -210,6 +209,7 @@ const TEST_GLOBAL = {
       insert() {},
       markPageAsTyped() {},
       removeObserver() {},
+      pageFrecencyThreshold() {},
     },
     "@mozilla.org/io/string-input-stream;1": {
       createInstance() {
@@ -343,6 +343,9 @@ const TEST_GLOBAL = {
     },
     getLocalProfileDir() {
       return Promise.resolve("/");
+    },
+    toFileURI(path) {
+      return `file://${path}`;
     },
   },
   PlacesUtils: {
@@ -479,11 +482,21 @@ const TEST_GLOBAL = {
     },
   },
   XPCOMUtils: {
+    declareLazy: declaration => {
+      Object.entries(declaration).forEach(([key, value]) => {
+        if (typeof value === "function") {
+          updateGlobalOrObject(global)[key] = value();
+        } else if (typeof value === "object" && value.pref) {
+          updateGlobalOrObject(global)[key] = value.default;
+        }
+      });
+      return global;
+    },
     defineLazyGlobalGetters: updateGlobalOrObject,
     defineLazyServiceGetter: updateGlobalOrObject,
     defineLazyServiceGetters: updateGlobalOrObject,
-    defineLazyPreferenceGetter(object, name) {
-      updateGlobalOrObject(object)[name] = "";
+    defineLazyPreferenceGetter(object, name, _pref, defaultValue = "") {
+      updateGlobalOrObject(object)[name] = defaultValue;
     },
     generateQI() {
       return {};
@@ -515,31 +528,17 @@ const TEST_GLOBAL = {
     },
   },
   FX_MONITOR_OAUTH_CLIENT_ID: "fake_client_id",
-  ExperimentAPI: {
-    getExperiment() {},
-    getExperimentMetaData() {},
-    getRolloutMetaData() {},
+  ExperimentAPI: {},
+  FeatureCalloutBroker: {
+    showFeatureCallout() {},
   },
-  NimbusFeatures: {
-    glean: {
-      getVariable() {},
-    },
-    newtab: {
-      getVariable() {},
-      getAllVariables() {},
-      onUpdate() {},
-      offUpdate() {},
-    },
-    pocketNewtab: {
-      getVariable() {},
-      getAllVariables() {},
-      onUpdate() {},
-      offUpdate() {},
-    },
-    cookieBannerHandling: {
-      getVariable() {},
-    },
-  },
+  NimbusFeatures: FakeNimbusFeatures([
+    ...MESSAGING_EXPERIMENTS_DEFAULT_FEATURES,
+    "glean",
+    "newtab",
+    "pocketNewtab",
+    "cookieBannerHandling",
+  ]),
   TelemetryEnvironment: {
     setExperimentActive() {},
     currentEnvironment: {
@@ -548,10 +547,6 @@ const TEST_GLOBAL = {
       },
       settings: {},
     },
-  },
-  TelemetryStopwatch: {
-    start: () => {},
-    finish: () => {},
   },
   Sampling: {
     ratioSample(_seed, _ratios) {
@@ -582,6 +577,15 @@ const TEST_GLOBAL = {
     messagingExperiments: {
       reachCfr: {
         record() {},
+      },
+      reachFxmsMessage15: {
+        record() {},
+      },
+    },
+    messagingSystem: {
+      messageRequestTime: {
+        start() {},
+        stopAndAccumulate() {},
       },
     },
     newtab: {
@@ -704,5 +708,8 @@ overrider.set(TEST_GLOBAL);
 
 describe("asrouter", () => {
   after(() => overrider.restore());
+  console.log(
+    "Loading files from unit-entry.js (msg should show once - bug 1967579)"
+  );
   files.forEach(file => req(file));
 });

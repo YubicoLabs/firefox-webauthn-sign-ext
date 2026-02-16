@@ -6,7 +6,6 @@ package org.mozilla.fenix.browser
 
 import android.content.Context
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.view.View
 import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.Fragment
@@ -76,7 +75,7 @@ class BrowserAnimator(
                     unwrappedSwipeRefresh?.apply {
                         // If the bitmap is null, the best we can do to reduce the flash is set transparent
                         background = bitmap?.toDrawable(context.resources)
-                            ?: ColorDrawable(Color.TRANSPARENT)
+                            ?: Color.TRANSPARENT.toDrawable()
                     }
 
                     unwrappedEngineView?.asView()?.visibility = View.GONE
@@ -99,9 +98,17 @@ class BrowserAnimator(
 
     companion object {
         fun getToolbarNavOptions(context: Context): NavOptions {
+            return getToolbarNavOptions(context.settings().toolbarPosition)
+        }
+
+        /**
+         * Returns the [NavOptions] to be used when navigating based on the provided
+         * [ToolbarPosition].
+         */
+        fun getToolbarNavOptions(toolbarPosition: ToolbarPosition): NavOptions {
             val navOptions = NavOptions.Builder()
 
-            when (context.settings().toolbarPosition) {
+            when (toolbarPosition) {
                 ToolbarPosition.TOP -> {
                     navOptions.setEnterAnim(R.anim.fade_in)
                     navOptions.setExitAnim(R.anim.fade_out)

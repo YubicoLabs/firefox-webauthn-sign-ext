@@ -14,6 +14,8 @@
 #include "mozilla/layers/SourceSurfaceSharedData.h"
 #include "mozilla/WeakPtr.h"
 
+class nsICanvasRenderingContextInternal;
+
 namespace mozilla {
 
 namespace dom {
@@ -44,8 +46,6 @@ class CanvasChild final : public PCanvasChild, public SupportsWeakPtr {
    * Release resources until they are next required.
    */
   void ClearCachedResources();
-
-  ipc::IPCResult RecvNotifyDeviceChanged();
 
   ipc::IPCResult RecvNotifyDeviceReset(
       const nsTArray<RemoteTextureOwnerId>& aOwnerIds);
@@ -166,6 +166,11 @@ class CanvasChild final : public PCanvasChild, public SupportsWeakPtr {
   void ReturnDataSurfaceShmem(
       std::shared_ptr<ipc::ReadOnlySharedMemoryMapping>&& aDataSurfaceShmem);
 
+  already_AddRefed<gfx::SourceSurface> SnapshotExternalCanvas(
+      gfx::DrawTargetRecording* aTarget,
+      nsICanvasRenderingContextInternal* aCanvas,
+      mozilla::ipc::IProtocol* aActor);
+
  protected:
   void ActorDestroy(ActorDestroyReason aWhy) final;
 
@@ -174,6 +179,9 @@ class CanvasChild final : public PCanvasChild, public SupportsWeakPtr {
 
   ~CanvasChild() final;
 
+  size_t SizeOfDataSurfaceShmem(gfx::IntSize, gfx::SurfaceFormat aFormat);
+  bool ShouldGrowDataSurfaceShmem(size_t aSizeRequired);
+  bool EnsureDataSurfaceShmem(size_t aSizeRequired);
   bool EnsureDataSurfaceShmem(gfx::IntSize aSize, gfx::SurfaceFormat aFormat);
 
   static void ReleaseDataShmemHolder(void* aClosure);
@@ -189,6 +197,7 @@ class CanvasChild final : public PCanvasChild, public SupportsWeakPtr {
 
   std::shared_ptr<ipc::ReadOnlySharedMemoryMapping> mDataSurfaceShmem;
   bool mDataSurfaceShmemAvailable = false;
+  uint32_t mNextDataSurfaceShmemId = 0;
   int64_t mLastWriteLockCheckpoint = 0;
   uint32_t mTransactionsSinceGetDataSurface = kCacheDataSurfaceThreshold;
   struct TextureInfo {
@@ -201,6 +210,7 @@ class CanvasChild final : public PCanvasChild, public SupportsWeakPtr {
   bool mIsInTransaction = false;
   bool mDormant = false;
   bool mBlocked = false;
+  uint64_t mLastSyncId = 0;
 };
 
 }  // namespace layers

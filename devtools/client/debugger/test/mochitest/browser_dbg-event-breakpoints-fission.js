@@ -22,7 +22,7 @@ add_task(async function () {
   ]);
 
   info("Assert early timeout event breakpoint gets hit");
-  const waitForReload = reloadBrowser();
+  const waitForReload = reloadSelectedTab();
 
   await waitForPaused(dbg);
   await assertPausedAtSourceAndLine(
@@ -60,7 +60,7 @@ async function invokeAndAssertBreakpoints(dbg) {
   await assertPausedAtSourceAndLine(
     dbg,
     findSource(dbg, "event-breakpoints.js").id,
-    20
+    24
   );
   await resume(dbg);
 }

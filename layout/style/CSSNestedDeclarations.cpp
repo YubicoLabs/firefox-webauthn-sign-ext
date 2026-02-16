@@ -5,9 +5,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/CSSNestedDeclarations.h"
-#include "mozilla/dom/CSSNestedDeclarationsBinding.h"
 
 #include "mozilla/DeclarationBlock.h"
+#include "mozilla/dom/CSSNestedDeclarationsBinding.h"
 
 namespace mozilla::dom {
 
@@ -64,14 +64,14 @@ nsresult CSSNestedDeclarationsDeclaration::SetCSSDeclaration(
     DeclarationBlock* aDecl, MutationClosureData* aClosureData) {
   CSSNestedDeclarations* rule = Rule();
   RefPtr<DeclarationBlock> oldDecls;
+  if (aDecl != mDecls) {
+    oldDecls = std::move(mDecls);
+    oldDecls->SetOwningRule(nullptr);
+    Servo_NestedDeclarationsRule_SetStyle(rule->Raw(), aDecl->Raw());
+    mDecls = aDecl;
+    mDecls->SetOwningRule(rule);
+  }
   if (StyleSheet* sheet = rule->GetStyleSheet()) {
-    if (aDecl != mDecls) {
-      oldDecls = std::move(mDecls);
-      oldDecls->SetOwningRule(nullptr);
-      Servo_NestedDeclarationsRule_SetStyle(rule->Raw(), aDecl->Raw());
-      mDecls = aDecl;
-      mDecls->SetOwningRule(rule);
-    }
     sheet->RuleChanged(rule, {StyleRuleChangeKind::StyleRuleDeclarations,
                               oldDecls ? oldDecls.get() : aDecl, aDecl});
   }
@@ -80,8 +80,10 @@ nsresult CSSNestedDeclarationsDeclaration::SetCSSDeclaration(
 
 nsDOMCSSDeclaration::ParsingEnvironment
 CSSNestedDeclarationsDeclaration::GetParsingEnvironment(nsIPrincipal*) const {
-  return GetParsingEnvironmentForRule(Rule(),
-                                      StyleCssRuleType::NestedDeclarations);
+  if (auto* parent = Rule()->GetParentRule()) {
+    return GetParsingEnvironmentForRule(parent, parent->Type());
+  }
+  return {};
 }
 
 CSSNestedDeclarations::CSSNestedDeclarations(
@@ -118,7 +120,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(CSSNestedDeclarations,
   // Keep this in sync with IsCCLeaf.
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
-StyleLockedDeclarationBlock* CSSNestedDeclarations::RawStyle() const {
+const StyleLockedDeclarationBlock* CSSNestedDeclarations::RawStyle() const {
   return mDecls.mDecls->Raw();
 }
 

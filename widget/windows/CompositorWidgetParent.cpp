@@ -4,7 +4,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #include "CompositorWidgetParent.h"
 
-#include "mozilla/Unused.h"
 #include "mozilla/StaticPrefs_layers.h"
 #include "mozilla/gfx/DeviceManagerDx.h"
 #include "mozilla/gfx/Point.h"
@@ -70,21 +69,21 @@ LayoutDeviceIntSize CompositorWidgetParent::GetClientSize() {
 
 already_AddRefed<gfx::DrawTarget>
 CompositorWidgetParent::StartRemoteDrawingInRegion(
-    const LayoutDeviceIntRegion& aInvalidRegion,
-    layers::BufferMode* aBufferMode) {
-  MOZ_ASSERT(mRemoteBackbufferClient);
-  MOZ_ASSERT(aBufferMode);
-
-  // Because we use remote backbuffering, there is no need to use a local
-  // backbuffer too.
-  (*aBufferMode) = layers::BufferMode::BUFFER_NONE;
-
+    const LayoutDeviceIntRegion& aInvalidRegion) {
+  if (!mRemoteBackbufferClient) {
+    MOZ_DIAGNOSTIC_CRASH("Missing mRemoteBackbufferClient for SW compositing!");
+    return nullptr;
+  }
   return mRemoteBackbufferClient->BorrowDrawTarget();
 }
 
 void CompositorWidgetParent::EndRemoteDrawingInRegion(
     gfx::DrawTarget* aDrawTarget, const LayoutDeviceIntRegion& aInvalidRegion) {
-  Unused << mRemoteBackbufferClient->PresentDrawTarget(
+  if (!mRemoteBackbufferClient) {
+    MOZ_DIAGNOSTIC_CRASH("Missing mRemoteBackbufferClient for SW compositing!");
+    return;
+  }
+  (void)mRemoteBackbufferClient->PresentDrawTarget(
       aInvalidRegion.ToUnknownRegion());
 }
 
@@ -112,7 +111,7 @@ bool CompositorWidgetParent::IsHidden() const { return ::IsIconic(mWnd); }
 
 mozilla::ipc::IPCResult CompositorWidgetParent::RecvInitialize(
     const RemoteBackbufferHandles& aRemoteHandles) {
-  Unused << Initialize(aRemoteHandles);
+  (void)Initialize(aRemoteHandles);
   return IPC_OK();
 }
 
@@ -146,9 +145,9 @@ nsIWidget* CompositorWidgetParent::RealWidget() { return nullptr; }
 
 void CompositorWidgetParent::ObserveVsync(VsyncObserver* aObserver) {
   if (aObserver) {
-    Unused << SendObserveVsync();
+    (void)SendObserveVsync();
   } else {
-    Unused << SendUnobserveVsync();
+    (void)SendUnobserveVsync();
   }
   mVsyncObserver = aObserver;
 }

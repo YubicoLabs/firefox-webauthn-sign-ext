@@ -13,10 +13,11 @@
 #include "mozilla/ContentEvents.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
+#include "mozilla/ProfilerMarkers.h"
 #include "mozilla/Variant.h"
 #include "mozilla/dom/AnimationPlaybackEvent.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/KeyframeEffect.h"
-#include "mozilla/ProfilerMarkers.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsPresContext.h"
 
@@ -47,7 +48,7 @@ struct AnimationEventInfo {
 
   struct CssTransitionData : public CssAnimationOrTransitionData {
     // For transition events only.
-    const AnimatedPropertyID mProperty;
+    const CSSPropertyId mProperty;
   };
 
   struct WebAnimationData {
@@ -78,22 +79,14 @@ struct AnimationEventInfo {
   Maybe<dom::Animation::EventContext> GetEventContext() const {
     if (mData.is<CssAnimationData>()) {
       const auto& data = mData.as<CssAnimationData>();
-      return data.mMessage == eAnimationCancel
-                 ? Some(dom::Animation::EventContext{
-                       NonOwningAnimationTarget(data.mTarget),
-                       data.mAnimationIndex})
-                 : Nothing();
+      return Some(dom::Animation::EventContext{
+          NonOwningAnimationTarget(data.mTarget), data.mAnimationIndex});
     }
-
     if (mData.is<CssTransitionData>()) {
       const auto& data = mData.as<CssTransitionData>();
-      return data.mMessage == eTransitionCancel
-                 ? Some(dom::Animation::EventContext{
-                       NonOwningAnimationTarget(data.mTarget),
-                       data.mAnimationIndex})
-                 : Nothing();
+      return Some(dom::Animation::EventContext{
+          NonOwningAnimationTarget(data.mTarget), data.mAnimationIndex});
     }
-
     return Nothing();
   }
 
@@ -118,7 +111,7 @@ struct AnimationEventInfo {
   }
 
   // For CSS transition events
-  AnimationEventInfo(const AnimatedPropertyID& aProperty,
+  AnimationEventInfo(const CSSPropertyId& aProperty,
                      const NonOwningAnimationTarget& aTarget,
                      EventMessage aMessage, double aElapsedTime,
                      uint64_t aTransitionGeneration,
@@ -152,23 +145,28 @@ struct AnimationEventInfo {
   AnimationEventInfo(AnimationEventInfo&& aOther) = default;
   AnimationEventInfo& operator=(AnimationEventInfo&& aOther) = default;
 
-  bool operator<(const AnimationEventInfo& aOther) const {
-    if (this->mScheduledEventTimeStamp != aOther.mScheduledEventTimeStamp) {
+  int32_t Compare(const AnimationEventInfo& aOther,
+                  nsContentUtils::NodeIndexCache& aCache) const {
+    if (mScheduledEventTimeStamp != aOther.mScheduledEventTimeStamp) {
       // Null timestamps sort first
-      if (this->mScheduledEventTimeStamp.IsNull() ||
-          aOther.mScheduledEventTimeStamp.IsNull()) {
-        return this->mScheduledEventTimeStamp.IsNull();
+      if (mScheduledEventTimeStamp.IsNull()) {
+        return -1;
       }
-      return this->mScheduledEventTimeStamp < aOther.mScheduledEventTimeStamp;
+      if (aOther.mScheduledEventTimeStamp.IsNull()) {
+        return 1;
+      }
+      return mScheduledEventTimeStamp < aOther.mScheduledEventTimeStamp ? -1
+                                                                        : 1;
     }
 
     // Events in the Web Animations spec are prior to CSS events.
-    if (this->IsWebAnimationEvent() != aOther.IsWebAnimationEvent()) {
-      return this->IsWebAnimationEvent();
+    if (IsWebAnimationEvent() != aOther.IsWebAnimationEvent()) {
+      return IsWebAnimationEvent() ? -1 : 1;
     }
 
-    return mAnimation->HasLowerCompositeOrderThan(
-        GetEventContext(), *aOther.mAnimation, aOther.GetEventContext());
+    return mAnimation->CompareCompositeOrder(GetEventContext(),
+                                             *aOther.mAnimation,
+                                             aOther.GetEventContext(), aCache);
   }
 
   bool IsWebAnimationEvent() const { return mData.is<WebAnimationData>(); }
@@ -216,8 +214,7 @@ struct AnimationEventInfo {
       InternalTransitionEvent event(true, data.mMessage);
       data.mProperty.ToString(event.mPropertyName);
       event.mElapsedTime = data.mElapsedTime;
-      event.mPseudoElement = nsCSSPseudoElements::PseudoRequestAsString(
-          data.mTarget.mPseudoRequest);
+      data.mTarget.mPseudoRequest.ToString(event.mPseudoElement);
       event.AssignEventTime(WidgetEventTime(data.mEventEnqueueTimeStamp));
       RefPtr target = data.mTarget.mElement;
       EventDispatcher::Dispatch(target, aPresContext, &event);
@@ -228,8 +225,7 @@ struct AnimationEventInfo {
     InternalAnimationEvent event(true, data.mMessage);
     data.mAnimationName->ToString(event.mAnimationName);
     event.mElapsedTime = data.mElapsedTime;
-    event.mPseudoElement =
-        nsCSSPseudoElements::PseudoRequestAsString(data.mTarget.mPseudoRequest);
+    data.mTarget.mPseudoRequest.ToString(event.mPseudoElement);
     event.AssignEventTime(WidgetEventTime(data.mEventEnqueueTimeStamp));
     RefPtr target = data.mTarget.mElement;
     EventDispatcher::Dispatch(target, aPresContext, &event);
@@ -239,7 +235,7 @@ struct AnimationEventInfo {
 class AnimationEventDispatcher final {
  public:
   explicit AnimationEventDispatcher(nsPresContext* aPresContext)
-      : mPresContext(aPresContext), mIsSorted(true), mIsObserving(false) {}
+      : mPresContext(aPresContext), mIsSorted(true) {}
 
   NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(AnimationEventDispatcher)
   NS_DECL_CYCLE_COLLECTION_NATIVE_CLASS(AnimationEventDispatcher)
@@ -252,7 +248,6 @@ class AnimationEventDispatcher final {
   // This will call SortEvents automatically if it has not already been
   // called.
   void DispatchEvents() {
-    mIsObserving = false;
     if (!mPresContext || mPendingEvents.IsEmpty()) {
       return;
     }
@@ -291,15 +286,7 @@ class AnimationEventDispatcher final {
   }
 
  private:
-#ifndef DEBUG
   ~AnimationEventDispatcher() = default;
-#else
-  ~AnimationEventDispatcher() {
-    MOZ_ASSERT(!mIsObserving,
-               "AnimationEventDispatcher should have disassociated from "
-               "nsRefreshDriver");
-  }
-#endif
 
   // Sort all pending CSS animation/transition events by scheduled event time
   // and composite order.
@@ -309,11 +296,16 @@ class AnimationEventDispatcher final {
       return;
     }
 
-    for (auto& pending : mPendingEvents) {
-      pending.mAnimation->CachedChildIndexRef().reset();
-    }
+    struct AnimationEventInfoComparator {
+      mutable nsContentUtils::NodeIndexCache mCache;
 
-    mPendingEvents.StableSort();
+      bool LessThan(const AnimationEventInfo& aOne,
+                    const AnimationEventInfo& aOther) const {
+        return aOne.Compare(aOther, mCache) < 0;
+      }
+    };
+
+    mPendingEvents.StableSort(AnimationEventInfoComparator());
     mIsSorted = true;
   }
   void ScheduleDispatch();
@@ -322,7 +314,6 @@ class AnimationEventDispatcher final {
   using EventArray = nsTArray<AnimationEventInfo>;
   EventArray mPendingEvents;
   bool mIsSorted;
-  bool mIsObserving;
 };
 
 }  // namespace mozilla

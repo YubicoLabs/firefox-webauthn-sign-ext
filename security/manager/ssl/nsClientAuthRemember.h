@@ -4,14 +4,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __NSCLIENTAUTHREMEMBER_H__
-#define __NSCLIENTAUTHREMEMBER_H__
+#ifndef NSCLIENTAUTHREMEMBER_H_
+#define NSCLIENTAUTHREMEMBER_H_
 
-#include <utility>
-
-#include "mozilla/Attributes.h"
 #include "mozilla/DataMutex.h"
-#include "mozilla/HashFunctions.h"
 #include "mozilla/ReentrantMonitor.h"
 #include "nsIClientAuthRememberService.h"
 #include "nsIDataStorage.h"
@@ -85,14 +81,11 @@ class nsClientAuthRememberService final : public nsIClientAuthRememberService {
  protected:
   ~nsClientAuthRememberService() = default;
 
-  static nsIDataStorage::DataType GetDataStorageType(
-      const OriginAttributes& aOriginAttributes);
-
   nsCOMPtr<nsIDataStorage> mClientAuthRememberList;
 
   nsresult AddEntryToList(const nsACString& aHost,
                           const OriginAttributes& aOriginAttributes,
-                          const nsACString& aDBKey);
+                          const nsACString& aDBKey, Duration aDuration);
 
   mozilla::DataMutex<bool> mMigrated;
   void Migrate();

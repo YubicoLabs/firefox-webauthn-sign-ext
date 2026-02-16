@@ -4,7 +4,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::collections::VecDeque;
+use std::{
+    collections::VecDeque,
+    fmt::{self, Display, Formatter},
+};
 
 use neqo_common::qtrace;
 
@@ -36,11 +39,11 @@ impl DynamicTableEntry {
         self.refs == 0 && self.base < first_not_acked
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         self.name.len() + self.value.len() + ADDITIONAL_TABLE_ENTRY_SIZE
     }
 
-    pub fn add_ref(&mut self) {
+    pub const fn add_ref(&mut self) {
         self.refs += 1;
     }
 
@@ -77,8 +80,8 @@ pub struct HeaderTable {
     acked_inserts_cnt: u64,
 }
 
-impl ::std::fmt::Display for HeaderTable {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl Display for HeaderTable {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
             "HeaderTable for (base={} acked_inserts_cnt={} capacity={})",
@@ -131,10 +134,7 @@ impl HeaderTable {
     /// `HeaderLookup` if the index does not exist in the static table.
     pub fn get_static(index: u64) -> Res<&'static StaticTableEntry> {
         let inx = usize::try_from(index).or(Err(Error::HeaderLookup))?;
-        if inx > HEADER_STATIC_TABLE.len() {
-            return Err(Error::HeaderLookup);
-        }
-        Ok(&HEADER_STATIC_TABLE[inx])
+        HEADER_STATIC_TABLE.get(inx).ok_or(Error::HeaderLookup)
     }
 
     fn get_dynamic_with_abs_index(&mut self, index: u64) -> Res<&mut DynamicTableEntry> {
@@ -144,18 +144,12 @@ impl HeaderTable {
         }
         let inx = self.base - index - 1;
         let inx = usize::try_from(inx).or(Err(Error::HeaderLookup))?;
-        if inx >= self.dynamic.len() {
-            return Err(Error::HeaderLookup);
-        }
-        Ok(&mut self.dynamic[inx])
+        self.dynamic.get_mut(inx).ok_or(Error::HeaderLookup)
     }
 
     fn get_dynamic_with_relative_index(&self, index: u64) -> Res<&DynamicTableEntry> {
         let inx = usize::try_from(index).or(Err(Error::HeaderLookup))?;
-        if inx >= self.dynamic.len() {
-            return Err(Error::HeaderLookup);
-        }
-        Ok(&self.dynamic[inx])
+        self.dynamic.get(inx).ok_or(Error::HeaderLookup)
     }
 
     /// Get a entry in the  dynamic table.
@@ -251,16 +245,15 @@ impl HeaderTable {
             "[{self}] reduce table to {reduce}, currently used:{}",
             self.used,
         );
-        let mut used = self.used;
-        while (!self.dynamic.is_empty()) && used > reduce {
-            if let Some(e) = self.dynamic.back() {
-                if !e.can_reduce(self.acked_inserts_cnt) {
-                    return false;
-                }
-                used -= u64::try_from(e.size()).unwrap();
-                self.used -= u64::try_from(e.size()).unwrap();
-                self.dynamic.pop_back();
+        while let Some(e) = self.dynamic.back() {
+            if self.used <= reduce {
+                break;
             }
+            if !e.can_reduce(self.acked_inserts_cnt) {
+                return false;
+            }
+            self.used -= u64::try_from(e.size()).expect("usize fits in u64");
+            self.dynamic.pop_back();
         }
         true
     }
@@ -274,12 +267,12 @@ impl HeaderTable {
             .map(DynamicTableEntry::size)
             .sum();
 
-        self.used - u64::try_from(evictable_size).unwrap() <= reduce
+        self.used - u64::try_from(evictable_size).expect("usize fits in u64") <= reduce
     }
 
     pub fn insert_possible(&self, size: usize) -> bool {
-        u64::try_from(size).unwrap() <= self.capacity
-            && self.can_evict_to(self.capacity - u64::try_from(size).unwrap())
+        let size = u64::try_from(size).expect("usize fits in u64");
+        size <= self.capacity && self.can_evict_to(self.capacity - size)
     }
 
     /// Insert a new entry.
@@ -296,13 +289,14 @@ impl HeaderTable {
             base: self.base,
             refs: 0,
         };
-        if u64::try_from(entry.size()).unwrap() > self.capacity
-            || !self.evict_to(self.capacity - u64::try_from(entry.size()).unwrap())
+        if u64::try_from(entry.size()).map_err(|_| Error::Internal)? > self.capacity
+            || !self
+                .evict_to(self.capacity - u64::try_from(entry.size()).map_err(|_| Error::Internal)?)
         {
             return Err(Error::DynamicTableFull);
         }
         self.base += 1;
-        self.used += u64::try_from(entry.size()).unwrap();
+        self.used += u64::try_from(entry.size()).map_err(|_| Error::Internal)?;
         let index = entry.index();
         self.dynamic.push_front(entry);
         Ok(index)
@@ -381,6 +375,7 @@ impl HeaderTable {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

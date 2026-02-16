@@ -4,9 +4,8 @@
  */
 
 /*---
-includes: [sm/non262-shell.js, sm/non262.js]
 flags:
-- noStrict
+  - noStrict
 description: |
   pending
 esid: pending
@@ -18,7 +17,7 @@ function checkNotWritable(obj) {
     assert.sameValue(obj[sym], "cheese");
 
     // In strict mode code, it throws.
-    assertThrowsInstanceOf(function () { "use strict"; obj[sym] = "robots"; }, TypeError);
+    assert.throws(TypeError, function () { "use strict"; obj[sym] = "robots"; });
     assert.sameValue(obj[sym], "cheese");
 }
 

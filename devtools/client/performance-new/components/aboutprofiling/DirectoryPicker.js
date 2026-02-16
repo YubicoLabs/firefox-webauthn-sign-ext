@@ -4,7 +4,7 @@
 // @ts-check
 
 /**
- * @typedef {Object} Props
+ * @typedef {object} Props
  * @property {string[]} dirs
  * @property {() => void} onAdd
  * @property {(index: number) => void} onRemove
@@ -15,7 +15,7 @@
 const {
   PureComponent,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const {
   div,
   button,
@@ -42,7 +42,7 @@ const Localized = createFactory(
  *
  *  [+] [-]
  *
- * @extends {React.PureComponent<Props>}
+ * @augments {React.PureComponent<Props>}
  */
 class DirectoryPicker extends PureComponent {
   /** @param {Props} props */

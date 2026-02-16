@@ -210,7 +210,7 @@ impl FfiSerialize for RustBuffer {
     fn get(buf: &[FfiBufferElement]) -> Self {
         // Safety: the foreign bindings are responsible for sending us the correct data.
         let (capacity, len, data) = unsafe { (buf[0].u64, buf[1].u64, buf[2].ptr as *mut u8) };
-        unsafe { crate::RustBuffer::from_raw_parts(data, len, capacity) }
+        unsafe { RustBuffer::from_raw_parts(data, len, capacity) }
     }
 
     fn put(buf: &mut [FfiBufferElement], value: Self) {
@@ -299,7 +299,7 @@ mod test {
         <*const std::ffi::c_void as FfiSerialize>::write(&mut buf_writer, void_ptr);
         <RustBuffer as FfiSerialize>::write(&mut buf_writer, rust_buffer);
         <RustCallStatus as FfiSerialize>::write(&mut buf_writer, rust_call_status);
-        <Handle as FfiSerialize>::write(&mut buf_writer, handle);
+        <Handle as FfiSerialize>::write(&mut buf_writer, handle.clone());
         #[allow(clippy::needless_borrows_for_generic_args)]
         <() as FfiSerialize>::write(&mut buf_writer, ());
 

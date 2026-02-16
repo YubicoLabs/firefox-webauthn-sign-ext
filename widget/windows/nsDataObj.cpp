@@ -3,7 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/TextUtils.h"
 
 #include <ole2.h>
@@ -30,7 +29,6 @@
 #include "mozilla/Components.h"
 #include "mozilla/SpinEventLoopUntil.h"
 #include "mozilla/StaticPrefs_clipboard.h"
-#include "mozilla/Unused.h"
 #include "nsProxyRelease.h"
 #include "nsIObserverService.h"
 #include "nsIOutputStream.h"
@@ -99,8 +97,14 @@ nsresult nsDataObj::CStream::Init(nsIURI* pSourceURI,
 
   if (nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(mChannel)) {
     rv = httpChannel->SetReferrerInfo(aReferrerInfo);
-    Unused << NS_WARN_IF(NS_FAILED(rv));
+    (void)NS_WARN_IF(NS_FAILED(rv));
   }
+
+  // Do not HTTPS-Only/-First upgrade this request. If we reach this point, any
+  // potential upgrades should have already happened, or the URI may have
+  // already been exempt.
+  nsCOMPtr<nsILoadInfo> loadInfo = mChannel->LoadInfo();
+  loadInfo->SetHttpsOnlyStatus(nsILoadInfo::HTTPS_ONLY_EXEMPT);
 
   rv = mChannel->AsyncOpen(this);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1110,7 +1114,7 @@ nsDataObj ::GetFileDescriptor(FORMATETC& aFE, STGMEDIUM& aSTG,
     else
       res = GetFileDescriptorInternetShortcutA(aFE, aSTG);
   } else
-    NS_WARNING("Not yet implemented\n");
+    NS_WARNING("Not yet implemented");
 
   return res;
 }  // GetFileDescriptor
@@ -1127,7 +1131,7 @@ nsDataObj ::GetFileContents(FORMATETC& aFE, STGMEDIUM& aSTG) {
   else if (IsFlavourPresent(kURLMime))
     return GetFileContentsInternetShortcut(aFE, aSTG);
   else
-    NS_WARNING("Not yet implemented\n");
+    NS_WARNING("Not yet implemented");
 
   return res;
 
@@ -1582,20 +1586,46 @@ HRESULT nsDataObj::GetText(const nsACString& aDataFlavor, FORMATETC& aFE,
 
 //-----------------------------------------------------
 HRESULT nsDataObj::GetFile(FORMATETC& aFE, STGMEDIUM& aSTG) {
-  uint32_t dfInx = 0;
   ULONG count;
   FORMATETC fe;
+
+  // We want to prefer kFileMime over kFilePromiseMime, and only
+  // fall back to kNativeImageMime if neither of those are present, since
+  // kNativeImageMime isn't really a file and we'll have to convert it to
+  // either PNG or BMP regardless of the original format.
+  enum class FlavorType : uint8_t {
+    eNone = 0,
+    eNativeImageMime = 1,
+    eFilePromiseMime = 2,
+    eFileMime = 3,
+  };
+  FlavorType flavorType = FlavorType::eNone;
   m_enumFE->Reset();
-  while (NOERROR == m_enumFE->Next(1, &fe, &count) &&
-         dfInx < mDataFlavors.Length()) {
-    if (mDataFlavors[dfInx].EqualsLiteral(kNativeImageMime))
-      return DropImage(aFE, aSTG);
-    if (mDataFlavors[dfInx].EqualsLiteral(kFileMime))
-      return DropFile(aFE, aSTG);
-    if (mDataFlavors[dfInx].EqualsLiteral(kFilePromiseMime))
-      return DropTempFile(aFE, aSTG);
-    dfInx++;
+  for (const auto& dataFlavor : mDataFlavors) {
+    if (m_enumFE->Next(1, &fe, &count) != NOERROR) {
+      break;
+    }
+
+    if (dataFlavor.EqualsLiteral(kFileMime)) {
+      flavorType = std::max(FlavorType::eFileMime, flavorType);
+    } else if (dataFlavor.EqualsLiteral(kFilePromiseMime)) {
+      flavorType = std::max(FlavorType::eFilePromiseMime, flavorType);
+    } else if (dataFlavor.EqualsLiteral(kNativeImageMime)) {
+      flavorType = std::max(FlavorType::eNativeImageMime, flavorType);
+    }
   }
+
+  switch (flavorType) {
+    case FlavorType::eFileMime:
+      return DropFile(aFE, aSTG);
+    case FlavorType::eFilePromiseMime:
+      return DropTempFile(aFE, aSTG);
+    case FlavorType::eNativeImageMime:
+      return DropImage(aFE, aSTG);
+    case FlavorType::eNone:
+      return E_FAIL;
+  }
+  MOZ_ASSERT_UNREACHABLE("Unexpected flavor type");
   return E_FAIL;
 }
 
@@ -2073,7 +2103,7 @@ nsDataObj ::GetUniformResourceLocator(FORMATETC& aFE, STGMEDIUM& aSTG,
     else
       res = ExtractUniformResourceLocatorA(aFE, aSTG);
   } else
-    NS_WARNING("Not yet implemented\n");
+    NS_WARNING("Not yet implemented");
   return res;
 }
 
@@ -2151,8 +2181,8 @@ HRESULT nsDataObj::GetDownloadDetails(nsIURI** aSourceURI,
 
   nsAutoString srcFileName;
   nsCOMPtr<nsISupports> fileNamePrimitive;
-  Unused << mTransferable->GetTransferData(kFilePromiseDestFilename,
-                                           getter_AddRefs(fileNamePrimitive));
+  (void)mTransferable->GetTransferData(kFilePromiseDestFilename,
+                                       getter_AddRefs(fileNamePrimitive));
   nsCOMPtr<nsISupportsString> srcFileNamePrimitive =
       do_QueryInterface(fileNamePrimitive);
   if (srcFileNamePrimitive) {

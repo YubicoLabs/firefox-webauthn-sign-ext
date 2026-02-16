@@ -4,19 +4,17 @@
  */
 
 /*---
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
 description: |
   pending
 esid: pending
+features: [host-gc-required]
 ---*/
 for (var u = 0; u < 3; ++u) {
     var y = [];
     Object.create(y);
-    gc();
+    $262.gc();
     y.t = 3;
-    gc();
+    $262.gc();
 }
 
 

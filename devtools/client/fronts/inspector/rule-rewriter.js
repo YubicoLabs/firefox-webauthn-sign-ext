@@ -24,7 +24,7 @@ const {
 
 loader.lazyRequireGetter(
   this,
-  ["getIndentationFromPrefs", "getIndentationFromString"],
+  "getIndentationFromPrefs",
   "resource://devtools/shared/indentation.js",
   true
 );
@@ -67,7 +67,7 @@ const BLANK_LINE_RX = /^[ \t]*(?:\r\n|\n|\r|\f|$)/;
  */
 class RuleRewriter {
   /**
-   * @constructor
+   * @class
    * @param {Window} win
    * @param {Function} isCssPropertyKnown
    *        A function to check if the CSS property is known. This is either an
@@ -79,7 +79,7 @@ class RuleRewriter {
    * @param {StyleRuleFront} rule The style rule to use.  Note that this
    *        is only needed by the |apply| and |getDefaultIndentation| methods;
    *        and in particular for testing it can be |null|.
-   * @param {String} inputString The CSS source text to parse and modify.
+   * @param {string} inputString The CSS source text to parse and modify.
    */
   constructor(win, isCssPropertyKnown, rule, inputString) {
     this.win = win;
@@ -111,7 +111,7 @@ class RuleRewriter {
    * An internal function to initialize the rewriter with a given
    * input string.
    *
-   * @param {String} inputString the input to use
+   * @param {string} inputString the input to use
    */
   startInitialization(inputString) {
     this.inputString = inputString;
@@ -131,7 +131,7 @@ class RuleRewriter {
    * An internal function to complete initialization and set some
    * properties for further processing.
    *
-   * @param {Number} index The index of the property to modify
+   * @param {number} index The index of the property to modify
    */
   completeInitialization(index) {
     if (index < 0) {
@@ -155,9 +155,9 @@ class RuleRewriter {
    * unlike |getDefaultIndentation|, which examines the entire style
    * sheet.
    *
-   * @param {String} string the input text
-   * @param {Number} offset the offset at which to compute the indentation
-   * @return {String} the indentation at the indicated position
+   * @param {string} string the input text
+   * @param {number} offset the offset at which to compute the indentation
+   * @return {string} the indentation at the indicated position
    */
   getIndentation(string, offset) {
     let originalOffset = offset;
@@ -185,7 +185,7 @@ class RuleRewriter {
    * sheet will not cause unwanted changes to other rules or
    * declarations.
    *
-   * @param {String} text The input text.  This should include the trailing ";".
+   * @param {string} text The input text.  This should include the trailing ";".
    * @return {Array} An array of the form [anySanitized, text], where
    *                 |anySanitized| is a boolean that indicates
    *                  whether anything substantive has changed; and
@@ -310,9 +310,10 @@ class RuleRewriter {
    * backward in |string|.  Return the index of the first
    * non-whitespace character, or -1 if the entire string was
    * whitespace.
-   * @param {String} string the input string
-   * @param {Number} index the index at which to start
-   * @return {Number} index of the first non-whitespace character, or -1
+   *
+   * @param {string} string the input string
+   * @param {number} index the index at which to start
+   * @return {number} index of the first non-whitespace character, or -1
    */
   skipWhitespaceBackward(string, index) {
     for (
@@ -328,7 +329,7 @@ class RuleRewriter {
   /**
    * Terminate a given declaration, if needed.
    *
-   * @param {Number} index The index of the rule to possibly
+   * @param {number} index The index of the rule to possibly
    *                       terminate.  It might be invalid, so this
    *                       function must check for that.
    */
@@ -379,9 +380,9 @@ class RuleRewriter {
    * If the property is rewritten during sanitization, make a note in
    * |changedDeclarations|.
    *
-   * @param {String} text The property text.
-   * @param {Number} index The index of the property.
-   * @return {String} The sanitized text.
+   * @param {string} text The property text.
+   * @param {number} index The index of the property.
+   * @return {string} The sanitized text.
    */
   sanitizeText(text, index) {
     const [anySanitized, sanitizedText] = this.sanitizePropertyValue(text);
@@ -394,9 +395,9 @@ class RuleRewriter {
   /**
    * Rename a declaration.
    *
-   * @param {Number} index index of the property in the rule.
-   * @param {String} name current name of the property
-   * @param {String} newName new name of the property
+   * @param {number} index index of the property in the rule.
+   * @param {string} name current name of the property
+   * @param {string} newName new name of the property
    */
   renameProperty(index, name, newName) {
     this.completeInitialization(index);
@@ -410,9 +411,9 @@ class RuleRewriter {
   /**
    * Enable or disable a declaration
    *
-   * @param {Number} index index of the property in the rule.
-   * @param {String} name current name of the property
-   * @param {Boolean} isEnabled true if the property should be enabled;
+   * @param {number} index index of the property in the rule.
+   * @param {string} name current name of the property
+   * @param {boolean} isEnabled true if the property should be enabled;
    *                        false if it should be disabled
    */
   setPropertyEnabled(index, name, isEnabled) {
@@ -510,23 +511,21 @@ class RuleRewriter {
       );
       return "  ";
     }
-    const { str: source } = await styleSheetsFront.getText(
-      this.rule.parentStyleSheet.resourceId
-    );
-    const { indentUnit, indentWithTabs } = getIndentationFromString(source);
-    return indentWithTabs ? "\t" : " ".repeat(indentUnit);
+
+    const styleSheetResourceId = this.rule.parentStyleSheet.resourceId;
+    return styleSheetsFront.getStyleSheetIndentation(styleSheetResourceId);
   }
 
   /**
    * An internal function to create a new declaration.  This does all
    * the work of |createProperty|.
    *
-   * @param {Number} index index of the property in the rule.
-   * @param {String} name name of the new property
-   * @param {String} value value of the new property
-   * @param {String} priority priority of the new property; either
+   * @param {number} index index of the property in the rule.
+   * @param {string} name name of the new property
+   * @param {string} value value of the new property
+   * @param {string} priority priority of the new property; either
    *                          the empty string or "important"
-   * @param {Boolean} enabled True if the new property should be
+   * @param {boolean} enabled True if the new property should be
    *                          enabled, false if disabled
    * @return {Promise} a promise that is resolved when the edit has
    *                   completed
@@ -586,7 +585,7 @@ class RuleRewriter {
     // to put the new declaration at.
     // e.g. if we have `body { color: red; &>span {}; }`, we want to put the new property
     // after `color: red` but before `&>span`.
-    let nestedDeclarationIndex = -1;
+    let insertIndex = -1;
     // Don't try to find the index if we can already see there's no nested rules
     if (this.result.includes("{")) {
       // Create a rule with the initial rule text so we can check for children rules
@@ -599,30 +598,42 @@ class RuleRewriter {
         const nestedRuleColumn = InspectorUtils.getRuleColumn(nestedRule);
         // We need to account for the new line we added for the parent rule,
         // and then remove 1 again since the InspectorUtils method returns 1-based values
-        const actualLine = nestedRuleLine - 2;
+        let actualLine = nestedRuleLine - 2;
         const actualColumn = nestedRuleColumn - 1;
 
-        let lineOffset = 0;
-        for (let i = 0; i < actualLine; i++) {
-          lineOffset = this.result.indexOf("\n", lineOffset);
+        // First, we compute the index in the original rule text corresponding to the
+        // nested rule line number.
+        insertIndex = 0;
+        for (
+          ;
+          insertIndex < this.result.length && actualLine > 0;
+          insertIndex++
+        ) {
+          if (this.result[insertIndex] === "\n") {
+            actualLine--;
+          }
         }
 
-        nestedDeclarationIndex = lineOffset + actualColumn;
+        // If the property doesn't add a new line, we need to insert the declaration
+        // before the nested declaration. When the property does add a new line,
+        // insertIndex already has the correct position.
+        if (!this.hasNewLine) {
+          insertIndex += actualColumn;
+        }
       }
     }
 
-    if (nestedDeclarationIndex == -1) {
+    if (insertIndex == -1) {
       this.result += newText;
     } else {
       this.result =
-        this.result.substring(0, nestedDeclarationIndex) +
+        this.result.substring(0, insertIndex) +
         newText +
-        this.result.substring(nestedDeclarationIndex);
+        this.result.substring(insertIndex);
     }
 
     if (this.decl) {
-      // Still want to copy in the declaration previously at this
-      // index.
+      // Still want to copy in the declaration previously at this index.
       this.completeCopying(this.decl.offsets[0]);
     }
   }
@@ -630,12 +641,12 @@ class RuleRewriter {
   /**
    * Create a new declaration.
    *
-   * @param {Number} index index of the property in the rule.
-   * @param {String} name name of the new property
-   * @param {String} value value of the new property
-   * @param {String} priority priority of the new property; either
+   * @param {number} index index of the property in the rule.
+   * @param {string} name name of the new property
+   * @param {string} value value of the new property
+   * @param {string} priority priority of the new property; either
    *                          the empty string or "important"
-   * @param {Boolean} enabled True if the new property should be
+   * @param {boolean} enabled True if the new property should be
    *                          enabled, false if disabled
    */
   createProperty(index, name, value, priority, enabled) {
@@ -655,14 +666,14 @@ class RuleRewriter {
   /**
    * Set a declaration's value.
    *
-   * @param {Number} index index of the property in the rule.
+   * @param {number} index index of the property in the rule.
    *                       This can be -1 in the case where
    *                       the rule does not support setRuleText;
    *                       generally for setting properties
    *                       on an element's style.
-   * @param {String} name the property's name
-   * @param {String} value the property's value
-   * @param {String} priority the property's priority, either the empty
+   * @param {string} name the property's name
+   * @param {string} value the property's value
+   * @param {string} priority the property's priority, either the empty
    *                          string or "important"
    */
   setProperty(index, name, value, priority) {
@@ -693,8 +704,8 @@ class RuleRewriter {
   /**
    * Remove a declaration.
    *
-   * @param {Number} index index of the property in the rule.
-   * @param {String} name the name of the property to remove
+   * @param {number} index index of the property in the rule.
+   * @param {string} name the name of the property to remove
    */
   removeProperty(index, name) {
     this.completeInitialization(index);
@@ -746,7 +757,7 @@ class RuleRewriter {
    * An internal function to copy any trailing text to the output
    * string.
    *
-   * @param {Number} copyOffset Offset into |inputString| of the
+   * @param {number} copyOffset Offset into |inputString| of the
    *        final text to copy to the output string.
    */
   completeCopying(copyOffset) {

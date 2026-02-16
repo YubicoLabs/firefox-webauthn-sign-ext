@@ -6,9 +6,11 @@
 
 #include "StoragePrincipalHelper.h"
 
+#include "mozilla/ExpandedPrincipal.h"
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/extensions/WebExtensionPolicy.h"
 #include "mozilla/net/CookieJarSettings.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_privacy.h"
@@ -57,14 +59,14 @@ bool ChooseOriginAttributes(nsIChannel* aChannel, OriginAttributes& aAttrs,
 
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   nsCOMPtr<nsICookieJarSettings> cjs;
-  Unused << loadInfo->GetCookieJarSettings(getter_AddRefs(cjs));
+  (void)loadInfo->GetCookieJarSettings(getter_AddRefs(cjs));
 
   if (!aForcePartitionedPrincipal && !ShouldPartitionChannel(aChannel, cjs)) {
     return false;
   }
 
   nsAutoString partitionKey;
-  Unused << cjs->GetPartitionKey(partitionKey);
+  (void)cjs->GetPartitionKey(partitionKey);
 
   if (!partitionKey.IsEmpty()) {
     aAttrs.SetPartitionKey(partitionKey);
@@ -209,7 +211,7 @@ nsresult StoragePrincipalHelper::CreatePartitionedPrincipalForServiceWorker(
   OriginAttributes attrs = aPrincipal->OriginAttributesRef();
 
   nsAutoString partitionKey;
-  Unused << aCookieJarSettings->GetPartitionKey(partitionKey);
+  (void)aCookieJarSettings->GetPartitionKey(partitionKey);
 
   if (!partitionKey.IsEmpty()) {
     attrs.SetPartitionKey(partitionKey);
@@ -261,7 +263,7 @@ nsresult StoragePrincipalHelper::GetPrincipal(nsIChannel* aChannel,
 
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   nsCOMPtr<nsICookieJarSettings> cjs;
-  Unused << loadInfo->GetCookieJarSettings(getter_AddRefs(cjs));
+  (void)loadInfo->GetCookieJarSettings(getter_AddRefs(cjs));
 
   nsIScriptSecurityManager* ssm = nsContentUtils::GetSecurityManager();
   MOZ_DIAGNOSTIC_ASSERT(ssm);
@@ -477,7 +479,7 @@ bool StoragePrincipalHelper::GetOriginAttributes(
       break;
 
     case eForeignPartitionedPrincipal:
-      Unused << loadInfo->GetCookieJarSettings(getter_AddRefs(cjs));
+      (void)loadInfo->GetCookieJarSettings(getter_AddRefs(cjs));
 
       // We only support foreign partitioned principal when dFPI is enabled.
       // Otherwise, we will use the regular principal.
@@ -539,31 +541,19 @@ bool StoragePrincipalHelper::GetRegularPrincipalOriginAttributes(
 // static
 bool StoragePrincipalHelper::GetOriginAttributesForNetworkState(
     nsIChannel* aChannel, OriginAttributes& aAttributes) {
-  return StoragePrincipalHelper::GetOriginAttributes(
-      aChannel, aAttributes,
-      StaticPrefs::privacy_partition_network_state() ? ePartitionedPrincipal
-                                                     : eRegularPrincipal);
+  return StoragePrincipalHelper::GetOriginAttributes(aChannel, aAttributes,
+                                                     ePartitionedPrincipal);
 }
 
 // static
 void StoragePrincipalHelper::GetOriginAttributesForNetworkState(
     dom::Document* aDocument, OriginAttributes& aAttributes) {
-  aAttributes = aDocument->NodePrincipal()->OriginAttributesRef();
-
-  if (!StaticPrefs::privacy_partition_network_state()) {
-    return;
-  }
-
   aAttributes = aDocument->PartitionedPrincipal()->OriginAttributesRef();
 }
 
 // static
 void StoragePrincipalHelper::UpdateOriginAttributesForNetworkState(
     nsIURI* aFirstPartyURI, OriginAttributes& aAttributes) {
-  if (!StaticPrefs::privacy_partition_network_state()) {
-    return;
-  }
-
   aAttributes.SetPartitionKey(aFirstPartyURI, false);
 }
 
@@ -699,6 +689,42 @@ void StoragePrincipalHelper::UpdatePartitionKeyWithForeignAncestorBit(
       aKey.ReplaceLiteral(index, cutLength, u")");
     }
   }
+}
+
+// static
+nsString StoragePrincipalHelper::PartitionKeyForExpandedPrincipal(
+    nsIPrincipal* aExpandedPrincipal) {
+  MOZ_ASSERT(nsContentUtils::IsExpandedPrincipal(aExpandedPrincipal));
+
+  OriginAttributes attrs;
+
+  for (const auto& principal : BasePrincipal::Cast(aExpandedPrincipal)
+                                   ->As<ExpandedPrincipal>()
+                                   ->AllowList()) {
+    MOZ_ASSERT(principal);
+
+    nsCOMPtr<nsIURI> uri;
+    nsresult rv = BasePrincipal::Cast(principal)->GetURI(getter_AddRefs(uri));
+    if (NS_WARN_IF(NS_FAILED(rv)) || !uri) {
+      continue;
+    }
+
+    nsAutoCString scheme;
+    rv = uri->GetScheme(scheme);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      continue;
+    }
+
+    if (!scheme.Equals("moz-extension")) {
+      continue;
+    }
+
+    attrs.SetFirstPartyDomain(true, uri, true);
+    MOZ_ASSERT(attrs.mPartitionKey.IsEmpty());
+    break;
+  }
+
+  return attrs.mPartitionKey;
 }
 
 }  // namespace mozilla

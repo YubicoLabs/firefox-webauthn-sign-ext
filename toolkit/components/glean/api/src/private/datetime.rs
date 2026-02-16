@@ -4,7 +4,7 @@
 
 use inherent::inherent;
 
-use super::{CommonMetricData, MetricId};
+use super::{BaseMetricId, ChildMetricMeta, CommonMetricData};
 
 use super::TimeUnit;
 use crate::ipc::need_ipc;
@@ -13,13 +13,14 @@ use glean::traits::Datetime;
 
 #[cfg(feature = "with_gecko")]
 use super::profiler_utils::{
-    glean_to_chrono_datetime, local_now_with_offset, TelemetryProfilerCategory,
+    glean_to_chrono_datetime, local_now_with_offset, stream_identifiers_by_id,
+    TelemetryProfilerCategory,
 };
 
 #[cfg(feature = "with_gecko")]
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 struct DatetimeMetricMarker {
-    id: MetricId,
+    id: BaseMetricId,
     time: chrono::DateTime<FixedOffset>,
 }
 
@@ -32,14 +33,10 @@ impl gecko_profiler::ProfilerMarker for DatetimeMetricMarker {
     fn marker_type_display() -> gecko_profiler::MarkerSchema {
         use gecko_profiler::schema::*;
         let mut schema = MarkerSchema::new(&[Location::MarkerChart, Location::MarkerTable]);
-        schema.set_tooltip_label("{marker.data.id} {marker.data.time}");
-        schema.set_table_label("{marker.name} - {marker.data.id}: {marker.data.time}");
-        schema.add_key_label_format_searchable(
-            "id",
-            "Metric",
-            Format::UniqueString,
-            Searchable::Searchable,
-        );
+        schema.set_tooltip_label("{marker.data.cat}.{marker.data.id} {marker.data.time}");
+        schema.set_table_label("{marker.data.cat}.{marker.data.id}: {marker.data.time}");
+        schema.add_key_label_format("cat", "Category", Format::UniqueString);
+        schema.add_key_label_format("id", "Metric", Format::UniqueString);
         // Note: there is no native profiler format for timestamps.
         // Bug 1926644 tracks the work of adding this.
         schema.add_key_label_format("time", "Time", Format::String);
@@ -47,8 +44,7 @@ impl gecko_profiler::ProfilerMarker for DatetimeMetricMarker {
     }
 
     fn stream_json_marker_data(&self, json_writer: &mut gecko_profiler::JSONWriter) {
-        let name = self.id.get_name();
-        json_writer.unique_string_property("id", &name);
+        stream_identifiers_by_id::<DatetimeMetric>(&self.id.into(), json_writer);
         // We need to be careful formatting our datestring so that we can match
         // it to an equivalently formatted string in JavaScript when we're
         // testing these markers. JavaScript's `toISOString` *always* converts
@@ -78,22 +74,23 @@ impl gecko_profiler::ProfilerMarker for DatetimeMetricMarker {
 #[derive(Clone)]
 pub enum DatetimeMetric {
     Parent {
-        /// The metric's ID. Date time metrics canot be labeled, so we only
-        /// store a MetricId. If this changes, this should be changed to a
-        /// MetricGetter to distinguish between metrics and sub-metrics.
-        id: MetricId,
+        /// The metric's ID. Date time metrics cannot be labeled, so we only
+        /// store a BaseMetricId. If this changes, this should be changed to a
+        /// MetricId to distinguish between metrics and sub-metrics.
+        id: BaseMetricId,
         inner: glean::private::DatetimeMetric,
     },
-    Child(DatetimeMetricIpc),
+    Child(ChildMetricMeta),
 }
-#[derive(Debug, Clone)]
-pub struct DatetimeMetricIpc;
+
+define_metric_metadata_getter!(DatetimeMetric, DATETIME_MAP);
+define_metric_namer!(DatetimeMetric);
 
 impl DatetimeMetric {
     /// Create a new datetime metric.
-    pub fn new(id: MetricId, meta: CommonMetricData, time_unit: TimeUnit) -> Self {
+    pub fn new(id: BaseMetricId, meta: CommonMetricData, time_unit: TimeUnit) -> Self {
         if need_ipc() {
-            DatetimeMetric::Child(DatetimeMetricIpc)
+            DatetimeMetric::Child(ChildMetricMeta::from_common_metric_data(id, meta))
         } else {
             DatetimeMetric::Parent {
                 id,
@@ -105,7 +102,9 @@ impl DatetimeMetric {
     #[cfg(test)]
     pub(crate) fn child_metric(&self) -> Self {
         match self {
-            DatetimeMetric::Parent { .. } => DatetimeMetric::Child(DatetimeMetricIpc),
+            DatetimeMetric::Parent { id, inner } => {
+                DatetimeMetric::Child(ChildMetricMeta::from_metric_identifier(*id, inner))
+            }
             DatetimeMetric::Child(_) => panic!("Can't get a child metric from a child metric"),
         }
     }
@@ -125,6 +124,7 @@ impl DatetimeMetric {
     ///   Hemisphere. Negative seconds mean Western Hemisphere.
     #[cfg_attr(not(feature = "with_gecko"), allow(dead_code))]
     #[allow(clippy::too_many_arguments)]
+    #[allow(deprecated)] // use of deprecated chrono functions.
     pub(crate) fn set_with_details(
         &self,
         year: i32,
@@ -155,7 +155,7 @@ impl DatetimeMetric {
                 match value.single() {
                     Some(d) => {
                         #[cfg(feature = "with_gecko")]
-                        if gecko_profiler::can_accept_markers() {
+                        if gecko_profiler::current_thread_is_being_profiled_for_markers() {
                             gecko_profiler::add_marker(
                                 "Datetime::set",
                                 TelemetryProfilerCategory,
@@ -173,7 +173,7 @@ impl DatetimeMetric {
                         // so use the (slightly) expensive function to get
                         // the metric's name here.
                         #[cfg(feature = "with_gecko")]
-                        if gecko_profiler::can_accept_markers() {
+                        if gecko_profiler::current_thread_is_being_profiled_for_markers() {
                             let name = id.get_name();
                             let payload = format!(
                                 "Conversion failed for metric {}: {} {} {} {} {} {} {} {}",
@@ -216,7 +216,7 @@ impl Datetime for DatetimeMetric {
                 // is None, so we re-produce the behaviour here so that the
                 // marker reflects what's actually being recorded.
                 #[cfg(feature = "with_gecko")]
-                if gecko_profiler::can_accept_markers() {
+                if gecko_profiler::current_thread_is_being_profiled_for_markers() {
                     // first, make sure that we actually have a value
                     match value {
                         Some(ref d) => {
@@ -263,31 +263,6 @@ impl Datetime for DatetimeMetric {
 
     /// **Exported for test purposes.**
     ///
-    /// Gets the currently stored value as a Datetime.
-    ///
-    /// The precision of this value is truncated to the `time_unit` precision.
-    ///
-    /// This doesn't clear the stored value.
-    ///
-    /// # Arguments
-    ///
-    /// * `ping_name` - represents the optional name of the ping to retrieve the
-    ///   metric for. Defaults to the first value in `send_in_pings`.
-    pub fn test_get_value<'a, S: Into<Option<&'a str>>>(
-        &self,
-        ping_name: S,
-    ) -> Option<glean::Datetime> {
-        let ping_name = ping_name.into().map(|s| s.to_string());
-        match self {
-            DatetimeMetric::Parent { inner, .. } => inner.test_get_value(ping_name),
-            DatetimeMetric::Child(_) => {
-                panic!("Cannot get test value for DatetimeMetric in non-main process!")
-            }
-        }
-    }
-
-    /// **Exported for test purposes.**
-    ///
     /// Gets the number of recorded errors for the given metric and error type.
     ///
     /// # Arguments
@@ -309,6 +284,32 @@ impl Datetime for DatetimeMetric {
     }
 }
 
+#[inherent]
+impl glean::TestGetValue for DatetimeMetric {
+    type Output = glean::Datetime;
+
+    /// **Exported for test purposes.**
+    ///
+    /// Gets the currently stored value as a Datetime.
+    ///
+    /// The precision of this value is truncated to the `time_unit` precision.
+    ///
+    /// This doesn't clear the stored value.
+    ///
+    /// # Arguments
+    ///
+    /// * `ping_name` - represents the optional name of the ping to retrieve the
+    ///   metric for. Defaults to the first value in `send_in_pings`.
+    pub fn test_get_value(&self, ping_name: Option<String>) -> Option<glean::Datetime> {
+        match self {
+            DatetimeMetric::Parent { inner, .. } => inner.test_get_value(ping_name),
+            DatetimeMetric::Child(_) => {
+                panic!("Cannot get test value for DatetimeMetric in non-main process!")
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use chrono::{DateTime, FixedOffset, TimeZone};
@@ -316,6 +317,7 @@ mod test {
     use crate::{common_test::*, ipc, metrics};
 
     #[test]
+    #[allow(deprecated)] // use of deprecated chrono functions.
     fn sets_datetime_value() {
         let _lock = lock_test();
 
@@ -329,7 +331,12 @@ mod test {
         let expected: glean::Datetime = DateTime::parse_from_rfc3339("2020-05-07T11:58:00+05:00")
             .unwrap()
             .into();
-        assert_eq!(expected, metric.test_get_value("test-ping").unwrap());
+        assert_eq!(
+            expected,
+            metric
+                .test_get_value(Some("test-ping".to_string()))
+                .unwrap()
+        );
     }
 
     #[test]
@@ -343,10 +350,16 @@ mod test {
         let expected: glean::Datetime = DateTime::parse_from_rfc3339("2020-05-07T11:58:00+05:00")
             .unwrap()
             .into();
-        assert_eq!(expected, metric.test_get_value("test-ping").unwrap());
+        assert_eq!(
+            expected,
+            metric
+                .test_get_value(Some("test-ping".to_string()))
+                .unwrap()
+        );
     }
 
     #[test]
+    #[allow(deprecated)] // use of deprecated chrono functions.
     fn datetime_ipc() {
         // DatetimeMetric doesn't support IPC.
         let _lock = lock_test();
@@ -376,6 +389,11 @@ mod test {
         let expected: glean::Datetime = DateTime::parse_from_rfc3339("2020-10-13T16:41:00+05:00")
             .unwrap()
             .into();
-        assert_eq!(expected, parent_metric.test_get_value("test-ping").unwrap());
+        assert_eq!(
+            expected,
+            parent_metric
+                .test_get_value(Some("test-ping".to_string()))
+                .unwrap()
+        );
     }
 }

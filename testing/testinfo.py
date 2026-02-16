@@ -10,7 +10,6 @@ import posixpath
 import re
 import subprocess
 from collections import defaultdict
-from typing import Dict
 
 import mozpack.path as mozpath
 import requests
@@ -33,7 +32,7 @@ class SetEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-class TestInfo(object):
+class TestInfo:
     """
     Support 'mach test-info'.
     """
@@ -387,7 +386,7 @@ class TestInfoReport(TestInfo):
         # TODO: use start/end properly
         if runcounts_input_file:
             try:
-                with open(runcounts_input_file, "r") as f:
+                with open(runcounts_input_file) as f:
                     runcounts = json.load(f)
             except:
                 print("Unable to load runcounts from path: %s" % runcounts_input_file)
@@ -400,17 +399,13 @@ class TestInfoReport(TestInfo):
     def get_testinfoall_index_url(self):
         import taskcluster
 
-        index = taskcluster.Index(
-            {
-                "rootUrl": "https://firefox-ci-tc.services.mozilla.com",
-            }
-        )
+        index = taskcluster.Index({
+            "rootUrl": "https://firefox-ci-tc.services.mozilla.com",
+        })
         route = "gecko.v2.mozilla-central.latest.source.test-info-all"
-        queue = taskcluster.Queue(
-            {
-                "rootUrl": "https://firefox-ci-tc.services.mozilla.com",
-            }
-        )
+        queue = taskcluster.Queue({
+            "rootUrl": "https://firefox-ci-tc.services.mozilla.com",
+        })
 
         task_id = index.findTask(route)["taskId"]
         artifacts = queue.listLatestArtifacts(task_id)["artifacts"]
@@ -459,6 +454,41 @@ class TestInfoReport(TestInfo):
                 pass
 
         return testrundata
+
+    def optimize_runcounts_data(self, runcounts, num_days):
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        if num_days > 1:
+            startday = yesterday - datetime.timedelta(days=num_days)
+        else:
+            startday = yesterday
+
+        days = [
+            (startday + datetime.timedelta(days=i)).strftime("%Y-%m-%d")
+            for i in range(num_days)
+        ]
+
+        summary_groups = {key: runcounts[key] for key in days if key in runcounts}
+        tasks_and_count = {"manifests": []}
+        for day in days:
+            if day not in summary_groups or not summary_groups[day]:
+                continue
+            all_task_labels = summary_groups[day]["job_type_names"]
+            for tasks_by_manifest in summary_groups[day]["manifests"]:
+                for manifest in tasks_by_manifest:
+                    tasks_and_count.setdefault(manifest, {})
+                    for task_index, _, _, count in tasks_by_manifest[manifest]:
+                        task_label = all_task_labels[task_index]
+                        if task_label not in tasks_and_count["manifests"]:
+                            tasks_and_count["manifests"].append(task_label)
+                            new_index = len(tasks_and_count["manifests"]) - 1
+                        else:
+                            new_index = tasks_and_count["manifests"].index(task_label)
+
+                        if new_index not in tasks_and_count[manifest]:
+                            tasks_and_count[manifest][new_index] = 0
+                        tasks_and_count[manifest][new_index] += count
+
+        return tasks_and_count
 
     def squash_runcounts(self, runcounts, days=MAX_DAYS):
         # squash all testrundata together into 1 big happy family for the last X days
@@ -608,6 +638,15 @@ class TestInfoReport(TestInfo):
             show_manifests = True
             show_summary = True
 
+        trunk = False
+        if os.environ.get("GECKO_HEAD_REPOSITORY", "") in [
+            "https://hg.mozilla.org/mozilla-central",
+            "https://hg.mozilla.org/try",
+        ]:
+            trunk = True
+        else:
+            show_testruns = False
+
         by_component = {}
         if components:
             components = components.split(",")
@@ -617,15 +656,17 @@ class TestInfoReport(TestInfo):
             filter_values = filter_values.split(",")
         else:
             filter_values = []
-        display_keys = (filter_keys or []) + ["skip-if", "fail-if", "fails-if"]
+        display_keys = (filter_keys or []) + [
+            "run-if",
+            "skip-if",
+            "fail-if",
+            "fails-if",
+        ]
         display_keys = set(display_keys)
         ifd = self.get_intermittent_failure_data(start, end)
 
         runcount = {}
-        if show_testruns and os.environ.get("GECKO_HEAD_REPOSITORY", "") in [
-            "https://hg.mozilla.org/mozilla-central",
-            "https://hg.mozilla.org/try",
-        ]:
+        if show_testruns and trunk:
             runcount = self.get_runcount_data(runcounts_input_file, start, end)
 
         print("Finding tests...")
@@ -645,11 +686,9 @@ class TestInfoReport(TestInfo):
                     manifest_path = "%s:%s" % (t["ancestor_manifest"], t["manifest"])
                 manifest_paths.add(manifest_path)
         manifest_count = len(manifest_paths)
-        print(
-            "Resolver found {} tests, {} manifests".format(len(tests), manifest_count)
-        )
+        print(f"Resolver found {len(tests)} tests, {manifest_count} manifests")
 
-        if config_matrix_output_file:
+        if config_matrix_output_file and trunk:
             topsrcdir = self.build_obj.topsrcdir
             config_matrix = {}
             for manifest in manifest_paths:
@@ -690,9 +729,7 @@ class TestInfoReport(TestInfo):
                 if relpath in files_info:
                     bug_component = files_info[relpath].get("BUG_COMPONENT")
                     if bug_component:
-                        key = "{}::{}".format(
-                            bug_component.product, bug_component.component
-                        )
+                        key = f"{bug_component.product}::{bug_component.component}"
                     else:
                         key = "<unknown bug component>"
                     if (not components) or (key in components):
@@ -785,9 +822,7 @@ class TestInfoReport(TestInfo):
                 if relpath in files_info:
                     bug_component = files_info[relpath].get("BUG_COMPONENT")
                     if bug_component:
-                        key = "{}::{}".format(
-                            bug_component.product, bug_component.component
-                        )
+                        key = f"{bug_component.product}::{bug_component.component}"
                     else:
                         key = "<unknown bug component>"
                     if (not components) or (key in components):
@@ -998,7 +1033,7 @@ class TestInfoReport(TestInfo):
         # this is an attempt to cache the .json for the duration of the task
         filename = "task-graph.json"
         if os.path.exists(filename):
-            with open(filename, "r") as f:
+            with open(filename) as f:
                 data = json.load(f)
         else:
             url = (
@@ -1020,6 +1055,16 @@ class TestInfoReport(TestInfo):
             if not task_label.startswith("test-"):
                 continue
             if task_label.endswith("-cf"):
+                continue
+
+            # skip tier-3
+            if (
+                task.get("task", {})
+                .get("extra", {})
+                .get("treeherder", {})
+                .get("tier", 3)
+                == 3
+            ):
                 continue
 
             try:
@@ -1063,7 +1108,7 @@ class TestInfoReport(TestInfo):
             self.task_tuples[task_label] = platform_info
 
     matrix_map = defaultdict(list)
-    task_tuples: Dict[str, PlatformInfo] = {}
+    task_tuples: dict[str, PlatformInfo] = {}
 
     def find_non_test_path_loader(self, label):
         # TODO: how to keep this list synchronized?

@@ -234,15 +234,19 @@ export class FxviewTabListBase extends MozLitElement {
       // In Bug 1866845, these manual updates to the sublists should be removed
       // and scrollIntoView() should also be iterated on so that we aren't constantly
       // moving the focused item to the center of the viewport
-      for (const sublist of Array.from(this.rootVirtualListEl.children)) {
-        await sublist.requestUpdate();
-        await sublist.updateComplete;
-      }
+      await this.requestVirtualListUpdate();
       row.scrollIntoView({ block: "center" });
       row.focus();
     } else if (index >= 0 && index < this.rowEls?.length) {
       this.rowEls[index].focus();
       this.activeIndex = index;
+    }
+  }
+
+  async requestVirtualListUpdate() {
+    for (const sublist of this.rootVirtualListEl.children) {
+      await sublist.requestUpdate();
+      await sublist.updateComplete;
     }
   }
 
@@ -275,23 +279,23 @@ export class FxviewTabListBase extends MozLitElement {
         .currentActiveElementId=${this.currentActiveElementId}
         .favicon=${tabItem.icon}
         .primaryL10nId=${tabItem.primaryL10nId}
-        .primaryL10nArgs=${ifDefined(tabItem.primaryL10nArgs)}
+        .primaryL10nArgs=${tabItem.primaryL10nArgs}
         .secondaryL10nId=${tabItem.secondaryL10nId}
-        .secondaryL10nArgs=${ifDefined(tabItem.secondaryL10nArgs)}
-        .tertiaryL10nId=${ifDefined(tabItem.tertiaryL10nId)}
-        .tertiaryL10nArgs=${ifDefined(tabItem.tertiaryL10nArgs)}
+        .secondaryL10nArgs=${tabItem.secondaryL10nArgs}
+        .tertiaryL10nId=${tabItem.tertiaryL10nId}
+        .tertiaryL10nArgs=${tabItem.tertiaryL10nArgs}
         .secondaryActionClass=${this.secondaryActionClass}
-        .tertiaryActionClass=${ifDefined(this.tertiaryActionClass)}
-        .sourceClosedId=${ifDefined(tabItem.sourceClosedId)}
-        .sourceWindowId=${ifDefined(tabItem.sourceWindowId)}
-        .closedId=${ifDefined(tabItem.closedId || tabItem.closedId)}
+        .tertiaryActionClass=${this.tertiaryActionClass}
+        .sourceClosedId=${tabItem.sourceClosedId}
+        .sourceWindowId=${tabItem.sourceWindowId}
+        .closedId=${tabItem.closedId || tabItem.closedId}
         role="listitem"
-        .tabElement=${ifDefined(tabItem.tabElement)}
-        .time=${ifDefined(time)}
+        .tabElement=${tabItem.tabElement}
+        .time=${time}
         .title=${tabItem.title}
         .url=${tabItem.url}
-        .searchQuery=${ifDefined(this.searchQuery)}
-        .timeMsPref=${ifDefined(this.timeMsPref)}
+        .searchQuery=${this.searchQuery}
+        .timeMsPref=${this.timeMsPref}
         .hasPopup=${this.hasPopup}
         .dateTimeFormat=${this.dateTimeFormat}
       ></fxview-tab-row>
@@ -400,6 +404,7 @@ export class FxviewTabRowBase extends MozLitElement {
     title: { type: String },
     timeMsPref: { type: Number },
     url: { type: String },
+    uri: { type: String },
     searchQuery: { type: String },
   };
 
@@ -421,6 +426,11 @@ export class FxviewTabRowBase extends MozLitElement {
       focusItem = this.renderRoot.getElementById("fxview-tab-row-main");
     }
     return focusItem;
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.uri = this.url;
   }
 
   focus() {
@@ -507,7 +517,9 @@ export class FxviewTabRowBase extends MozLitElement {
 
   formatURIForDisplay(uriString) {
     return !window.IS_STORYBOOK
-      ? lazy.BrowserUtils.formatURIStringForDisplay(uriString)
+      ? lazy.BrowserUtils.formatURIStringForDisplay(uriString, {
+          showFilenameForLocalURIs: true,
+        })
       : uriString;
   }
 
@@ -581,6 +593,21 @@ export class FxviewTabRowBase extends MozLitElement {
           detail: { originalEvent: event, item: this },
         })
       );
+    }
+  }
+
+  auxActionHandler(event) {
+    if (event.type == "auxclick" && event.button == 1) {
+      event.preventDefault();
+      if (!window.IS_STORYBOOK) {
+        this.dispatchEvent(
+          new CustomEvent("fxview-tab-list-middleclick-action", {
+            bubbles: true,
+            composed: true,
+            detail: { originalEvent: event, item: this },
+          })
+        );
+      }
     }
   }
 

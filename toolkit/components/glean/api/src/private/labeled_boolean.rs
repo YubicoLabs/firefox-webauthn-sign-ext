@@ -4,16 +4,15 @@
 
 use inherent::inherent;
 
-use glean::traits::Boolean;
-
 use crate::ipc::with_ipc_payload;
 use crate::private::BooleanMetric;
+use glean::traits::Boolean;
 use std::collections::HashMap;
 
-use super::MetricId;
+use super::{BaseMetric, BaseMetricId, BaseMetricResult, MetricMetadataGetterImpl};
 
 #[allow(unused)]
-use super::MetricGetter;
+use super::MetricId;
 
 /// A boolean metric that knows it's a labeled_boolean's submetric.
 ///
@@ -23,12 +22,21 @@ use super::MetricGetter;
 pub enum LabeledBooleanMetric {
     Parent(BooleanMetric),
     Child,
-    UnorderedChild { id: MetricId, label: String },
+    UnorderedChild { id: BaseMetricId, label: String },
 }
+
+define_metric_metadata_getter!(
+    BooleanMetric,
+    LabeledBooleanMetric,
+    BOOLEAN_MAP,
+    LABELED_BOOLEAN_MAP
+);
+
+define_metric_namer!(LabeledBooleanMetric, LABELED);
 
 impl LabeledBooleanMetric {
     #[cfg(test)]
-    pub(crate) fn metric_id(&self) -> MetricGetter {
+    pub(crate) fn metric_id(&self) -> MetricId {
         match self {
             LabeledBooleanMetric::Parent(p) => p.metric_id(),
             LabeledBooleanMetric::UnorderedChild { id, .. } => (*id).into(),
@@ -55,7 +63,7 @@ impl Boolean for LabeledBooleanMetric {
                     "Boolean::set",
                     super::profiler_utils::TelemetryProfilerCategory,
                     Default::default(),
-                    super::profiler_utils::BooleanMetricMarker::new(
+                    super::profiler_utils::BooleanMetricMarker::<LabeledBooleanMetric>::new(
                         (*id).into(),
                         Some(label.clone()),
                         value,
@@ -78,7 +86,21 @@ impl Boolean for LabeledBooleanMetric {
         }
     }
 
-    pub fn test_get_value<'a, S: Into<Option<&'a str>>>(&self, ping_name: S) -> Option<bool> {
+    pub fn test_get_num_recorded_errors(&self, error: glean::ErrorType) -> i32 {
+        match self {
+            LabeledBooleanMetric::Parent(p) => p.test_get_num_recorded_errors(error),
+            _ => panic!(
+                "Cannot get the number of recorded errors for a labeled_boolean in non-parent process!"
+            ),
+        }
+    }
+}
+
+#[inherent]
+impl glean::TestGetValue for LabeledBooleanMetric {
+    type Output = bool;
+
+    pub fn test_get_value(&self, ping_name: Option<String>) -> Option<bool> {
         match self {
             LabeledBooleanMetric::Parent(p) => p.test_get_value(ping_name),
             _ => {
@@ -86,13 +108,19 @@ impl Boolean for LabeledBooleanMetric {
             }
         }
     }
+}
 
-    pub fn test_get_num_recorded_errors(&self, error: glean::ErrorType) -> i32 {
+impl BaseMetric for LabeledBooleanMetric {
+    type BaseMetricT = BooleanMetric;
+    fn get_base_metric<'a>(&'a self) -> BaseMetricResult<'a, Self::BaseMetricT> {
         match self {
-            LabeledBooleanMetric::Parent(p) => p.test_get_num_recorded_errors(error),
-            _ => panic!(
-                "Cannot get the number of recorded errors for a labeled_boolean in non-parent process!"
-            ),
+            LabeledBooleanMetric::Parent(boolean_metric) => {
+                BaseMetricResult::BaseMetric(&boolean_metric)
+            }
+            LabeledBooleanMetric::UnorderedChild { id, label } => {
+                BaseMetricResult::IndexLabelPair(*id, &label)
+            }
+            LabeledBooleanMetric::Child => BaseMetricResult::None,
         }
     }
 }
@@ -108,7 +136,10 @@ mod test {
         let metric = &metrics::test_only_ipc::an_unordered_labeled_boolean;
         metric.get("a_label").set(true);
 
-        assert!(metric.get("a_label").test_get_value("test-ping").unwrap());
+        assert!(metric
+            .get("a_label")
+            .test_get_value(Some("test-ping".to_string()))
+            .unwrap());
     }
 
     #[test]
@@ -144,8 +175,8 @@ mod test {
 
             let metric_id = child_metric
                 .metric_id()
-                .metric_id()
-                .expect("Cannot perform IPC calls without a MetricId");
+                .base_metric_id()
+                .expect("Cannot perform IPC calls without a BaseMetricId");
 
             child_metric.set(false);
 
@@ -180,7 +211,7 @@ mod test {
         assert!(
             !parent_metric
                 .get(label)
-                .test_get_value("test-ping")
+                .test_get_value(Some("test-ping".to_string()))
                 .unwrap(),
             "Later value takes precedence."
         );

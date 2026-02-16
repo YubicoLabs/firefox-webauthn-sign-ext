@@ -1,13 +1,9 @@
-// |reftest| shell-option(--enable-iterator-helpers) skip-if(!this.hasOwnProperty('Iterator')||!xulRuntime.shell) -- iterator-helpers is not enabled unconditionally, requires shell-options
 // Copyright (C) 2024 Mozilla Corporation. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
 features:
-- iterator-helpers
+  - iterator-helpers
 description: |
   pending
 esid: pending
@@ -19,9 +15,9 @@ function *gen() {
   yield 1;
 }
 
-assertThrowsInstanceOf(() => iteratorHelperProto.next.call(gen()), TypeError);
-assertThrowsInstanceOf(() => iteratorHelperProto.return.call(gen()), TypeError);
-assertThrowsInstanceOf(() => iteratorHelperProto.throw.call(gen()), TypeError);
+assert.throws(TypeError, () => iteratorHelperProto.next.call(gen()));
+assert.throws(TypeError, () => iteratorHelperProto.return.call(gen()));
+assert.throws(TypeError, () => iteratorHelperProto.throw.call(gen()));
 
 
 reportCompare(0, 0);

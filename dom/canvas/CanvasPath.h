@@ -5,11 +5,10 @@
 #ifndef CanvasPath_h
 #define CanvasPath_h
 
-#include "mozilla/Attributes.h"
 #include "mozilla/RefPtr.h"
-#include "nsWrapperCache.h"
-#include "mozilla/gfx/2D.h"
 #include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/gfx/2D.h"
+#include "nsWrapperCache.h"
 
 namespace mozilla {
 class ErrorResult;
@@ -66,7 +65,7 @@ class CanvasPath final : public nsWrapperCache {
                                       gfx::BackendType aBackendType) const;
   already_AddRefed<gfx::Path> GetPath(const CanvasWindingRule& aWinding,
                                       const gfx::DrawTarget* aTarget) const {
-    return GetPath(aWinding, aTarget->GetBackendType());
+    return GetPath(aWinding, aTarget->GetPathType());
   }
 
   explicit CanvasPath(nsISupports* aParent);

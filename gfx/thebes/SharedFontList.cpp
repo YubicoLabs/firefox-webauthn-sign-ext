@@ -11,7 +11,6 @@
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/Logging.h"
-#include "mozilla/Unused.h"
 
 #define LOG_FONTLIST(args) \
   MOZ_LOG(gfxPlatform::GetLog(eGfxLog_fontlist), LogLevel::Debug, args)
@@ -335,7 +334,7 @@ bool Family::FindAllFacesForStyleInternal(FontList* aList,
     // calculate which one we want.
     // Note that we cannot simply return it as not all 4 faces are necessarily
     // present.
-    bool wantBold = aStyle.weight.IsBold();
+    bool wantBold = aStyle.weight.PreferBold();
     bool wantItalic = !aStyle.style.IsNormal();
     uint8_t faceIndex =
         (wantItalic ? kItalicMask : 0) | (wantBold ? kBoldMask : 0);
@@ -444,7 +443,7 @@ void Family::FindAllFacesForStyle(FontList* aList, const gfxFontStyle& aStyle,
 #ifdef MOZ_WIDGET_GTK
   bool anyNonScalable =
 #else
-  Unused <<
+  (void)
 #endif
       FindAllFacesForStyleInternal(aList, aStyle, aFaceList);
 
@@ -556,7 +555,7 @@ void Family::SearchAllFontsForChar(FontList* aList,
         if (!charmap && !fe->HasCharacter(aMatchData->mCh)) {
           continue;
         }
-        if (aMatchData->mPresentation != eFontPresentation::Any) {
+        if (aMatchData->mPresentation != FontPresentation::Any) {
           RefPtr<gfxFont> font = fe->FindOrMakeFont(&aMatchData->mStyle);
           if (!font) {
             continue;
@@ -804,7 +803,7 @@ bool FontList::AppendShmBlock(uint32_t aSizeNeeded) {
     MOZ_CRASH("failed to create shared memory");
     return false;
   }
-  auto [newShm, readOnly] = std::move(handle).Map().Freeze();
+  auto [readOnly, newShm] = std::move(handle).Map().FreezeWithMutableMapping();
   if (!newShm || !newShm.Address()) {
     MOZ_CRASH("failed to map shared memory");
     return false;

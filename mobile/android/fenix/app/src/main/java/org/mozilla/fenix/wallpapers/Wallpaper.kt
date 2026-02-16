@@ -54,13 +54,15 @@ data class Wallpaper(
     )
 
     companion object {
-        const val amethystName = "amethyst"
-        const val ceruleanName = "cerulean"
-        const val sunriseName = "sunrise"
-        const val twilightHillsName = "twilight-hills"
-        const val beachVibeName = "beach-vibe"
-        const val firefoxCollectionName = "firefox"
-        const val defaultName = "default"
+        const val AMETHYST = "amethyst"
+        const val CERULEAN = "cerulean"
+        const val SUNRISE = "sunrise"
+        const val BEACH_VIBE = "beach-vibe"
+        const val FIREFOX_COLLECTION = "firefox"
+        const val DEFAULT = "default"
+        const val EDGE_TO_EDGE = "edge-to-edge"
+
+        private val localWallpapers = listOf(DEFAULT, EDGE_TO_EDGE)
 
         /*
          * Note: this collection could get out of sync with the version of it generated when fetching
@@ -68,9 +70,9 @@ data class Wallpaper(
          * we find a better way of handling the edge cases around this collection. It is generally
          * safer to do comparison directly with the collection name.
          */
-        const val classicFirefoxCollectionName = "classic-firefox"
+        const val CLASSIC_FIREFOX_COLLECTION = "classic-firefox"
         val ClassicFirefoxCollection = Collection(
-            name = classicFirefoxCollectionName,
+            name = CLASSIC_FIREFOX_COLLECTION,
             heading = null,
             description = null,
             learnMoreUrl = null,
@@ -79,7 +81,7 @@ data class Wallpaper(
             endDate = null,
         )
         val DefaultCollection = Collection(
-            name = defaultName,
+            name = DEFAULT,
             heading = null,
             description = null,
             learnMoreUrl = null,
@@ -88,7 +90,16 @@ data class Wallpaper(
             endDate = null,
         )
         val Default = Wallpaper(
-            name = defaultName,
+            name = DEFAULT,
+            collection = DefaultCollection,
+            textColor = null,
+            cardColorLight = null,
+            cardColorDark = null,
+            thumbnailFileState = ImageFileState.Downloaded,
+            assetsFileState = ImageFileState.Downloaded,
+        )
+        val EdgeToEdge = Wallpaper(
+            name = EDGE_TO_EDGE,
             collection = DefaultCollection,
             textColor = null,
             cardColorLight = null,
@@ -136,6 +147,8 @@ data class Wallpaper(
                     thumbnailFileState = ImageFileState.Downloaded,
                     assetsFileState = ImageFileState.Downloaded,
                 )
+            } else if (name == EDGE_TO_EDGE) {
+                EdgeToEdge
             } else {
                 null
             }
@@ -150,7 +163,16 @@ data class Wallpaper(
          * @param name The name to check.
          */
         fun nameIsDefault(name: String): Boolean =
-            name.isEmpty() || name == defaultName || name.lowercase() == "none"
+            name.isEmpty() || name == DEFAULT || name.lowercase() == "none"
+
+        /**
+         * Returns true if the wallpaper is a local wallpaper, as opposed to a distant wallpaper
+         * that needs to be downloaded from a distant URL.
+         *
+         * @param name The name to check.
+         * @return True if wallpaper name is Default or EdgeToEdge, False otherwise
+         */
+        fun isLocalWallpaper(name: String): Boolean = name in localWallpapers
     }
 
     /**

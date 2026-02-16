@@ -8,9 +8,10 @@
 //! [image]: https://drafts.csswg.org/css-images/#image-values
 
 use crate::color::mix::ColorInterpolationMethod;
+use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
 use crate::stylesheets::CorsMode;
-use crate::values::generics::color::ColorMixFlags;
+use crate::values::generics::color::{ColorMixFlags, GenericLightDark};
 use crate::values::generics::image::{
     self as generic, Circle, Ellipse, GradientCompatMode, ShapeExtent,
 };
@@ -26,7 +27,7 @@ use crate::values::specified::{
 };
 use crate::values::specified::{Number, NumberOrPercentage, Percentage};
 use crate::Atom;
-use cssparser::{Delimiter, Parser, Token};
+use cssparser::{match_ignore_ascii_case, Delimiter, Parser, Token};
 use selectors::parser::SelectorParseErrorKind;
 use std::cmp::Ordering;
 use std::fmt::{self, Write};
@@ -49,9 +50,8 @@ size_of_test!(Image, 16);
 /// <https://drafts.csswg.org/css-images/#gradients>
 pub type Gradient = generic::Gradient<
     LineDirection,
+    Length,
     LengthPercentage,
-    NonNegativeLength,
-    NonNegativeLengthPercentage,
     Position,
     Angle,
     AngleOrPercentage,
@@ -83,7 +83,7 @@ impl Color {
                 if mix.flags.contains(ColorMixFlags::RESULT_IN_MODERN_SYNTAX) {
                     true
                 } else {
-                    mix.left.has_modern_syntax() || mix.right.has_modern_syntax()
+                    mix.items.iter().any(|item| item.color.has_modern_syntax())
                 }
             },
             Self::LightDark(ld) => ld.light.has_modern_syntax() || ld.dark.has_modern_syntax(),
@@ -104,10 +104,14 @@ fn default_color_interpolation_method<T>(
     });
 
     if has_modern_syntax_item {
-        ColorInterpolationMethod::oklab()
+        ColorInterpolationMethod::default()
     } else {
         ColorInterpolationMethod::srgb()
     }
+}
+
+fn image_light_dark_enabled(context: &ParserContext) -> bool {
+    context.chrome_rules_enabled() || static_prefs::pref!("layout.css.light-dark.images.enabled")
 }
 
 #[cfg(feature = "gecko")]
@@ -119,7 +123,6 @@ fn cross_fade_enabled() -> bool {
 fn cross_fade_enabled() -> bool {
     false
 }
-
 
 impl SpecifiedValueInfo for Gradient {
     const SUPPORTED_TYPES: u8 = CssType::GRADIENT;
@@ -209,14 +212,14 @@ impl Image {
         cors_mode: CorsMode,
         flags: ParseImageFlags,
     ) -> Result<Image, ParseError<'i>> {
-        if !flags.contains(ParseImageFlags::FORBID_NONE) &&
-            input.try_parse(|i| i.expect_ident_matching("none")).is_ok()
+        if !flags.contains(ParseImageFlags::FORBID_NONE)
+            && input.try_parse(|i| i.expect_ident_matching("none")).is_ok()
         {
             return Ok(generic::Image::None);
         }
 
-        if let Ok(url) = input
-            .try_parse(|input| SpecifiedUrl::parse_with_cors_mode(context, input, cors_mode))
+        if let Ok(url) =
+            input.try_parse(|input| SpecifiedUrl::parse_with_cors_mode(context, input, cors_mode))
         {
             return Ok(generic::Image::Url(url));
         }
@@ -238,16 +241,19 @@ impl Image {
         }
 
         let function = input.expect_function()?.clone();
-        input.parse_nested_block(|input| {
-            Ok(match_ignore_ascii_case! { &function,
-                #[cfg(feature = "servo")]
-                "paint" => Self::PaintWorklet(PaintWorklet::parse_args(context, input)?),
-                "cross-fade" if cross_fade_enabled() => Self::CrossFade(Box::new(CrossFade::parse_args(context, input, cors_mode, flags)?)),
-                #[cfg(feature = "gecko")]
-                "-moz-element" => Self::Element(Self::parse_element(input)?),
-                _ => return Err(input.new_custom_error(StyleParseErrorKind::UnexpectedFunction(function))),
-            })
-        })
+        input.parse_nested_block(|input| Ok(match_ignore_ascii_case! { &function,
+            #[cfg(feature = "servo")]
+            "paint" => Self::PaintWorklet(Box::new(<PaintWorklet>::parse_args(context, input)?)),
+            "cross-fade" if cross_fade_enabled() => Self::CrossFade(Box::new(CrossFade::parse_args(context, input, cors_mode, flags)?)),
+            "light-dark" if image_light_dark_enabled(context) => Self::LightDark(Box::new(GenericLightDark::parse_args_with(input, |input| {
+                Self::parse_with_cors_mode(context, input, cors_mode, flags)
+            })?)),
+            #[cfg(feature = "gecko")]
+            "-moz-element" => Self::Element(Self::parse_element(input)?),
+            #[cfg(feature = "gecko")]
+            "-moz-symbolic-icon" if context.chrome_rules_enabled() => Self::MozSymbolicIcon(input.expect_ident()?.as_ref().into()),
+            _ => return Err(input.new_custom_error(StyleParseErrorKind::UnexpectedFunction(function))),
+        }))
     }
 }
 
@@ -1274,13 +1280,19 @@ impl<T> generic::ColorStop<Color, T> {
 
 impl PaintWorklet {
     #[cfg(feature = "servo")]
-    fn parse_args<'i>(input: &mut Parser<'i, '_>) -> Result<Self, ParseError<'i>> {
+    fn parse_args<'i>(
+        context: &ParserContext,
+        input: &mut Parser<'i, '_>,
+    ) -> Result<Self, ParseError<'i>> {
         use crate::custom_properties::SpecifiedValue;
+        use servo_arc::Arc;
         let name = Atom::from(&**input.expect_ident()?);
         let arguments = input
             .try_parse(|input| {
                 input.expect_comma()?;
-                input.parse_comma_separated(SpecifiedValue::parse)
+                input.parse_comma_separated(|input| {
+                    SpecifiedValue::parse(input, &context.url_data).map(Arc::new)
+                })
             })
             .unwrap_or_default();
         Ok(Self { name, arguments })
@@ -1303,6 +1315,7 @@ impl PaintWorklet {
     ToComputedValue,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(u8)]
 pub enum ImageRendering {

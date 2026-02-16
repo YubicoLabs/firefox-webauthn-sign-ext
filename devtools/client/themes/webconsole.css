@@ -24,17 +24,11 @@
 
   --console-input-background: light-dark(var(--theme-body-background), var(--theme-tab-toolbar-background));
   --console-message-background: var(--theme-body-background);
-  --console-message-border: light-dark(
-      color-mix(in srgb, var(--grey-10), var(--grey-20)),
-      var(--theme-splitter-color)
-    );
+  --console-message-border: light-dark(color-mix(in srgb, var(--grey-10), var(--grey-20)), var(--theme-splitter-color));
   --console-message-color: var(--theme-text-color-strong);
-  --console-error-background: light-dark(hsl(344, 73%, 97%), hsl(345, 23%, 24%));
-  --console-error-border: light-dark(
-      rgb(from var(--red-60) r g b / 0.12),
-      hsl(345, 30%, 35%)
-    );
-  --console-error-color: light-dark(var(--red-70), var(--red-20));
+  --console-error-background: var(--theme-error-background);
+  --console-error-border: var(--theme-error-border);
+  --console-error-color: var(--theme-error-color);
   --console-navigation-color: var(--theme-highlight-blue);
   --console-navigation-border: light-dark(var(--blue-30), var(--blue-60));
   --console-indent-border-color: var(--theme-highlight-blue);
@@ -120,7 +114,7 @@
  * the last element is actually the second-to-last element when the output is
  * scrolled all the way down, because we include an empty buffer div which
  * grows to simulate the height of unrendered content.) */
- .webconsole-app:not(.jsterm-editor) .message:nth-last-child(2) {
+.webconsole-app:not(.jsterm-editor) .message:nth-last-child(2) {
   border-bottom-width: 0;
   /* Adjust the min-height since we now only have a single border. */
   min-height: calc(var(--console-row-height) + 1px);
@@ -345,10 +339,7 @@
   background-color: var(--console-warning-color);
 }
 
-:root[forced-colors-active] :is(
-  .message-repeats,
-  .warning-group-badge
-) {
+:root[forced-colors-active] :is(.message-repeats, .warning-group-badge) {
   color: Canvas;
   background-color: CanvasText;
 }
@@ -547,7 +538,7 @@ html #webconsole-notificationbox {
 }
 
 /* CodeMirror-powered JsTerm */
-.jsterm-input-container > .CodeMirror {
+.jsterm-input-container > :is(.CodeMirror, .cm-editor) {
   /* aim for a 32px left space (a descendent has 4px padding) */
   padding-inline-start: calc(var(--console-inline-start-gutter) - 4px);
   /* Create a new stacking context */
@@ -561,6 +552,7 @@ html #webconsole-notificationbox {
   background-size: 12px 12px;
   -moz-context-properties: fill;
   fill: var(--theme-icon-dimmed-color);
+  outline: none;
 }
 
 /* We don't want to change the color in High Contrast Mode. A proper focus indicator
@@ -603,7 +595,6 @@ html #webconsole-notificationbox {
 }
 
 .cm-s-mozilla a[class] {
-  font-style: italic;
   text-decoration: underline;
   text-decoration-skip-ink: none;
 }
@@ -721,11 +712,9 @@ a.learn-more-link.webconsole-learn-more-link {
    But when the filter input is not focused, or empty, and there is no filtered messages,
    we don't want to display it as it provides little value
 */
-.webconsole-filterbar-primary[data-has-filtered-by-text="false"]
-  .devtools-searchbox input:is(:not(:focus),:empty) ~ #devtools-console-output-filter-summary {
+.webconsole-filterbar-primary[data-has-filtered-by-text="false"] .devtools-searchbox input:is(:not(:focus), :empty) ~ #devtools-console-output-filter-summary {
   display: none;
 }
-
 
 /* Special casing String reps, and warning/error string colors
  * so they are legible */
@@ -776,20 +765,16 @@ a.learn-more-link.webconsole-learn-more-link {
 }
 
 /* Styles for JavaScript Tracer messages */
-.webconsole-app :is(
-   .jstracer-dom-event,
-   .jstracer-dom-mutation,
-   .jstracer-implementation
- ) {
+.webconsole-app :is(.jstracer-dom-event, .jstracer-dom-mutation, .jstracer-implementation) {
   padding-inline: 4px;
   margin-inline: 2px;
 }
 .webconsole-app .jstracer-dom-event {
-  background-color: var( --console-tracer-dom-background);
+  background-color: var(--console-tracer-dom-background);
   color: var(--console-tracer-dom-color);
 }
 .webconsole-app .jstracer-dom-mutation {
-  background-color: var( --console-tracer-dom-background);
+  background-color: var(--console-tracer-dom-background);
   color: var(--console-tracer-dom-color);
   margin-inline-end: 4px;
 }
@@ -855,7 +840,6 @@ a.learn-more-link.webconsole-learn-more-link {
   padding: 3px 4px;
   font-variant-numeric: tabular-nums;
 }
-
 
 .consoletable tr:nth-child(even) td {
   background-color: var(--table-zebra-background);
@@ -967,10 +951,6 @@ a.learn-more-link.webconsole-learn-more-link {
   transform: rotate(0);
 }
 
-.collapse-button::-moz-focus-inner {
-  border: none;
-}
-
 /* Hide the icon, so that we can use the collapse-button in its place */
 .message.network:not(:where(.network-message-blocked, .disabled)) > .icon,
 .message.startGroup > .icon,
@@ -980,7 +960,7 @@ a.learn-more-link.webconsole-learn-more-link {
 
 /* Center the collapse button in the left gutter (first-level only) */
 .message.network > .collapse-button,
-.message:is(.startGroup,.startGroupCollapsed)[data-indent="0"] > .collapse-button {
+.message:is(.startGroup, .startGroupCollapsed)[data-indent="0"] > .collapse-button {
   width: 24px;
   margin-inline-start: var(--console-icon-horizontal-offset);
   margin-inline-end: calc(4px - var(--console-icon-horizontal-offset));
@@ -988,7 +968,7 @@ a.learn-more-link.webconsole-learn-more-link {
 
 /* Use a bigger arrow that is visually similar to other icons (10px) */
 .message.network > .collapse-button::before,
-.message:is(.startGroup,.startGroupCollapsed)[data-indent="0"] > .collapse-button::before {
+.message:is(.startGroup, .startGroupCollapsed)[data-indent="0"] > .collapse-button::before {
   width: 100%;
   background-image: url("chrome://devtools/skin/images/arrow-big.svg");
   fill: var(--theme-icon-dimmed-color);

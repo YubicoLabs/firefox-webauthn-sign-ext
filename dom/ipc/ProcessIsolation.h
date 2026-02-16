@@ -13,9 +13,9 @@
 #include "mozilla/dom/RemoteType.h"
 #include "mozilla/dom/SessionHistoryEntry.h"
 #include "mozilla/dom/WorkerPrivate.h"
-#include "nsString.h"
 #include "nsIPrincipal.h"
 #include "nsIURI.h"
+#include "nsString.h"
 
 namespace mozilla::dom {
 
@@ -106,6 +106,22 @@ void AddHighValuePermission(const nsACString& aOrigin,
  * `fission.webContentIsolationStrategy` pref is set to `IsolateHighValue`.
  */
 bool IsIsolateHighValueSiteEnabled();
+
+/**
+ * Perform a lax check that a process with the given RemoteType could
+ * potentially load a Document or run script with the given principal.
+ *
+ * WARNING: This is intentionally a lax check, to avoid false positives in
+ * assertions, and should NOT be used for process isolation decisions.
+ */
+enum class ValidatePrincipalOptions {
+  AllowNullPtr,  // Not a NullPrincipal but a nullptr as Principal.
+  AllowSystem,
+  AllowExpanded,
+};
+bool ValidatePrincipalCouldPotentiallyBeLoadedBy(
+    nsIPrincipal* aPrincipal, const nsACString& aRemoteType,
+    const EnumSet<ValidatePrincipalOptions>& aOptions);
 
 }  // namespace mozilla::dom
 

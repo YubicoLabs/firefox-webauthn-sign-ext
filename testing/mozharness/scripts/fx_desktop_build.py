@@ -14,7 +14,7 @@ import sys
 # load modules from parent dir
 sys.path.insert(1, os.path.dirname(sys.path[0]))
 
-import mozharness.base.script as script
+from mozharness.base import script
 from mozharness.mozilla.building.buildbase import (
     BUILD_BASE_CONFIG_OPTIONS,
     BuildingConfig,
@@ -22,7 +22,7 @@ from mozharness.mozilla.building.buildbase import (
 )
 
 
-class FxDesktopBuild(BuildScript, object):
+class FxDesktopBuild(BuildScript):
     def __init__(self):
         buildscript_kwargs = {
             "config_options": BUILD_BASE_CONFIG_OPTIONS,
@@ -58,12 +58,12 @@ class FxDesktopBuild(BuildScript, object):
             },
             "ConfigClass": BuildingConfig,
         }
-        super(FxDesktopBuild, self).__init__(**buildscript_kwargs)
+        super().__init__(**buildscript_kwargs)
 
     def query_abs_dirs(self):
         if self.abs_dirs:
             return self.abs_dirs
-        abs_dirs = super(FxDesktopBuild, self).query_abs_dirs()
+        abs_dirs = super().query_abs_dirs()
 
         dirs = {
             # BuildFactories in factory.py refer to a 'build' dir on the slave.

@@ -4,7 +4,7 @@
 
 use inherent::inherent;
 
-use super::{CommonMetricData, MetricId, TimeUnit};
+use super::{BaseMetricId, CommonMetricData, TimeUnit};
 use std::convert::TryInto;
 use std::time::Duration;
 
@@ -13,12 +13,12 @@ use glean::traits::Timespan;
 use crate::ipc::need_ipc;
 
 #[cfg(feature = "with_gecko")]
-use super::profiler_utils::TelemetryProfilerCategory;
+use super::profiler_utils::{stream_identifiers_by_id, TelemetryProfilerCategory};
 
 #[cfg(feature = "with_gecko")]
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 struct TimespanMetricMarker {
-    id: MetricId,
+    id: BaseMetricId,
     value: Option<u64>,
 }
 
@@ -31,24 +31,21 @@ impl gecko_profiler::ProfilerMarker for TimespanMetricMarker {
     fn marker_type_display() -> gecko_profiler::MarkerSchema {
         use gecko_profiler::schema::*;
         let mut schema = MarkerSchema::new(&[Location::MarkerChart, Location::MarkerTable]);
-        schema.set_tooltip_label("{marker.data.id} {marker.data.val}{marker.data.stringval}");
+        schema.set_tooltip_label(
+            "{marker.data.cat}.{marker.data.id} {marker.data.val}{marker.data.stringval}",
+        );
         schema.set_table_label(
-            "{marker.name} - {marker.data.id}: {marker.data.val}{marker.data.stringval}",
+            "{marker.data.cat}.{marker.data.id}: {marker.data.val}{marker.data.stringval}",
         );
-        schema.add_key_label_format_searchable(
-            "id",
-            "Metric",
-            Format::UniqueString,
-            Searchable::Searchable,
-        );
+        schema.add_key_label_format("cat", "Category", Format::UniqueString);
+        schema.add_key_label_format("id", "Metric", Format::UniqueString);
         schema.add_key_label_format("val", "Value", Format::Integer);
         schema.add_key_label_format("stringval", "Value", Format::String);
         schema
     }
 
     fn stream_json_marker_data(&self, json_writer: &mut gecko_profiler::JSONWriter) {
-        let name = self.id.get_name();
-        json_writer.unique_string_property("id", &name);
+        stream_identifiers_by_id::<TimespanMetric>(&self.id.into(), json_writer);
         if let Some(v) = self.value {
             use std::convert::TryFrom;
             // We will always be writing values as nanoseconds, however,
@@ -76,26 +73,29 @@ impl gecko_profiler::ProfilerMarker for TimespanMetricMarker {
 pub enum TimespanMetric {
     Parent {
         /// The metric's ID. Used for testing and profiler markers. Time span
-        /// metrics canot be labeled, so we only store a MetricId. If this
-        /// changes, this should be changed to a MetricGetter to distinguish
+        /// metrics canot be labeled, so we only store a BaseMetricId. If this
+        /// changes, this should be changed to a MetricId to distinguish
         /// between metrics and sub-metrics.
-        id: MetricId,
+        id: BaseMetricId,
         inner: glean::private::TimespanMetric,
         time_unit: TimeUnit,
     },
     Child,
 }
 
+define_metric_metadata_getter!(TimespanMetric, TIMESPAN_MAP);
+define_metric_namer!(TimespanMetric, PARENT_ONLY);
+
 impl TimespanMetric {
     /// Create a new timespan metric.
-    pub fn new(id: MetricId, meta: CommonMetricData, time_unit: TimeUnit) -> Self {
+    pub fn new(id: BaseMetricId, meta: CommonMetricData, time_unit: TimeUnit) -> Self {
         if need_ipc() {
             TimespanMetric::Child
         } else {
             TimespanMetric::Parent {
                 id,
                 inner: glean::private::TimespanMetric::new(meta, time_unit),
-                time_unit: time_unit,
+                time_unit,
             }
         }
     }
@@ -111,7 +111,7 @@ impl TimespanMetric {
                 time_unit,
             } => {
                 #[cfg(feature = "with_gecko")]
-                if gecko_profiler::can_accept_markers() {
+                if gecko_profiler::current_thread_is_being_profiled_for_markers() {
                     gecko_profiler::add_marker(
                         "TimeSpan::setRaw",
                         TelemetryProfilerCategory,
@@ -155,7 +155,7 @@ impl Timespan for TimespanMetric {
                 // While these bugs are being solved, we record instant markers so
                 // that we still have *some* information.
                 #[cfg(feature = "with_gecko")]
-                if gecko_profiler::can_accept_markers() {
+                if gecko_profiler::current_thread_is_being_profiled_for_markers() {
                     gecko_profiler::add_marker(
                         "TimeSpan::start",
                         TelemetryProfilerCategory,
@@ -185,7 +185,7 @@ impl Timespan for TimespanMetric {
             TimespanMetric::Parent { id, inner, .. } => {
                 // See comment on Timespan::start
                 #[cfg(feature = "with_gecko")]
-                if gecko_profiler::can_accept_markers() {
+                if gecko_profiler::current_thread_is_being_profiled_for_markers() {
                     gecko_profiler::add_marker(
                         "TimeSpan::stop",
                         TelemetryProfilerCategory,
@@ -215,7 +215,7 @@ impl Timespan for TimespanMetric {
             TimespanMetric::Parent { id, inner, .. } => {
                 // See comment on Timespan::start
                 #[cfg(feature = "with_gecko")]
-                if gecko_profiler::can_accept_markers() {
+                if gecko_profiler::current_thread_is_being_profiled_for_markers() {
                     gecko_profiler::add_marker(
                         "TimeSpan::cancel",
                         TelemetryProfilerCategory,
@@ -245,7 +245,7 @@ impl Timespan for TimespanMetric {
             TimespanMetric::Parent { id, inner, .. } => {
                 let elapsed = elapsed.as_nanos().try_into().unwrap_or(i64::MAX);
                 #[cfg(feature = "with_gecko")]
-                if gecko_profiler::can_accept_markers() {
+                if gecko_profiler::current_thread_is_being_profiled_for_markers() {
                     gecko_profiler::add_marker(
                         "TimeSpan::setRaw",
                         TelemetryProfilerCategory,
@@ -271,8 +271,21 @@ impl Timespan for TimespanMetric {
         }
     }
 
-    pub fn test_get_value<'a, S: Into<Option<&'a str>>>(&self, ping_name: S) -> Option<u64> {
-        let ping_name = ping_name.into().map(|s| s.to_string());
+    pub fn test_get_num_recorded_errors(&self, error: glean::ErrorType) -> i32 {
+        match self {
+            TimespanMetric::Parent { inner, .. } => inner.test_get_num_recorded_errors(error),
+            TimespanMetric::Child => {
+                panic!("Cannot get the number of recorded errors for timespan metric in non-main process!");
+            }
+        }
+    }
+}
+
+#[inherent]
+impl glean::TestGetValue for TimespanMetric {
+    type Output = u64;
+
+    pub fn test_get_value(&self, ping_name: Option<String>) -> Option<u64> {
         match self {
             // Conversion is ok here:
             // Timespans are really tricky to set to excessive values with the pleasant APIs.
@@ -284,21 +297,12 @@ impl Timespan for TimespanMetric {
             }
         }
     }
-
-    pub fn test_get_num_recorded_errors(&self, error: glean::ErrorType) -> i32 {
-        match self {
-            TimespanMetric::Parent { inner, .. } => inner.test_get_num_recorded_errors(error),
-            TimespanMetric::Child => {
-                panic!("Cannot get the number of recorded errors for timespan metric in non-main process!");
-            }
-        }
-    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::private::MetricId;
+    use crate::private::BaseMetricId;
     use crate::{common_test::*, ipc, metrics};
 
     #[test]
@@ -306,7 +310,7 @@ mod test {
         let _lock = lock_test();
 
         let metric = TimespanMetric::new(
-            MetricId(0),
+            BaseMetricId(0),
             CommonMetricData {
                 name: "timespan_metric".into(),
                 category: "telemetry".into(),
@@ -323,7 +327,7 @@ mod test {
         // So let's cancel and make sure nothing blows up.
         metric.cancel();
 
-        assert_eq!(None, metric.test_get_value("test-ping"));
+        assert_eq!(None, metric.test_get_value(Some("test-ping".to_string())));
     }
 
     #[test]

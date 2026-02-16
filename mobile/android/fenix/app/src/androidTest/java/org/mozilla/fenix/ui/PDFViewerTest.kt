@@ -19,8 +19,10 @@ import org.mozilla.fenix.helpers.MatcherHelper.itemWithResIdAndText
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithText
 import org.mozilla.fenix.helpers.TestAssetHelper.getGenericAsset
 import org.mozilla.fenix.helpers.TestHelper.appName
+import org.mozilla.fenix.helpers.TestHelper.clickSnackbarButton
 import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.helpers.TestSetup
+import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
 import org.mozilla.fenix.ui.robots.browserScreen
 import org.mozilla.fenix.ui.robots.clickPageObject
 import org.mozilla.fenix.ui.robots.navigationToolbar
@@ -39,17 +41,19 @@ class PDFViewerTest : TestSetup() {
             HomeActivityIntentTestRule.withDefaultSettingsOverrides(),
         ) { it.activity }
 
+    @get:Rule
+    val memoryLeaksRule = DetectMemoryLeaksRule()
+
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2048140
     @SmokeTest
     @Test
     fun verifyPDFFileIsOpenedInTheSameTabTest() {
-        val genericURL =
-            getGenericAsset(mockWebServer, 3)
+        val genericURL = mockWebServer.getGenericAsset(3)
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(genericURL.url) {
-            clickPageObject(itemContainingText("PDF form file"))
-            clickPageObject(itemWithResIdAndText("android:id/button2", "CANCEL"))
+            clickPageObject(composeTestRule, itemContainingText("PDF form file"))
+            clickPageObject(composeTestRule, itemWithResIdAndText("android:id/button2", "Cancel"))
             verifyPageContent("Washington Crossing the Delaware")
             verifyTabCounter("1")
         }
@@ -59,16 +63,16 @@ class PDFViewerTest : TestSetup() {
     // Download PDF file using the download toolbar button
     @Test
     fun verifyPDFViewerDownloadButtonTest() {
-        val genericURL = getGenericAsset(mockWebServer, 3)
+        val genericURL = mockWebServer.getGenericAsset(3)
         val downloadFile = "pdfForm.pdf"
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(genericURL.url) {
-            clickPageObject(itemWithText("PDF form file"))
-            clickPageObject(itemWithResIdAndText("android:id/button2", "CANCEL"))
+            clickPageObject(composeTestRule, itemWithText("PDF form file"))
+            clickPageObject(composeTestRule, itemWithResIdAndText("android:id/button2", "Cancel"))
         }.clickDownloadPDFButton {
-            verifyDownloadedFileName(downloadFile)
-        }.clickOpen("application/pdf") {
+            verifyDownloadCompleteSnackbar(fileName = downloadFile)
+            clickSnackbarButton(composeTestRule = composeTestRule, "OPEN")
             assertExternalAppOpens(GOOGLE_DOCS)
         }
     }
@@ -76,16 +80,14 @@ class PDFViewerTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2283305
     @Test
     fun pdfFindInPageTest() {
-        val genericURL = getGenericAsset(mockWebServer, 3)
+        val genericURL = mockWebServer.getGenericAsset(3)
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(genericURL.url) {
-            clickPageObject(MatcherHelper.itemWithText("PDF form file"))
-            clickPageObject(itemWithResIdAndText("android:id/button2", "CANCEL"))
+            clickPageObject(composeTestRule, itemWithText("PDF form file"))
+            clickPageObject(composeTestRule, itemWithResIdAndText("android:id/button2", "Cancel"))
         }.openThreeDotMenu {
-            verifyThreeDotMenuExists()
-            verifyFindInPageButton()
-        }.openFindInPage {
+        }.clickFindInPageButton {
             verifyFindInPageNextButton()
             verifyFindInPagePrevButton()
             verifyFindInPageCloseButton()
@@ -95,13 +97,13 @@ class PDFViewerTest : TestSetup() {
             verifyFindInPageResult("2/2")
             clickFindInPagePrevButton()
             verifyFindInPageResult("1/2")
-        }.closeFindInPageWithCloseButton {
+        }.closeFindInPageWithCloseButton(composeTestRule) {
             verifyFindInPageBar(false)
         }.openThreeDotMenu {
-        }.openFindInPage {
+        }.clickFindInPageButton {
             enterFindInPageQuery("p")
             verifyFindInPageResult("1/1")
-        }.closeFindInPageWithBackButton {
+        }.closeFindInPageWithBackButton(composeTestRule) {
             verifyFindInPageBar(false)
         }
     }
@@ -109,14 +111,14 @@ class PDFViewerTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2284297
     @Test
     fun addPDFToHomeScreenTest() {
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(downloadTestPage.toUri()) {
-            clickPageObject(MatcherHelper.itemContainingText(pdfFileName))
+            clickPageObject(composeTestRule, itemContainingText(pdfFileName))
             verifyUrl(pdfFileURL)
             verifyPageContent(pdfFileContent)
         }.openThreeDotMenu {
-            expandMenu()
-        }.openAddToHomeScreen {
+            clickTheMoreButton()
+        }.clickAddToHomeScreenButton {
             verifyShortcutTextFieldTitle(pdfFileName)
             clickAddShortcutButton()
             clickSystemHomeScreenShortcutAddButton()
@@ -129,17 +131,17 @@ class PDFViewerTest : TestSetup() {
     // Download PDF file using the download toolbar button
     @Test
     fun verifyDownloadedPDFIsOpenedInFirefoxTest() {
-        val genericURL = getGenericAsset(mockWebServer, 3)
+        val genericURL = mockWebServer.getGenericAsset(3)
         val downloadFile = "pdfForm.pdf"
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(genericURL.url) {
-            clickPageObject(itemWithText("PDF form file"))
-            clickPageObject(itemWithResIdAndText("android:id/button2", "CANCEL"))
+            clickPageObject(composeTestRule, itemWithText("PDF form file"))
+            clickPageObject(composeTestRule, itemWithResIdAndText("android:id/button2", "Cancel"))
             verifyTabCounter("1")
         }.openThreeDotMenu {
-            expandMenu()
-        }.openAddToHomeScreen {
+            clickTheMoreButton()
+        }.clickAddToHomeScreenButton {
             verifyShortcutTextFieldTitle("Untitled document")
             addShortcutName("pdfForm")
             clickAddShortcutButton()
@@ -147,37 +149,38 @@ class PDFViewerTest : TestSetup() {
         }.openHomeScreenShortcut("pdfForm") {
             verifyTabCounter("1")
         }.clickDownloadPDFButton {
-            verifyDownloadedFileName(downloadFile)
-        }.clickOpen("application/pdf") {
-            selectToAlwaysOpenDownloadedFileWithApp(appName = appName)
-            verifyUrl("content://media/external_primary/downloads/")
-            verifyTabCounter("2")
+            verifyDownloadCompleteSnackbar(fileName = downloadFile)
+            clickSnackbarButton(composeTestRule = composeTestRule, "OPEN")
         }
+            browserScreen(composeTestRule) {
+                selectToAlwaysOpenDownloadedFileWithApp(appName = appName)
+                verifyUrl("content://media/external_primary/downloads/")
+                verifyTabCounter("2")
+            }
 
-        navigationToolbar {
-        }.enterURLAndEnterToBrowser(genericURL.url) {
-            clickPageObject(itemWithText("PDF form file"))
-            clickPageObject(itemWithResIdAndText("android:id/button2", "CANCEL"))
-        }.clickDownloadPDFButton {
-            verifyDownloadedFileName(downloadFile)
-        }
+            navigationToolbar(composeTestRule) {
+            }.enterURLAndEnterToBrowser(genericURL.url) {
+                clickPageObject(composeTestRule, itemWithText("PDF form file"))
+                clickPageObject(composeTestRule, itemWithResIdAndText("android:id/button2", "Cancel"))
+            }.clickDownloadPDFButton {
+            }
 
-        mDevice.openNotification()
+            mDevice.openNotification()
 
-        notificationShade {
-            expandMultipleDownloadNotification("pdfForm(1).pdf")
-            clickNotification("pdfForm(1).pdf")
-        }
-        browserScreen {
-            verifyUrl("content://media/external_primary/downloads/")
-            verifyTabCounter("3")
-        }.openThreeDotMenu {
-        }.openDownloadsManager {
-            clickDownloadedItem(composeTestRule, "pdfForm.pdf")
-        }
-        browserScreen {
-            verifyTabCounter("4")
-            verifyUrl("content://media/external_primary/downloads/")
+            notificationShade {
+                expandMultipleDownloadNotification("pdfForm(1).pdf")
+                clickNotification("pdfForm(1).pdf")
+            }
+            browserScreen(composeTestRule) {
+                verifyUrl("content://media/external_primary/downloads/")
+                verifyTabCounter("3")
+            }.openThreeDotMenu {
+            }.clickDownloadsButton {
+                clickDownloadedItem("pdfForm.pdf")
+            }
+            browserScreen(composeTestRule) {
+                verifyTabCounter("4")
+                verifyUrl("content://media/external_primary/downloads/")
+            }
         }
     }
-}

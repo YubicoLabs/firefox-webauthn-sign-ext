@@ -39,9 +39,8 @@
 #include <memory>
 #include <utility>
 
-#include "jsdate.h"
-
 #include "builtin/DataViewObject.h"
+#include "builtin/Date.h"
 #include "builtin/MapObject.h"
 #include "gc/GC.h"           // AutoSelectGCHeap
 #include "js/Array.h"        // JS::GetArrayLength, JS::IsArrayObject
@@ -149,6 +148,7 @@ enum StructuredDataType : uint32_t {
 
   SCTAG_RESIZABLE_ARRAY_BUFFER_OBJECT,
   SCTAG_GROWABLE_SHARED_ARRAY_BUFFER_OBJECT,
+  SCTAG_IMMUTABLE_ARRAY_BUFFER_OBJECT,
 
   SCTAG_TYPED_ARRAY_V1_MIN = 0xFFFF0100,
   SCTAG_TYPED_ARRAY_V1_INT8 = SCTAG_TYPED_ARRAY_V1_MIN + Scalar::Int8,
@@ -1196,6 +1196,11 @@ bool JSStructuredCloneWriter::parseTransferable() {
   RootedValue v(context());
   RootedObject tObj(context());
 
+  Rooted<GCHashSet<js::HeapPtr<JSObject*>,
+                   js::StableCellHasher<js::HeapPtr<JSObject*>>,
+                   SystemAllocPolicy>>
+      seen(context());
+
   for (uint32_t i = 0; i < length; ++i) {
     if (!CheckForInterrupt(cx)) {
       return false;
@@ -1232,9 +1237,13 @@ bool JSStructuredCloneWriter::parseTransferable() {
 
     // External array buffers may be able to be transferred in the future,
     // but that is not currently implemented.
+    //
+    // Immutable array buffers can't be transferred, because they can't be
+    // detached.
 
     else if (unwrappedObj->is<ArrayBufferObject>()) {
-      if (unwrappedObj->as<ArrayBufferObject>().isExternal()) {
+      if (unwrappedObj->as<ArrayBufferObject>().isExternal() ||
+          unwrappedObj->as<ArrayBufferObject>().isImmutable()) {
         return reportDataCloneError(JS_SCERR_TRANSFERABLE);
       }
     }
@@ -1256,10 +1265,36 @@ bool JSStructuredCloneWriter::parseTransferable() {
       }
     }
 
-    // No duplicates allowed
-    if (std::find(transferableObjects.begin(), transferableObjects.end(),
-                  tObj) != transferableObjects.end()) {
-      return reportDataCloneError(JS_SCERR_DUP_TRANSFERABLE);
+    // No duplicates allowed. Normally the transferable list is very short, but
+    // some users are passing >10k. Switch to a hash-based lookup when the
+    // linear list starts getting long.
+    constexpr uint32_t MAX_LINEAR = 10;
+
+    // Switch from a linear scan to a set lookup, initializing the set with all
+    // objects seen so far.
+    if (i == MAX_LINEAR) {
+      for (JSObject* obj : transferableObjects) {
+        if (!seen.putNew(obj)) {
+          seen.clear();  // Fall back to linear scan on OOM.
+          break;
+        }
+      }
+    }
+
+    if (seen.empty()) {
+      if (std::find(transferableObjects.begin(), transferableObjects.end(),
+                    tObj) != transferableObjects.end()) {
+        return reportDataCloneError(JS_SCERR_DUP_TRANSFERABLE);
+      }
+    } else {
+      MOZ_ASSERT(seen.count() == i);  // All objs are distinct up to this point.
+      auto p = seen.lookupForAdd(tObj);
+      if (p) {
+        return reportDataCloneError(JS_SCERR_DUP_TRANSFERABLE);
+      }
+      if (!seen.add(p, tObj)) {
+        seen.clear();  // Fall back to linear scan on OOM.
+      }
     }
 
     if (!transferableObjects.append(tObj)) {
@@ -1455,9 +1490,10 @@ bool JSStructuredCloneWriter::writeArrayBuffer(HandleObject obj) {
                                     obj->maybeUnwrapAs<ArrayBufferObject>());
   JSAutoRealm ar(context(), buffer);
 
-  StructuredDataType type = !buffer->isResizable()
-                                ? SCTAG_ARRAY_BUFFER_OBJECT
-                                : SCTAG_RESIZABLE_ARRAY_BUFFER_OBJECT;
+  StructuredDataType type =
+      buffer->isResizable()   ? SCTAG_RESIZABLE_ARRAY_BUFFER_OBJECT
+      : buffer->isImmutable() ? SCTAG_IMMUTABLE_ARRAY_BUFFER_OBJECT
+                              : SCTAG_ARRAY_BUFFER_OBJECT;
 
   if (!out.writePair(type, 0)) {
     return false;
@@ -1551,12 +1587,16 @@ bool JSStructuredCloneWriter::writeSharedWasmMemory(HandleObject obj) {
 
   Rooted<WasmMemoryObject*> memoryObj(context(),
                                       &obj->unwrapAs<WasmMemoryObject>());
-  Rooted<SharedArrayBufferObject*> sab(
-      context(), &memoryObj->buffer().as<SharedArrayBufferObject>());
 
-  return out.writePair(SCTAG_SHARED_WASM_MEMORY_OBJECT, 0) &&
-         out.writePair(SCTAG_BOOLEAN, memoryObj->isHuge()) &&
-         writeSharedArrayBuffer(sab);
+  if (!out.writePair(SCTAG_SHARED_WASM_MEMORY_OBJECT, 0) ||
+      !out.writePair(SCTAG_BOOLEAN, memoryObj->isHuge())) {
+    return false;
+  }
+
+  // Use startWrite to register in memory map for back-reference support.
+  MOZ_RELEASE_ASSERT(memoryObj->buffer().is<SharedArrayBufferObject>());
+  RootedValue bufferVal(context(), ObjectValue(memoryObj->buffer()));
+  return startWrite(bufferVal);
 }
 
 bool JSStructuredCloneWriter::startObject(HandleObject obj, bool* backref) {
@@ -1966,8 +2006,13 @@ bool JSStructuredCloneWriter::traverseError(HandleObject obj) {
     return false;
   }
 
-  Rooted<ErrorObject*> unwrapped(cx, obj->maybeUnwrapAs<ErrorObject>());
-  MOZ_ASSERT(unwrapped);
+  // ToString can call arbitrary JS so we have to check for nuked CCWs.
+  if (!obj->canUnwrapAs<ErrorObject>()) {
+    MOZ_ASSERT(JS_IsDeadWrapper(CheckedUnwrapStatic(obj)));
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEAD_OBJECT);
+    return false;
+  }
+  Rooted<ErrorObject*> unwrapped(cx, &obj->unwrapAs<ErrorObject>());
 
   // Non-standard: Serialize |stack|.
   // The Error stack property is saved as SavedFrames.
@@ -2312,6 +2357,9 @@ bool JSStructuredCloneWriter::transferOwnership() {
           cx, obj->maybeUnwrapAs<ArrayBufferObject>());
       JSAutoRealm ar(cx, arrayBuffer);
 
+      MOZ_ASSERT(!arrayBuffer->isImmutable(),
+                 "Immutable array buffers can't be transferred");
+
       if (arrayBuffer->isDetached()) {
         reportDataCloneError(JS_SCERR_TYPED_ARRAY_DETACHED);
         return false;
@@ -2533,6 +2581,10 @@ JSStructuredCloneReader::JSStructuredCloneReader(
       callbacks(cb),
       closure(cbClosure),
       gcHeap(in.context()) {
+  // Readers should never enable SAB for a DifferentProcess scope.
+  MOZ_RELEASE_ASSERT(!(scope == JS::StructuredCloneScope::DifferentProcess &&
+                       cloneDataPolicy.areSharedMemoryObjectsAllowed()));
+
   // Avoid the need to bounds check by keeping a never-matching element at the
   // base of the `objState` stack. This append() will always succeed because
   // the objState vector has a nonzero MinInlineCapacity.
@@ -2806,7 +2858,8 @@ bool JSStructuredCloneReader::readArrayBuffer(StructuredDataType type,
   // length separately to allow larger length values.
   uint64_t nbytes = 0;
   uint64_t maxbytes = 0;
-  if (type == SCTAG_ARRAY_BUFFER_OBJECT) {
+  if (type == SCTAG_ARRAY_BUFFER_OBJECT ||
+      type == SCTAG_IMMUTABLE_ARRAY_BUFFER_OBJECT) {
     if (!in.read(&nbytes)) {
       return false;
     }
@@ -2832,12 +2885,15 @@ bool JSStructuredCloneReader::readArrayBuffer(StructuredDataType type,
   }
 
   JSObject* obj;
-  if (type != SCTAG_RESIZABLE_ARRAY_BUFFER_OBJECT) {
-    MOZ_ASSERT(maxbytes == 0);
-    obj = ArrayBufferObject::createZeroed(context(), size_t(nbytes));
-  } else {
+  if (type == SCTAG_RESIZABLE_ARRAY_BUFFER_OBJECT) {
     obj = ResizableArrayBufferObject::createZeroed(context(), size_t(nbytes),
                                                    size_t(maxbytes));
+  } else if (type == SCTAG_IMMUTABLE_ARRAY_BUFFER_OBJECT) {
+    MOZ_ASSERT(maxbytes == 0);
+    obj = ImmutableArrayBufferObject::createZeroed(context(), size_t(nbytes));
+  } else {
+    MOZ_ASSERT(maxbytes == 0);
+    obj = ArrayBufferObject::createZeroed(context(), size_t(nbytes));
   }
   if (!obj) {
     return false;
@@ -2884,7 +2940,7 @@ bool JSStructuredCloneReader::readSharedArrayBuffer(StructuredDataType type,
   bool isGrowable = type == SCTAG_GROWABLE_SHARED_ARRAY_BUFFER_OBJECT;
 
   SharedArrayRawBuffer* rawbuf = reinterpret_cast<SharedArrayRawBuffer*>(p);
-  MOZ_RELEASE_ASSERT(isGrowable == rawbuf->isGrowable());
+  MOZ_RELEASE_ASSERT(rawbuf->isWasm() || isGrowable == rawbuf->isGrowableJS());
 
   // There's no guarantee that the receiving agent has enabled shared memory
   // even if the transmitting agent has done so.  Ideally we'd check at the
@@ -2923,6 +2979,12 @@ bool JSStructuredCloneReader::readSharedArrayBuffer(StructuredDataType type,
 
   if (callbacks && callbacks->sabCloned &&
       !callbacks->sabCloned(context(), /*receiving=*/true, closure)) {
+    return false;
+  }
+
+  // Add the SharedArrayBuffer to allObjs so that later references can use
+  // back-references.
+  if (!allObjs.append(ObjectValue(*obj))) {
     return false;
   }
 
@@ -3222,6 +3284,7 @@ bool JSStructuredCloneReader::startRead(MutableHandleValue vp,
     case SCTAG_ARRAY_BUFFER_OBJECT_V2:
     case SCTAG_ARRAY_BUFFER_OBJECT:
     case SCTAG_RESIZABLE_ARRAY_BUFFER_OBJECT:
+    case SCTAG_IMMUTABLE_ARRAY_BUFFER_OBJECT:
       if (!readArrayBuffer(StructuredDataType(tag), data, vp)) {
         return false;
       }
@@ -3385,12 +3448,24 @@ bool JSStructuredCloneReader::readHeader() {
     storedScope = JS::StructuredCloneScope::DifferentProcessForIndexedDB;
   }
 
-  // Backward compatibility with old structured clone buffers. Value '0' was
-  // used for SameProcessSameThread scope.
-  if ((int)storedScope == 0) {
-    storedScope = JS::StructuredCloneScope::SameProcess;
+  if (allowedScope == JS::StructuredCloneScope::DifferentProcessForIndexedDB) {
+    // Bug 1434308 and bug 1458320 - the scopes stored in old IndexedDB clones
+    // are incorrect. IndexedDB callers will pass in the special
+    // DifferentProcessForIndexedDB allowedScope, which means: act like
+    // allowedScope=DifferentProcess and if an old stored scope of 0 is
+    // detected, pretend like it was DifferentProcess instead. Value '0' was
+    // SameProcessSameThread scope and incorrectly used back when the old clones
+    // were written.
+    allowedScope = JS::StructuredCloneScope::DifferentProcess;
+    if (int(storedScope) == 0) {
+      storedScope = JS::StructuredCloneScope::DifferentProcess;
+    }
   }
 
+  // Note that various tests have the scope stored in them as
+  // DifferentProcessForIndexedDB, which shouldn't ever have made it to disk.
+  // Given the number of test failures if I forbid it, I'm not confident it
+  // didn't make it into users' data, so will allow it without erroring.
   if (storedScope < JS::StructuredCloneScope::SameProcess ||
       storedScope > JS::StructuredCloneScope::DifferentProcessForIndexedDB) {
     JS_ReportErrorNumberASCII(context(), GetErrorMessage, nullptr,
@@ -3399,18 +3474,17 @@ bool JSStructuredCloneReader::readHeader() {
     return false;
   }
 
-  if (allowedScope == JS::StructuredCloneScope::DifferentProcessForIndexedDB) {
-    // Bug 1434308 and bug 1458320 - the scopes stored in old IndexedDB
-    // clones are incorrect. Treat them as if they were DifferentProcess.
-    allowedScope = JS::StructuredCloneScope::DifferentProcess;
-    return true;
-  }
-
   if (storedScope < allowedScope) {
     JS_ReportErrorNumberASCII(context(), GetErrorMessage, nullptr,
                               JSMSG_SC_BAD_SERIALIZED_DATA,
                               "incompatible structured clone scope");
     return false;
+  }
+
+  if (allowedScope == JS::StructuredCloneScope::DifferentProcess) {
+    MOZ_RELEASE_ASSERT(
+        !cloneDataPolicy.areIntraClusterClonableSharedObjectsAllowed());
+    MOZ_RELEASE_ASSERT(!cloneDataPolicy.areSharedMemoryObjectsAllowed());
   }
 
   return true;
@@ -3522,7 +3596,8 @@ bool JSStructuredCloneReader::readTransferMap() {
       }
       if (tag != SCTAG_ARRAY_BUFFER_OBJECT_V2 &&
           tag != SCTAG_ARRAY_BUFFER_OBJECT &&
-          tag != SCTAG_RESIZABLE_ARRAY_BUFFER_OBJECT) {
+          tag != SCTAG_RESIZABLE_ARRAY_BUFFER_OBJECT &&
+          tag != SCTAG_IMMUTABLE_ARRAY_BUFFER_OBJECT) {
         ReportDataCloneError(cx, callbacks, JS_SCERR_TRANSFERABLE, closure);
         return false;
       }
@@ -3624,7 +3699,13 @@ JSObject* JSStructuredCloneReader::readSavedFrameHeader(
     }
 
     if (mutedErrors.isBoolean()) {
-      if (!startRead(&source, AtomizeStrings) || !source.isString()) {
+      if (!startRead(&source, AtomizeStrings)) {
+        return nullptr;
+      }
+      if (!source.isString()) {
+        JS_ReportErrorNumberASCII(context(), GetErrorMessage, nullptr,
+                                  JSMSG_SC_BAD_SERIALIZED_DATA,
+                                  "bad source string");
         return nullptr;
       }
     } else if (mutedErrors.isString()) {
@@ -3633,7 +3714,9 @@ JSObject* JSStructuredCloneReader::readSavedFrameHeader(
       source = mutedErrors;
       mutedErrors.setBoolean(true);  // Safe default value.
     } else {
-      // Invalid type.
+      JS_ReportErrorNumberASCII(context(), GetErrorMessage, nullptr,
+                                JSMSG_SC_BAD_SERIALIZED_DATA,
+                                "invalid mutedErrors");
       return nullptr;
     }
   }
@@ -3924,8 +4007,6 @@ bool JSStructuredCloneReader::readObjectField(HandleObject obj,
 
 // Perform the whole recursive reading procedure.
 bool JSStructuredCloneReader::read(MutableHandleValue vp, size_t nbytes) {
-  auto startTime = mozilla::TimeStamp::Now();
-
   if (!readHeader()) {
     return false;
   }
@@ -4070,13 +4151,6 @@ bool JSStructuredCloneReader::read(MutableHandleValue vp, size_t nbytes) {
     return false;
   }
 #endif
-
-  JSRuntime* rt = context()->runtime();
-  rt->metrics().DESERIALIZE_BYTES(nbytes);
-  rt->metrics().DESERIALIZE_ITEMS(numItemsRead);
-  mozilla::TimeDuration elapsed = mozilla::TimeStamp::Now() - startTime;
-  rt->metrics().DESERIALIZE_US(elapsed);
-
   return true;
 }
 
@@ -4230,14 +4304,11 @@ bool JSAutoStructuredCloneBuffer::write(
     const JS::CloneDataPolicy& cloneDataPolicy,
     const JSStructuredCloneCallbacks* optionalCallbacks, void* closure) {
   clear();
-  bool ok = JS_WriteStructuredClone(
+  version_ = JS_STRUCTURED_CLONE_VERSION;
+  return JS_WriteStructuredClone(
       cx, value, &data_, data_.scopeForInternalWriting(), cloneDataPolicy,
       optionalCallbacks ? optionalCallbacks : data_.callbacks_,
       optionalCallbacks ? closure : data_.closure_, transferable);
-  if (!ok) {
-    version_ = JS_STRUCTURED_CLONE_VERSION;
-  }
-  return ok;
 }
 
 JS_PUBLIC_API bool JS_ReadUint32Pair(JSStructuredCloneReader* r, uint32_t* p1,

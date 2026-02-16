@@ -27,7 +27,7 @@ class FileDescriptor {
   typedef base::ProcessId ProcessId;
 
   using UniquePlatformHandle = mozilla::UniqueFileHandle;
-  using PlatformHandleType = UniquePlatformHandle::ElementType;
+  using PlatformHandleType = UniquePlatformHandle::element_type;
 
   // This should only ever be created by IPDL.
   struct IPDLPrivate {};
@@ -68,8 +68,6 @@ class FileDescriptor {
   bool operator==(const FileDescriptor& aOther) const;
 
  private:
-  static UniqueFileHandle Clone(PlatformHandleType aHandle);
-
   UniquePlatformHandle mHandle;
 };
 

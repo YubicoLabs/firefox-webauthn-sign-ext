@@ -7,6 +7,10 @@
 const { AppConstants } = ChromeUtils.importESModule(
   "resource://gre/modules/AppConstants.sys.mjs"
 );
+const { canDeleteProfile, deleteSharedProfilesStore } =
+  ChromeUtils.importESModule(
+    "moz-src:///toolkit/profile/ProfilesDatastoreService.sys.mjs"
+  );
 
 const C = Cc;
 const I = Ci;
@@ -80,6 +84,21 @@ function startup() {
 
   document.addEventListener("dialogaccept", dialogClosing);
   document.addEventListener("dialogcancel", dialogClosing);
+  document
+    .getElementById("newbutton")
+    .addEventListener("command", CreateProfileWizard);
+  document
+    .getElementById("renbutton")
+    .addEventListener("command", RenameProfile);
+  document
+    .getElementById("delbutton")
+    .addEventListener("command", ConfirmDelete);
+  document
+    .getElementById("profiles")
+    .addEventListener("dblclick", event => onProfilesDblClick(event));
+  document
+    .getElementById("profiles")
+    .addEventListener("keypress", event => onProfilesKey(event));
 }
 
 function dialogClosing(event) {
@@ -321,7 +340,7 @@ function RenameProfile() {
   return false;
 }
 
-function ConfirmDelete() {
+async function ConfirmDelete() {
   var profileList = document.getElementById("profiles");
 
   var selectedItem = profileList.selectedItem;
@@ -333,6 +352,18 @@ function ConfirmDelete() {
   var deleteFiles = false;
 
   if (selectedProfile.rootDir.exists()) {
+    if (!(await canDeleteProfile(selectedProfile))) {
+      let title = await getFluentString(
+        "profile-has-selectable-profiles-title"
+      );
+      let msg = await getFluentString(
+        "profile-has-selectable-profiles-message"
+      );
+      Services.prompt.alert(window, title, msg);
+
+      return false;
+    }
+
     var dialogTitle = gProfileManagerBundle.getString("deleteTitle");
     var dialogText = gProfileManagerBundle.getFormattedString(
       "deleteProfileConfirm",
@@ -361,6 +392,8 @@ function ConfirmDelete() {
     }
   }
 
+  let { storeID } = selectedProfile;
+
   try {
     selectedProfile.remove(deleteFiles);
     gNeedsFlush = true;
@@ -372,6 +405,10 @@ function ConfirmDelete() {
     return true;
   }
 
+  if (deleteFiles && storeID) {
+    await deleteSharedProfilesStore(storeID);
+  }
+
   profileList.removeChild(selectedItem);
   if (profileList.firstChild != undefined) {
     profileList.selectItem(profileList.firstChild);
@@ -379,3 +416,5 @@ function ConfirmDelete() {
 
   return true;
 }
+
+window.addEventListener("load", startup);

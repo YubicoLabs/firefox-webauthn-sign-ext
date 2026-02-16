@@ -4,13 +4,11 @@
 
 /*---
 flags:
-- onlyStrict
-includes: [sm/non262-shell.js, sm/non262.js]
+  - onlyStrict
 description: |
   pending
 esid: pending
 ---*/
-"use strict"
 
 var log = "";
 

@@ -22,12 +22,12 @@
 }
 
 /* hide the content and destroy the frame */
-[hidden="true"] {
+[hidden] {
   display: none;
 }
 
 /* hide the content, but don't destroy the frames */
-[collapsed="true"] {
+[collapsed] {
   visibility: collapse;
 }
 
@@ -69,10 +69,21 @@ tooltip:-moz-native-anonymous:-moz-locale-dir(rtl) {
 
 /****** elements that have no visual representation ******/
 
-script, data, commandset, command,
-broadcasterset, broadcaster, observes,
-keyset, key, toolbarpalette, template,
-treeitem, treeseparator, treerow, treecell {
+script,
+data,
+commandset,
+command,
+broadcasterset,
+broadcaster,
+observes,
+keyset,
+key,
+toolbarpalette,
+template,
+treeitem,
+treeseparator,
+treerow,
+treecell {
   display: none;
 }
 
@@ -88,7 +99,7 @@ browser,
 editor,
 iframe,
 label:is(.text-link, [onclick]),
-tab[selected="true"]:not([ignorefocus="true"]) {
+tab[selected]:not([ignorefocus]) {
   -moz-user-focus: normal;
 }
 
@@ -214,17 +225,8 @@ html|label.toolbarbutton-badge:empty {
 .toolbarbutton-icon,
 .toolbarbutton-text,
 .toolbarbutton-badge-stack,
-.toolbarbutton-menu-dropmarker,
 .treecol-text,
 .treecol-sortdirection,
-.menubar-left,
-.menubar-text,
-.menu-text,
-.menu-iconic-text,
-.menu-iconic-highlightable-text,
-.menu-iconic-left,
-.menu-right,
-.menu-accel-container,
 .button-box {
   /* Preserves legacy behavior */
   pointer-events: none;
@@ -260,6 +262,12 @@ browser {
   contain: size;
 }
 
+/* Double :fullscreen to have more specificity than the fullscreen spec's rule */
+browser:fullscreen:fullscreen {
+  -moz-top-layer: none !important;
+  position: static !important;
+}
+
 /*********** popup notification ************/
 popupnotification {
   flex-direction: column;
@@ -292,7 +300,6 @@ toolbaritem,
 toolbarbutton,
 toolbarseparator,
 button,
-search-textbox,
 html|input,
 tab,
 radio,
@@ -324,6 +331,12 @@ toolbarspring {
 }
 
 /********* menu ***********/
+
+/* Note that this attribute is added dynamically if needed to menubars by the
+ * native menubar code */
+menubar[native] {
+  display: none !important;
+}
 
 menubar > menu:empty {
   visibility: collapse;
@@ -364,47 +377,33 @@ tooltip {
   max-width: 40em;
   overflow: clip;
   pointer-events: none;
-}
 
-/**
- * It's important that these styles are in a UA sheet, because the default
- * tooltip is native anonymous content
- */
-@media (-moz-platform: linux) {
-  tooltip {
+  /**
+   * It's important that these styles are in a UA sheet, because the default
+   * tooltip is native anonymous content
+   */
+  @media (-moz-platform: linux) {
     padding: 6px 10px; /* Matches Adwaita. */
-    line-height: 1.4;  /* For Noto Sans; note that 1.2 may clip descenders. */
+    line-height: 1.4; /* For Noto Sans; note that 1.2 may clip descenders. */
+    border: 0.5px solid color-mix(in srgb, currentColor 60%, transparent);
+    @media (-moz-gtk-csd-transparency-available) {
+      border-radius: env(-moz-gtk-csd-tooltip-radius);
+    }
   }
-}
-
-@media (-moz-platform: macos) {
-  tooltip {
+  @media (-moz-platform: macos) {
     padding: 2px 6px; /* Matches native metrics. */
   }
-}
-
-@media (-moz-platform: windows) {
-  tooltip {
+  @media (-moz-platform: windows) {
     appearance: none;
     border: 1px solid;
-  }
 
-  /* TODO(emilio): Probably make InfoText/InfoBackground do the right thing and
-   * remove this? */
-  @media not (prefers-contrast) {
-    tooltip {
-      background-color: #f9f9fb;
-      color: black;
-      border-color: #67676c;
+    /* TODO(emilio): Probably make InfoText/InfoBackground do the right thing and
+     * remove this? */
+    @media not (prefers-contrast) {
+      background-color: light-dark(#f9f9fb, #2b2a33);
+      color: light-dark(black, white);
+      border-color: light-dark(#67676c, #f9f9fb);
       border-radius: 4px;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      tooltip {
-        background-color: #2b2a33;
-        color: white;
-        border-color: #f9f9fb;
-      }
     }
   }
 }
@@ -435,7 +434,7 @@ treecol {
   order: 1;
 }
 
-treecol[hidden="true"] {
+treecol[hidden] {
   visibility: collapse;
   display: flex;
 }
@@ -462,6 +461,8 @@ deck > *|*:not(:-moz-native-anonymous) {
 }
 
 tabpanels > .deck-selected,
+tabpanels > .split-view-panel-active,
+tabpanels > .split-view-splitter,
 deck > .deck-selected {
   -moz-subtree-hidden-only-visually: 0;
   visibility: inherit;
@@ -529,12 +530,6 @@ tooltip[titletip="true"] {
   flex-direction: inherit;
 }
 
-/********** textbox **********/
-
-search-textbox {
-  text-shadow: none;
-}
-
 /* Prefix with (xul|*):root to workaround HTML tests loading xul.css */
 :root html|textarea:not([resizable="true"]) {
   resize: none;
@@ -552,18 +547,6 @@ search-textbox {
   flex-direction: column;
   align-items: center;
   overflow: clip;
-}
-
-/* The following rule is here to fix bug 96899 (and now 117952).
-   Somehow trees create a situation
-   in which a popupset flows itself as if its popup child is directly within it
-   instead of the placeholder child that should actually be inside the popupset.
-   This is a stopgap measure, and it does not address the real bug.  */
-.autocomplete-result-popupset {
-  max-width: 0;
-  width: 0 !important;
-  min-width: 0%;
-  min-height: 0%;
 }
 
 /********** menulist **********/
@@ -593,7 +576,7 @@ scrollbox {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  scrollbox[smoothscroll=true] {
+  scrollbox[smoothscroll="true"] {
     scroll-behavior: smooth;
   }
 }
@@ -655,28 +638,54 @@ findbar {
   contain: inline-size;
 }
 
+/* Matches legacy behavior and <html:img> */
+image {
+  overflow-clip-margin: content-box;
+  overflow: clip;
+}
+
 /* Some elements that in HTML blocks should be inline-level by default */
-button, image {
+button,
+image {
   display: inline-flex;
 }
 
-.menu-iconic-highlightable-text:not([highlightable="true"]),
-.menu-iconic-text[highlightable="true"] {
-  display: none;
+[orient="vertical"] {
+  flex-direction: column !important;
+}
+[orient="horizontal"] {
+  flex-direction: row !important;
 }
 
-[orient="vertical"] { flex-direction: column !important; }
-[orient="horizontal"] { flex-direction: row !important; }
+[align="start"] {
+  align-items: flex-start !important;
+}
+[align="center"] {
+  align-items: center !important;
+}
+[align="end"] {
+  align-items: flex-end !important;
+}
+[align="baseline"] {
+  align-items: baseline !important;
+}
+[align="stretch"] {
+  align-items: stretch !important;
+}
 
-[align="start"] { align-items: flex-start !important; }
-[align="center"] { align-items: center !important; }
-[align="end"] { align-items: flex-end !important; }
-[align="baseline"] { align-items: baseline !important; }
-[align="stretch"] { align-items: stretch !important; }
+[pack="start"] {
+  justify-content: start !important;
+}
+[pack="center"] {
+  justify-content: center !important;
+}
+[pack="end"] {
+  justify-content: flex-end !important;
+}
 
-[pack="start"] { justify-content: start !important; }
-[pack="center"] { justify-content: center !important; }
-[pack="end"] { justify-content: flex-end !important; }
-
-[flex="0"] { flex: none !important; }
-[flex="1"] { flex: 1 !important; }
+[flex="0"] {
+  flex: none !important;
+}
+[flex="1"] {
+  flex: 1 !important;
+}

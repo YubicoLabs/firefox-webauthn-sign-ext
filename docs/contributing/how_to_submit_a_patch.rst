@@ -1,10 +1,6 @@
 How to submit a patch
 =====================
 
-+--------------------------------------------------------------------+
-| This page is an import from MDN and the contents might be outdated |
-+--------------------------------------------------------------------+
-
 Submitting a patch, getting it reviewed, and committed to the Firefox
 source tree involves several steps. This article explains how.
 
@@ -18,13 +14,23 @@ each step is detailed below:
 .. mermaid::
 
      graph TD;
-         Preparation --> c[Working on a patch];
+         Preparation --> Bugzilla[(Bugzilla)];
+         Bugzilla[(Bugzilla)] --> Git[(Git)];
+         Git[(Git)] --> c[Working on a patch];
          c[Working on a patch] --> Testing;
          Testing --> c[Working on a patch];
          Testing --> e[Submit the patch];
-         e[Submit the patch] --> d[Getting Reviews]
+         e[Submit the patch] --> Phabricator[(Phabricator)];
+         Phabricator[(Phabricator)] --> d[Getting Reviews];
          d[Getting Reviews] -- Addressing Review comment --> c[Working on a patch];
-         d[Getting Reviews] --> h[Push the change];
+         d[Getting Reviews] --> Lando[(Lando)];
+         Lando[(Lando)] --> h[Push the change];
+         h[Push the change] --> Git2[(Git)];
+         style Bugzilla fill:#e1f5ff,stroke:#0366d6
+         style Git fill:#e1f5ff,stroke:#0366d6
+         style Phabricator fill:#e1f5ff,stroke:#0366d6
+         style Lando fill:#e1f5ff,stroke:#0366d6
+         style Git2 fill:#e1f5ff,stroke:#0366d6
 
 
 
@@ -72,9 +78,9 @@ the proposed change.
 If module ownership is not clear, ask on the newsgroups or `on
 Matrix <https://chat.mozilla.org>`__. The revision log for the relevant
 file might also be helpful. For example, see the change log for
-``browser/base/content/browser.js``, by clicking the "Hg Log"
+``browser/base/content/browser.js``, by clicking the "Git Log"
 link at the top of `Searchfox <https://searchfox.org/mozilla-central/source/>`__, or
-by running ``hg log browser/base/content/browser.js``. The corresponding
+by running ``git log browser/base/content/browser.js``. The corresponding
 checkin message will contain something like "r=nickname", identifying
 active code submissions, and potential code reviewers.
 
@@ -84,9 +90,7 @@ Working on a patch
 
 Changes to the Firefox source code are presented in the form of a patch.
 A patch is a commit to version control. Firefox and related code is
-stored in our `Mercurial
-server <https://hg.mozilla.org/mozilla-central>`__. We have extensive
-documentation on using Mercurial in our guide, :ref:`Mercurial Overview`.
+stored in our `git repository <https://github.com/mozilla-firefox/firefox>`__.
 
 Each patch should represent a single complete change, separating
 distinct changes into multiple individual patches. If your change
@@ -118,7 +122,7 @@ choosing reviewers, and the full reviewer syntax, please see
 :ref:`Getting reviews`.
 
 You can edit the message of the current commit at any time using
-``hg commit --amend`` or ``hg histedit``.
+``git commit --amend`` or ``git rebase -i``.
 
 Also look at our :ref:`Reviewer Checklist` for a list
 of best practices for patch content that reviewers will check for or
@@ -128,8 +132,7 @@ require.
 Testing
 -------
 
-All changes must be tested. In most cases, an `automated
-test <https://developer.mozilla.org/docs/Mozilla/QA/Automated_testing>`__ is required for every
+All changes must be tested. In most cases, :ref:`Automated Testing` is required for every
 change to the code.
 
 While we desire to have automated tests for all code, we also have a

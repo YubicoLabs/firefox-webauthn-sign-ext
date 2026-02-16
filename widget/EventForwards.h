@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_EventForwards_h__
-#define mozilla_EventForwards_h__
+#ifndef mozilla_EventForwards_h_
+#define mozilla_EventForwards_h_
 
 #include <stdint.h>
 
@@ -47,6 +47,8 @@ enum class ChromeOnlyDispatch { eYes, eNo };
 enum class Trusted { eYes, eNo };
 
 enum class Composed { eYes, eNo, eDefault };
+
+enum class SystemGroupOnly { eYes, eNo };
 
 /**
  * Event messages
@@ -109,7 +111,7 @@ enum EventClassID : EventClassIDType {
 #define NS_ROOT_EVENT_CLASS(aPrefix, aName) eBasic##aName##Class
 #define NS_EVENT_CLASS(aPrefix, aName) , e##aName##Class
 
-#include "mozilla/EventClassList.h"
+#include "mozilla/EventClassList.inc"
 
 #undef NS_EVENT_CLASS
 #undef NS_ROOT_EVENT_CLASS
@@ -123,7 +125,7 @@ typedef uint16_t Modifiers;
 
 typedef uint16_t KeyNameIndexType;
 enum KeyNameIndex : KeyNameIndexType {
-#include "mozilla/KeyNameList.h"
+#include "mozilla/KeyNameList.inc"
   // If a DOM keyboard event is synthesized by script, this is used.  Then,
   // specified key name should be stored and use it as .key value.
   KEY_NAME_INDEX_USE_STRING
@@ -138,7 +140,7 @@ const nsCString ToString(KeyNameIndex aKeyNameIndex);
 
 typedef uint8_t CodeNameIndexType;
 enum CodeNameIndex : CodeNameIndexType {
-#include "mozilla/PhysicalKeyCodeNameList.h"
+#include "mozilla/PhysicalKeyCodeNameList.inc"
   // If a DOM keyboard event is synthesized by script, this is used.  Then,
   // specified code name should be stored and use it as .code value.
   CODE_NAME_INDEX_USE_STRING
@@ -150,14 +152,30 @@ const nsCString ToString(CodeNameIndex aCodeNameIndex);
 
 #define NS_DEFINE_INPUTTYPE(aCPPName, aDOMName) e##aCPPName,
 
-typedef uint8_t EditorInputTypeType;
+using EditorInputTypeType = uint8_t;
 enum class EditorInputType : EditorInputTypeType {
-#include "mozilla/InputTypeList.h"
+#include "mozilla/InputTypeList.inc"
   // If a DOM input event is synthesized by script, this is used.  Then,
   // specified input type should be stored as string and use it as .inputType
   // value.
   eUnknown,
 };
+
+#undef NS_DEFINE_INPUTTYPE
+
+#define NS_DEFINE_INPUTTYPE(aCPPName, aDOMName) \
+  case EditorInputType::e##aCPPName:            \
+    return aStream << ("EditorInputType::e" #aCPPName);
+
+inline const std::ostream& operator<<(std::ostream& aStream,
+                                      const EditorInputType& aInputType) {
+  switch (aInputType) {
+#include "mozilla/InputTypeList.inc"
+    case EditorInputType::eUnknown:
+      return aStream << "EditorInputType::eUnknown";
+  }
+  return aStream << "<Invalid EditorInputType>";
+}
 
 #undef NS_DEFINE_INPUTTYPE
 
@@ -382,7 +400,7 @@ typedef uint8_t CommandInt;
 enum class Command : CommandInt {
   DoNothing
 
-#include "mozilla/CommandList.h"
+#include "mozilla/CommandList.inc"
 };
 #undef NS_DEFINE_COMMAND
 #undef NS_DEFINE_COMMAND_WITH_PARAM
@@ -402,7 +420,7 @@ const char* ToChar(Command aCommand);
  *                              additional parameter and sets this to nullptr,
  *                              will return Command::DoNothing with warning.
  */
-Command GetInternalCommand(const char* aCommandName,
+Command GetInternalCommand(const nsACString& aCommandName,
                            const nsCommandParams* aCommandParams = nullptr);
 
 }  // namespace mozilla
@@ -423,7 +441,7 @@ class StaticRange;
 #define NS_EVENT_CLASS(aPrefix, aName) class aPrefix##aName;
 #define NS_ROOT_EVENT_CLASS(aPrefix, aName) NS_EVENT_CLASS(aPrefix, aName)
 
-#include "mozilla/EventClassList.h"
+#include "mozilla/EventClassList.inc"
 
 #undef NS_EVENT_CLASS
 #undef NS_ROOT_EVENT_CLASS
@@ -505,6 +523,8 @@ inline MouseButtonsFlag MouseButtonsFlagToChange(MouseButton aMouseButton) {
   }
 }
 
+nsCString InputSourceToString(uint16_t aInputSource);
+
 enum class TextRangeType : RawTextRangeType;
 
 // IMEData.h
@@ -516,4 +536,4 @@ class OffsetAndData;
 
 }  // namespace mozilla
 
-#endif  // mozilla_EventForwards_h__
+#endif  // mozilla_EventForwards_h_

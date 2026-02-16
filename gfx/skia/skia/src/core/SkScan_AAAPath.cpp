@@ -20,9 +20,9 @@
 #include "src/core/SkAlphaRuns.h"
 #include "src/core/SkAnalyticEdge.h"
 #include "src/core/SkBlitter.h"
-#include "src/core/SkEdge.h"
 #include "src/core/SkEdgeBuilder.h"
 #include "src/core/SkMask.h"
+#include "src/core/SkPathRaw.h"
 #include "src/core/SkScan.h"
 #include "src/core/SkScanPriv.h"
 
@@ -104,8 +104,8 @@ public:
     virtual SkBlitter* getRealBlitter(bool forceRealBlitter = false) = 0;
 
     virtual void blitAntiH(int x, int y, const SkAlpha antialias[], int len) = 0;
-    virtual void blitAntiH(int x, int y, const SkAlpha alpha)                = 0;
-    virtual void blitAntiH(int x, int y, int width, const SkAlpha alpha)     = 0;
+    virtual void blitAntiH(int x, int y, SkAlpha alpha)                = 0;
+    virtual void blitAntiH(int x, int y, int width, SkAlpha alpha)     = 0;
 
     void blitAntiH(int x, int y, const SkAlpha antialias[], const int16_t runs[]) override {
         SkDEBUGFAIL("Please call real blitter's blitAntiH instead.");
@@ -156,8 +156,8 @@ public:
 
     // Allowing following methods are used to blit rectangles during aaa_walk_convex_edges
     // Since there aren't many rectangles, we can still bear the slow speed of virtual functions.
-    void blitAntiH(int x, int y, const SkAlpha alpha) override;
-    void blitAntiH(int x, int y, int width, const SkAlpha alpha) override;
+    void blitAntiH(int x, int y, SkAlpha alpha) override;
+    void blitAntiH(int x, int y, int width, SkAlpha alpha) override;
     void blitV(int x, int y, int height, SkAlpha alpha) override;
     void blitRect(int x, int y, int width, int height) override;
     void blitAntiRect(int x, int y, int width, int height, SkAlpha leftAlpha, SkAlpha rightAlpha)
@@ -230,12 +230,12 @@ void MaskAdditiveBlitter::blitAntiH(int x, int y, const SkAlpha antialias[], int
     SK_ABORT("Don't use this; directly add alphas to the mask.");
 }
 
-void MaskAdditiveBlitter::blitAntiH(int x, int y, const SkAlpha alpha) {
+void MaskAdditiveBlitter::blitAntiH(int x, int y, SkAlpha alpha) {
     SkASSERT(x >= fMask.fBounds.fLeft - 1);
     add_alpha(&this->getRow(y)[x], alpha);
 }
 
-void MaskAdditiveBlitter::blitAntiH(int x, int y, int width, const SkAlpha alpha) {
+void MaskAdditiveBlitter::blitAntiH(int x, int y, int width, SkAlpha alpha) {
     SkASSERT(x >= fMask.fBounds.fLeft - 1);
     uint8_t* row = this->getRow(y);
     for (int i = 0; i < width; ++i) {
@@ -291,8 +291,8 @@ public:
     SkBlitter* getRealBlitter(bool forceRealBlitter) override { return fRealBlitter; }
 
     void blitAntiH(int x, int y, const SkAlpha antialias[], int len) override;
-    void blitAntiH(int x, int y, const SkAlpha alpha) override;
-    void blitAntiH(int x, int y, int width, const SkAlpha alpha) override;
+    void blitAntiH(int x, int y, SkAlpha alpha) override;
+    void blitAntiH(int x, int y, int width, SkAlpha alpha) override;
 
     int getWidth() override { return fWidth; }
 
@@ -429,7 +429,7 @@ void RunBasedAdditiveBlitter::blitAntiH(int x, int y, const SkAlpha antialias[],
     }
 }
 
-void RunBasedAdditiveBlitter::blitAntiH(int x, int y, const SkAlpha alpha) {
+void RunBasedAdditiveBlitter::blitAntiH(int x, int y, SkAlpha alpha) {
     checkY(y);
     x -= fLeft;
 
@@ -442,7 +442,7 @@ void RunBasedAdditiveBlitter::blitAntiH(int x, int y, const SkAlpha alpha) {
     }
 }
 
-void RunBasedAdditiveBlitter::blitAntiH(int x, int y, int width, const SkAlpha alpha) {
+void RunBasedAdditiveBlitter::blitAntiH(int x, int y, int width, SkAlpha alpha) {
     checkY(y);
     x -= fLeft;
 
@@ -466,8 +466,8 @@ public:
             : RunBasedAdditiveBlitter(realBlitter, ir, clipBounds, isInverse) {}
 
     void blitAntiH(int x, int y, const SkAlpha antialias[], int len) override;
-    void blitAntiH(int x, int y, const SkAlpha alpha) override;
-    void blitAntiH(int x, int y, int width, const SkAlpha alpha) override;
+    void blitAntiH(int x, int y, SkAlpha alpha) override;
+    void blitAntiH(int x, int y, int width, SkAlpha alpha) override;
 };
 
 void SafeRLEAdditiveBlitter::blitAntiH(int x, int y, const SkAlpha antialias[], int len) {
@@ -499,7 +499,7 @@ void SafeRLEAdditiveBlitter::blitAntiH(int x, int y, const SkAlpha antialias[], 
     }
 }
 
-void SafeRLEAdditiveBlitter::blitAntiH(int x, int y, const SkAlpha alpha) {
+void SafeRLEAdditiveBlitter::blitAntiH(int x, int y, SkAlpha alpha) {
     checkY(y);
     x -= fLeft;
 
@@ -514,7 +514,7 @@ void SafeRLEAdditiveBlitter::blitAntiH(int x, int y, const SkAlpha alpha) {
     }
 }
 
-void SafeRLEAdditiveBlitter::blitAntiH(int x, int y, int width, const SkAlpha alpha) {
+void SafeRLEAdditiveBlitter::blitAntiH(int x, int y, int width, SkAlpha alpha) {
     checkY(y);
     x -= fLeft;
 
@@ -542,7 +542,7 @@ static SkAlpha trapezoid_to_alpha(SkFixed l1, SkFixed l2) {
 static SkAlpha partial_triangle_to_alpha(SkFixed a, SkFixed b) {
     SkASSERT(a <= SK_Fixed1);
 #if 0
-    // TODO(mtklein): skia:8877
+    // TODO(mtklein): skbug.com/40040159
     SkASSERT(b <= SK_Fixed1);
 #endif
 
@@ -551,7 +551,7 @@ static SkAlpha partial_triangle_to_alpha(SkFixed a, SkFixed b) {
     SkFixed area = (a >> 11) * (a >> 11) * (b >> 11);
 
 #if 0
-    // TODO(mtklein): skia:8877
+    // TODO(mtklein): skbug.com/40040159
     return SkTo<SkAlpha>(area >> 8);
 #else
     return SkTo<SkAlpha>((area >> 8) & 0xFF);
@@ -604,10 +604,10 @@ static void compute_alpha_above_line(SkAlpha* alphas,
         SkFixed last    = r - ((R - 1) << 16);  // horizontal edge length of the right-most triangle
         SkFixed firstH  = SkFixedMul(first, dY);  // vertical edge of the left-most triangle
         alphas[0]       = SkFixedMul(first, firstH) >> 9;  // triangle alpha
-        SkFixed alpha16 = firstH + (dY >> 1);              // rectangle plus triangle
+        SkFixed alpha16 = Sk32_sat_add(firstH, dY >> 1);                // rectangle plus triangle
         for (int i = 1; i < R - 1; ++i) {
             alphas[i] = alpha16 >> 8;
-            alpha16 += dY;
+            alpha16 = Sk32_sat_add(alpha16, dY);
         }
         alphas[R - 1] = fullAlpha - partial_triangle_to_alpha(last, dY);
     }
@@ -631,10 +631,10 @@ static void compute_alpha_below_line(SkAlpha* alphas,
         SkFixed last    = r - ((R - 1) << 16);  // horizontal edge length of the right-most triangle
         SkFixed lastH   = SkFixedMul(last, dY);          // vertical edge of the right-most triangle
         alphas[R - 1]   = SkFixedMul(last, lastH) >> 9;  // triangle alpha
-        SkFixed alpha16 = lastH + (dY >> 1);             // rectangle plus triangle
+        SkFixed alpha16 = Sk32_sat_add(lastH, dY >> 1);             // rectangle plus triangle
         for (int i = R - 2; i > 0; i--) {
             alphas[i] = (alpha16 >> 8) & 0xFF;
-            alpha16 += dY;
+            alpha16 = Sk32_sat_add(alpha16, dY);
         }
         alphas[0] = fullAlpha - partial_triangle_to_alpha(first, dY);
     }
@@ -946,25 +946,20 @@ static void blit_trapezoid_row(AdditiveBlitter* blitter,
     }
 }
 
-static bool operator<(const SkAnalyticEdge& a, const SkAnalyticEdge& b) {
-    int valuea = a.fUpperY;
-    int valueb = b.fUpperY;
-
-    if (valuea == valueb) {
-        valuea = a.fX;
-        valueb = b.fX;
+static bool compare_edges(const SkAnalyticEdge* a, const SkAnalyticEdge* b) {
+    if (a->fUpperY != b->fUpperY) {
+        return a->fUpperY < b->fUpperY;
     }
 
-    if (valuea == valueb) {
-        valuea = a.fDX;
-        valueb = b.fDX;
+    if (a->fX != b->fX) {
+        return a->fX < b->fX;
     }
 
-    return valuea < valueb;
+    return a->fDX < b->fDX;
 }
 
 static SkAnalyticEdge* sort_edges(SkAnalyticEdge* list[], int count, SkAnalyticEdge** last) {
-    SkTQSort(list, list + count);
+    SkTQSort(list, list + count, compare_edges);
 
     // now make the edges linked in sorted order
     for (int i = 1; i < count; ++i) {
@@ -995,21 +990,22 @@ static void validate_sort(const SkAnalyticEdge* edge) {
 // relatively large compared to fQDDx/QCDDx and fQDDy/fCDDy
 static bool is_smooth_enough(SkAnalyticEdge* thisEdge, SkAnalyticEdge* nextEdge, int stop_y) {
     if (thisEdge->fCurveCount < 0) {
-        const SkCubicEdge& cEdge   = static_cast<SkAnalyticCubicEdge*>(thisEdge)->fCEdge;
-        int                ddshift = cEdge.fCurveShift;
-        return SkAbs32(cEdge.fCDx) >> 1 >= SkAbs32(cEdge.fCDDx) >> ddshift &&
-               SkAbs32(cEdge.fCDy) >> 1 >= SkAbs32(cEdge.fCDDy) >> ddshift &&
+        const auto cEdge = static_cast<SkAnalyticCubicEdge*>(thisEdge);
+        int      ddshift = cEdge->fCurveShift;
+        return SkAbs32(cEdge->fCDx) >> 1 >= SkAbs32(cEdge->fCDDx) >> ddshift &&
+               SkAbs32(cEdge->fCDy) >> 1 >= SkAbs32(cEdge->fCDDy) >> ddshift &&
                // current Dy is (fCDy - (fCDDy >> ddshift)) >> dshift
-               (cEdge.fCDy - (cEdge.fCDDy >> ddshift)) >> cEdge.fCubicDShift >= SK_Fixed1;
+               (cEdge->fCDy - (cEdge->fCDDy >> ddshift)) >> cEdge->fCubicDShift >= SK_Fixed1;
     } else if (thisEdge->fCurveCount > 0) {
-        const SkQuadraticEdge& qEdge = static_cast<SkAnalyticQuadraticEdge*>(thisEdge)->fQEdge;
-        return SkAbs32(qEdge.fQDx) >> 1 >= SkAbs32(qEdge.fQDDx) &&
-               SkAbs32(qEdge.fQDy) >> 1 >= SkAbs32(qEdge.fQDDy) &&
+        const auto qEdge = static_cast<SkAnalyticQuadraticEdge*>(thisEdge);
+        return SkAbs32(qEdge->fQDx) >> 1 >= SkAbs32(qEdge->fQDDx) &&
+               SkAbs32(qEdge->fQDy) >> 1 >= SkAbs32(qEdge->fQDDy) &&
                // current Dy is (fQDy - fQDDy) >> shift
-               (qEdge.fQDy - qEdge.fQDDy) >> qEdge.fCurveShift >= SK_Fixed1;
+               (qEdge->fQDy - qEdge->fQDDy) >> qEdge->fCurveShift >= SK_Fixed1;
     }
-    return SkAbs32(nextEdge->fDX - thisEdge->fDX) <= SK_Fixed1 &&  // DDx should be small
-           nextEdge->fLowerY - nextEdge->fUpperY >= SK_Fixed1;     // Dy should be large
+    // DDx should be small and Dy should be large
+    return SkAbs32(Sk32_sat_sub(nextEdge->fDX, thisEdge->fDX)) <= SK_Fixed1 &&
+           nextEdge->fLowerY - nextEdge->fUpperY >= SK_Fixed1;
 }
 
 // Check if the leftE and riteE are changing smoothly in terms of fDX.
@@ -1495,7 +1491,7 @@ static void aaa_walk_edges(SkAnalyticEdge*  prevHead,
             SkASSERT(currE->fLowerY >= nextY);
             SkASSERT(currE->fY == y);
 
-            w += currE->fWinding;
+            w += static_cast<int>(currE->fWinding);
             bool prev_in_interval = in_interval;
             in_interval           = !(w & windingMask) == isInverse;
 
@@ -1605,7 +1601,7 @@ static void aaa_walk_edges(SkAnalyticEdge*  prevHead,
     }
 }
 
-static void aaa_fill_path(const SkPath& path,
+static void aaa_fill_path(const SkPathRaw& path,
                           const SkIRect& clipRect,
                           AdditiveBlitter* blitter,
                           int start_y,
@@ -1679,7 +1675,7 @@ static void aaa_fill_path(const SkPath& path,
         // If we're using mask, then we have to limit the bound within the path bounds.
         // Otherwise, the edge drift may access an invalid address inside the mask.
         SkIRect ir;
-        path.getBounds().roundOut(&ir);
+        path.bounds().roundOut(&ir);
         leftBound  = std::max(leftBound, SkIntToFixed(ir.fLeft));
         rightBound = std::min(rightBound, SkIntToFixed(ir.fRight));
     }
@@ -1690,11 +1686,11 @@ static void aaa_fill_path(const SkPath& path,
     } else {
         // We skip intersection computation if there are many points which probably already
         // give us enough fractional scan lines.
-        bool skipIntersect = path.countPoints() > (stop_y - start_y) * 2;
+        bool skipIntersect = path.points().size() > SkToSizeT((stop_y - start_y) * 2);
 
         aaa_walk_edges(&headEdge,
                        &tailEdge,
-                       path.getFillType(),
+                       path.fillType(),
                        blitter,
                        start_y,
                        stop_y,
@@ -1708,24 +1704,24 @@ static void aaa_fill_path(const SkPath& path,
 
 // Check if the path is a rect and fat enough after clipping; if so, blit it.
 static inline bool try_blit_fat_anti_rect(SkBlitter* blitter,
-                                          const SkPath& path,
+                                          const SkPathRaw& raw,
                                           const SkIRect& clip) {
-    SkRect rect;
-    if (!path.isRect(&rect)) {
-        return false; // not rect
+    std::optional<SkRect> rect = raw.isRect();
+    if (!rect) {
+        return false;
     }
-    if (!rect.intersect(SkRect::Make(clip))) {
+    if (!rect->intersect(SkRect::Make(clip))) {
         return true; // The intersection is empty. Hence consider it done.
     }
-    SkIRect bounds = rect.roundOut();
+    SkIRect bounds = rect->roundOut();
     if (bounds.width() < 3) {
         return false; // not fat
     }
-    blitter->blitFatAntiRect(rect);
+    blitter->blitFatAntiRect(*rect);
     return true;
 }
 
-void SkScan::AAAFillPath(const SkPath&  path,
+void SkScan::AAAFillPath(const SkPathRaw&  path,
                          SkBlitter*     blitter,
                          const SkIRect& ir,
                          const SkIRect& clipBounds,

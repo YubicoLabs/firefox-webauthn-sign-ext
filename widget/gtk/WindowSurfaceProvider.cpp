@@ -153,8 +153,7 @@ MOZ_PUSH_IGNORE_THREAD_SAFETY
 
 already_AddRefed<gfx::DrawTarget>
 WindowSurfaceProvider::StartRemoteDrawingInRegion(
-    const LayoutDeviceIntRegion& aInvalidRegion,
-    layers::BufferMode* aBufferMode) {
+    const LayoutDeviceIntRegion& aInvalidRegion) {
   if (aInvalidRegion.IsEmpty()) {
     return nullptr;
   }
@@ -179,7 +178,6 @@ WindowSurfaceProvider::StartRemoteDrawingInRegion(
     }
   }
 
-  *aBufferMode = BufferMode::BUFFER_NONE;
   RefPtr<gfx::DrawTarget> dt = mWindowSurface->Lock(aInvalidRegion);
 #ifdef MOZ_X11
   if (!dt && GdkIsX11Display() && !mWindowSurface->IsFallback()) {
@@ -210,15 +208,6 @@ void WindowSurfaceProvider::EndRemoteDrawingInRegion(
   if (!mWindowSurface || !mWindowSurfaceValid) {
     return;
   }
-#if defined(MOZ_WAYLAND)
-  if (GdkIsWaylandDisplay()) {
-    // We're called too early or we're unmapped.
-    // Don't draw anything.
-    if (!mWidget || !mWidget->IsMapped()) {
-      return;
-    }
-  }
-#endif
   mWindowSurface->Commit(aInvalidRegion);
 }
 

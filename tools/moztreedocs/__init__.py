@@ -32,12 +32,13 @@ def read_build_config(docdir):
     trees = {}
     python_package_dirs = set()
 
+    docdir = Path(docdir)
     is_main = docdir == MAIN_DOC_PATH
-    relevant_mozbuild_path = None if is_main else docdir
+    relevant_mozbuild_path = None if is_main else str(docdir)
 
     # Reading the Sphinx variables doesn't require a full build context.
     # Only define the parts we need.
-    class fakeconfig(object):
+    class fakeconfig:
         topsrcdir = build.topsrcdir
 
     variables = ("SPHINX_TREES", "SPHINX_PYTHON_PACKAGE_DIRS")
@@ -50,10 +51,10 @@ def read_build_config(docdir):
             # If we're building a subtree, only process that specific subtree.
             # topsrcdir always uses POSIX-style path, normalize it for proper comparison.
             absdir = os.path.normpath(os.path.join(build.topsrcdir, reldir, value))
-            if not is_main and absdir not in (docdir, MAIN_DOC_PATH):
+            if not is_main and absdir not in (str(docdir), str(MAIN_DOC_PATH)):
                 # allow subpaths of absdir (i.e. docdir = <absdir>/sub/path/)
-                if docdir.startswith(absdir):
-                    key = os.path.join(key, docdir.split(f"{key}/")[-1])
+                if str(docdir).startswith(absdir):
+                    key = os.path.join(key, str(docdir).split(f"{key}/")[-1])
                 else:
                     continue
 
@@ -75,7 +76,7 @@ def read_build_config(docdir):
     return trees, python_package_dirs
 
 
-class _SphinxManager(object):
+class _SphinxManager:
     """Manages the generation of Sphinx documentation for the tree."""
 
     NO_AUTODOC = False
@@ -96,10 +97,10 @@ class _SphinxManager(object):
             logger.info("Python/JS API documentation generation will be skipped")
             app.config["extensions"].remove("sphinx.ext.autodoc")
             app.config["extensions"].remove("sphinx_js")
-        self.staging_dir = os.path.join(app.outdir, "_staging")
+        self.staging_dir = os.path.join(os.fspath(app.outdir), "_staging")
 
         logger.info("Reading Sphinx metadata from build configuration")
-        self.trees, self.python_package_dirs = read_build_config(app.srcdir)
+        self.trees, self.python_package_dirs = read_build_config(os.fspath(app.srcdir))
 
         logger.info("Staging static documentation")
         self._synchronize_docs(app)
@@ -135,7 +136,7 @@ class _SphinxManager(object):
     def _synchronize_docs(self, app):
         m = InstallManifest()
 
-        with open(os.path.join(MAIN_DOC_PATH, "config.yml"), "r") as fh:
+        with open(os.path.join(MAIN_DOC_PATH, "config.yml")) as fh:
             tree_config = yaml.safe_load(fh)["categories"]
 
         m.add_link(self.conf_py_path, "conf.py")
@@ -157,7 +158,7 @@ class _SphinxManager(object):
             self.staging_dir, remove_empty_directories=False, remove_unaccounted=False
         )
 
-        with open(self.index_path, "r") as fh:
+        with open(self.index_path) as fh:
             data = fh.read()
 
         def is_toplevel(key):
@@ -186,12 +187,10 @@ class _SphinxManager(object):
         # tree (Bug 1557020). The page is no longer referenced within the index
         # tree, thus we shall check categorisation only if complete tree is being rebuilt.
         if app.srcdir == self.topsrcdir:
-            indexes = set(
-                [
-                    os.path.normpath(os.path.join(p, "index"))
-                    for p in toplevel_trees.keys()
-                ]
-            )
+            indexes = set([
+                os.path.normpath(os.path.join(p, "index"))
+                for p in toplevel_trees.keys()
+            ])
             # Format categories like indexes
             cats = "\n".join(CATEGORIES.values()).split("\n")
             # Remove heading spaces

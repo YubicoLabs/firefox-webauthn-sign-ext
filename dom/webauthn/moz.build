@@ -29,6 +29,7 @@ EXPORTS.mozilla.dom += [
     "AuthenticatorResponse.h",
     "PublicKeyCredential.h",
     "WebAuthnHandler.h",
+    "WebAuthnIPCUtils.h",
     "WebAuthnPromiseHolder.h",
     "WebAuthnTransactionChild.h",
     "WebAuthnTransactionParent.h",
@@ -92,4 +93,8 @@ if CONFIG["OS_TARGET"] == "WINNT":
 MOCHITEST_MANIFESTS += ["tests/mochitest.toml"]
 BROWSER_CHROME_MANIFESTS += [
     "tests/browser/browser.toml",
+]
+
+TEST_DIRS += [
+    "tests/gtest",
 ]

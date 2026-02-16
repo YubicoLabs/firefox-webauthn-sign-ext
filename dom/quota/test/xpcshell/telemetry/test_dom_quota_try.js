@@ -44,6 +44,10 @@ const testcases = [
   {
     async setup(expectedInitResult) {
       Services.prefs.setBoolPref("dom.quotaManager.loadQuotaFromCache", false);
+      Services.prefs.setBoolPref(
+        "dom.quotaManager.loadQuotaFromSecondaryCache",
+        false
+      );
 
       let request = init();
       await requestFinished(request);
@@ -81,13 +85,13 @@ const testcases = [
       if (AppConstants.EARLY_BETA_OR_EARLIER || AppConstants.DEBUG) {
         if (AppConstants.NIGHTLY_BUILD) {
           return {
-            initFailure: 9,
+            initFailure: 10,
             initSuccess: 0,
           };
         }
 
         return {
-          initFailure: 14,
+          initFailure: 15,
           initSuccess: 0,
         };
       }

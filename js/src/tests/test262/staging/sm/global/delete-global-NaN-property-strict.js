@@ -6,23 +6,12 @@
 
 /*---
 flags:
-- onlyStrict
-includes: [sm/non262-shell.js, sm/non262.js]
+  - onlyStrict
 description: |
-  pending
+  |delete window.NaN| should throw a TypeError
+info: bugzilla.mozilla.org/show_bug.cgi?id=649570
 esid: pending
 ---*/
-"use strict"
-
-//-----------------------------------------------------------------------------
-var BUGNUMBER = 649570;
-var summary = "|delete window.NaN| should throw a TypeError";
-
-print(BUGNUMBER + ": " + summary);
-
-/**************
- * BEGIN TEST *
- **************/
 
 var g = this, v = false;
 try
@@ -35,9 +24,5 @@ catch (e)
   assert.sameValue(e instanceof TypeError, true,
            "Expected a TypeError, got: " + e);
 }
-
-/******************************************************************************/
-
-print("Tests complete");
 
 reportCompare(0, 0);

@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsWebBrowser_h__
-#define nsWebBrowser_h__
+#ifndef nsWebBrowser_h_
+#define nsWebBrowser_h_
 
 // Local Includes
 #include "nsDocShellTreeOwner.h"
@@ -33,6 +33,8 @@
 #include "nsTArray.h"
 #include "nsIWeakReferenceUtils.h"
 
+class nsIOpenWindowInfo;
+
 class nsWebBrowserInitInfo {
  public:
   // nsIBaseWindow Stuff
@@ -45,12 +47,8 @@ class nsWebBrowserInitInfo {
 };
 
 //  {cda5863a-aa9c-411e-be49-ea0d525ab4b5} -
-#define NS_WEBBROWSER_CID                            \
-  {                                                  \
-    0xcda5863a, 0xaa9c, 0x411e, {                    \
-      0xbe, 0x49, 0xea, 0x0d, 0x52, 0x5a, 0xb4, 0xb5 \
-    }                                                \
-  }
+#define NS_WEBBROWSER_CID \
+  {0xcda5863a, 0xaa9c, 0x411e, {0xbe, 0x49, 0xea, 0x0d, 0x52, 0x5a, 0xb4, 0xb5}}
 
 class mozIDOMWindowProxy;
 class nsDocShell;
@@ -72,24 +70,6 @@ class nsWebBrowser final : public nsIWebBrowser,
   friend class nsDocShellTreeOwner;
 
  public:
-  // The implementation of non-refcounted nsIWidgetListener, which would hold a
-  // strong reference on stack before calling nsWebBrowser's
-  // MOZ_CAN_RUN_SCRIPT methods.
-  class WidgetListenerDelegate : public nsIWidgetListener {
-   public:
-    explicit WidgetListenerDelegate(nsWebBrowser* aWebBrowser)
-        : mWebBrowser(aWebBrowser) {}
-    MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual void WindowActivated() override;
-    MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual void WindowDeactivated() override;
-    MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual bool PaintWindow(
-        nsIWidget* aWidget, mozilla::LayoutDeviceIntRegion aRegion) override;
-
-   private:
-    // The lifetime of WidgetListenerDelegate is bound to nsWebBrowser so we
-    // just use raw pointer here.
-    nsWebBrowser* mWebBrowser;
-  };
-
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsWebBrowser, nsIWebBrowser)
 
@@ -109,10 +89,12 @@ class nsWebBrowser final : public nsIWebBrowser,
   MOZ_CAN_RUN_SCRIPT_BOUNDARY void FocusDeactivate(uint64_t aActionId);
   void SetWillChangeProcess();
 
-  static already_AddRefed<nsWebBrowser> Create(
-      nsIWebBrowserChrome* aContainerWindow, nsIWidget* aParentWidget,
-      mozilla::dom::BrowsingContext* aBrowsingContext,
-      mozilla::dom::WindowGlobalChild* aInitialWindowChild);
+  static nsresult Create(nsIWebBrowserChrome* aContainerWindow,
+                         nsIWidget* aParentWidget,
+                         mozilla::dom::BrowsingContext* aBrowsingContext,
+                         mozilla::dom::WindowGlobalChild* aInitialWindowChild,
+                         nsIOpenWindowInfo* aOpenWindowInfo,
+                         nsWebBrowser** aWebBrowser);
 
  protected:
   virtual ~nsWebBrowser();
@@ -122,13 +104,6 @@ class nsWebBrowser final : public nsIWebBrowser,
   void EnsureDocShellTreeOwner();
 
   nsIWidget* EnsureWidget();
-
-  // nsIWidgetListener methods for WidgetListenerDelegate.
-  MOZ_CAN_RUN_SCRIPT void WindowActivated();
-  MOZ_CAN_RUN_SCRIPT void WindowDeactivated();
-  MOZ_CAN_RUN_SCRIPT bool PaintWindow(nsIWidget* aWidget,
-                                      mozilla::LayoutDeviceIntRegion aRegion);
-
   explicit nsWebBrowser(int aItemType);
 
  protected:
@@ -136,7 +111,6 @@ class nsWebBrowser final : public nsIWebBrowser,
   RefPtr<nsDocShell> mDocShell;
   mozilla::OriginAttributes mOriginAttributes;
 
-  nsCOMPtr<nsIWidget> mInternalWidget;
   nsCOMPtr<nsIWindowWatcher> mWWatch;
   const uint32_t mContentType;
   bool mShouldEnableHistory;
@@ -144,8 +118,6 @@ class nsWebBrowser final : public nsIWebBrowser,
   nsIWebProgressListener* mProgressListener;
 
   nsCOMPtr<nsIPrintSettings> mPrintSettings;
-
-  WidgetListenerDelegate mWidgetListenerDelegate;
 
   // cached background color
   nscolor mBackgroundColor;
@@ -160,4 +132,4 @@ class nsWebBrowser final : public nsIWebBrowser,
   nsIWidget* mParentWidget;
 };
 
-#endif /* nsWebBrowser_h__ */
+#endif /* nsWebBrowser_h_ */

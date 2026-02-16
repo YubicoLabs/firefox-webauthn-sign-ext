@@ -14,11 +14,11 @@
 
 bool js::gc::ArenaList::hasNonFullArenas() const {
   // Non-full arenas are kept at the start so we can check the first one.
-  return !isEmpty() && !first()->isFull();
+  return !isEmpty() && !getFirst()->isFull();
 }
 
 js::gc::Arena* js::gc::ArenaList::takeInitialNonFullArena() {
-  Arena* arena = first();
+  Arena* arena = getFirst();
   if (!arena || arena->isFull()) {
     return nullptr;
   }
@@ -89,6 +89,10 @@ void js::gc::SortedArenaList::insertAt(Arena* arena, size_t nfree) {
   }
 }
 
+bool js::gc::SortedArenaList::hasEmptyArenas() const {
+  return !buckets[emptyIndex()].isEmpty();
+}
+
 void js::gc::SortedArenaList::extractEmptyTo(Arena** destListHeadPtr) {
   MOZ_ASSERT(!isConvertedToArenaList);
   MOZ_ASSERT(destListHeadPtr);
@@ -97,7 +101,7 @@ void js::gc::SortedArenaList::extractEmptyTo(Arena** destListHeadPtr) {
   Bucket& bucket = buckets[emptyIndex()];
   if (!bucket.isEmpty()) {
     Arena* tail = *destListHeadPtr;
-    Arena* bucketLast = bucket.last();
+    Arena* bucketLast = bucket.getLast();
     *destListHeadPtr = bucket.release();
     bucketLast->next = tail;
   }
@@ -115,7 +119,7 @@ js::gc::ArenaList js::gc::SortedArenaList::convertToArenaList(
 
   if (maybeBucketLastOut) {
     for (size_t i = 0; i < BucketCount; i++) {
-      maybeBucketLastOut[i] = buckets[i].last();
+      maybeBucketLastOut[i] = buckets[i].getLast();
     }
   }
 
@@ -241,12 +245,12 @@ JSRuntime* js::gc::ArenaLists::runtimeFromAnyThread() {
 }
 
 js::gc::Arena* js::gc::ArenaLists::getFirstArena(AllocKind thingKind) const {
-  return arenaList(thingKind).first();
+  return arenaList(thingKind).getFirst();
 }
 
 js::gc::Arena* js::gc::ArenaLists::getFirstCollectingArena(
     AllocKind thingKind) const {
-  return collectingArenaList(thingKind).first();
+  return collectingArenaList(thingKind).getFirst();
 }
 
 bool js::gc::ArenaLists::arenaListsAreEmpty() const {
@@ -266,11 +270,7 @@ bool js::gc::ArenaLists::arenaListsAreEmpty() const {
 }
 
 bool js::gc::ArenaLists::doneBackgroundFinalize(AllocKind kind) const {
-  return concurrentUse(kind) != ConcurrentUse::BackgroundFinalize;
-}
-
-bool js::gc::ArenaLists::needBackgroundFinalizeWait(AllocKind kind) const {
-  return concurrentUse(kind) == ConcurrentUse::BackgroundFinalize;
+  return concurrentUse(kind) == ConcurrentUse::None;
 }
 
 void js::gc::ArenaLists::clearFreeLists() { freeLists().clear(); }

@@ -7,6 +7,7 @@ import re
 import signal
 import subprocess
 from collections import namedtuple
+from pathlib import Path
 
 from mozboot.util import get_tools_dir
 from mozfile import which
@@ -101,7 +102,12 @@ def get_rustfmt_binary():
         return binary
 
     rust_path = os.path.join(get_tools_dir(), "rustc", "bin")
-    return which("rustfmt", path=os.pathsep.join([rust_path, os.environ["PATH"]]))
+    cargo_bin = str(
+        Path(os.environ.get("CARGO_HOME", Path("~/.cargo").expanduser())) / "bin"
+    )
+    return which(
+        "rustfmt", path=os.pathsep.join([rust_path, os.environ["PATH"], cargo_bin])
+    )
 
 
 def get_rustfmt_version(binary):
@@ -142,9 +148,7 @@ def lint(paths, config, fix=None, **lintargs):
     min_version = Version(min_version_str)
     actual_version = get_rustfmt_version(binary)
     log.debug(
-        "Found version: {}. Minimal expected version: {}".format(
-            actual_version, min_version
-        )
+        f"Found version: {actual_version}. Minimal expected version: {min_version}"
     )
 
     if actual_version < min_version:

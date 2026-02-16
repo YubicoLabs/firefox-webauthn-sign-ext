@@ -4,6 +4,7 @@
 
 //! Common feature values between media and container features.
 
+use crate::derives::*;
 use app_units::Au;
 use euclid::default::Size2D;
 
@@ -33,4 +34,13 @@ impl Orientation {
             Self::Portrait => !is_landscape,
         }
     }
+}
+
+/// Values for the prefers-color-scheme media feature.
+#[derive(Clone, Copy, Debug, FromPrimitive, Parse, PartialEq, ToCss)]
+#[repr(u8)]
+#[allow(missing_docs)]
+pub enum PrefersColorScheme {
+    Light,
+    Dark,
 }

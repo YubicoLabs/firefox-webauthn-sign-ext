@@ -3,6 +3,12 @@
 
 "use strict";
 
+add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
+});
+
 add_task(async function test_textSelectedDuringScreenshot() {
   await BrowserTestUtils.withNewTab(
     {
@@ -98,7 +104,7 @@ add_task(async function test_textSelectedDuringVisibleScreenshot() {
       );
 
       let panel = gBrowser.selectedBrowser.ownerDocument.querySelector(
-        "#screenshotsPagePanel"
+        helper.selector.panel
       );
 
       // click the visible page button in panel

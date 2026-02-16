@@ -12,7 +12,9 @@ import mozilla.components.browser.state.action.DefaultDesktopModeAction
 import mozilla.components.browser.state.action.InitAction
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
+import mozilla.components.lib.state.Store
+import mozilla.telemetry.glean.private.NoExtras
+import org.mozilla.fenix.GleanMetrics.DesktopMode
 
 /**
  * [Middleware] for handling side effects related to the Desktop Mode feature.
@@ -27,7 +29,7 @@ class DesktopModeMiddleware(
 ) : Middleware<BrowserState, BrowserAction> {
 
     override fun invoke(
-        context: MiddlewareContext<BrowserState, BrowserAction>,
+        store: Store<BrowserState, BrowserAction>,
         next: (BrowserAction) -> Unit,
         action: BrowserAction,
     ) {
@@ -36,7 +38,7 @@ class DesktopModeMiddleware(
         when (action) {
             InitAction -> {
                 scope.launch {
-                    context.store.dispatch(
+                    store.dispatch(
                         DefaultDesktopModeAction.DesktopModeUpdated(
                             newValue = repository.getDesktopBrowsingEnabled(),
                         ),
@@ -46,15 +48,19 @@ class DesktopModeMiddleware(
 
             DefaultDesktopModeAction.ToggleDesktopMode -> {
                 scope.launch {
-                    val updatedDesktopMode = context.state.desktopMode
+                    val updatedDesktopMode = store.state.desktopMode
                     val preferenceWriteSucceeded = repository.setDesktopBrowsingEnabled(updatedDesktopMode)
 
                     if (!preferenceWriteSucceeded) {
                         // If the preference write fails, revert the state change.
-                        context.store.dispatch(
+                        store.dispatch(
                             DefaultDesktopModeAction.DesktopModeUpdated(
                                 newValue = !updatedDesktopMode,
                             ),
+                        )
+                    } else if (updatedDesktopMode) {
+                        DesktopMode.settingsAlwaysRequestDesktopSite.record(
+                            NoExtras(),
                         )
                     }
                 }

@@ -5,7 +5,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/Assertions.h"
-#include "mozilla/Unused.h"
 #include "mozilla/Vector.h"
 #include "mozilla/fuzzing/Nyx.h"
 #include "prinrval.h"
@@ -38,6 +37,7 @@ MOZ_EXPORT __attribute__((weak)) uint32_t nyx_get_next_fuzz_data(void*,
                                                                  uint32_t);
 MOZ_EXPORT __attribute__((weak)) uint32_t nyx_get_raw_fuzz_data(void*,
                                                                 uint32_t);
+MOZ_EXPORT __attribute__((weak)) uint32_t nyx_get_owned_raw_fuzz_data(void**);
 MOZ_EXPORT __attribute__((weak)) void nyx_release(uint32_t);
 MOZ_EXPORT __attribute__((weak)) void nyx_handle_event(const char*, const char*,
                                                        int, const char*);
@@ -84,7 +84,7 @@ void Nyx::start(void) {
       mRawReplayBuffer = new Vector<uint8_t>();
       is.seekg(0, is.end);
       int rawLength = is.tellg();
-      mozilla::Unused << mRawReplayBuffer->initLengthUninitialized(rawLength);
+      (void)mRawReplayBuffer->initLengthUninitialized(rawLength);
       is.seekg(0, is.beg);
       is.read(reinterpret_cast<char*>(mRawReplayBuffer->begin()), rawLength);
       is.seekg(0, is.beg);
@@ -102,7 +102,7 @@ void Nyx::start(void) {
 
       auto buffer = new Vector<uint8_t>();
 
-      mozilla::Unused << buffer->initLengthUninitialized(pktsize);
+      (void)buffer->initLengthUninitialized(pktsize);
       is.read(reinterpret_cast<char*>(buffer->begin()), buffer->length());
 
       MOZ_FUZZING_NYX_PRINTF("[Replay Mode] Read data packet of size %zu\n",
@@ -129,6 +129,7 @@ void Nyx::start(void) {
   NYX_CHECK_API(nyx_start);
   NYX_CHECK_API(nyx_get_next_fuzz_data);
   NYX_CHECK_API(nyx_get_raw_fuzz_data);
+  NYX_CHECK_API(nyx_get_owned_raw_fuzz_data);
   NYX_CHECK_API(nyx_release);
   NYX_CHECK_API(nyx_handle_event);
   NYX_CHECK_API(nyx_puts);
@@ -139,9 +140,10 @@ void Nyx::start(void) {
 
 bool Nyx::started(void) { return mInited; }
 
-bool Nyx::is_enabled(const char* identifier) {
+bool Nyx::is_enabled(const char* identifier, bool startswith) {
   static char* fuzzer = getenv("NYX_FUZZER");
-  if (!fuzzer || strcmp(fuzzer, identifier)) {
+  if (!fuzzer || (!startswith && strcmp(fuzzer, identifier)) ||
+      (startswith && strncmp(fuzzer, identifier, strlen(identifier)))) {
     return false;
   }
   return true;
@@ -181,6 +183,18 @@ uint32_t Nyx::get_raw_data(uint8_t* data, uint32_t size) {
   }
 
   return nyx_get_raw_fuzz_data(data, size);
+}
+
+uint32_t Nyx::get_raw_data(uint8_t** data) {
+  MOZ_RELEASE_ASSERT(mInited);
+
+  if (mReplayMode) {
+    MOZ_FUZZING_NYX_PRINT("[Replay Mode] Nyx::get_raw_data() called.\n");
+    *data = mRawReplayBuffer->begin();
+    return mRawReplayBuffer->length();
+  }
+
+  return nyx_get_owned_raw_fuzz_data(reinterpret_cast<void**>(data));
 }
 
 void Nyx::release(uint32_t iterations) {

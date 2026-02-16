@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import assert from 'assert';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-import {CLI} from '../../../lib/cjs/CLI.js';
+import {CLI} from '../../../lib/esm/CLI.js';
 import {
   createMockedReadlineInterface,
   setupTestServer,

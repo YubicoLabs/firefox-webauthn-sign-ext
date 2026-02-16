@@ -11,6 +11,7 @@ const ValidIssueList = [
   "broken-comments",
   "broken-cookie-banner",
   "broken-editor",
+  "broken-font",
   "broken-images",
   "broken-interactive-elements",
   "broken-layout",
@@ -34,6 +35,29 @@ const ValidIssueList = [
   "user-interface-frustration",
 ];
 
+const ValidResourceTypes = [
+  "main_frame",
+  "sub_frame",
+  "stylesheet",
+  "script",
+  "image",
+  "object",
+  "xmlhttprequest",
+  "xslt",
+  "ping",
+  "beacon",
+  "xml_dtd",
+  "font",
+  "media",
+  "websocket",
+  "csp_report",
+  "imageset",
+  "web_manifest",
+  "speculative",
+  "json",
+  "other",
+];
+
 function addon_url(path) {
   const uuid = WebExtensionPolicy.getByID(
     "webcompat@mozilla.org"
@@ -54,29 +78,61 @@ function check_valid_array(a, key, id) {
   if (a === undefined) {
     return false;
   }
-  const valid = Array.isArray(a) && a.length;
-  ok(
-    valid,
-    `if defined, ${key} is an array with at least one element for id ${id}`
-  );
+  const valid = Array.isArray(a);
+  ok(valid, `if defined, ${key} is an array for id ${id}`);
   return valid;
+}
+
+function validate_match_info(id, key, matches) {
+  ok(
+    Array.isArray(matches) && matches.length,
+    `${key} key exists and is an array with items for id ${id}`
+  );
+
+  for (const match of matches) {
+    try {
+      new MatchPattern(match.url ?? match);
+    } catch (e) {
+      ok(false, `invalid match-pattern for id ${id}: ${match.url ?? match}`);
+    }
+
+    if (match.url) {
+      ok(
+        Array.isArray(match.types) && match.types.length,
+        `types sub-key missing for match.url ${match.url} for id ${id}`
+      );
+      for (const type of match.types) {
+        ok(
+          ValidResourceTypes.includes(type),
+          `invalid type "${type}" for match.url ${match.url} for id ${id}`
+        );
+      }
+    }
+  }
 }
 
 // eslint-disable-next-line complexity
 add_task(async function test_json_data() {
-  const module = {};
+  const addon = await AddonManager.getAddonByID("webcompat@mozilla.org");
+  const addonURI = addon.getResourceURI();
+  const checkableGlobalPrefs =
+    await WebCompatExtension.getCheckableGlobalPrefs();
 
-  // eslint-disable-next-line no-eval
-  eval(await (await fetch(addon_url("lib/intervention_helpers.js"))).text());
-  const helpers = module.exports;
+  const exports = {};
+  Services.scriptloader.loadSubScript(
+    addonURI.resolve("lib/intervention_helpers.js"),
+    exports
+  );
+  Services.scriptloader.loadSubScript(
+    addonURI.resolve("lib/custom_functions.js"),
+    exports
+  );
+  const helpers = exports.InterventionHelpers;
+  const custom_fns = exports.CUSTOM_FUNCTIONS;
 
   for (const [name, fn] of Object.entries(helpers.skip_if_functions)) {
     Assert.strictEqual(typeof fn, "function", `Skip-if ${name} is a function`);
   }
-
-  // eslint-disable-next-line no-eval
-  eval(await (await fetch(addon_url("lib/custom_functions.js"))).text());
-  const custom_fns = module.exports;
 
   for (const [name, { disable, enable }] of Object.entries(custom_fns)) {
     Assert.strictEqual(
@@ -117,6 +173,7 @@ add_task(async function test_json_data() {
       typeof bugs === "object" && Object.keys(bugs).length,
       `bugs key exists and has entries for id ${id}`
     );
+    let hasBlocks = false;
     for (const [bug, { issue, blocks, matches }] of Object.entries(bugs)) {
       ok(
         typeof bug === "string" && bug == String(parseInt(bug)),
@@ -129,25 +186,21 @@ add_task(async function test_json_data() {
       );
 
       ok(
-        !!matches && Array.isArray(matches) && matches.length,
+        !interventions.find(i => i.content_scripts || i.ua_string) ||
+          (!!matches && Array.isArray(matches) && matches.length),
         `matches key exists and is an array with items for id ${id}`
       );
-      try {
-        new MatchPatternSet(matches);
-      } catch (e) {
-        ok(false, `invalid matches entries for id ${id}: ${e}`);
+
+      if (!matches && !blocks) {
+        ok(false, `no matches or blocks entries for id ${id}`);
       }
 
+      if (matches) {
+        validate_match_info(id, "matches", matches);
+      }
       if (blocks) {
-        ok(
-          Array.isArray(blocks) && matches.length,
-          `matches key exists and is an array with items for id ${id}`
-        );
-        try {
-          new MatchPatternSet(blocks);
-        } catch (e) {
-          ok(false, `invalid blocks entries for id ${id}: ${e}`);
-        }
+        hasBlocks = true;
+        validate_match_info(id, "blocks", blocks);
       }
     }
 
@@ -157,9 +210,13 @@ add_task(async function test_json_data() {
       "min_version",
       "not_platforms",
       "platforms",
+      "not_channels",
+      "only_channels",
+      "pref_check",
       "skip_if",
       "ua_string",
     ];
+    let custom_found = false;
     for (let intervention of interventions) {
       for (const name in intervention) {
         const is_custom = name in custom_fns;
@@ -169,18 +226,22 @@ add_task(async function test_json_data() {
           `key '${name}' is actually expected for id ${id}`
         );
         if (is_custom) {
-          const { details } = custom_fns[name];
-          for (const detailName in intervention[name]) {
-            ok(
-              details.includes(detailName),
-              `detail '${detailName}' is actually expected for custom function ${name} in id ${id}`
-            );
-          }
-          for (const detailName of details) {
-            ok(
-              detailName in intervention[name],
-              `expected detail '${detailName}' is being passed to custom function ${name} in id ${id}`
-            );
+          custom_found = true;
+          const { details, optionalDetails } = custom_fns[name];
+          for (const customArgs of intervention[name]) {
+            for (const detailName in customArgs) {
+              ok(
+                details.includes(detailName) ||
+                  optionalDetails.includes(detailName),
+                `detail '${detailName}' is actually expected for custom function ${name} in id ${id}`
+              );
+            }
+            for (const detailName of details) {
+              ok(
+                detailName in customArgs,
+                `expected detail '${detailName}' is being passed to custom function ${name} in id ${id}`
+              );
+            }
           }
         }
       }
@@ -193,8 +254,16 @@ add_task(async function test_json_data() {
           );
         }
       }
-      let { content_scripts, not_platforms, platforms, skip_if, ua_string } =
-        intervention;
+      let {
+        content_scripts,
+        not_platforms,
+        not_channels,
+        only_channels,
+        platforms,
+        pref_check,
+        skip_if,
+        ua_string,
+      } = intervention;
       ok(
         !!platforms || !!not_platforms,
         `platforms or not_platforms key exists for id ${id} intervention ${JSON.stringify(intervention)}`
@@ -229,10 +298,60 @@ add_task(async function test_json_data() {
           );
         }
       }
+      if (check_valid_array(not_channels, "not_channels", id)) {
+        let skipped = 0;
+        let possible = helpers.valid_channels.length;
+        for (const channel of not_channels) {
+          ok(
+            helpers.valid_channels.includes(channel),
+            `Not-channel ${channel} is valid in id ${id}`
+          );
+          ++skipped;
+        }
+        Assert.less(
+          skipped,
+          possible,
+          `Not skipping all channels for id ${id} intervention ${JSON.stringify(intervention)}`
+        );
+      }
+      if (check_valid_array(only_channels, "only_channels", id)) {
+        for (const channel of only_channels) {
+          ok(
+            helpers.valid_channels.includes(channel),
+            `Channel ${channel} is valid in id ${id}`
+          );
+        }
+      }
       ok(
-        content_scripts || skip_if || ua_string,
-        `Interventions are defined for id ${id}`
+        content_scripts || ua_string || custom_found || hasBlocks,
+        `Interventions or blocks are defined for id ${id}`
       );
+      ok(
+        pref_check === undefined || typeof pref_check === "object",
+        `pref_check is not given or is an object ${id}`
+      );
+      if (pref_check) {
+        for (const [pref, value] of Object.entries(pref_check)) {
+          ok(
+            checkableGlobalPrefs.includes(pref),
+            `'${pref}' is allow-listed in AboutConfigPrefsAPI.ALLOWED_GLOBAL_PREFS`
+          );
+          const type = typeof value;
+          const expectedType = Services.prefs.getPrefType(pref);
+          if (expectedType !== 0) {
+            // will be 0 if not defined/available on the given platform
+            ok(
+              (type === "boolean" &&
+                expectedType === Ci.nsIPrefBranch.PREF_BOOL) ||
+                (type === "number" &&
+                  expectedType === Ci.nsIPrefBranch.PREF_INT) ||
+                (type === "string" &&
+                  expectedType === Ci.nsIPrefBranch.PREF_STRING),
+              `Given value (${JSON.stringify(value)}) for '${pref}' matches the pref's type`
+            );
+          }
+        }
+      }
       if (check_valid_array(skip_if, "skip_if", id)) {
         for (const fn of skip_if) {
           ok(
@@ -247,6 +366,13 @@ add_task(async function test_json_data() {
           ok(
             all === false || all === true,
             `all_frames key is true or false for content_scripts for id ${id}`
+          );
+        }
+        if ("isolated" in content_scripts) {
+          const isolated = content_scripts.isolated;
+          ok(
+            isolated === false || isolated === true,
+            `isolated key is true or false for content_scripts for id ${id}`
           );
         }
         for (const type of ["css", "js"]) {

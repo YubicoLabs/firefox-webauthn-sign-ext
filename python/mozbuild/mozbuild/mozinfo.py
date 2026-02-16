@@ -9,8 +9,6 @@ import json
 import os
 import re
 
-import six
-
 
 def build_dict(config, env=os.environ):
     """
@@ -71,6 +69,7 @@ def build_dict(config, env=os.environ):
         d["bits"] = 32
     # other CPUs will wind up with unknown bits
 
+    d["mingw"] = substs.get("CC_TYPE") == "clang" and d["os"] == "win"
     d["debug"] = substs.get("MOZ_DEBUG") == "1"
     d["nightly_build"] = substs.get("NIGHTLY_BUILD") == "1"
     d["early_beta_or_earlier"] = substs.get("EARLY_BETA_OR_EARLIER") == "1"
@@ -111,18 +110,16 @@ def build_dict(config, env=os.environ):
             if p == "mac":
                 p = "macosx64"
             elif d["bits"] == 64:
-                p = "{}64".format(p)
+                p = f"{p}64"
             elif p in ("win",):
-                p = "{}32".format(p)
+                p = f"{p}32"
 
             if d["asan"]:
-                p = "{}-asan".format(p)
+                p = f"{p}-asan"
 
             return p
 
         if d["buildapp"] == "mobile/android":
-            if d["processor"] == "x86":
-                return "android-x86"
             if d["processor"] == "x86_64":
                 return "android-x86_64"
             if d["processor"] == "aarch64":
@@ -166,7 +163,7 @@ def write_mozinfo(file, config, env=os.environ):
     and what keys are produced.
     """
     build_conf = build_dict(config, env)
-    if isinstance(file, six.text_type):
-        file = open(file, "wt")
+    if isinstance(file, str):
+        file = open(file, "w")
 
     json.dump(build_conf, file, sort_keys=True, indent=4)

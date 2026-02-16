@@ -4,42 +4,106 @@
 
 package mozilla.components.compose.browser.toolbar
 
+import android.graphics.drawable.Drawable
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.PreviewLightDark
-import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.theme.AcornTheme
 import mozilla.components.compose.browser.toolbar.concept.Action
 import mozilla.components.compose.browser.toolbar.concept.Action.ActionButton
-import mozilla.components.compose.browser.toolbar.concept.Action.CustomAction
+import mozilla.components.compose.browser.toolbar.concept.Action.ActionButtonRes
+import mozilla.components.compose.browser.toolbar.concept.Action.SearchSelectorAction
+import mozilla.components.compose.browser.toolbar.concept.Action.SearchSelectorAction.ContentDescription.StringContentDescription
+import mozilla.components.compose.browser.toolbar.concept.Action.SearchSelectorAction.ContentDescription.StringResContentDescription
+import mozilla.components.compose.browser.toolbar.concept.Action.SearchSelectorAction.Icon.DrawableIcon
+import mozilla.components.compose.browser.toolbar.concept.Action.SearchSelectorAction.Icon.DrawableResIcon
+import mozilla.components.compose.browser.toolbar.concept.Action.TabCounterAction
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarEvent
 import mozilla.components.compose.browser.toolbar.ui.SearchSelector
-import mozilla.components.ui.icons.R
+import mozilla.components.compose.browser.toolbar.ui.TabCounter
+import mozilla.components.compose.browser.toolbar.ui.ActionButton as ActionButtonComposable
+import mozilla.components.ui.icons.R as iconsR
 
 /**
  * A container for displaying [Action]s.
  *
  * @param actions List of [Action]s to display in the container.
+ * @param onInteraction Callback for handling [BrowserToolbarEvent]s on user interactions.
+ * @param modifier Modifier to apply to the container.
+ * @param horizontalArrangement The horizontal arrangement of the layout's children.
  */
 @Composable
 fun ActionContainer(
     actions: List<Action>,
+    onInteraction: (BrowserToolbarEvent) -> Unit,
+    modifier: Modifier = Modifier,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = horizontalArrangement,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         for (action in actions) {
             when (action) {
-                is ActionButton -> {
-                    ActionButton(action)
+                is ActionButtonRes -> {
+                    action.iconDrawable()?.let {
+                        ActionButtonComposable(
+                            icon = it,
+                            contentDescription = stringResource(action.contentDescription),
+                            state = action.state,
+                            onClick = action.onClick,
+                            highlighted = action.highlighted,
+                            onLongClick = action.onLongClick,
+                            onInteraction = { onInteraction(it) },
+                        )
+                    }
                 }
-                is CustomAction -> {
-                    action.content()
+
+                is ActionButton -> {
+                    action.iconDrawable()?.let {
+                        ActionButtonComposable(
+                            icon = it,
+                            contentDescription = action.contentDescription,
+                            state = action.state,
+                            onClick = action.onClick,
+                            highlighted = action.highlighted,
+                            onLongClick = action.onLongClick,
+                            onInteraction = { onInteraction(it) },
+                        )
+                    }
+                }
+
+                is SearchSelectorAction -> {
+                    SearchSelector(
+                        icon = action.iconDrawable(),
+                        shouldTint = (action.icon as? DrawableIcon)?.shouldTint ?: true,
+                        contentDescription = action.contentDescription(),
+                        menu = action.menu,
+                        onInteraction = { onInteraction(it) },
+                        onClick = action.onClick,
+                    )
+                }
+
+                is TabCounterAction -> {
+                    TabCounter(
+                        count = action.count,
+                        showPrivacyMask = action.showPrivacyMask,
+                        onClick = action.onClick,
+                        onLongClick = action.onLongClick,
+                        onInteraction = { onInteraction(it) },
+                    )
                 }
             }
         }
@@ -47,19 +111,48 @@ fun ActionContainer(
 }
 
 @Composable
-private fun ActionButton(
-    action: ActionButton,
-) {
-    IconButton(
-        modifier = Modifier.requiredSize(40.dp),
-        onClick = { action.onClick() },
-    ) {
-        Icon(
-            painter = painterResource(action.icon),
-            contentDescription = action.contentDescription,
-            tint = Color(action.tint),
-        )
+private fun ActionButtonRes.iconDrawable(): Drawable? {
+    val context = LocalContext.current
+    val tint = MaterialTheme.colorScheme.onSurface
+
+    return remember(this, context) {
+        AppCompatResources.getDrawable(context, drawableResId)
+            ?.apply { mutate().setTint(tint.toArgb()) }
     }
+}
+
+@Composable
+private fun ActionButton.iconDrawable(): Drawable? {
+    val tint = MaterialTheme.colorScheme.onSurface
+
+    return remember(this) {
+        when (shouldTint) {
+            true -> drawable?.mutate()?.apply { setTint(tint.toArgb()) }
+            false -> drawable
+        }
+    }
+}
+
+@Composable
+@ReadOnlyComposable
+private fun SearchSelectorAction.contentDescription() = when (contentDescription) {
+    is StringContentDescription -> contentDescription.text
+    is StringResContentDescription -> stringResource(contentDescription.resourceId)
+}
+
+@Composable
+private fun SearchSelectorAction.iconDrawable(): Drawable? {
+    val context = LocalContext.current
+    val tint = MaterialTheme.colorScheme.onSurface
+
+    val drawable = remember(this, context) {
+        when (icon) {
+            is DrawableIcon -> icon.drawable
+            is DrawableResIcon -> AppCompatResources.getDrawable(context, icon.resourceId)
+                ?.apply { setTint(tint.toArgb()) }
+        }
+    }
+    return drawable
 }
 
 @PreviewLightDark
@@ -68,22 +161,31 @@ private fun ActionContainerPreview() {
     AcornTheme {
         ActionContainer(
             actions = listOf(
-                ActionButton(
-                    icon = R.drawable.mozac_ic_microphone_24,
-                    contentDescription = null,
-                    tint = AcornTheme.colors.iconPrimary.toArgb(),
-                    onClick = {},
+                SearchSelectorAction(
+                    icon = DrawableResIcon(iconsR.drawable.mozac_ic_search_24),
+                    contentDescription = StringContentDescription("Change search engine for this search"),
+                    menu = { emptyList() },
+                    onClick = null,
                 ),
-                CustomAction(
-                    content = {
-                        SearchSelector(
-                            painter = painterResource(R.drawable.mozac_ic_search_24),
-                            tint = AcornTheme.colors.iconPrimary,
-                            onClick = {},
-                        )
-                    },
+                ActionButtonRes(
+                    drawableResId = iconsR.drawable.mozac_ic_microphone_24,
+                    contentDescription = R.string.mozac_clear_button_description,
+                    onClick = object : BrowserToolbarEvent {},
+                ),
+                ActionButton(
+                    drawable = AppCompatResources.getDrawable(LocalContext.current, iconsR.drawable.mozac_ic_tool_24),
+                    contentDescription = stringResource(R.string.mozac_clear_button_description),
+                    onClick = object : BrowserToolbarEvent {},
+                ),
+                TabCounterAction(
+                    count = 1,
+                    contentDescription = "",
+                    showPrivacyMask = false,
+                    onClick = object : BrowserToolbarEvent {},
                 ),
             ),
+            onInteraction = {},
+            modifier = Modifier.background(color = MaterialTheme.colorScheme.surfaceDim),
         )
     }
 }

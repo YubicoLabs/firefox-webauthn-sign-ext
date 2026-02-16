@@ -7,9 +7,9 @@
 const {
   createFactory,
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 
 const FontAxis = createFactory(
   require("resource://devtools/client/inspector/fonts/components/FontAxis.js")
@@ -60,7 +60,7 @@ class FontEditor extends PureComponent {
    *
    * @param  {Array} fontAxes
    *         Array of font axis instances
-   * @param  {Object} editedAxes
+   * @param  {object} editedAxes
    *         Object with axes and values edited by the user or defined in the CSS
    *         declaration for font-variation-settings.
    * @return {Array|null}
@@ -238,7 +238,7 @@ class FontEditor extends PureComponent {
    *
    * @param {Array} fontInstances
    *        Named variation instances as provided with the font file.
-   * @param {Object} selectedInstance
+   * @param {object} selectedInstance
    *        Object with information about the currently selected variation instance.
    *        Example:
    *        {

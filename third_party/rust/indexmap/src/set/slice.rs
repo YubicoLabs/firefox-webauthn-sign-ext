@@ -1,5 +1,5 @@
-use super::{Bucket, Entries, IndexSet, IntoIter, Iter};
-use crate::util::try_simplify_range;
+use super::{Bucket, IndexSet, IntoIter, Iter};
+use crate::util::{slice_eq, try_simplify_range};
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -59,14 +59,14 @@ impl<T> Slice<T> {
 
     /// Get a value by index.
     ///
-    /// Valid indices are *0 <= index < self.len()*
+    /// Valid indices are `0 <= index < self.len()`.
     pub fn get_index(&self, index: usize) -> Option<&T> {
         self.entries.get(index).map(Bucket::key_ref)
     }
 
     /// Returns a slice of values in the given range of indices.
     ///
-    /// Valid indices are *0 <= index < self.len()*
+    /// Valid indices are `0 <= index < self.len()`.
     pub fn get_range<R: RangeBounds<usize>>(&self, range: R) -> Option<&Self> {
         let range = try_simplify_range(range, self.entries.len())?;
         self.entries.get(range).map(Self::from_slice)
@@ -85,6 +85,7 @@ impl<T> Slice<T> {
     /// Divides one slice into two at an index.
     ///
     /// ***Panics*** if `index > len`.
+    #[track_caller]
     pub fn split_at(&self, index: usize) -> (&Self, &Self) {
         let (first, second) = self.entries.split_at(index);
         (Self::from_slice(first), Self::from_slice(second))
@@ -159,6 +160,53 @@ impl<T> Slice<T> {
         self.binary_search_by(|k| f(k).cmp(b))
     }
 
+    /// Checks if the values of this slice are sorted.
+    #[inline]
+    pub fn is_sorted(&self) -> bool
+    where
+        T: PartialOrd,
+    {
+        // TODO(MSRV 1.82): self.entries.is_sorted_by(|a, b| a.key <= b.key)
+        self.is_sorted_by(T::le)
+    }
+
+    /// Checks if this slice is sorted using the given comparator function.
+    #[inline]
+    pub fn is_sorted_by<'a, F>(&'a self, mut cmp: F) -> bool
+    where
+        F: FnMut(&'a T, &'a T) -> bool,
+    {
+        // TODO(MSRV 1.82): self.entries.is_sorted_by(move |a, b| cmp(&a.key, &b.key))
+        let mut iter = self.entries.iter();
+        match iter.next() {
+            Some(mut prev) => iter.all(move |next| {
+                let sorted = cmp(&prev.key, &next.key);
+                prev = next;
+                sorted
+            }),
+            None => true,
+        }
+    }
+
+    /// Checks if this slice is sorted using the given sort-key function.
+    #[inline]
+    pub fn is_sorted_by_key<'a, F, K>(&'a self, mut sort_key: F) -> bool
+    where
+        F: FnMut(&'a T) -> K,
+        K: PartialOrd,
+    {
+        // TODO(MSRV 1.82): self.entries.is_sorted_by_key(move |a| sort_key(&a.key))
+        let mut iter = self.entries.iter().map(move |a| sort_key(&a.key));
+        match iter.next() {
+            Some(mut prev) => iter.all(move |next| {
+                let sorted = prev <= next;
+                prev = next;
+                sorted
+            }),
+            None => true,
+        }
+    }
+
     /// Returns the index of the partition point of a sorted set according to the given predicate
     /// (the index of the first element of the second partition).
     ///
@@ -222,9 +270,48 @@ impl<T: fmt::Debug> fmt::Debug for Slice<T> {
     }
 }
 
-impl<T: PartialEq> PartialEq for Slice<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.iter().eq(other)
+impl<T, U> PartialEq<Slice<U>> for Slice<T>
+where
+    T: PartialEq<U>,
+{
+    fn eq(&self, other: &Slice<U>) -> bool {
+        slice_eq(&self.entries, &other.entries, |b1, b2| b1.key == b2.key)
+    }
+}
+
+impl<T, U> PartialEq<[U]> for Slice<T>
+where
+    T: PartialEq<U>,
+{
+    fn eq(&self, other: &[U]) -> bool {
+        slice_eq(&self.entries, other, |b, o| b.key == *o)
+    }
+}
+
+impl<T, U> PartialEq<Slice<U>> for [T]
+where
+    T: PartialEq<U>,
+{
+    fn eq(&self, other: &Slice<U>) -> bool {
+        slice_eq(self, &other.entries, |o, b| *o == b.key)
+    }
+}
+
+impl<T, U, const N: usize> PartialEq<[U; N]> for Slice<T>
+where
+    T: PartialEq<U>,
+{
+    fn eq(&self, other: &[U; N]) -> bool {
+        <Self as PartialEq<[U]>>::eq(self, other)
+    }
+}
+
+impl<T, const N: usize, U> PartialEq<Slice<U>> for [T; N]
+where
+    T: PartialEq<U>,
+{
+    fn eq(&self, other: &Slice<U>) -> bool {
+        <[T] as PartialEq<Slice<U>>>::eq(self, other)
     }
 }
 

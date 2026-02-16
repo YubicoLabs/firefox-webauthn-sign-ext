@@ -5,10 +5,10 @@
 package org.mozilla.focus.settings.privacy
 
 import android.content.SharedPreferences
-import android.os.Build
 import android.os.Bundle
+import androidx.core.content.edit
 import androidx.preference.Preference
-import androidx.preference.SwitchPreferenceCompat
+import androidx.preference.SwitchPreference
 import mozilla.components.lib.auth.canUseBiometricFeature
 import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.focus.GleanMetrics.CookieBanner
@@ -24,7 +24,6 @@ import org.mozilla.focus.nimbus.FocusNimbus
 import org.mozilla.focus.settings.BaseSettingsFragment
 import org.mozilla.focus.state.AppAction
 import org.mozilla.focus.state.Screen
-import org.mozilla.focus.telemetry.GleanMetricsService
 import org.mozilla.focus.widget.CookiesPreference
 
 class PrivacySecuritySettingsFragment :
@@ -33,15 +32,14 @@ class PrivacySecuritySettingsFragment :
     override fun onCreatePreferences(p0: Bundle?, p1: String?) {
         addPreferencesFromResource(R.xml.privacy_security_settings)
 
-        val biometricPreference: SwitchPreferenceCompat? =
+        val biometricPreference: SwitchPreference? =
             findPreference(getString(R.string.pref_key_biometric))
         val appName = getString(R.string.app_name)
         biometricPreference?.summary =
             getString(R.string.preference_security_biometric_summary2, appName)
 
-        // Remove the biometric toggle if the software or hardware do not support it
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || !requireContext().canUseBiometricFeature()
-        ) {
+        // Remove the biometric toggle if not supported
+        if (!requireContext().canUseBiometricFeature()) {
             biometricPreference?.let { preferenceScreen.removePreference(it) }
         }
         if (!FocusNimbus.features.onboarding.value().isCfrEnabled ||
@@ -59,11 +57,11 @@ class PrivacySecuritySettingsFragment :
         cookiesPreference?.updateSummary()
 
         val safeBrowsingSwitchPreference =
-            findPreference(getString(R.string.pref_key_safe_browsing)) as? SwitchPreferenceCompat
+            findPreference(getString(R.string.pref_key_safe_browsing)) as? SwitchPreference
         val javaScriptPreference =
-            findPreference(getString(R.string.pref_key_performance_block_javascript)) as? SwitchPreferenceCompat
+            findPreference(getString(R.string.pref_key_performance_block_javascript)) as? SwitchPreference
         val webFontsPreference =
-            findPreference(getString(R.string.pref_key_performance_block_webfonts)) as? SwitchPreferenceCompat
+            findPreference(getString(R.string.pref_key_performance_block_webfonts)) as? SwitchPreference
         val cookieBannerPreference = findPreference<Preference>(getString(R.string.pref_key_cookie_banner_settings))
 
         cookiesPreference?.onPreferenceChangeListener = preferencesListener
@@ -87,8 +85,6 @@ class PrivacySecuritySettingsFragment :
         updateStealthToggleAvailability()
         updateExceptionSettingAvailability()
 
-        updateStudiesLabel()
-
         preferenceManager.sharedPreferences?.registerOnSharedPreferenceChangeListener(this)
 
         // Update title and icons when returning to fragments.
@@ -105,15 +101,6 @@ class PrivacySecuritySettingsFragment :
             recordTelemetry(it, sharedPreferences.all[key])
         }
         updateStealthToggleAvailability()
-        if (key == getString(R.string.pref_key_telemetry)) {
-            updateStudiesLabel()
-        }
-    }
-
-    private fun updateStudiesLabel() {
-        val experimentPreference =
-            findPreference<Preference>(getString(R.string.pref_key_studies_v2))
-        experimentPreference?.isEnabled = GleanMetricsService.isTelemetryEnabled(requireContext())
     }
 
     private fun recordTelemetry(key: String, newValue: Any?) {
@@ -142,15 +129,14 @@ class PrivacySecuritySettingsFragment :
     private fun updateBiometricsToggleAvailability() {
         val switch =
             preferenceScreen.findPreference(resources.getString(R.string.pref_key_biometric))
-                as? SwitchPreferenceCompat
+                as? SwitchPreference
 
         if (!requireContext().canUseBiometricFeature()) {
             switch?.isChecked = false
             switch?.isEnabled = false
-            preferenceManager.sharedPreferences
-                ?.edit()
-                ?.putBoolean(resources.getString(R.string.pref_key_biometric), false)
-                ?.apply()
+            preferenceManager.sharedPreferences?.edit {
+                putBoolean(resources.getString(R.string.pref_key_biometric), false)
+            }
         } else {
             switch?.isEnabled = true
         }
@@ -167,7 +153,6 @@ class PrivacySecuritySettingsFragment :
     }
 
     override fun onPreferenceTreeClick(preference: Preference): Boolean {
-        val settings = requireContext().settings
         val engineSharedPreferencesListener = EngineSharedPreferencesListener(requireContext())
         when (preference.key) {
             resources.getString(R.string.pref_key_screen_exceptions) -> {
@@ -188,28 +173,24 @@ class PrivacySecuritySettingsFragment :
                 engineSharedPreferencesListener.updateTrackingProtectionPolicy(
                     EngineSharedPreferencesListener.ChangeSource.SETTINGS.source,
                     EngineSharedPreferencesListener.TrackerChanged.SOCIAL.tracker,
-                    settings.shouldBlockSocialTrackers(),
                 )
 
             resources.getString(R.string.pref_key_privacy_block_ads) ->
                 engineSharedPreferencesListener.updateTrackingProtectionPolicy(
                     EngineSharedPreferencesListener.ChangeSource.SETTINGS.source,
                     EngineSharedPreferencesListener.TrackerChanged.ADVERTISING.tracker,
-                    settings.shouldBlockAdTrackers(),
                 )
 
             resources.getString(R.string.pref_key_privacy_block_analytics) ->
                 engineSharedPreferencesListener.updateTrackingProtectionPolicy(
                     EngineSharedPreferencesListener.ChangeSource.SETTINGS.source,
                     EngineSharedPreferencesListener.TrackerChanged.ANALYTICS.tracker,
-                    settings.shouldBlockAnalyticTrackers(),
                 )
 
             resources.getString(R.string.pref_key_privacy_block_other3) ->
                 engineSharedPreferencesListener.updateTrackingProtectionPolicy(
                     EngineSharedPreferencesListener.ChangeSource.SETTINGS.source,
                     EngineSharedPreferencesListener.TrackerChanged.CONTENT.tracker,
-                    settings.shouldBlockOtherTrackers(),
                 )
             resources.getString(R.string.pref_key_cookie_banner_settings) -> {
                 CookieBanner.visitedSetting.record(NoExtras())
@@ -223,17 +204,13 @@ class PrivacySecuritySettingsFragment :
                 requireComponents.appStore.dispatch(
                     AppAction.OpenSettings(page = Screen.Settings.Page.SitePermissions),
                 )
-            resources.getString(R.string.pref_key_studies_v2) ->
-                requireComponents.appStore.dispatch(
-                    AppAction.OpenSettings(page = Screen.Settings.Page.Studies),
-                )
         }
         return super.onPreferenceTreeClick(preference)
     }
 
     private fun updateStealthToggleAvailability() {
         val switch =
-            preferenceScreen.findPreference(resources.getString(R.string.pref_key_secure)) as? SwitchPreferenceCompat
+            preferenceScreen.findPreference(resources.getString(R.string.pref_key_secure)) as? SwitchPreference
 
         val sharedPreferences = preferenceManager.sharedPreferences
 
@@ -243,9 +220,9 @@ class PrivacySecuritySettingsFragment :
             ) == true
         ) {
             sharedPreferences
-                .edit()
-                .putBoolean(resources.getString(R.string.pref_key_secure), true)
-                .apply()
+                .edit {
+                    putBoolean(resources.getString(R.string.pref_key_secure), true)
+                }
 
             // Disable the stealth switch
             switch?.isChecked = true
@@ -253,14 +230,6 @@ class PrivacySecuritySettingsFragment :
         } else {
             // Enable the stealth switch
             switch?.isEnabled = true
-        }
-    }
-
-    companion object {
-        const val FRAGMENT_TAG = "PrivacySecuritySettings"
-
-        fun newInstance(): PrivacySecuritySettingsFragment {
-            return PrivacySecuritySettingsFragment()
         }
     }
 }

@@ -8,7 +8,6 @@
 #define mozilla_dom_Animation_h
 
 #include "X11UndefineNone.h"
-#include "nsCycleCollectionParticipant.h"
 #include "mozilla/AnimatedPropertyIDSet.h"
 #include "mozilla/AnimationPerformanceWarning.h"
 #include "mozilla/Attributes.h"
@@ -22,6 +21,7 @@
 #include "mozilla/TimeStamp.h"             // for TimeStamp, TimeDuration
 #include "mozilla/dom/AnimationBinding.h"  // for AnimationPlayState
 #include "mozilla/dom/AnimationTimeline.h"
+#include "nsCycleCollectionParticipant.h"
 
 struct JSContext;
 class nsCSSPropertyIDSet;
@@ -133,8 +133,13 @@ class Animation : public DOMEventTargetHelper,
   void SetCurrentTimeAsDouble(const Nullable<double>& aCurrentTime,
                               ErrorResult& aRv);
 
+  Nullable<double> GetOverallProgress() const;
+
   double PlaybackRate() const { return mPlaybackRate; }
   void SetPlaybackRate(double aPlaybackRate);
+  // Returns the playback rate multiplied by
+  // BrowsingContext::AnimationsPlayBackRateMultiplier.
+  double PlaybackRateInternal() const;
 
   AnimationPlayState PlayState() const;
   virtual AnimationPlayState PlayStateFromJS() const { return PlayState(); }
@@ -183,7 +188,7 @@ class Animation : public DOMEventTargetHelper,
             // won't be relevant and hence won't be returned by GetAnimations().
             // We don't want its timeline to keep it alive (which would happen
             // if we return true) since otherwise it will effectively be leaked.
-            PlaybackRate() != 0.0) ||
+            PlaybackRateInternal() != 0.0) ||
            // Always return true for not idle animations attached to not
            // monotonically increasing timelines even if the animation is
            // finished. This is required to accommodate cases where timeline
@@ -203,9 +208,7 @@ class Animation : public DOMEventTargetHelper,
    * As with the start time, we should use the pending playback rate when
    * producing layer animations.
    */
-  double CurrentOrPendingPlaybackRate() const {
-    return mPendingPlaybackRate.valueOr(mPlaybackRate);
-  }
+  double CurrentOrPendingPlaybackRate() const;
   bool HasPendingPlaybackRate() const { return mPendingPlaybackRate.isSome(); }
 
   /**
@@ -219,7 +222,7 @@ class Animation : public DOMEventTargetHelper,
    */
   static TimeDuration CurrentTimeFromTimelineTime(
       const TimeDuration& aTimelineTime, const TimeDuration& aStartTime,
-      float aPlaybackRate) {
+      double aPlaybackRate) {
     return (aTimelineTime - aStartTime).MultDouble(aPlaybackRate);
   }
 
@@ -234,7 +237,7 @@ class Animation : public DOMEventTargetHelper,
    */
   static TimeDuration StartTimeFromTimelineTime(
       const TimeDuration& aTimelineTime, const TimeDuration& aCurrentTime,
-      float aPlaybackRate) {
+      double aPlaybackRate) {
     TimeDuration result = aTimelineTime;
     if (aPlaybackRate == 0) {
       return result;
@@ -266,7 +269,7 @@ class Animation : public DOMEventTargetHelper,
   bool IsInEffect() const;
 
   bool IsPlaying() const {
-    return mPlaybackRate != 0.0 && mTimeline &&
+    return PlaybackRateInternal() != 0.0 && mTimeline &&
            !mTimeline->GetCurrentTimeAsDuration().IsNull() &&
            PlayState() == AnimationPlayState::Running;
   }
@@ -306,11 +309,13 @@ class Animation : public DOMEventTargetHelper,
   };
   // Note: we provide |aContext|/|aOtherContext| only when it is a cancelled
   // transition or animation (for overridding the target and animation index).
-  bool HasLowerCompositeOrderThan(
-      const Maybe<EventContext>& aContext, const Animation& aOther,
-      const Maybe<EventContext>& aOtherContext) const;
-  bool HasLowerCompositeOrderThan(const Animation& aOther) const {
-    return HasLowerCompositeOrderThan(Nothing(), aOther, Nothing());
+  int32_t CompareCompositeOrder(const Maybe<EventContext>& aContext,
+                                const Animation& aOther,
+                                const Maybe<EventContext>& aOtherContext,
+                                nsContentUtils::NodeIndexCache&) const;
+  int32_t CompareCompositeOrder(const Animation& aOther,
+                                nsContentUtils::NodeIndexCache& aCache) const {
+    return CompareCompositeOrder(Nothing(), aOther, Nothing(), aCache);
   }
 
   /**
@@ -341,8 +346,10 @@ class Animation : public DOMEventTargetHelper,
    * Any properties contained in |aPropertiesToSkip| will not be added or
    * updated in |aComposeResult|.
    */
-  void ComposeStyle(StyleAnimationValueMap& aComposeResult,
-                    const InvertibleAnimatedPropertyIDSet& aPropertiesToSkip);
+  void ComposeStyle(
+      StyleAnimationValueMap& aComposeResult,
+      const InvertibleAnimatedPropertyIDSet& aPropertiesToSkip,
+      EndpointBehavior aEndpointBehavior = EndpointBehavior::Exclusive);
 
   void NotifyEffectTimingUpdated();
   void NotifyEffectPropertiesUpdated();
@@ -357,8 +364,6 @@ class Animation : public DOMEventTargetHelper,
    * exist when we would normally go to queue events on the next tick.
    */
   virtual void MaybeQueueCancelEvent(const StickyTimeDuration& aActiveTime) {};
-
-  Maybe<uint32_t>& CachedChildIndexRef() { return mCachedChildIndex; }
 
   void SetPartialPrerendered(uint64_t aIdOnCompositor) {
     mIdOnCompositor = aIdOnCompositor;
@@ -408,7 +413,7 @@ class Animation : public DOMEventTargetHelper,
         //    animation’s current time
         !currentTime.IsNull() ? currentTime : GetCurrentTimeAsDuration(),
         mStartTime.IsNull() ? TimeDuration() : mStartTime.Value(),
-        mPlaybackRate);
+        PlaybackRateInternal());
   }
 
   void SetHiddenByContentVisibility(bool hidden);
@@ -418,6 +423,8 @@ class Animation : public DOMEventTargetHelper,
   void UpdateHiddenByContentVisibility();
 
   DocGroup* GetDocGroup();
+
+  void PostUpdate();
 
  protected:
   void SilentlySetCurrentTime(const TimeDuration& aNewCurrentTime);
@@ -457,7 +464,6 @@ class Animation : public DOMEventTargetHelper,
    * animations running on the compositor).
    */
   void FlushUnanimatedStyle() const;
-  void PostUpdate();
   void ResetFinishedPromise();
   void MaybeResolveFinishedPromise();
   void DoFinishNotification(SyncNotifyFlag aSyncNotifyFlag);
@@ -549,10 +555,6 @@ class Animation : public DOMEventTargetHelper,
   // possible for two different objects to have the same index.
   uint64_t mAnimationIndex;
 
-  // While ordering Animation objects for event dispatch, the index of the
-  // target node in its parent may be cached in mCachedChildIndex.
-  Maybe<uint32_t> mCachedChildIndex;
-
   // Indicates if the animation is in the pending state (and what state it is
   // waiting to enter when it finished pending).
   enum class PendingState : uint8_t { NotPending, PlayPending, PausePending };
@@ -589,6 +591,10 @@ class Animation : public DOMEventTargetHelper,
   TimeStamp mPendingReadyTime;
 
  private:
+  // Returns BrowsingContext.animationsPlayBackRateMultiplier for this
+  // animation.
+  double AnimationsPlayBackRateMultiplier() const;
+
   // The id for this animation on the compositor.
   uint64_t mIdOnCompositor = 0;
   bool mIsPartialPrerendered = false;

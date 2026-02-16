@@ -4,31 +4,57 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #include "TextDirectiveFinder.h"
+
 #include "Document.h"
 #include "TextDirectiveUtil.h"
-#include "nsRange.h"
 #include "fragmentdirectives_ffi_generated.h"
-#include "mozilla/ResultVariant.h"
+#include "mozilla/CycleCollectedUniquePtr.h"
+#include "mozilla/ToString.h"
+#include "mozilla/glean/DomMetrics.h"
+#include "nsFind.h"
+#include "nsRange.h"
 
 namespace mozilla::dom {
 
 TextDirectiveFinder::TextDirectiveFinder(
-    Document& aDocument, nsTArray<TextDirective>&& aTextDirectives)
-    : mDocument(aDocument),
+    Document* aDocument, nsTArray<TextDirective>&& aTextDirectives)
+    : mDocument(WrapNotNull(aDocument)),
       mUninvokedTextDirectives(std::move(aTextDirectives)) {}
+
+TextDirectiveFinder::~TextDirectiveFinder() {
+  if (mFoundDirectiveCount) {
+    glean::dom_textfragment::find_directives.AccumulateRawDuration(
+        mFindTextDirectivesDuration);
+
+    TEXT_FRAGMENT_LOG("Found {} directives in {}ms", mFoundDirectiveCount,
+                      mFindTextDirectivesDuration.ToMilliseconds());
+  }
+  if (HasUninvokedDirectives()) {
+    mDocument->SetUseCounter(eUseCounter_custom_InvalidTextDirectives);
+  }
+}
+
+void TextDirectiveFinder::Traverse(
+    nsCycleCollectionTraversalCallback& aCallback) {
+  CycleCollectionNoteChild(aCallback, mDocument.get().get(),
+                           "TextDirectiveFinder::mDocument", aCallback.Flags());
+}
 
 bool TextDirectiveFinder::HasUninvokedDirectives() const {
   return !mUninvokedTextDirectives.IsEmpty();
 }
+
 nsTArray<RefPtr<nsRange>> TextDirectiveFinder::FindTextDirectivesInDocument() {
   if (mUninvokedTextDirectives.IsEmpty()) {
     return {};
   }
-  auto uri = TextDirectiveUtil::ShouldLog() && mDocument.GetDocumentURI()
-                 ? mDocument.GetDocumentURI()->GetSpecOrDefault()
+
+  const TimeStamp start = TimeStamp::Now();
+
+  auto uri = TextDirectiveUtil::ShouldLog() && mDocument->GetDocumentURI()
+                 ? mDocument->GetDocumentURI()->GetSpecOrDefault()
                  : nsCString();
   TEXT_FRAGMENT_LOG("Trying to find text directives in document '{}'.", uri);
-  mDocument.FlushPendingNotifications(FlushType::Layout);
   // https://wicg.github.io/scroll-to-text-fragment/#invoke-text-directives
   // To invoke text directives, given as input a list of text directives text
   // directives and a Document document, run these steps:
@@ -51,6 +77,9 @@ nsTArray<RefPtr<nsRange>> TextDirectiveFinder::FindTextDirectivesInDocument() {
       textDirectiveRanges.AppendElement(range);
       TEXT_FRAGMENT_LOG("Found text directive '{}'",
                         ToString(textDirective).c_str());
+      if (RefPtr startNode = range->GetStartContainer()) {
+        startNode->QueueAncestorRevealingAlgorithm();
+      }
     } else {
       uninvokedTextDirectives.AppendElement(std::move(textDirective));
     }
@@ -79,6 +108,9 @@ nsTArray<RefPtr<nsRange>> TextDirectiveFinder::FindTextDirectivesInDocument() {
   }
   mUninvokedTextDirectives = std::move(uninvokedTextDirectives);
 
+  mFindTextDirectivesDuration += TimeStamp::Now() - start;
+  mFoundDirectiveCount += static_cast<int64_t>(textDirectiveRanges.Length());
+
   // 3. Return ranges.
   return textDirectiveRanges;
 }
@@ -93,11 +125,15 @@ RefPtr<nsRange> TextDirectiveFinder::FindRangeForTextDirective(
   // document’s length)
   ErrorResult rv;
   RefPtr<nsRange> searchRange =
-      nsRange::Create(&mDocument, 0, &mDocument, mDocument.Length(), rv);
+      nsRange::Create(mDocument, 0, mDocument, mDocument->Length(), rv);
   if (rv.Failed()) {
     return nullptr;
   }
+
   nsContentUtils::NodeIndexCache nodeIndexCache;
+  RefPtr<nsFind> finder = new nsFind();
+  finder->SetNodeIndexCache(&nodeIndexCache);
+
   // 2. While searchRange is not collapsed:
   while (!searchRange->Collapsed()) {
     // 2.1. Let potentialMatch be null.
@@ -108,8 +144,8 @@ RefPtr<nsRange> TextDirectiveFinder::FindRangeForTextDirective(
       // in range steps with query parsedValues’s prefix, searchRange
       // searchRange, wordStartBounded true and wordEndBounded false.
       RefPtr<nsRange> prefixMatch = TextDirectiveUtil::FindStringInRange(
-          searchRange->StartRef(), searchRange->EndRef(), aTextDirective.prefix,
-          true, false, &nodeIndexCache);
+          finder, searchRange->StartRef(), searchRange->EndRef(),
+          aTextDirective.prefix, true, false);
       // 2.2.2. If prefixMatch is null, return null.
       if (!prefixMatch) {
         TEXT_FRAGMENT_LOG(
@@ -123,10 +159,9 @@ RefPtr<nsRange> TextDirectiveFinder::FindRangeForTextDirective(
 
       // 2.2.3. Set searchRange’s start to the first boundary point after
       // prefixMatch’s start
+      MOZ_DIAGNOSTIC_ASSERT(prefixMatch->GetStartContainer()->IsText());
       const RangeBoundary boundaryPoint =
-          TextDirectiveUtil::MoveRangeBoundaryOneWord(
-              {prefixMatch->GetStartContainer(), prefixMatch->StartOffset()},
-              TextScanDirection::Right);
+          TextDirectiveUtil::MoveToNextBoundaryPoint(prefixMatch->StartRef());
       if (!boundaryPoint.IsSetAndValid()) {
         return nullptr;
       }
@@ -150,11 +185,15 @@ RefPtr<nsRange> TextDirectiveFinder::FindRangeForTextDirective(
         return nullptr;
       }
       // 2.2.5. Advance matchRange’s start to the next non-whitespace position.
-      TextDirectiveUtil::AdvanceStartToNextNonWhitespacePosition(*matchRange);
+      const bool thereIsMoreNonWhitespaceText =
+          TextDirectiveUtil::AdvanceStartToNextNonWhitespacePosition(
+              *matchRange);
       // 2.2.6. If matchRange is collapsed return null.
       // (This can happen if prefixMatch’s end or its subsequent non-whitespace
-      // position is at the end of the document.)
-      if (matchRange->Collapsed()) {
+      // position is at the end of the document. In addition to what the spec
+      // says, this can also happen if the range is not collapsed, but no
+      // non-whitespace text nodes are left)
+      if (!thereIsMoreNonWhitespaceText) {
         return nullptr;
       }
       // 2.2.7. Assert: matchRange’s start node is a Text node.
@@ -162,11 +201,11 @@ RefPtr<nsRange> TextDirectiveFinder::FindRangeForTextDirective(
       // following a matched prefix.)
       MOZ_ASSERT(matchRange->GetStartContainer()->IsText());
       // Set `matchRange`s end to the next block boundary.
-      auto nextBlockBoundary = TextDirectiveUtil::FindNextBlockBoundary(
-          matchRange->StartRef(), TextScanDirection::Right);
-      if (MOZ_LIKELY(nextBlockBoundary.isOk())) {
-        matchRange->SetEnd(nextBlockBoundary.unwrap().AsRaw(), IgnoreErrors());
-      }
+      auto nextBlockBoundary =
+          TextDirectiveUtil::FindNextBlockBoundary<TextScanDirection::Right>(
+              matchRange->StartRef());
+
+      matchRange->SetEnd(nextBlockBoundary.AsRaw(), IgnoreErrors());
 
       // 2.2.8. Let mustEndAtWordBoundary be true if parsedValues’s end is
       // non-null or parsedValues’s suffix is null, false otherwise.
@@ -176,8 +215,8 @@ RefPtr<nsRange> TextDirectiveFinder::FindRangeForTextDirective(
       // range steps with query parsedValues’s start, searchRange matchRange,
       // wordStartBounded false, and wordEndBounded mustEndAtWordBoundary.
       potentialMatch = TextDirectiveUtil::FindStringInRange(
-          matchRange->StartRef(), matchRange->EndRef(), aTextDirective.start,
-          false, mustEndAtWordBoundary);
+          finder, matchRange->StartRef(), matchRange->EndRef(),
+          aTextDirective.start, false, mustEndAtWordBoundary);
       // 2.2.10. If potentialMatch is null, return null.
       // Note: Because the search range for start only goes to the next block
       // boundary, this statement is wrong. If potentialMatch is null, the loop
@@ -213,8 +252,8 @@ RefPtr<nsRange> TextDirectiveFinder::FindRangeForTextDirective(
       // range steps with query parsedValues’s start, searchRange searchRange,
       // wordStartBounded true, and wordEndBounded mustEndAtWordBoundary.
       potentialMatch = TextDirectiveUtil::FindStringInRange(
-          searchRange->StartRef(), searchRange->EndRef(), aTextDirective.start,
-          true, mustEndAtWordBoundary, &nodeIndexCache);
+          finder, searchRange->StartRef(), searchRange->EndRef(),
+          aTextDirective.start, true, mustEndAtWordBoundary);
       // 2.3.3. If potentialMatch is null, return null.
       if (!potentialMatch) {
         TEXT_FRAGMENT_LOG(
@@ -223,13 +262,17 @@ RefPtr<nsRange> TextDirectiveFinder::FindRangeForTextDirective(
             NS_ConvertUTF16toUTF8(aTextDirective.start));
         return nullptr;
       }
+      if (potentialMatch && aTextDirective.end.IsEmpty() &&
+          aTextDirective.suffix.IsEmpty()) {
+        return potentialMatch;
+      }
       // 2.3.4. Set searchRange’s start to the first boundary point after
       // potentialMatch’s start
-      RangeBoundary newRangeBoundary =
-          TextDirectiveUtil::MoveRangeBoundaryOneWord(
-              {potentialMatch->GetStartContainer(),
-               potentialMatch->StartOffset()},
-              TextScanDirection::Right);
+      MOZ_DIAGNOSTIC_ASSERT(potentialMatch->GetStartContainer()->IsText());
+      const RangeBoundary newRangeBoundary =
+          TextDirectiveUtil::MoveToNextBoundaryPoint(
+              potentialMatch->StartRef());
+
       if (!newRangeBoundary.IsSetAndValid()) {
         return nullptr;
       }
@@ -258,8 +301,9 @@ RefPtr<nsRange> TextDirectiveFinder::FindRangeForTextDirective(
         // rangeEndSearchRange, wordStartBounded true, and wordEndBounded
         // mustEndAtWordBoundary.
         RefPtr<nsRange> endMatch = TextDirectiveUtil::FindStringInRange(
-            rangeEndSearchRange->StartRef(), rangeEndSearchRange->EndRef(),
-            aTextDirective.end, true, mustEndAtWordBoundary, &nodeIndexCache);
+            finder, rangeEndSearchRange->StartRef(),
+            rangeEndSearchRange->EndRef(), aTextDirective.end, true,
+            mustEndAtWordBoundary);
         // 2.5.1.3. If endMatch is null then return null.
         if (!endMatch) {
           TEXT_FRAGMENT_LOG(
@@ -292,19 +336,26 @@ RefPtr<nsRange> TextDirectiveFinder::FindRangeForTextDirective(
         return nullptr;
       }
       // 2.5.5. Advance suffixRange's start to the next non-whitespace position.
-      TextDirectiveUtil::AdvanceStartToNextNonWhitespacePosition(*suffixRange);
-      auto nextBlockBoundary = TextDirectiveUtil::FindNextBlockBoundary(
-          suffixRange->StartRef(), TextScanDirection::Right);
-      if (MOZ_LIKELY(nextBlockBoundary.isOk())) {
-        suffixRange->SetEnd(nextBlockBoundary.unwrap().AsRaw(), IgnoreErrors());
+      const bool thereIsMoreNonWhitespaceText =
+          TextDirectiveUtil::AdvanceStartToNextNonWhitespacePosition(
+              *suffixRange);
+      if (!thereIsMoreNonWhitespaceText) {
+        // If suffixRange is collapsed after advancing to the next
+        // non-whitespace position, or there is no more non-whitespace text,
+        // there can't be a match because the suffix can't exist in the document
+        break;
       }
+      auto nextBlockBoundary =
+          TextDirectiveUtil::FindNextBlockBoundary<TextScanDirection::Right>(
+              suffixRange->StartRef());
+      suffixRange->SetEnd(nextBlockBoundary.AsRaw(), IgnoreErrors());
 
       // 2.5.6. Let suffixMatch be result of running the find a string in range
       // steps with query parsedValue's suffix, searchRange suffixRange,
       // wordStartBounded false, and wordEndBounded true.
       RefPtr<nsRange> suffixMatch = TextDirectiveUtil::FindStringInRange(
-          suffixRange->StartRef(), suffixRange->EndRef(), aTextDirective.suffix,
-          false, true);
+          finder, suffixRange->StartRef(), suffixRange->EndRef(),
+          aTextDirective.suffix, false, true);
       // 2.5.7. If suffixMatch is null, return null.
       // (If the suffix doesn't appear in the remaining text of the document,
       // there's no possible way to make a match.)

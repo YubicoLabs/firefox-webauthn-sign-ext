@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type * as Bidi from 'chromium-bidi/lib/cjs/protocol/protocol.js';
+import type * as Bidi from 'webdriver-bidi-protocol';
 
 import {EventEmitter} from '../../common/EventEmitter.js';
 import {inertIfDisposed, throwIfDisposed} from '../../util/decorators.js';
@@ -125,7 +125,7 @@ export abstract class Realm extends EventEmitter<{
   async resolveExecutionContextId(): Promise<number> {
     if (!this.executionContextId) {
       const {result} = await (this.session.connection as BidiConnection).send(
-        'cdp.resolveRealm',
+        'goog:cdp.resolveRealm',
         {realm: this.id},
       );
       this.executionContextId = result.executionContextId;

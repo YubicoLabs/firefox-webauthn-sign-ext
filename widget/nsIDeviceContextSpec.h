@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsIDeviceContextSpec_h___
-#define nsIDeviceContextSpec_h___
+#ifndef nsIDeviceContextSpec_h_
+#define nsIDeviceContextSpec_h_
 
 #include "gfxPoint.h"
 #include "nsISupports.h"
@@ -23,19 +23,15 @@ class PrintTarget;
 }  // namespace gfx
 }  // namespace mozilla
 
-#define NS_IDEVICE_CONTEXT_SPEC_IID                  \
-  {                                                  \
-    0xf407cfba, 0xbe28, 0x46c9, {                    \
-      0x8a, 0xba, 0x04, 0x2d, 0xae, 0xbb, 0x4f, 0x23 \
-    }                                                \
-  }
+#define NS_IDEVICE_CONTEXT_SPEC_IID \
+  {0xf407cfba, 0xbe28, 0x46c9, {0x8a, 0xba, 0x04, 0x2d, 0xae, 0xbb, 0x4f, 0x23}}
 
 class nsIDeviceContextSpec : public nsISupports {
  public:
   typedef mozilla::gfx::PrintTarget PrintTarget;
   using IntSize = mozilla::gfx::IntSize;
 
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IDEVICE_CONTEXT_SPEC_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_IDEVICE_CONTEXT_SPEC_IID)
 
   /**
    * Initialize the device context spec.
@@ -100,12 +96,11 @@ class nsIDeviceContextSpec : public nsISupports {
   nsCOMPtr<nsIPrintSettings> mPrintSettings;
 
 #ifdef MOZ_ENABLE_SKIA_PDF
-  // This variable is independant of nsIPrintSettings::kOutputFormatPDF (i.e.
+  // This variable is independent of nsIPrintSettings::kOutputFormatPDF (i.e.
   // save-to-PDF). If set to true, then even when we print to a printer we
   // output and send it PDF.
   bool mPrintViaSkPDF = false;
 #endif
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIDeviceContextSpec, NS_IDEVICE_CONTEXT_SPEC_IID)
 #endif

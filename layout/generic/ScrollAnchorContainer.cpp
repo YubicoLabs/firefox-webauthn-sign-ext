@@ -5,15 +5,16 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ScrollAnchorContainer.h"
+
 #include <cstddef>
 
-#include "mozilla/dom/Text.h"
-#include "mozilla/ScopeExit.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/ProfilerLabels.h"
+#include "mozilla/ScopeExit.h"
 #include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/StaticPrefs_layout.h"
 #include "mozilla/ToString.h"
+#include "mozilla/dom/Text.h"
 #include "nsBlockFrame.h"
 #include "nsIFrame.h"
 #include "nsIFrameInlines.h"
@@ -58,8 +59,6 @@ ScrollAnchorContainer::ScrollAnchorContainer(ScrollContainerFrame* aScrollFrame)
       mSuppressAnchorAdjustment(false) {
   MOZ_ASSERT(aScrollFrame == Frame());
 }
-
-ScrollAnchorContainer::~ScrollAnchorContainer() = default;
 
 ScrollAnchorContainer* ScrollAnchorContainer::FindFor(nsIFrame* aFrame) {
   aFrame = aFrame->GetParent();
@@ -721,7 +720,6 @@ nsIFrame* ScrollAnchorContainer::FindAnchorIn(nsIFrame* aFrame) const {
     // XXX do we actually need to exclude FrameChildListID::OverflowOutOfFlow
     // too?
     if (listID == FrameChildListID::Absolute ||
-        listID == FrameChildListID::Fixed ||
         listID == FrameChildListID::Float ||
         listID == FrameChildListID::OverflowOutOfFlow) {
       continue;

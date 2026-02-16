@@ -20,7 +20,7 @@
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPrefs_privacy.h"
-#include "mozilla/Telemetry.h"
+#include "mozilla/glean/NetwerkProtocolWebsocketMetrics.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Utf8.h"
 #include "mozilla/net/WebSocketEventService.h"
@@ -457,7 +457,7 @@ class nsWSAdmissionManager {
           "websocket closed while connecting w/o failing?");
     }
 #endif
-    Unused << aReason;
+    (void)aReason;
 
     sManager->RemoveFromQueue(aChannel);
 
@@ -544,10 +544,8 @@ class nsWSAdmissionManager {
 
   int32_t IndexOf(nsCString& aAddress, nsCString& aOriginSuffix) {
     for (uint32_t i = 0; i < mQueue.Length(); i++) {
-      bool isPartitioned = StaticPrefs::privacy_partition_network_state() ||
-                           StaticPrefs::privacy_firstparty_isolate();
-      if (aAddress == (mQueue[i])->mAddress &&
-          (!isPartitioned || aOriginSuffix == (mQueue[i])->mOriginSuffix)) {
+      if (aAddress == mQueue[i]->mAddress &&
+          aOriginSuffix == mQueue[i]->mOriginSuffix) {
         return i;
       }
     }
@@ -556,7 +554,9 @@ class nsWSAdmissionManager {
 
   int32_t IndexOf(WebSocketChannel* aChannel) {
     for (uint32_t i = 0; i < mQueue.Length(); i++) {
-      if (aChannel == (mQueue[i])->mChannel) return i;
+      if (aChannel == mQueue[i]->mChannel) {
+        return i;
+      }
     }
     return -1;
   }
@@ -3058,7 +3058,7 @@ void WebSocketChannel::ReportConnectionTelemetry(nsresult aStatusCode) {
       (didProxy ? (1 << 0) : 0);
 
   LOG(("WebSocketChannel::ReportConnectionTelemetry() %p %d", this, value));
-  Telemetry::Accumulate(Telemetry::WEBSOCKETS_HANDSHAKE_TYPE, value);
+  glean::websockets::handshake_type.AccumulateSingleSample(value);
 }
 
 // nsIDNSListener
@@ -3517,6 +3517,8 @@ WebSocketChannel::AsyncOpenNative(nsIURI* aURI, const nsACString& aOrigin,
   nsCOMPtr<nsIURI> localURI;
   nsCOMPtr<nsIChannel> localChannel;
 
+  LOG(("WebSocketChannel::AsyncOpen uri=%s", mURI->GetSpecOrDefault().get()));
+
   rv = NS_MutateURI(mURI)
            .SetScheme(mEncrypted ? "https"_ns : "http"_ns)
            .Finalize(localURI);
@@ -3745,9 +3747,9 @@ WebSocketChannel::OnTransportAvailable(nsISocketTransport* aTransport,
 
   nsresult rv;
   rv = mTransport->SetEventSink(nullptr, nullptr);
-  if (NS_FAILED(rv)) return rv;
+  if (NS_WARN_IF(NS_FAILED(rv))) return rv;
   rv = mTransport->SetSecurityCallbacks(this);
-  if (NS_FAILED(rv)) return rv;
+  if (NS_WARN_IF(NS_FAILED(rv))) return rv;
 
   return OnTransportAvailableInternal();
 }

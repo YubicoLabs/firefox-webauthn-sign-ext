@@ -146,7 +146,11 @@ impl crate::CommandEncoder for CommandBuffer {
 
     // render
 
-    unsafe fn begin_render_pass(&mut self, desc: &crate::RenderPassDescriptor<Resource, Resource>) {
+    unsafe fn begin_render_pass(
+        &mut self,
+        desc: &crate::RenderPassDescriptor<Resource, Resource>,
+    ) -> DeviceResult<()> {
+        Ok(())
     }
     unsafe fn end_render_pass(&mut self) {}
 
@@ -158,14 +162,7 @@ impl crate::CommandEncoder for CommandBuffer {
         dynamic_offsets: &[wgt::DynamicOffset],
     ) {
     }
-    unsafe fn set_push_constants(
-        &mut self,
-        layout: &Resource,
-        stages: wgt::ShaderStages,
-        offset_bytes: u32,
-        data: &[u32],
-    ) {
-    }
+    unsafe fn set_immediates(&mut self, layout: &Resource, offset_bytes: u32, data: &[u32]) {}
 
     unsafe fn insert_debug_marker(&mut self, label: &str) {}
     unsafe fn begin_debug_marker(&mut self, group_label: &str) {}
@@ -207,6 +204,13 @@ impl crate::CommandEncoder for CommandBuffer {
         instance_count: u32,
     ) {
     }
+    unsafe fn draw_mesh_tasks(
+        &mut self,
+        group_count_x: u32,
+        group_count_y: u32,
+        group_count_z: u32,
+    ) {
+    }
     unsafe fn draw_indirect(
         &mut self,
         buffer: &Buffer,
@@ -217,6 +221,13 @@ impl crate::CommandEncoder for CommandBuffer {
     unsafe fn draw_indexed_indirect(
         &mut self,
         buffer: &Buffer,
+        offset: wgt::BufferAddress,
+        draw_count: u32,
+    ) {
+    }
+    unsafe fn draw_mesh_tasks_indirect(
+        &mut self,
+        buffer: &<Self::A as crate::Api>::Buffer,
         offset: wgt::BufferAddress,
         draw_count: u32,
     ) {
@@ -235,6 +246,15 @@ impl crate::CommandEncoder for CommandBuffer {
         buffer: &Buffer,
         offset: wgt::BufferAddress,
         count_buffer: &Buffer,
+        count_offset: wgt::BufferAddress,
+        max_count: u32,
+    ) {
+    }
+    unsafe fn draw_mesh_tasks_indirect_count(
+        &mut self,
+        buffer: &<Self::A as crate::Api>::Buffer,
+        offset: wgt::BufferAddress,
+        count_buffer: &<Self::A as crate::Api>::Buffer,
         count_offset: wgt::BufferAddress,
         max_count: u32,
     ) {

@@ -22,14 +22,18 @@
   /* Because of tracer header, we can't put a padding on the popup */
   /* Nor can we put a margin on the .tree or .objectBox which causes overflows */
   &.preview-type-tracer {
-    padding-bottom: 5px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     .tree {
-      padding: 0 5px;
+      padding: 5px;
+      overflow: auto;
+      flex: 1;
     }
   }
 }
 
-/* Tooltip is used when previewing primitives */
+/* Tooltip is used when previewing primitives and exceptions */
 .tooltip .preview-popup {
   max-width: inherit;
   min-height: inherit;
@@ -49,6 +53,12 @@
       padding: 0 5px;
     }
   }
+
+  &.exception-popup {
+    padding: 5px;
+    color: var(--theme-error-color);
+    background-color: var(--theme-error-background);
+  }
 }
 
 .preview-tracer-header {
@@ -58,10 +68,6 @@
   background-color: var(--theme-inline-preview-label-trace-background);
   border-block-end: 1px solid oklch(from var(--theme-inline-preview-label-trace-color) l c h / 0.25);
 
-  /* Make sure the header is always visible */
-  position: sticky;
-  top: 0;
-  z-index: 1;
   /* Add a bit more padding on the end to balance the icon, especially when have a small primitive value in preview */
   padding-inline-end: 10px !important;
 }
@@ -71,10 +77,10 @@
   --icon-color: currentColor;
   background-color: var(--theme-body-alternate-emphasized-background);
   border-bottom: 1px solid var(--theme-splitter-color);
-  margin-bottom: 5px;
 }
 
-.preview-tracer-header, .preview-tracer-warning {
+.preview-tracer-header,
+.preview-tracer-warning {
   display: flex;
   gap: 5px;
   padding: 5px;
@@ -161,6 +167,18 @@
   color: #e7ebee;
 }
 
+/* Use a color other than yellow to highlight the hovered token on the paused line
+   as the paused line is already yellow */
+.paused-line .preview-token {
+  background-color: light-dark(rgba(202, 227, 255, 0.5), rgba(202, 227, 255, 0.3));
+}
+
+/* This rule only make sure the text remains readable when hovering a token on the paused line. */
+:root[forced-colors-active] .paused-line :is(.preview-token, .debug-expression.preview-token) {
+  color: inherit;
+  background-color: inherit;
+}
+
 .theme-dark .popover .preview-popup {
   border-color: var(--theme-body-color);
 }
@@ -169,8 +187,6 @@
   position: fixed;
   z-index: 100;
 }
-
-
 
 .theme-dark .tooltip .preview-popup {
   border-color: var(--theme-body-color);
@@ -195,7 +211,7 @@
   align-items: center;
 }
 
-.exception-message .arrow {
+.exception-message .dbg-img-arrow {
   margin-inline-end: 4px;
 }
 

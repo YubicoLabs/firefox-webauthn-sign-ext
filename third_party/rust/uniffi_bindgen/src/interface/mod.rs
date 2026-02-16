@@ -32,8 +32,9 @@
 //!
 //!   * It should prevent user error and the possibility of generating bad code by doing (at least)
 //!     the following checks:
-//!       * No duplicate names (types, methods, args, etc)
-//!       * No shadowing of builtin names, or names we use in code generation
+//!     * No duplicate names (types, methods, args, etc)
+//!     * No shadowing of builtin names, or names we use in code generation
+//!
 //!     We expect that if the user actually does one of these things, then they *should* get a compile
 //!     error when trying to build the component, because the codegen will be invalid. But we can't
 //!     guarantee that there's not some edge-case where it produces valid-but-incorrect code.
@@ -45,14 +46,14 @@
 //!   * Error messages and general developer experience leave a lot to be desired.
 
 use std::{
-    collections::{btree_map::Entry, BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     iter,
 };
 
-use anyhow::{anyhow, bail, ensure, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 
 pub mod universe;
-pub use uniffi_meta::{AsType, EnumShape, ExternalKind, ObjectImpl, Type};
+pub use uniffi_meta::{AsType, EnumShape, ObjectImpl, Type};
 use universe::{TypeIterator, TypeUniverse};
 
 mod callbacks;
@@ -62,9 +63,12 @@ pub use enum_::{Enum, Variant};
 mod function;
 pub use function::{Argument, Callable, Function, ResultType};
 mod object;
-pub use object::{Constructor, Method, Object, UniffiTrait};
+pub use object::{Constructor, Method, Object, UniffiTrait, UniffiTraitMethods};
 mod record;
 pub use record::{Field, Record};
+
+mod rename;
+pub use rename::rename;
 
 pub mod ffi;
 mod visit_mut;
@@ -73,10 +77,12 @@ pub use ffi::{
 };
 pub use uniffi_meta::Radix;
 use uniffi_meta::{
-    ConstructorMetadata, LiteralMetadata, NamespaceMetadata, ObjectMetadata, TraitMethodMetadata,
-    UniffiTraitMetadata, UNIFFI_CONTRACT_VERSION,
+    ConstructorMetadata, DefaultValueMetadata, LiteralMetadata, MethodMetadata, NamespaceMetadata,
+    ObjectMetadata, ObjectTraitImplMetadata, TraitMethodMetadata, UniffiTraitMetadata,
+    UNIFFI_CONTRACT_VERSION,
 };
 pub type Literal = LiteralMetadata;
+pub type DefaultValue = DefaultValueMetadata;
 
 /// The main public interface for this module, representing the complete details of an interface exposed
 /// by a rust component and the details of consuming it via an extern-C FFI layer.
@@ -87,15 +93,19 @@ pub struct ComponentInterface {
     // anyway, so it's safe to ignore it.
     pub(super) types: TypeUniverse,
     /// The high-level API provided by the component.
-    enums: BTreeMap<String, Enum>,
-    records: BTreeMap<String, Record>,
+    enums: Vec<Enum>,
+    records: Vec<Record>,
     functions: Vec<Function>,
     objects: Vec<Object>,
-    callback_interfaces: Vec<CallbackInterface>,
+    pub(crate) callback_interfaces: Vec<CallbackInterface>,
     // Type names which were seen used as an error.
     errors: HashSet<String>,
     // Types which were seen used as callback interface error.
     callback_interface_throws_types: BTreeSet<Type>,
+    // A mapping from an external module path to the external namespace.
+    crate_to_namespace: BTreeMap<String, NamespaceMetadata>,
+    // A clone of every CI we know about, including ourself, to help get external type info for bindings.
+    all_component_interfaces: Vec<ComponentInterface>,
 }
 
 impl ComponentInterface {
@@ -148,9 +158,17 @@ impl ComponentInterface {
         }
 
         // Unconditionally add the String type, which is used by the panic handling
-        self.types.add_known_type(&uniffi_meta::Type::String)?;
+        self.types.add_known_type(&Type::String)?;
         crate::macro_metadata::add_group_to_ci(self, group)?;
         Ok(())
+    }
+
+    pub fn set_crate_to_namespace_map(&mut self, namespaces: BTreeMap<String, NamespaceMetadata>) {
+        assert_eq!(
+            namespaces.get(self.crate_name()).unwrap().name,
+            self.namespace()
+        );
+        self.crate_to_namespace = namespaces
     }
 
     /// The string namespace within which this API should be presented to the caller.
@@ -180,23 +198,23 @@ impl ComponentInterface {
     }
 
     /// Get the definitions for every Enum type in the interface.
-    pub fn enum_definitions(&self) -> impl Iterator<Item = &Enum> {
-        self.enums.values()
+    pub fn enum_definitions(&self) -> &[Enum] {
+        &self.enums
     }
 
     /// Get an Enum definition by name, or None if no such Enum is defined.
     pub fn get_enum_definition(&self, name: &str) -> Option<&Enum> {
-        self.enums.get(name)
+        self.enums.iter().find(|o| o.name == name)
     }
 
     /// Get the definitions for every Record type in the interface.
-    pub fn record_definitions(&self) -> impl Iterator<Item = &Record> {
-        self.records.values()
+    pub fn record_definitions(&self) -> &[Record] {
+        &self.records
     }
 
     /// Get a Record definition by name, or None if no such Record is defined.
     pub fn get_record_definition(&self, name: &str) -> Option<&Record> {
-        self.records.get(name)
+        self.records.iter().find(|o| o.name == name)
     }
 
     /// Get the definitions for every Function in the interface.
@@ -210,6 +228,11 @@ impl ComponentInterface {
         self.functions.iter().find(|f| f.name == name)
     }
 
+    /// Returns `true` if we have any objects in this interface.
+    pub fn has_object_definitions(&self) -> bool {
+        !self.objects.is_empty()
+    }
+
     /// Get the definitions for every Object type in the interface.
     pub fn object_definitions(&self) -> &[Object] {
         &self.objects
@@ -217,7 +240,6 @@ impl ComponentInterface {
 
     /// Get an Object definition by name, or None if no such Object is defined.
     pub fn get_object_definition(&self, name: &str) -> Option<&Object> {
-        // TODO: probably we could store these internally in a HashMap to make this easier?
         self.objects.iter().find(|o| o.name == name)
     }
 
@@ -266,6 +288,14 @@ impl ComponentInterface {
                 .any(|o| o.has_callback_interface() && o.has_async_method())
     }
 
+    pub fn has_callback_definitions(&self) -> bool {
+        !self.callback_interface_definitions().is_empty()
+            || self
+                .object_definitions()
+                .iter()
+                .any(|o| o.has_callback_interface())
+    }
+
     /// Get the definitions for every Method type in the interface.
     pub fn iter_callables(&self) -> impl Iterator<Item = &dyn Callable> {
         // Each of the `as &dyn Callable` casts is a trivial cast, but it seems like the clearest
@@ -307,44 +337,48 @@ impl ComponentInterface {
         self.is_name_used_as_error(&e.name) && (fielded || used_in_foreign_interface)
     }
 
-    /// Get details about all `Type::External` types.
-    /// Returns an iterator of (name, crate_name, kind)
-    pub fn iter_external_types(
-        &self,
-    ) -> impl Iterator<Item = (&String, String, ExternalKind, bool)> {
-        self.types.iter_known_types().filter_map(|t| match t {
-            Type::External {
-                name,
-                module_path,
-                kind,
-                tagged,
-                ..
-            } => Some((
-                name,
-                module_path.split("::").next().unwrap().to_string(),
-                *kind,
-                *tagged,
-            )),
-            _ => None,
-        })
+    /// Iterate over all known local types in the interface.
+    pub fn iter_local_types(&self) -> impl Iterator<Item = &Type> {
+        self.types.iter_local_types()
     }
 
-    /// Get details about all `Type::Custom` types
-    pub fn iter_custom_types(&self) -> impl Iterator<Item = (&String, &Type)> {
-        self.types.iter_known_types().filter_map(|t| match t {
-            Type::Custom { name, builtin, .. } => Some((name, &**builtin)),
-            _ => None,
-        })
+    /// Get details about all `Type`s defined in external crates.
+    pub fn iter_external_types(&self) -> impl Iterator<Item = &Type> {
+        self.types.iter_external_types()
     }
 
-    /// Iterate over all known types in the interface.
-    pub fn iter_types(&self) -> impl Iterator<Item = &Type> {
-        self.types.iter_known_types()
+    // Keep only the local types in an iterator of types.
+    pub fn filter_local_types<'a>(
+        &'a self,
+        types: impl Iterator<Item = &'a Type>,
+    ) -> impl Iterator<Item = &'a Type> {
+        self.types.filter_local_types(types)
+    }
+
+    pub fn is_external(&self, t: &Type) -> bool {
+        self.types.is_external(t)
     }
 
     /// Get a specific type
     pub fn get_type(&self, name: &str) -> Option<Type> {
         self.types.get_type_definition(name)
+    }
+
+    pub fn namespace_for_type(&self, ty: &Type) -> Result<&str> {
+        let mod_path = ty
+            .crate_name()
+            .ok_or_else(|| anyhow!("type {ty:?} has no module path"))?;
+        self.namespace_for_module_path(mod_path)
+    }
+
+    pub fn namespace_for_module_path(&self, module_path: &str) -> Result<&str> {
+        let crate_name = module_path.split("::").next().unwrap_or(module_path);
+        self.crate_to_namespace
+            .get(crate_name)
+            .map(|n| n.name.as_ref())
+            // incase not library mode and we've not been told
+            .or_else(|| (module_path == self.crate_name()).then(|| self.namespace()))
+            .ok_or_else(|| anyhow!("unresolved module path {module_path}"))
     }
 
     /// Iterate over all types contained in the given item.
@@ -361,17 +395,8 @@ impl ComponentInterface {
     /// This is important to know in language bindings that cannot integrate object types
     /// tightly with the host GC, and hence need to perform manual destruction of objects.
     pub fn item_contains_object_references(&self, item: &Type) -> bool {
-        // this is surely broken for external records with object refs?
-        self.iter_types_in_item(item).any(|t| {
-            matches!(
-                t,
-                Type::Object { .. }
-                    | Type::External {
-                        kind: ExternalKind::Interface,
-                        ..
-                    }
-            )
-        })
+        self.iter_types_in_item(item)
+            .any(|t| matches!(t, Type::Object { .. }))
     }
 
     /// Check whether the given item contains any (possibly nested) unsigned types
@@ -383,29 +408,43 @@ impl ComponentInterface {
     /// Check whether the interface contains any optional types
     pub fn contains_optional_types(&self) -> bool {
         self.types
-            .iter_known_types()
+            .iter_local_types()
             .any(|t| matches!(t, Type::Optional { .. }))
     }
 
     /// Check whether the interface contains any sequence types
     pub fn contains_sequence_types(&self) -> bool {
         self.types
-            .iter_known_types()
+            .iter_local_types()
             .any(|t| matches!(t, Type::Sequence { .. }))
     }
 
     /// Check whether the interface contains any map types
     pub fn contains_map_types(&self) -> bool {
         self.types
-            .iter_known_types()
+            .iter_local_types()
             .any(|t| matches!(t, Type::Map { .. }))
     }
 
     /// Check whether the interface contains any object types
     pub fn contains_object_types(&self) -> bool {
         self.types
-            .iter_known_types()
+            .iter_local_types()
             .any(|t| matches!(t, Type::Object { .. }))
+    }
+
+    pub fn set_all_component_interfaces(&mut self, all: Vec<ComponentInterface>) {
+        self.all_component_interfaces = all;
+    }
+
+    pub fn all_component_interfaces(&self) -> &[ComponentInterface] {
+        &self.all_component_interfaces
+    }
+
+    pub fn find_component_interface(&self, module_path: &str) -> Option<&ComponentInterface> {
+        self.all_component_interfaces
+            .iter()
+            .find(|ci| ci.crate_name() == module_path)
     }
 
     // The namespace to use in crate-level FFI function definitions. Not used as the ffi
@@ -599,7 +638,7 @@ impl ComponentInterface {
     }
 
     /// Iterate over return/throws types for async functions
-    pub fn iter_async_result_types(&self) -> impl Iterator<Item = ResultType> {
+    pub fn iter_async_result_types(&self) -> impl Iterator<Item = ResultType<'_>> {
         let unique_results = self
             .iter_callables()
             .map(|c| c.result_type())
@@ -640,7 +679,7 @@ impl ComponentInterface {
             }
             .into(),
             FfiCallbackFunction {
-                name: "ForeignFutureFree".to_owned(),
+                name: "ForeignFutureDroppedCallback".to_owned(),
                 arguments: vec![FfiArgument::new("handle", FfiType::UInt64)],
                 return_type: None,
                 has_rust_call_status_arg: false,
@@ -653,11 +692,21 @@ impl ComponentInterface {
                 has_rust_call_status_arg: false,
             }
             .into(),
+            FfiCallbackFunction {
+                name: "CallbackInterfaceClone".to_owned(),
+                arguments: vec![FfiArgument::new("handle", FfiType::UInt64)],
+                return_type: Some(FfiType::UInt64),
+                has_rust_call_status_arg: false,
+            }
+            .into(),
             FfiStruct {
-                name: "ForeignFuture".to_owned(),
+                name: "ForeignFutureDroppedCallbackStruct".to_owned(),
                 fields: vec![
                     FfiField::new("handle", FfiType::UInt64),
-                    FfiField::new("free", FfiType::Callback("ForeignFutureFree".to_owned())),
+                    FfiField::new(
+                        "free",
+                        FfiType::Callback("ForeignFutureDroppedCallback".to_owned()),
+                    ),
                 ],
             }
             .into(),
@@ -679,10 +728,36 @@ impl ComponentInterface {
     /// The set of FFI functions is derived automatically from the set of higher-level types
     /// along with the builtin FFI helper functions.
     pub fn iter_ffi_function_definitions(&self) -> impl Iterator<Item = FfiFunction> + '_ {
-        self.iter_user_ffi_function_definitions()
+        self.iter_ffi_function_definitions_conditionally_include_integrity_checks(true)
+    }
+
+    pub fn iter_ffi_function_definitions_excluding_integrity_checks(
+        &self,
+    ) -> impl Iterator<Item = FfiFunction> + '_ {
+        self.iter_ffi_function_definitions_conditionally_include_integrity_checks(false)
+    }
+
+    fn iter_ffi_function_definitions_conditionally_include_integrity_checks(
+        &self,
+        include_checksums: bool,
+    ) -> impl Iterator<Item = FfiFunction> + '_ {
+        let iterator = self
+            .iter_user_ffi_function_definitions()
             .cloned()
             .chain(self.iter_rust_buffer_ffi_function_definitions())
-            .chain(self.iter_futures_ffi_function_definitions())
+            .chain(self.iter_futures_ffi_function_definitions());
+
+        // Conditionally determine if the checksums should be included or not.
+        if include_checksums {
+            Box::new(iterator.chain(self.iter_ffi_function_integrity_checks()))
+                as Box<dyn Iterator<Item = FfiFunction> + '_>
+        } else {
+            Box::new(iterator) as Box<dyn Iterator<Item = FfiFunction> + '_>
+        }
+    }
+
+    pub fn iter_ffi_function_integrity_checks(&self) -> impl Iterator<Item = FfiFunction> + '_ {
+        iter::empty()
             .chain(self.iter_checksum_ffi_functions())
             .chain([self.ffi_uniffi_contract_version()])
     }
@@ -694,16 +769,16 @@ impl ComponentInterface {
         self.iter_user_ffi_function_definitions()
             .cloned()
             .chain(self.iter_rust_buffer_ffi_function_definitions())
-            .chain(self.iter_checksum_ffi_functions())
-            .chain([self.ffi_uniffi_contract_version()])
+            .chain(self.iter_ffi_function_integrity_checks())
     }
 
     /// List all FFI functions definitions for user-defined interfaces
     ///
     /// This includes FFI functions for:
     ///   - Top-level functions
-    ///   - Object methods
+    ///   - Object, Enum and Record data methods
     ///   - Callback interfaces
+    ///   - UniffiTrait methods
     pub fn iter_user_ffi_function_definitions(&self) -> impl Iterator<Item = &FfiFunction> + '_ {
         iter::empty()
             .chain(
@@ -715,6 +790,16 @@ impl ComponentInterface {
                 self.callback_interfaces
                     .iter()
                     .map(|cb| cb.ffi_init_callback()),
+            )
+            .chain(
+                self.enums
+                    .iter()
+                    .flat_map(|enum_| enum_.iter_ffi_function_definitions()),
+            )
+            .chain(
+                self.records
+                    .iter()
+                    .flat_map(|r| r.iter_ffi_function_definitions()),
             )
             .chain(self.functions.iter().map(|f| &f.ffi_func))
     }
@@ -742,10 +827,10 @@ impl ComponentInterface {
             Some(FfiType::Int64),
             Some(FfiType::Float32),
             Some(FfiType::Float64),
-            // RustBuffer and RustArcPtr have an inner field which we have to fill in with a
-            // placeholder value.
-            Some(FfiType::RustArcPtr("".to_owned())),
+            // RustBuffer has an inner field which we have to fill in with a placeholder value.
             Some(FfiType::RustBuffer(None)),
+            // `FfiType::Handle` is a 64-bit int and uses the same `ForeignFutureResult` type as
+            // `FfiType::UInt64`
             None,
         ]
         .into_iter()
@@ -814,50 +899,34 @@ impl ComponentInterface {
     //
     /// Called by `APIBuilder` impls to add a newly-parsed enum definition to the `ComponentInterface`.
     pub(super) fn add_enum_definition(&mut self, defn: Enum) -> Result<()> {
-        match self.enums.entry(defn.name().to_owned()) {
-            Entry::Vacant(v) => {
-                if matches!(defn.shape, EnumShape::Error { .. }) {
-                    self.errors.insert(defn.name.clone());
-                }
-                self.types.add_known_types(defn.iter_types())?;
-                v.insert(defn);
-            }
-            Entry::Occupied(o) => {
-                let existing_def = o.get();
-                if defn != *existing_def {
-                    bail!(
-                        "Mismatching definition for enum `{}`!\n\
-                        existing definition: {existing_def:#?},\n\
-                        new definition: {defn:#?}",
-                        defn.name(),
-                    );
-                }
-            }
+        if let Some(existing_def) = self.enums.iter().find(|f| f.name == defn.name) {
+            bail!(
+                "Mismatching definition for enum `{}`!\n\
+                existing definition: {existing_def:#?},\n\
+                new definition: {defn:#?}",
+                defn.name(),
+            );
         }
-
+        if matches!(defn.shape, EnumShape::Error { .. }) {
+            self.errors.insert(defn.name.clone());
+        }
+        self.types
+            .add_known_types(defn.iter_types())
+            .with_context(|| format!("adding enum {defn:?}"))?;
+        self.enums.push(defn);
         Ok(())
     }
 
     /// Adds a newly-parsed record definition to the `ComponentInterface`.
     pub(super) fn add_record_definition(&mut self, defn: Record) -> Result<()> {
-        match self.records.entry(defn.name().to_owned()) {
-            Entry::Vacant(v) => {
-                self.types.add_known_types(defn.iter_types())?;
-                v.insert(defn);
-            }
-            Entry::Occupied(o) => {
-                let existing_def = o.get();
-                if defn != *existing_def {
-                    bail!(
-                        "Mismatching definition for record `{}`!\n\
-                         existing definition: {existing_def:#?},\n\
-                         new definition: {defn:#?}",
-                        defn.name(),
-                    );
-                }
-            }
+        if self.records.iter().any(|r| r.name == defn.name) {
+            bail!("duplicate record definition: \"{}\"", defn.name);
         }
 
+        self.types
+            .add_known_types(defn.iter_types())
+            .with_context(|| format!("adding record {defn:?}"))?;
+        self.records.push(defn);
         Ok(())
     }
 
@@ -871,7 +940,9 @@ impl ComponentInterface {
         if self.types.get_type_definition(defn.name()).is_some() {
             bail!("Conflicting type definition for \"{}\"", defn.name());
         }
-        self.types.add_known_types(defn.iter_types())?;
+        self.types
+            .add_known_types(defn.iter_types())
+            .with_context(|| format!("adding function {defn:?}"))?;
         defn.throws_name()
             .map(|n| self.errors.insert(n.to_string()));
         self.functions.push(defn);
@@ -880,38 +951,97 @@ impl ComponentInterface {
     }
 
     pub(super) fn add_constructor_meta(&mut self, meta: ConstructorMetadata) -> Result<()> {
-        let object = get_object(&mut self.objects, &meta.self_name)
-            .ok_or_else(|| anyhow!("add_constructor_meta: object {} not found", &meta.self_name))?;
-        let defn: Constructor = meta.into();
+        let self_name = &meta.self_name;
 
-        self.types.add_known_types(defn.iter_types())?;
-        defn.throws_name()
-            .map(|n| self.errors.insert(n.to_string()));
-        object.constructors.push(defn);
+        if let Some(object) = get_object(&mut self.objects, self_name) {
+            let defn: Constructor = meta.into();
+            self.types
+                .add_known_types(defn.iter_types())
+                .with_context(|| format!("adding constructor {defn:?}"))?;
+            defn.throws_name()
+                .map(|n| self.errors.insert(n.to_string()));
+            object.constructors.push(defn);
+        } else if let Some(record) = self.records.iter_mut().find(|r| &r.name == self_name) {
+            let defn: Constructor = meta.into();
+            self.types
+                .add_known_types(defn.iter_types())
+                .with_context(|| format!("adding constructor {defn:?}"))?;
+            defn.throws_name()
+                .map(|n| self.errors.insert(n.to_string()));
+            record.constructors.push(defn);
+        } else if let Some(enum_) = self.enums.iter_mut().find(|e| &e.name == self_name) {
+            let defn: Constructor = meta.into();
+            self.types
+                .add_known_types(defn.iter_types())
+                .with_context(|| format!("adding constructor {defn:?}"))?;
+            defn.throws_name()
+                .map(|n| self.errors.insert(n.to_string()));
+            enum_.constructors.push(defn);
+        } else {
+            bail!("add_constructor_meta: type {} not found", self_name);
+        }
 
         Ok(())
     }
 
-    pub(super) fn add_method_meta(&mut self, meta: impl Into<Method>) -> Result<()> {
-        let mut method: Method = meta.into();
-        let object = get_object(&mut self.objects, &method.object_name)
-            .ok_or_else(|| anyhow!("add_method_meta: object {} not found", &method.object_name))?;
+    pub(super) fn add_method_meta(&mut self, meta: MethodMetadata) -> Result<()> {
+        let self_name = &meta.self_name;
 
-        self.types.add_known_types(method.iter_types())?;
-        method
-            .throws_name()
-            .map(|n| self.errors.insert(n.to_string()));
-        method.object_impl = object.imp;
-        object.methods.push(method);
+        if let Some(object) = get_object(&mut self.objects, self_name) {
+            let method = Method::from_metadata(meta, object.as_type());
+            self.types
+                .add_known_types(method.iter_types())
+                .with_context(|| format!("adding method {method:?}"))?;
+            method
+                .throws_name()
+                .map(|n| self.errors.insert(n.to_string()));
+            object.methods.push(method);
+        } else if let Some(record) = self.records.iter_mut().find(|r| &r.name == self_name) {
+            let method = Method::from_metadata(meta, record.as_type());
+            self.types
+                .add_known_types(method.iter_types())
+                .with_context(|| format!("adding method {method:?}"))?;
+            method
+                .throws_name()
+                .map(|n| self.errors.insert(n.to_string()));
+            record.methods.push(method);
+        } else if let Some(enum_) = self.enums.iter_mut().find(|e| &e.name == self_name) {
+            let method = Method::from_metadata(meta, enum_.as_type());
+            self.types
+                .add_known_types(method.iter_types())
+                .with_context(|| format!("adding method {method:?}"))?;
+            method
+                .throws_name()
+                .map(|n| self.errors.insert(n.to_string()));
+            enum_.methods.push(method);
+        } else {
+            bail!("add_method_meta: type {} not found", self_name);
+        }
         Ok(())
     }
 
     pub(super) fn add_uniffitrait_meta(&mut self, meta: UniffiTraitMetadata) -> Result<()> {
-        let object = get_object(&mut self.objects, meta.self_name())
-            .ok_or_else(|| anyhow!("add_uniffitrait_meta: object not found"))?;
-        let ut: UniffiTrait = meta.into();
-        self.types.add_known_types(ut.iter_types())?;
-        object.uniffi_traits.push(ut);
+        let self_name = meta.self_name().to_string();
+        let self_type = self
+            .get_type(&self_name)
+            .ok_or_else(|| anyhow!("add_uniffitrait_meta: object {} not found", self_name))?;
+        let ut = UniffiTrait::from_metadata(meta, self_type);
+
+        self.types
+            .add_known_types(ut.iter_types())
+            .with_context(|| format!("adding builtin trait {ut:?}"))?;
+        if let Some(object) = get_object(&mut self.objects, &self_name) {
+            object.uniffi_traits.push(ut);
+        } else if let Some(enum_) = self.enums.iter_mut().find(|o| o.name == self_name) {
+            enum_.add_uniffi_trait(ut);
+        } else if let Some(record) = self.records.iter_mut().find(|o| o.name == self_name) {
+            record.add_uniffi_trait(ut);
+        } else {
+            bail!(
+                "add_uniffitrait_meta: object '{}' does not support trait methods.",
+                self_name
+            );
+        }
         Ok(())
     }
 
@@ -921,22 +1051,39 @@ impl ComponentInterface {
 
     /// Called by `APIBuilder` impls to add a newly-parsed object definition to the `ComponentInterface`.
     fn add_object_definition(&mut self, defn: Object) -> Result<()> {
-        self.types.add_known_types(defn.iter_types())?;
+        self.types.add_known_type(&defn.as_type())?;
+        self.types
+            .add_known_types(defn.iter_types())
+            .with_context(|| format!("adding object {defn:?}'"))?;
+
         self.objects.push(defn);
         Ok(())
     }
 
     pub fn is_name_used_as_error(&self, name: &str) -> bool {
         self.errors.contains(name)
+            || self
+                .all_component_interfaces
+                .iter()
+                .any(|ci| ci.errors.contains(name))
     }
 
     /// Called by `APIBuilder` impls to add a newly-parsed callback interface definition to the `ComponentInterface`.
-    pub(super) fn add_callback_interface_definition(&mut self, defn: CallbackInterface) {
+    pub(super) fn add_callback_interface_definition(
+        &mut self,
+        defn: CallbackInterface,
+    ) -> Result<()> {
+        self.types.add_known_type(&defn.as_type())?;
+        self.types
+            .add_known_types(defn.iter_types())
+            .with_context(|| format!("adding callback {defn:?}'"))?;
+
         self.callback_interfaces.push(defn);
+        Ok(())
     }
 
     pub(super) fn add_trait_method_meta(&mut self, meta: TraitMethodMetadata) -> Result<()> {
-        if let Some(cbi) = get_callback_interface(&mut self.callback_interfaces, &meta.trait_name) {
+        if let Some(cbi) = self.get_callback_interface_definition(&meta.trait_name) {
             // uniffi_meta should ensure that we process callback interface methods in order, double
             // check that here
             if cbi.methods.len() != meta.index as usize {
@@ -948,18 +1095,43 @@ impl ComponentInterface {
                     meta.index,
                 );
             }
-            let method: Method = meta.into();
+            let method = Method::from_metadata(meta.clone().into(), cbi.as_type());
+
             if let Some(error) = method.throws_type() {
                 self.callback_interface_throws_types.insert(error.clone());
             }
-            self.types.add_known_types(method.iter_types())?;
+            self.types
+                .add_known_types(method.iter_types())
+                .with_context(|| format!("adding trait method {method:?}"))?;
             method
                 .throws_name()
                 .map(|n| self.errors.insert(n.to_string()));
+            // finally take a mut ref to the cbi, to avoid taking an early mut ref to self. unwrap as we know it exists
+            let cbi =
+                get_callback_interface(&mut self.callback_interfaces, &meta.trait_name).unwrap();
             cbi.methods.push(method);
         } else {
-            self.add_method_meta(meta)?;
+            // a trait method on a regular object.
+            self.add_method_meta(meta.into())?;
         }
+        Ok(())
+    }
+
+    pub(super) fn add_object_trait_impl(
+        &mut self,
+        trait_impl: ObjectTraitImplMetadata,
+    ) -> Result<()> {
+        let object = trait_impl
+            .ty
+            .name()
+            .and_then(|n| get_object(&mut self.objects, n))
+            .ok_or_else(|| {
+                anyhow!(
+                    "add_object_trait_impl: object {:?} not found",
+                    &trait_impl.ty
+                )
+            })?;
+        object.trait_impls.push(trait_impl);
         Ok(())
     }
 
@@ -993,6 +1165,12 @@ impl ComponentInterface {
         }
         for obj in self.objects.iter_mut() {
             obj.derive_ffi_funcs()?;
+        }
+        for enum_ in self.enums.iter_mut() {
+            enum_.derive_ffi_funcs()?;
+        }
+        for record in self.records.iter_mut() {
+            record.derive_ffi_funcs()?;
         }
         for callback in self.callback_interfaces.iter_mut() {
             callback.derive_ffi_funcs();
@@ -1034,7 +1212,7 @@ struct RecursiveTypeIterator<'a> {
     /// The currently-active iterator from which we're yielding.
     current: TypeIterator<'a>,
     /// A set of names of user-defined types that we have already seen.
-    seen: HashSet<&'a str>,
+    seen: HashSet<(&'a str, &'a str)>,
     /// A queue of user-defined types that we need to recurse into.
     pending: Vec<&'a Type>,
 }
@@ -1054,17 +1232,32 @@ impl<'a> RecursiveTypeIterator<'a> {
     /// Add a new type to the queue of pending types, if not previously seen.
     fn add_pending_type(&mut self, type_: &'a Type) {
         match type_ {
-            Type::Record { name, .. }
-            | Type::Enum { name, .. }
-            | Type::Object { name, .. }
-            | Type::CallbackInterface { name, .. } => {
-                if !self.seen.contains(name.as_str()) {
+            Type::Record {
+                module_path, name, ..
+            }
+            | Type::Enum {
+                module_path, name, ..
+            }
+            | Type::Object {
+                module_path, name, ..
+            }
+            | Type::CallbackInterface {
+                module_path, name, ..
+            } => {
+                if !self.seen.contains(&(module_path.as_str(), name.as_str())) {
                     self.pending.push(type_);
-                    self.seen.insert(name.as_str());
+                    self.seen.insert((module_path.as_str(), name.as_str()));
                 }
             }
             _ => (),
         }
+    }
+
+    /// Find the component interface with the type definitions for the given module.
+    fn find_ci_for(&self, module_path: &str) -> &'a ComponentInterface {
+        self.ci
+            .find_component_interface(module_path)
+            .unwrap_or(self.ci)
     }
 
     /// Advance the iterator to recurse into the next pending type, if any.
@@ -1078,16 +1271,30 @@ impl<'a> RecursiveTypeIterator<'a> {
             // In the unlikely event that one of them returns `None` then, rather than trying to advance
             // to a non-existent type, we just leave the existing iterator in place and allow the recursive
             // call to `next()` to try again with the next pending type.
+            // (This is fragile - not finding a type for a name will cause difficult to diagnose bugs!)
             let next_iter = match next_type {
-                Type::Record { name, .. } => {
-                    self.ci.get_record_definition(name).map(Record::iter_types)
-                }
-                Type::Enum { name, .. } => self.ci.get_enum_definition(name).map(Enum::iter_types),
-                Type::Object { name, .. } => {
-                    self.ci.get_object_definition(name).map(Object::iter_types)
-                }
-                Type::CallbackInterface { name, .. } => self
-                    .ci
+                Type::Record {
+                    module_path, name, ..
+                } => self
+                    .find_ci_for(module_path)
+                    .get_record_definition(name)
+                    .map(Record::iter_types),
+                Type::Enum {
+                    module_path, name, ..
+                } => self
+                    .find_ci_for(module_path)
+                    .get_enum_definition(name)
+                    .map(Enum::iter_types),
+                Type::Object {
+                    module_path, name, ..
+                } => self
+                    .find_ci_for(module_path)
+                    .get_object_definition(name)
+                    .map(Object::iter_types),
+                Type::CallbackInterface {
+                    module_path, name, ..
+                } => self
+                    .find_ci_for(module_path)
                     .get_callback_interface_definition(name)
                     .map(CallbackInterface::iter_types),
                 _ => None,
@@ -1123,6 +1330,11 @@ fn throws_name(throws: &Option<Type>) -> Option<&str> {
     match throws {
         None => None,
         Some(Type::Enum { name, .. }) | Some(Type::Object { name, .. }) => Some(name),
+        Some(Type::Custom { name, builtin, .. })
+            if matches!(&**builtin, Type::Enum { .. } | Type::Object { .. }) =>
+        {
+            Some(name)
+        }
         _ => panic!("unknown throw type: {throws:?}"),
     }
 }
@@ -1168,6 +1380,7 @@ mod test {
 existing definition: Enum {
     name: \"Testing\",
     module_path: \"crate_name\",
+    remote: false,
     discr_type: None,
     variants: [
         Variant {
@@ -1185,11 +1398,15 @@ existing definition: Enum {
     ],
     shape: Enum,
     non_exhaustive: false,
+    constructors: [],
+    methods: [],
+    uniffi_traits: [],
     docstring: None,
 },
 new definition: Enum {
     name: \"Testing\",
     module_path: \"crate_name\",
+    remote: false,
     discr_type: None,
     variants: [
         Variant {
@@ -1209,6 +1426,9 @@ new definition: Enum {
         flat: true,
     },
     non_exhaustive: false,
+    constructors: [],
+    methods: [],
+    uniffi_traits: [],
     docstring: None,
 }",
         );
@@ -1227,9 +1447,7 @@ new definition: Enum {
 
     #[test]
     fn test_contains_optional_types() {
-        let mut ci = ComponentInterface {
-            ..Default::default()
-        };
+        let mut ci = ComponentInterface::default();
 
         // check that `contains_optional_types` returns false when there is no Optional type in the interface
         assert!(!ci.contains_optional_types());
@@ -1343,5 +1561,61 @@ new definition: Enum {
         "#;
         let ci = ComponentInterface::from_webidl(UDL, "crate_name").unwrap();
         assert_eq!(ci.namespace_docstring().unwrap(), "informative\ndocstring");
+    }
+
+    #[test]
+    fn test_names() {
+        let mut ci = ComponentInterface::default();
+
+        let ob = Object {
+            name: "ob".to_string(),
+            module_path: "mp".to_string(),
+            imp: ObjectImpl::Struct,
+            remote: false,
+            constructors: Default::default(),
+            methods: Default::default(),
+            uniffi_traits: Default::default(),
+            ffi_func_clone: Default::default(),
+            trait_impls: Default::default(),
+            ffi_func_free: Default::default(),
+            ffi_init_callback: Default::default(),
+            docstring: Default::default(),
+        };
+        ci.add_object_definition(ob).unwrap();
+        assert!(ci.get_object_definition("ob").is_some());
+        assert_eq!(
+            ci.types.get_type_definition("ob"),
+            Some(Type::Object {
+                module_path: "mp".to_string(),
+                name: "ob".to_string(),
+                imp: ObjectImpl::Struct
+            })
+        );
+
+        let cb = CallbackInterface {
+            name: "cb".to_string(),
+            module_path: "mp".to_string(),
+            methods: vec![],
+            ffi_init_callback: FfiFunction::default(),
+            docstring: None,
+        };
+        ci.add_callback_interface_definition(cb).unwrap();
+        assert_eq!(
+            ci.types.get_type_definition("cb"),
+            Some(Type::CallbackInterface {
+                module_path: "mp".to_string(),
+                name: "cb".to_string()
+            })
+        );
+        assert!(ci.get_callback_interface_definition("cb").is_some());
+    }
+
+    #[test]
+    fn test_namespaces() {
+        let mut ci = ComponentInterface::new("crate");
+        ci.types.namespace.name = "ns".to_string();
+        // have not called `ci.set_crate_to_namespace_map()`, should still resolve our own
+        assert_eq!(ci.namespace_for_module_path("crate").unwrap(), "ns");
+        assert!(ci.namespace_for_module_path("oops").is_err());
     }
 }

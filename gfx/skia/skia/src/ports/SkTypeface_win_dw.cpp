@@ -236,6 +236,9 @@ DWriteFontTypeface::Loaders::~Loaders() {
 }
 
 void DWriteFontTypeface::onGetFamilyName(SkString* familyName) const {
+    if (!fDWriteFontFamily) {
+        return;
+    }
     SkTScopedComPtr<IDWriteLocalizedStrings> familyNames;
     HRV(fDWriteFontFamily->GetFamilyNames(&familyNames));
 
@@ -246,7 +249,8 @@ bool DWriteFontTypeface::onGetPostScriptName(SkString* skPostScriptName) const {
     SkString localSkPostScriptName;
     SkTScopedComPtr<IDWriteLocalizedStrings> postScriptNames;
     BOOL exists = FALSE;
-    if (FAILED(fDWriteFont->GetInformationalStrings(
+    if (!fDWriteFont ||
+        FAILED(fDWriteFont->GetInformationalStrings(
                     DWRITE_INFORMATIONAL_STRING_POSTSCRIPT_NAME,
                     &postScriptNames,
                     &exists)) ||
@@ -259,6 +263,50 @@ bool DWriteFontTypeface::onGetPostScriptName(SkString* skPostScriptName) const {
         *skPostScriptName = localSkPostScriptName;
     }
     return true;
+}
+
+int DWriteFontTypeface::onGetResourceName(SkString* resourceName) const {
+    UINT32 numFiles = 0;
+    HRZM(fDWriteFontFace->GetFiles(&numFiles, nullptr),
+         "Could not get number of font files.");
+    if (numFiles < 1 || !resourceName) {
+        return numFiles;
+    }
+
+    auto fontFiles = std::make_unique<SkTScopedComPtr<IDWriteFontFile>[]>(numFiles);
+    HR_GENERAL(fDWriteFontFace->GetFiles(&numFiles, &fontFiles[0]),
+               "Could not get font files.", numFiles);
+
+    IDWriteFontFile* fontFile = fontFiles[0].get();
+    const void* fontFileKey;
+    UINT32 fontFileKeySize;
+    HR_GENERAL(fontFile->GetReferenceKey(&fontFileKey, &fontFileKeySize),
+               "Could not get font file reference key.", numFiles);
+
+    SkTScopedComPtr<IDWriteFontFileLoader> fontFileLoader;
+    HR_GENERAL(fontFile->GetLoader(&fontFileLoader),
+               "Could not get font file loader.", numFiles);
+
+    SkTScopedComPtr<IDWriteLocalFontFileLoader> localFontFileLoader;
+    HR_GENERAL(fontFileLoader->QueryInterface(&localFontFileLoader),
+               nullptr, numFiles);
+
+    UINT32 fontFilePathLen;
+    HR_GENERAL(localFontFileLoader->GetFilePathLengthFromKey(fontFileKey, fontFileKeySize,
+                                                             &fontFilePathLen),
+               "Could not get file path length.", numFiles);
+
+    SkSMallocWCHAR fontFilePath(static_cast<size_t>(fontFilePathLen)+1);
+    HR_GENERAL(localFontFileLoader->GetFilePathFromKey(fontFileKey, fontFileKeySize,
+                                                       fontFilePath, fontFilePathLen+1),
+               "Could not get file path.", numFiles);
+
+    SkString localResourceName;
+    HR_GENERAL(sk_wchar_to_skstring(fontFilePath.get(), fontFilePathLen, &localResourceName),
+               nullptr, numFiles);
+    *resourceName = std::move(localResourceName);
+
+    return numFiles;
 }
 
 void DWriteFontTypeface::onGetFontDescriptor(SkFontDescriptor* desc,
@@ -282,9 +330,10 @@ void DWriteFontTypeface::onGetFontDescriptor(SkFontDescriptor* desc,
     *serialize = SkToBool(fLoaders);
 }
 
-void DWriteFontTypeface::onCharsToGlyphs(const SkUnichar* uni, int count,
-                                         SkGlyphID glyphs[]) const {
-    fDWriteFontFace->GetGlyphIndices((const UINT32*)uni, count, glyphs);
+void DWriteFontTypeface::onCharsToGlyphs(SkSpan<const SkUnichar> uni,
+                                         SkSpan<SkGlyphID> glyphs) const {
+    SkASSERT(uni.size() == glyphs.size());
+    fDWriteFontFace->GetGlyphIndices((const UINT32*)uni.data(), uni.size(), glyphs.data());
 }
 
 int DWriteFontTypeface::onCountGlyphs() const {
@@ -354,7 +403,7 @@ bool DWriteFontTypeface::onGlyphMaskNeedsCurrentColor() const {
 }
 
 int DWriteFontTypeface::onGetVariationDesignPosition(
-    SkFontArguments::VariationPosition::Coordinate coordinates[], int coordinateCount) const
+    SkSpan<SkFontArguments::VariationPosition::Coordinate> coordinates) const
 {
 
 #if defined(NTDDI_WIN10_RS3) && NTDDI_VERSION >= NTDDI_WIN10_RS3
@@ -379,7 +428,7 @@ int DWriteFontTypeface::onGetVariationDesignPosition(
         }
     }
 
-    if (!coordinates || coordinateCount < 0 || (unsigned)coordinateCount < variableAxisCount) {
+    if (coordinates.size() < variableAxisCount) {
         return SkTo<int>(variableAxisCount);
     }
 
@@ -403,7 +452,7 @@ int DWriteFontTypeface::onGetVariationDesignPosition(
 }
 
 int DWriteFontTypeface::onGetVariationDesignParameters(
-    SkFontParameters::Variation::Axis parameters[], int parameterCount) const
+    SkSpan<SkFontParameters::Variation::Axis> parameters) const
 {
 
 #if defined(NTDDI_WIN10_RS3) && NTDDI_VERSION >= NTDDI_WIN10_RS3
@@ -428,7 +477,7 @@ int DWriteFontTypeface::onGetVariationDesignParameters(
         }
     }
 
-    if (!parameters || parameterCount < variableAxisCount) {
+    if (parameters.size() < (unsigned)variableAxisCount) {
         return variableAxisCount;
     }
 
@@ -458,7 +507,7 @@ int DWriteFontTypeface::onGetVariationDesignParameters(
 #endif
 }
 
-int DWriteFontTypeface::onGetTableTags(SkFontTableTag tags[]) const {
+int DWriteFontTypeface::onGetTableTags(SkSpan<SkFontTableTag> tags) const {
     DWRITE_FONT_FACE_TYPE type = fDWriteFontFace->GetType();
     if (type != DWRITE_FONT_FACE_TYPE_CFF &&
         type != DWRITE_FONT_FACE_TYPE_TRUETYPE &&
@@ -607,7 +656,7 @@ std::unique_ptr<SkScalerContext> DWriteFontTypeface::onCreateScalerContext(
     const SkScalerContextEffects& effects, const SkDescriptor* desc) const
 {
     return std::make_unique<SkScalerContext_DW>(
-            sk_ref_sp(const_cast<DWriteFontTypeface*>(this)), effects, desc);
+            *const_cast<DWriteFontTypeface*>(this), effects, desc);
 }
 
 void DWriteFontTypeface::onFilterRec(SkScalerContextRec* rec) const {
@@ -678,10 +727,10 @@ static void glyph_to_unicode_map(IDWriteFontFace* fontFace, DWRITE_UNICODE_RANGE
     }
 }
 
-void DWriteFontTypeface::getGlyphToUnicodeMap(SkUnichar* glyphToUnicode) const {
+void DWriteFontTypeface::getGlyphToUnicodeMap(SkSpan<SkUnichar> glyphToUnicode) const {
     IDWriteFontFace* face = fDWriteFontFace.get();
-    UINT32 numGlyphs = face->GetGlyphCount();
-    sk_bzero(glyphToUnicode, sizeof(SkUnichar) * numGlyphs);
+    UINT32 numGlyphs = std::min<UINT32>(face->GetGlyphCount(), glyphToUnicode.size());
+    sk_bzero(glyphToUnicode.data(), glyphToUnicode.size_bytes());
     UINT32 remainingGlyphCount = numGlyphs;
 
     if (fDWriteFontFace1) {
@@ -694,10 +743,12 @@ void DWriteFontTypeface::getGlyphToUnicodeMap(SkUnichar* glyphToUnicode) const {
         std::unique_ptr<DWRITE_UNICODE_RANGE[]> ranges(new DWRITE_UNICODE_RANGE[numRanges]);
         HRVM(face1->GetUnicodeRanges(numRanges, ranges.get(), &numRanges), "Failed to get ranges.");
         for (UINT32 i = 0; i < numRanges; ++i) {
-            glyph_to_unicode_map(face1, ranges[i], &remainingGlyphCount, numGlyphs, glyphToUnicode);
+            glyph_to_unicode_map(face1, ranges[i], &remainingGlyphCount, numGlyphs,
+                                 glyphToUnicode.data());
         }
     } else {
-        glyph_to_unicode_map(face, {0, 0x10FFFF}, &remainingGlyphCount, numGlyphs, glyphToUnicode);
+        glyph_to_unicode_map(face, {0, 0x10FFFF}, &remainingGlyphCount, numGlyphs,
+                             glyphToUnicode.data());
     }
 }
 
@@ -713,20 +764,6 @@ std::unique_ptr<SkAdvancedTypefaceMetrics> DWriteFontTypeface::onGetAdvancedMetr
     info->fAscent = SkToS16(dwfm.ascent);
     info->fDescent = SkToS16(dwfm.descent);
     info->fCapHeight = SkToS16(dwfm.capHeight);
-
-    {
-        SkTScopedComPtr<IDWriteLocalizedStrings> postScriptNames;
-        BOOL exists = FALSE;
-        if (FAILED(fDWriteFont->GetInformationalStrings(
-                        DWRITE_INFORMATIONAL_STRING_POSTSCRIPT_NAME,
-                        &postScriptNames,
-                        &exists)) ||
-            !exists ||
-            FAILED(sk_get_locale_string(postScriptNames.get(), nullptr, &info->fPostScriptName)))
-        {
-            SkDEBUGF("Unable to get postscript name for typeface %p\n", this);
-        }
-    }
 
     DWRITE_FONT_FACE_TYPE fontType = fDWriteFontFace->GetType();
     if (fontType == DWRITE_FONT_FACE_TYPE_TRUETYPE ||

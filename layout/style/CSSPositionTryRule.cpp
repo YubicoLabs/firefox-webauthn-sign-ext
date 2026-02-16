@@ -4,11 +4,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/CSSPositionTryRule.h"
-#include "mozilla/dom/CSSPositionTryRuleBinding.h"
-#include "mozilla/dom/CSSPositionTryDescriptorsBinding.h"
 
-#include "mozilla/ServoBindings.h"
 #include "mozilla/DeclarationBlock.h"
+#include "mozilla/ServoBindings.h"
+#include "mozilla/dom/CSSPositionTryDescriptorsBinding.h"
+#include "mozilla/dom/CSSPositionTryRuleBinding.h"
 
 namespace mozilla::dom {
 
@@ -82,12 +82,17 @@ nsresult CSSPositionTryRuleDeclaration::SetCSSDeclaration(
     DeclarationBlock* aDecl, MutationClosureData* aClosureData) {
   MOZ_ASSERT(aDecl, "must be non-null");
   CSSPositionTryRule* rule = Rule();
-
+  RefPtr<DeclarationBlock> oldDecls;
   if (aDecl != mDecls) {
     mDecls->SetOwningRule(nullptr);
     Servo_PositionTryRule_SetStyle(rule->Raw(), aDecl->Raw());
     mDecls = aDecl;
     mDecls->SetOwningRule(rule);
+  }
+
+  if (StyleSheet* sheet = rule->GetStyleSheet()) {
+    sheet->RuleChanged(rule, {StyleRuleChangeKind::PositionTryDeclarations,
+                              oldDecls ? oldDecls.get() : aDecl, aDecl});
   }
 
   return NS_OK;
@@ -184,6 +189,10 @@ void CSSPositionTryRule::GetCssText(nsACString& aCssText) const {
 JSObject* CSSPositionTryRule::WrapObject(JSContext* aCx,
                                          JS::Handle<JSObject*> aGivenProto) {
   return CSSPositionTryRule_Binding::Wrap(aCx, this, aGivenProto);
+}
+
+const StyleLockedDeclarationBlock* CSSPositionTryRule::RawStyle() const {
+  return mDecls.mDecls->Raw();
 }
 
 }  // namespace mozilla::dom

@@ -6,11 +6,19 @@
 #include "HttpLog.h"
 
 #include "nsHttpHandler.h"
+#include "nsHttpConnectionMgr.h"
 #include "HttpInfo.h"
 
 void mozilla::net::HttpInfo::GetHttpConnectionData(
     nsTArray<HttpRetParams>* args) {
   if (gHttpHandler && gHttpHandler->ConnMgr()) {
     gHttpHandler->ConnMgr()->GetConnectionData(args);
+  }
+}
+
+void mozilla::net::HttpInfo::GetHttp3ConnectionStatsData(
+    nsTArray<Http3ConnectionStatsParams>* args) {
+  if (gHttpHandler && gHttpHandler->ConnMgr()) {
+    gHttpHandler->ConnMgr()->GetHttp3ConnectionStatsData(args);
   }
 }

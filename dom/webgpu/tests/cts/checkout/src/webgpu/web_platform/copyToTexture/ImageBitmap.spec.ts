@@ -11,7 +11,11 @@ TODO: Test zero-sized copies from all sources (just make sure params cover it) (
 `;
 
 import { makeTestGroup } from '../../../common/framework/test_group.js';
-import { kTextureFormatInfo, kValidTextureFormatsForCopyE2T } from '../../format_info.js';
+import {
+  getBaseFormatForRegularTextureFormat,
+  isTextureFormatPossiblyUsableWithCopyExternalImageToTexture,
+  kRegularTextureFormats,
+} from '../../format_info.js';
 import { TextureUploadingUtils, kCopySubrectInfo } from '../../util/copy_to_texture.js';
 
 import { kTestColorsAll, kTestColorsOpaque, makeTestColorsTexelView } from './util.js';
@@ -52,7 +56,8 @@ g.test('from_ImageData')
       .combine('orientation', ['none', 'flipY'] as const)
       .combine('colorSpaceConversion', ['none', 'default'] as const)
       .combine('srcFlipYInCopy', [true, false])
-      .combine('dstFormat', kValidTextureFormatsForCopyE2T)
+      .combine('dstFormat', kRegularTextureFormats)
+      .filter(t => isTextureFormatPossiblyUsableWithCopyExternalImageToTexture(t.dstFormat))
       .combine('dstPremultiplied', [true, false])
       .beginSubcases()
       .combine('width', [1, 2, 4, 15, 255, 256])
@@ -60,7 +65,6 @@ g.test('from_ImageData')
   )
   .beforeAllSubcases(t => {
     t.skipIf(typeof ImageData === 'undefined', 'ImageData does not exist in this environment');
-    t.skipIfTextureFormatNotSupported(t.params.dstFormat);
   })
   .fn(async t => {
     const {
@@ -73,6 +77,8 @@ g.test('from_ImageData')
       dstPremultiplied,
       srcFlipYInCopy,
     } = t.params;
+    t.skipIfTextureFormatNotSupported(dstFormat);
+    t.skipIfTextureFormatPossiblyNotUsableWithCopyExternalImageToTexture(dstFormat);
 
     const testColors = kTestColorsAll;
 
@@ -106,7 +112,7 @@ g.test('from_ImageData')
         GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
-    const expFormat = kTextureFormatInfo[dstFormat].baseFormat ?? dstFormat;
+    const expFormat = getBaseFormatForRegularTextureFormat(dstFormat) ?? dstFormat;
     const flipSrcBeforeCopy = orientation === 'flipY';
     const texelViewExpected = t.getExpectedDstPixelsFromSrcPixels({
       srcPixels: imageData.data,
@@ -173,7 +179,8 @@ g.test('from_canvas')
       .combine('orientation', ['none', 'flipY'] as const)
       .combine('colorSpaceConversion', ['none', 'default'] as const)
       .combine('srcFlipYInCopy', [true, false])
-      .combine('dstFormat', kValidTextureFormatsForCopyE2T)
+      .combine('dstFormat', kRegularTextureFormats)
+      .filter(t => isTextureFormatPossiblyUsableWithCopyExternalImageToTexture(t.dstFormat))
       .combine('dstPremultiplied', [true, false])
       .beginSubcases()
       .combine('width', [1, 2, 4, 15, 255, 256])
@@ -181,7 +188,6 @@ g.test('from_canvas')
   )
   .beforeAllSubcases(t => {
     t.skipIf(typeof ImageData === 'undefined', 'ImageData does not exist in this environment');
-    t.skipIfTextureFormatNotSupported(t.params.dstFormat);
   })
   .fn(async t => {
     const {
@@ -193,6 +199,8 @@ g.test('from_canvas')
       dstPremultiplied,
       srcFlipYInCopy,
     } = t.params;
+    t.skipIfTextureFormatNotSupported(dstFormat);
+    t.skipIfTextureFormatPossiblyNotUsableWithCopyExternalImageToTexture(dstFormat);
 
     // CTS sometimes runs on worker threads, where document is not available.
     // In this case, OffscreenCanvas can be used instead of <canvas>.
@@ -254,7 +262,7 @@ g.test('from_canvas')
         GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
-    const expFormat = kTextureFormatInfo[dstFormat].baseFormat ?? dstFormat;
+    const expFormat = getBaseFormatForRegularTextureFormat(dstFormat) ?? dstFormat;
     const flipSrcBeforeCopy = orientation === 'flipY';
     const texelViewExpected = t.getExpectedDstPixelsFromSrcPixels({
       srcPixels: imageData.data,

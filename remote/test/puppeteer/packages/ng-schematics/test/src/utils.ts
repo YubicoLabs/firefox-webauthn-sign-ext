@@ -3,15 +3,15 @@
  * Copyright 2024 Google Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
-import https from 'https';
+import https from 'node:https';
+import {join} from 'node:path';
 import {before, after} from 'node:test';
-import {join} from 'path';
 
 import type {JsonObject} from '@angular-devkit/core';
 import {
   SchematicTestRunner,
   type UnitTestTree,
-} from '@angular-devkit/schematics/testing';
+} from '@angular-devkit/schematics/testing/index.js';
 import sinon from 'sinon';
 
 const WORKSPACE_OPTIONS = {
@@ -92,7 +92,7 @@ export async function buildTestingTree(
 ): Promise<UnitTestTree> {
   const runner = new SchematicTestRunner(
     'schematics',
-    join(__dirname, '../../lib/schematics/collection.json'),
+    join(import.meta.dirname, '../../lib/schematics/collection.json'),
   );
   const options = {
     testRunner: 'jasmine',
@@ -146,7 +146,7 @@ export async function runSchematic(
 ): Promise<UnitTestTree> {
   const runner = new SchematicTestRunner(
     'schematics',
-    join(__dirname, '../../lib/schematics/collection.json'),
+    join(import.meta.dirname, '../../lib/schematics/collection.json'),
   );
   return await runner.runSchematic(command, options, tree);
 }

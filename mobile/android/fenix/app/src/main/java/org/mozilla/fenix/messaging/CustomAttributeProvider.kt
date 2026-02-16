@@ -18,6 +18,7 @@ import org.mozilla.fenix.components.metrics.UTMParams.Companion.UTM_SOURCE
 import org.mozilla.fenix.components.metrics.UTMParams.Companion.UTM_TERM
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.utils.isLargeScreenSize
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -56,6 +57,8 @@ object CustomAttributeProvider : JexlAttributeProvider {
                 "install_referrer_response_utm_campaign" to settings.utmCampaign,
                 "install_referrer_response_utm_term" to settings.utmTerm,
                 "install_referrer_response_utm_content" to settings.utmContent,
+                "number_of_app_launches" to settings.numberOfAppLaunches,
+                "is_large_device" to context.isLargeScreenSize(),
                 // This camelCase attribute is a boolean value represented as a string.
                 // This is left for backwards compatibility.
                 "isFirstRun" to isFirstRun.toString(),
@@ -81,27 +84,20 @@ object CustomAttributeProvider : JexlAttributeProvider {
                 "is_default_browser" to BrowsersCache.all(context).isDefaultBrowser,
                 "date_string" to formatter.format(now.time),
                 "number_of_app_launches" to settings.numberOfAppLaunches,
-
                 "adjust_campaign" to settings.adjustCampaignId,
                 "adjust_network" to settings.adjustNetwork,
                 "adjust_ad_group" to settings.adjustAdGroup,
                 "adjust_creative" to settings.adjustCreative,
-
                 UTM_SOURCE to settings.utmSource,
                 UTM_MEDIUM to settings.utmMedium,
                 UTM_CAMPAIGN to settings.utmCampaign,
                 UTM_TERM to settings.utmTerm,
                 UTM_CONTENT to settings.utmContent,
-
                 "are_notifications_enabled" to NotificationManagerCompat.from(context)
                     .areNotificationsEnabledSafe(),
-
                 "search_widget_is_installed" to settings.searchWidgetInstalled,
-
                 "android_version" to android.os.Build.VERSION.SDK_INT,
-
                 "is_fxa_signed_in" to settings.signedInFxaAccount,
-
                 "fxa_connected_devices" to (
                     context.components.backgroundServices.syncStore.state
                         .constellationState?.otherDevices?.size ?: 0

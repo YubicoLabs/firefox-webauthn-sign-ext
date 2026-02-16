@@ -20,22 +20,15 @@ from urllib.request import (
 import mozhttpd
 import mozunit
 import pytest
-from six import ensure_binary, ensure_str
 
 
 def httpd_url(httpd, path, querystr=None):
     """Return the URL to a started MozHttpd server for the given info."""
 
-    url = "http://127.0.0.1:{port}{path}".format(
-        port=httpd.httpd.server_port,
-        path=path,
-    )
+    url = f"http://127.0.0.1:{httpd.httpd.server_port}{path}"
 
     if querystr is not None:
-        url = "{url}?{querystr}".format(
-            url=url,
-            querystr=querystr,
-        )
+        url = f"{url}?{querystr}"
 
     return url
 
@@ -77,7 +70,7 @@ def fixture_try_post(num_requests):
 
         f = urlopen(
             httpd_url(httpd, "/api/resource/", querystr),
-            data=ensure_binary(json.dumps(postdata)),
+            data=json.dumps(postdata).encode(),
         )
 
         assert f.getcode() == 201
@@ -262,7 +255,7 @@ def test_nonexistent_resources(httpd_no_urlhandlers):
     with pytest.raises(HTTPError) as excinfo:
         urlopen(
             httpd_url(httpd_no_urlhandlers, "/api/resource/"),
-            data=ensure_binary(json.dumps({})),
+            data=json.dumps({}).encode(),
         )
     assert excinfo.value.code == 404
 
@@ -279,7 +272,7 @@ def test_nonexistent_resources(httpd_no_urlhandlers):
 def test_api_with_docroot(httpd_with_docroot, try_get):
     f = urlopen(httpd_url(httpd_with_docroot, "/"))
     assert f.getcode() == 200
-    assert "Directory listing for" in ensure_str(f.read())
+    assert "Directory listing for" in f.read().decode()
 
     # Make sure API methods still work
     try_get(httpd_with_docroot, "")
@@ -288,7 +281,7 @@ def test_api_with_docroot(httpd_with_docroot, try_get):
 
 def index_contents(host):
     """Return the expected index contents for the given host."""
-    return "{host} index".format(host=host)
+    return f"{host} index"
 
 
 @pytest.fixture(name="hosts")
@@ -317,11 +310,9 @@ def fixture_httpd_with_proxy_handler(docroot):
     httpd.start(block=False)
 
     port = httpd.httpd.server_port
-    proxy_support = ProxyHandler(
-        {
-            "http": "http://127.0.0.1:{port:d}".format(port=port),
-        }
-    )
+    proxy_support = ProxyHandler({
+        "http": f"http://127.0.0.1:{port:d}",
+    })
     install_opener(build_opener(proxy_support))
 
     yield httpd
@@ -334,9 +325,9 @@ def fixture_httpd_with_proxy_handler(docroot):
 
 def test_proxy(httpd_with_proxy_handler, hosts):
     for host in hosts:
-        f = urlopen("http://{host}/".format(host=host))
+        f = urlopen(f"http://{host}/")
         assert f.getcode() == 200
-        assert f.read() == ensure_binary(index_contents("*"))
+        assert f.read() == index_contents("*").encode()
 
 
 @pytest.fixture(name="httpd_with_proxy_host_dirs")
@@ -350,9 +341,7 @@ def fixture_httpd_with_proxy_host_dirs(docroot, hosts):
     httpd.start(block=False)
 
     port = httpd.httpd.server_port
-    proxy_support = ProxyHandler(
-        {"http": "http://127.0.0.1:{port:d}".format(port=port)}
-    )
+    proxy_support = ProxyHandler({"http": f"http://127.0.0.1:{port:d}"})
     install_opener(build_opener(proxy_support))
 
     yield httpd
@@ -365,14 +354,14 @@ def fixture_httpd_with_proxy_host_dirs(docroot, hosts):
 
 def test_proxy_separate_directories(httpd_with_proxy_host_dirs, hosts):
     for host in hosts:
-        f = urlopen("http://{host}/".format(host=host))
+        f = urlopen(f"http://{host}/")
         assert f.getcode() == 200
-        assert f.read() == ensure_binary(index_contents(host))
+        assert f.read() == index_contents(host).encode()
 
     unproxied_host = "notmozilla.org"
 
     with pytest.raises(HTTPError) as excinfo:
-        urlopen("http://{host}/".format(host=unproxied_host))
+        urlopen(f"http://{unproxied_host}/")
 
     assert excinfo.value.code == 404
 

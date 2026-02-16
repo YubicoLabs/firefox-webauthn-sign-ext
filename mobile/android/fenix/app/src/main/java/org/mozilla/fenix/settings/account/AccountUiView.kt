@@ -20,13 +20,13 @@ import mozilla.components.service.fxa.manager.FxaAccountManager
 import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.bitmapForUrl
 import org.mozilla.fenix.settings.requirePreference
+import mozilla.components.ui.icons.R as iconsR
 
 class AccountUiView(
     fragment: PreferenceFragmentCompat,
     private val scope: CoroutineScope,
     private val accountManager: FxaAccountManager,
     private val httpClient: Client,
-    private val updateFxAAllowDomesticChinaServerMenu: () -> Unit,
 ) {
 
     private val preferenceSignIn =
@@ -46,8 +46,6 @@ class AccountUiView(
      */
     fun updateAccountUIState(context: Context, profile: Profile?) {
         val account = accountManager.authenticatedAccount()
-
-        updateFxAAllowDomesticChinaServerMenu()
 
         // Signed-in, no problems.
         if (account != null && !accountManager.accountNeedsReauth()) {
@@ -104,7 +102,7 @@ class AccountUiView(
      * Returns generic avatar for accounts.
      */
     private fun genericAvatar(context: Context) =
-        AppCompatResources.getDrawable(context, R.drawable.ic_account)
+        AppCompatResources.getDrawable(context, iconsR.drawable.mozac_ic_avatar_circle_24)
 
     /**
      * Gets a rounded drawable from a URL if possible, else null.

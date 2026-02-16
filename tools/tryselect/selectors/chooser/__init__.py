@@ -41,6 +41,7 @@ class ChooserParser(BaseTryParser):
 
 
 def run(
+    metrics,
     update=False,
     query=None,
     try_config_params=None,
@@ -53,7 +54,6 @@ def run(
     dry_run=False,
     message="{msg}",
     closed_tree=False,
-    push_to_lando=False,
     push_to_vcs=False,
 ):
     from .app import create_application
@@ -61,8 +61,11 @@ def run(
     push = not stage_changes and not dry_run
     check_working_directory(push)
 
+    metrics.mach_try.taskgraph_generation_duration.start()
     tg = generate_tasks(parameters, full)
+    metrics.mach_try.taskgraph_generation_duration.stop()
 
+    metrics.mach_try.task_filtering_duration.start()
     # Remove tasks that are not to be shown unless `--full` is specified.
     if not full:
         excluded_tasks = [
@@ -72,6 +75,8 @@ def run(
         ]
         for task in excluded_tasks:
             tg.tasks.pop(task)
+
+    metrics.mach_try.task_filtering_duration.stop()
 
     queue = multiprocessing.Queue()
 
@@ -84,13 +89,15 @@ def run(
     # give app a second to start before opening the browser
     url = "http://127.0.0.1:5000"
     Timer(1, lambda: webbrowser.open(url)).start()
-    print("Starting trychooser on {}".format(url))
+    print(f"Starting trychooser on {url}")
     process = multiprocessing.Process(
         target=create_and_run_application, args=(tg, queue)
     )
     process.start()
 
+    metrics.mach_try.interactive_duration.start()
     selected = queue.get()
+    metrics.mach_try.interactive_duration.stop()
 
     # Allow the close page to render before terminating the process.
     time.sleep(1)
@@ -99,17 +106,17 @@ def run(
         print("no tasks selected")
         return
 
-    msg = "Try Chooser Enhanced ({} tasks selected)".format(len(selected))
+    msg = f"Try Chooser Enhanced ({len(selected)} tasks selected)"
     return push_to_try(
         "chooser",
         message.format(msg=msg),
+        metrics,
         try_task_config=generate_try_task_config(
             "chooser", selected, params=try_config_params
         ),
         stage_changes=stage_changes,
         dry_run=dry_run,
         closed_tree=closed_tree,
-        push_to_lando=push_to_lando,
         push_to_vcs=push_to_vcs,
     )
 

@@ -9,7 +9,7 @@ const {
   Component,
   createFactory,
   createElement,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
 const {
   l10n,
@@ -215,11 +215,14 @@ class Message extends Component {
       return null;
     }
 
+    const timestamp = this.props.timeStamp || Date.now();
+
     return dom.span(
       {
         className: "timestamp devtools-monospace",
+        title: l10n.dateString(timestamp),
       },
-      l10n.timestampString(this.props.timeStamp || Date.now())
+      l10n.timestampString(timestamp)
     );
   }
 
@@ -227,6 +230,12 @@ class Message extends Component {
     const newBugUrl =
       "https://bugzilla.mozilla.org/enter_bug.cgi?product=DevTools&component=Console";
     const timestampEl = this.renderTimestamp();
+
+    console.error(
+      "Unable to render a console message",
+      this.state.error,
+      this.state.error.stack
+    );
 
     return dom.div(
       {
@@ -253,7 +262,11 @@ class Message extends Component {
                 onClick: () =>
                   navigator.clipboard.writeText(
                     JSON.stringify(
-                      this.props.message,
+                      {
+                        message: this.props.message,
+                        error: this.state.error.message,
+                        stack: this.state.error.stack,
+                      },
                       function (key, value) {
                         if (key === "targetFront") {
                           return null;

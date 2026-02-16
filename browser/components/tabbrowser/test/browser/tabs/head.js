@@ -1,24 +1,6 @@
-function promiseTabLoadEvent(tab, url) {
-  info("Wait tab event: load");
-
-  function handle(loadedUrl) {
-    if (loadedUrl === "about:blank" || (url && loadedUrl !== url)) {
-      info(`Skipping spurious load event for ${loadedUrl}`);
-      return false;
-    }
-
-    info("Tab event received: load");
-    return true;
-  }
-
-  let loaded = BrowserTestUtils.browserLoaded(tab.linkedBrowser, false, handle);
-
-  if (url) {
-    BrowserTestUtils.startLoadingURIString(tab.linkedBrowser, url);
-  }
-
-  return loaded;
-}
+const { TabGroupTestUtils } = ChromeUtils.importESModule(
+  "resource://testing-common/TabGroupTestUtils.sys.mjs"
+);
 
 function updateTabContextMenu(tab) {
   let menu = document.getElementById("tabContextMenu");
@@ -66,7 +48,7 @@ async function addTabTo(
   params.skipAnimation = true;
   const tab = BrowserTestUtils.addTab(targetBrowser, url, params);
   const browser = targetBrowser.getBrowserForTab(tab);
-  await BrowserTestUtils.browserLoaded(browser);
+  await BrowserTestUtils.browserLoaded(browser, { wantLoad: url });
   return tab;
 }
 
@@ -292,7 +274,7 @@ async function dragAndDrop(
     ctrlKey: copy,
     altKey: copy,
     clientX: rect.left + rect.width / 2 + (afterTab ? 1 : -1),
-    clientY: rect.top + rect.height / 2,
+    clientY: rect.top + rect.height / 2 + (afterTab ? 1 : -1),
   };
 
   if (destWindow != origWindow) {
@@ -593,11 +575,38 @@ function loadTestSubscript(filePath) {
  * @returns {Promise<void>}
  */
 async function removeTabGroup(group) {
-  if (!group.parentNode) {
-    ok(false, "group was already removed");
-    return;
-  }
-  let removePromise = BrowserTestUtils.waitForEvent(group, "TabGroupRemoved");
-  group.ownerGlobal.gBrowser.removeTabGroup(group, { animate: false });
-  await removePromise;
+  return TabGroupTestUtils.removeTabGroup(group);
+}
+
+/**
+ * @param {Node} triggerNode
+ * @param {string} contextMenuId
+ * @returns {Promise<XULMenuElement|XULPopupElement>}
+ */
+async function getContextMenu(triggerNode, contextMenuId) {
+  let win = triggerNode.ownerGlobal;
+  triggerNode.scrollIntoView({ behavior: "instant" });
+  const contextMenu = win.document.getElementById(contextMenuId);
+  const contextMenuShown = BrowserTestUtils.waitForPopupEvent(
+    contextMenu,
+    "shown"
+  );
+
+  EventUtils.synthesizeMouseAtCenter(
+    triggerNode,
+    { type: "contextmenu", button: 2 },
+    win
+  );
+  await contextMenuShown;
+  return contextMenu;
+}
+
+/**
+ * @param {XULMenuElement|XULPopupElement} contextMenu
+ * @returns {Promise<void>}
+ */
+async function closeContextMenu(contextMenu) {
+  let menuHidden = BrowserTestUtils.waitForPopupEvent(contextMenu, "hidden");
+  contextMenu.hidePopup();
+  await menuHidden;
 }

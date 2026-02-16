@@ -6,13 +6,14 @@
 
 #include "nsMathMLTokenFrame.h"
 
+#include <algorithm>
+
+#include "gfxContext.h"
 #include "mozilla/PresShell.h"
+#include "nsContentUtils.h"
 #include "nsLayoutUtils.h"
 #include "nsPresContext.h"
-#include "nsContentUtils.h"
 #include "nsTextFrame.h"
-#include "gfxContext.h"
-#include <algorithm>
 
 using namespace mozilla;
 
@@ -33,10 +34,10 @@ nsMathMLTokenFrame::InheritAutomaticData(nsIFrame* aParent) {
   return NS_OK;
 }
 
-eMathMLFrameType nsMathMLTokenFrame::GetMathMLFrameType() {
+MathMLFrameType nsMathMLTokenFrame::GetMathMLFrameType() {
   // treat everything other than <mi> as ordinary...
-  if (!mContent->IsMathMLElement(nsGkAtoms::mi_)) {
-    return eMathMLFrameType_Ordinary;
+  if (!mContent->IsMathMLElement(nsGkAtoms::mi)) {
+    return MathMLFrameType::Ordinary;
   }
 
   StyleMathVariant mathVariant = StyleFont()->mMathVariant;
@@ -47,9 +48,9 @@ eMathMLFrameType nsMathMLTokenFrame::GetMathMLFrameType() {
       mathVariant == StyleMathVariant::BoldItalic ||
       mathVariant == StyleMathVariant::SansSerifItalic ||
       mathVariant == StyleMathVariant::SansSerifBoldItalic) {
-    return eMathMLFrameType_ItalicIdentifier;
+    return MathMLFrameType::ItalicIdentifier;
   }
-  return eMathMLFrameType_UprightIdentifier;
+  return MathMLFrameType::UprightIdentifier;
 }
 
 void nsMathMLTokenFrame::MarkTextFramesAsTokenMathML() {
@@ -71,7 +72,7 @@ void nsMathMLTokenFrame::MarkTextFramesAsTokenMathML() {
       }
     }
   }
-  if (mContent->IsMathMLElement(nsGkAtoms::mi_) && childCount == 1) {
+  if (mContent->IsMathMLElement(nsGkAtoms::mi) && childCount == 1) {
     nsAutoString data;
     nsContentUtils::GetNodeTextContent(mContent, false, data);
 
@@ -149,9 +150,9 @@ void nsMathMLTokenFrame::Reflow(nsPresContext* aPresContext,
 // pass, it is not computed here because our children may be text frames
 // that do not implement the GetBoundingMetrics() interface.
 /* virtual */
-nsresult nsMathMLTokenFrame::Place(DrawTarget* aDrawTarget,
-                                   const PlaceFlags& aFlags,
-                                   ReflowOutput& aDesiredSize) {
+void nsMathMLTokenFrame::Place(DrawTarget* aDrawTarget,
+                               const PlaceFlags& aFlags,
+                               ReflowOutput& aDesiredSize) {
   mBoundingMetrics = nsBoundingMetrics();
   for (nsIFrame* childFrame : PrincipalChildList()) {
     ReflowOutput childSize(aDesiredSize.GetWritingMode());
@@ -209,6 +210,4 @@ nsresult nsMathMLTokenFrame::Place(DrawTarget* aDrawTarget,
   }
 
   SetReference(nsPoint(0, aDesiredSize.BlockStartAscent()));
-
-  return NS_OK;
 }

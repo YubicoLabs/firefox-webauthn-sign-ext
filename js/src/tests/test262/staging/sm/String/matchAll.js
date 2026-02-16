@@ -2,9 +2,7 @@
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
-includes: [compareArray.js, sm/non262-String-shell.js, sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
+includes: [compareArray.js]
 description: |
   pending
 esid: pending
@@ -81,7 +79,7 @@ assertEqMatchResults("ababcca".matchAll("a"), matchResults("ababcca", /a/g));
 // Cross-compartment tests.
 
 {
-    let otherGlobal = createNewGlobal();
+    let otherGlobal = $262.createRealm().global;
 
     let iterator = otherGlobal.eval(`"ababcca".matchAll(/a/g)`);
     let expected = matchResults("ababcca", /a/g);

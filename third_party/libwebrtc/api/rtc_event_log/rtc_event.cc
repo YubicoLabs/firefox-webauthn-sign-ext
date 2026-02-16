@@ -14,6 +14,9 @@
 
 namespace webrtc {
 
-RtcEvent::RtcEvent() : timestamp_us_(rtc::TimeMillis() * 1000) {}
+// TODO: bugs.webrtc.org/42223992 - Remove use of the global clock
+// after November 1, 2025, assuming by that time all RtcEventLog
+// implementations are updated to set timestamp using propagated clock.
+RtcEvent::RtcEvent() : timestamp_us_(TimeMillis() * 1000) {}
 
 }  // namespace webrtc

@@ -9,20 +9,26 @@
 
 #include "FFmpegLibWrapper.h"
 #include "PlatformEncoderModule.h"
+#include "mozilla/DataMutex.h"
 
 namespace mozilla {
+
+extern LazyLogModule sPEMLog;
 
 template <int V>
 class FFmpegEncoderModule final : public PlatformEncoderModule {
  public:
   virtual ~FFmpegEncoderModule() = default;
+
+  static void Init(const FFmpegLibWrapper* aLib);
+
   static already_AddRefed<PlatformEncoderModule> Create(
-      FFmpegLibWrapper* aLib) {
+      const FFmpegLibWrapper* aLib) {
     RefPtr<PlatformEncoderModule> pem = new FFmpegEncoderModule(aLib);
     return pem.forget();
   }
-  bool Supports(const EncoderConfig& aConfig) const override;
-  bool SupportsCodec(CodecType aCodec) const override;
+  media::EncodeSupportSet Supports(const EncoderConfig& aConfig) const override;
+  media::EncodeSupportSet SupportsCodec(CodecType aCodec) const override;
 
   const char* GetName() const override { return "FFmpeg Encoder Module"; }
 
@@ -35,13 +41,15 @@ class FFmpegEncoderModule final : public PlatformEncoderModule {
       const RefPtr<TaskQueue>& aTaskQueue) const override;
 
  protected:
-  explicit FFmpegEncoderModule(FFmpegLibWrapper* aLib) : mLib(aLib) {
+  explicit FFmpegEncoderModule(const FFmpegLibWrapper* aLib) : mLib(aLib) {
     MOZ_ASSERT(mLib);
   }
 
  private:
   // This refers to a static FFmpegLibWrapper, so raw pointer is adequate.
   const FFmpegLibWrapper* mLib;  // set in constructor
+  MOZ_RUNINIT static inline StaticDataMutex<nsTArray<uint32_t>>
+      sSupportedHWCodecs{"sSupportedHWCodecs"};
 };
 
 }  // namespace mozilla

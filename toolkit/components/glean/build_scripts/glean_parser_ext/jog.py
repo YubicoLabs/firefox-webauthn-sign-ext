@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -47,6 +45,8 @@ known_extra_args = [
     "histogram_type",
     "numerators",
     "ordered_labels",
+    "ordered_keys",
+    "ordered_categories",
 ]
 
 # List of all metric-type-specific metadata that JOG understands.
@@ -66,6 +66,7 @@ known_ping_args = [
     "schedules_pings",
     "reason_codes",
     "follows_collection_enabled",
+    "uploader_capabilities",
 ]
 
 
@@ -110,7 +111,7 @@ def load_monkeypatches():
 
 
 def sometimes_supports_noncommutative_operations(metric_type_name):
-    return metric_type_name in ("boolean", "labeled_boolean")
+    return metric_type_name in ("boolean", "labeled_boolean", "quantity")
 
 
 def output_factory(objs, output_fd, options={}):
@@ -216,7 +217,7 @@ def output_file(objs, output_fd, options={}):
             for meta in known_metadata:
                 if meta in metric.metadata:
                     extra[meta] = metric.metadata.get(meta)
-            if len(extra):
+            if extra:
                 metric_arg_list.append(extra)
             dict_cat.append(metric_arg_list)
 

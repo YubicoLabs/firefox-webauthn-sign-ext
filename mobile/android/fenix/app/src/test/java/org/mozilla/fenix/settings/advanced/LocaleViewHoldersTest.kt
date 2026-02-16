@@ -11,9 +11,7 @@ import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
-import io.mockk.mockkObject
 import io.mockk.verify
-import mozilla.components.support.locale.LocaleManager
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,41 +21,44 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.R
 import org.mozilla.fenix.databinding.LocaleSettingsItemBinding
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
+import org.robolectric.RobolectricTestRunner
 import java.util.Locale
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class LocaleViewHoldersTest {
 
-    private val selectedLocale = Locale("en", "US")
+    private val selectedLocale = mockk<Locale>(relaxed = true) {
+        every { displayName } returns "Test Locale"
+        every { getDisplayName(any()) } returns "Test Locale display name"
+    }
+
     private lateinit var view: View
     private lateinit var interactor: LocaleSettingsViewInteractor
     private lateinit var localeViewHolder: LocaleViewHolder
     private lateinit var systemLocaleViewHolder: SystemLocaleViewHolder
     private lateinit var localeSettingsItemBinding: LocaleSettingsItemBinding
+    private lateinit var localeSelectionChecker: LocaleSelectionChecker
 
     @Before
     fun setup() {
-        mockkObject(LocaleManager)
-        every { LocaleManager.getCurrentLocale(any()) } returns null
-
         view = LayoutInflater.from(testContext)
             .inflate(R.layout.locale_settings_item, null)
 
         localeSettingsItemBinding = LocaleSettingsItemBinding.bind(view)
         interactor = mockk()
-
-        localeViewHolder = LocaleViewHolder(view, selectedLocale, interactor)
-        systemLocaleViewHolder = SystemLocaleViewHolder(view, selectedLocale, interactor)
+        localeSelectionChecker = mockk(relaxed = true)
+        localeViewHolder = LocaleViewHolder(view, selectedLocale, interactor, localeSelectionChecker)
+        systemLocaleViewHolder = SystemLocaleViewHolder(view, selectedLocale, interactor, localeSelectionChecker)
     }
 
     @Test
     fun `bind LocaleViewHolder`() {
         localeViewHolder.bind(selectedLocale)
 
-        assertEquals("English (United States)", localeSettingsItemBinding.localeTitleText.text)
-        assertEquals("English (United States)", localeSettingsItemBinding.localeSubtitleText.text)
-        assertFalse(localeSettingsItemBinding.localeSelectedIcon.isVisible)
+        assertEquals("Test Locale display name", localeSettingsItemBinding.localeTitleText.text)
+        assertEquals("Test Locale", localeSettingsItemBinding.localeSubtitleText.text)
+        // The selected icon should be visible for the selected locale.
+        assertTrue(localeSettingsItemBinding.localeSelectedIcon.isVisible)
     }
 
     @Test
@@ -72,7 +73,7 @@ class LocaleViewHoldersTest {
     // Note that after we can run tests on SDK 30 the result of the locale.getDisplayName(locale) could differ and this test will fail
     @Test
     fun `GIVEN a locale is not properly identified in Android WHEN we bind locale THEN the title and subtitle are set from locale maps`() {
-        val otherLocale = Locale("vec")
+        val otherLocale = Locale.forLanguageTag("vec")
 
         localeViewHolder.bind(otherLocale)
 
@@ -82,7 +83,7 @@ class LocaleViewHoldersTest {
 
     @Test
     fun `GIVEN a locale is not properly identified in Android and it is not mapped  WHEN we bind locale THEN the text is the capitalised code`() {
-        val otherLocale = Locale("yyy")
+        val otherLocale = Locale.forLanguageTag("yyy")
 
         localeViewHolder.bind(otherLocale)
 
@@ -95,8 +96,10 @@ class LocaleViewHoldersTest {
         systemLocaleViewHolder.bind(selectedLocale)
 
         assertEquals("Follow device language", localeSettingsItemBinding.localeTitleText.text)
-        assertEquals("English (United States)", localeSettingsItemBinding.localeSubtitleText.text)
-        assertTrue(localeSettingsItemBinding.localeSelectedIcon.isVisible)
+        assertEquals("Test Locale display name", localeSettingsItemBinding.localeSubtitleText.text)
+
+        // The selected icon should not be visible for the system locale since selectedLocale is not the system default.
+        assertFalse(localeSettingsItemBinding.localeSelectedIcon.isVisible)
     }
 
     @Test

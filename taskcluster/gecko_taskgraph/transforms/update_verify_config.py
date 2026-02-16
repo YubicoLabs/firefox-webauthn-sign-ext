@@ -27,8 +27,8 @@ INCLUDE_VERSION_REGEXES = {
     "nonbeta": r"'^\d+\.\d+(\.\d+)?$'",
     # Same as nonbeta, except for the esr suffix
     "esr": r"'^\d+\.\d+(\.\d+)?esr$'",
-    # Previous esr versions, for update testing before we update users to esr128
-    "esr128-next": r"'^(52|60|68|78|91|102|115)+\.\d+(\.\d+)?esr$'",
+    # Previous esr versions, for update testing before we update users to esr140
+    "esr140-next": r"'^(52|60|68|78|91|102|115|128)+\.\d+(\.\d+)?esr$'",
 }
 
 MAR_CHANNEL_ID_OVERRIDE_REGEXES = {
@@ -43,9 +43,7 @@ def ensure_wrapped_singlequote(regexes):
     for name, regex in regexes.items():
         if regex[0] != "'" or regex[-1] != "'":
             raise Exception(
-                "Regex {} is invalid: not wrapped with single quotes.\n{}".format(
-                    name, regex
-                )
+                f"Regex {name} is invalid: not wrapped with single quotes.\n{regex}"
             )
 
 
@@ -131,7 +129,7 @@ def add_command(config, tasks):
                 platform=task["attributes"]["build_platform"],
                 **{
                     "release-type": config.params["release_type"],
-                    "release-level": release_level(config.params["project"]),
+                    "release-level": release_level(config.params),
                 },
             )
             # ignore things that resolved to null
@@ -145,11 +143,15 @@ def add_command(config, tasks):
             command.append(f"--{arg}")
             command.append(task["extra"][arg])
 
-        task["run"].update(
-            {
-                "using": "mach",
-                "mach": " ".join(command),
-            }
-        )
+        task["run"].update({
+            "using": "mach",
+            "mach": " ".join(command),
+        })
+
+        if task.get("index"):
+            task["index"].setdefault(
+                "job-name",
+                f"update-verify-config-{task['name']}-{task['extra']['channel']}",
+            )
 
         yield task

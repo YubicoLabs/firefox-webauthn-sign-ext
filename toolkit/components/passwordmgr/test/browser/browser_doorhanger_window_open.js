@@ -121,14 +121,15 @@ add_task(async function test_changeChromeHiddenAutoClose() {
   Assert.equal(login.username, "notifyu1", "Check the username");
   Assert.equal(login.password, "pass2", "Check password changed");
   Assert.equal(login.timesUsed, 2, "check .timesUsed incremented on change");
-  Assert.ok(login.timeCreated < login.timeLastUsed, "timeLastUsed bumped");
-  Assert.ok(
-    login.timeLastUsed == login.timePasswordChanged,
+  Assert.less(login.timeCreated, login.timeLastUsed, "timeLastUsed bumped");
+  Assert.equal(
+    login.timeLastUsed,
+    login.timePasswordChanged,
     "timeUsed == timeChanged"
   );
 
   login1.password = "pass2";
-  Services.logins.removeLogin(login1);
+  await Services.logins.removeLoginAsync(login1);
   login1.password = "notifyp1";
 });
 
@@ -188,14 +189,15 @@ add_task(async function test_changeChromeVisibleSameWindow() {
   Assert.equal(login.username, "notifyu2", "Check the username");
   Assert.equal(login.password, "pass2", "Check password changed");
   Assert.equal(login.timesUsed, 2, "check .timesUsed incremented on change");
-  Assert.ok(login.timeCreated < login.timeLastUsed, "timeLastUsed bumped");
-  Assert.ok(
-    login.timeLastUsed == login.timePasswordChanged,
+  Assert.less(login.timeCreated, login.timeLastUsed, "timeLastUsed bumped");
+  Assert.equal(
+    login.timeLastUsed,
+    login.timePasswordChanged,
     "timeUsed == timeChanged"
   );
 
   // cleanup
   login2.password = "pass2";
-  Services.logins.removeLogin(login2);
+  await Services.logins.removeLoginAsync(login2);
   login2.password = "notifyp2";
 });

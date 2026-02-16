@@ -9,7 +9,6 @@
 #include "mozilla/AbstractThread.h"
 #include "mozilla/SchedulerGroup.h"
 #include "mozilla/StaticPrefs_dom.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/ThrottledEventQueue.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/CustomElementRegistry.h"
@@ -129,7 +128,7 @@ DocGroup::DocGroup(BrowsingContextGroup* aBrowsingContextGroup,
   // mBrowsingContextGroup->mDocGroups as the caller does it for us.
   MOZ_ASSERT(NS_IsMainThread());
   if (StaticPrefs::dom_arena_allocator_enabled_AtStartup()) {
-    mArena = new mozilla::dom::DOMArena();
+    mArena = new mozilla::dom::DOMArena(aKey.mKey);
   }
 }
 

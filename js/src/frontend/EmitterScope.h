@@ -7,6 +7,7 @@
 #ifndef frontend_EmitterScope_h
 #define frontend_EmitterScope_h
 
+#include "mozilla/Attributes.h"
 #include "mozilla/Maybe.h"
 
 #include <stdint.h>
@@ -33,7 +34,7 @@ class ModuleSharedContext;
 class TaggedParserAtomIndex;
 
 // A scope that introduces bindings.
-class EmitterScope : public Nestable<EmitterScope> {
+class MOZ_STACK_CLASS EmitterScope : public Nestable<EmitterScope> {
   // The cache of bound names that may be looked up in the
   // scope. Initially populated as the set of names this scope binds. As
   // names are looked up in enclosing scopes, they are cached on the
@@ -51,14 +52,12 @@ class EmitterScope : public Nestable<EmitterScope> {
 #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
   mozilla::Maybe<UsingEmitter> usingEmitter_;
 
-  mozilla::Maybe<ForOfDisposalEmitter> forOfDisposalEmitter_;
-
  private:
   BlockKind blockKind_ = BlockKind::Other;
 #endif
 
   // The number of enclosing environments. Used for error checking.
-  uint8_t environmentChainLength_;
+  uint16_t environmentChainLength_;
 
   // The next usable slot on the frame for not-closed over bindings.
   //
@@ -174,13 +173,7 @@ class EmitterScope : public Nestable<EmitterScope> {
   // a lexical scope and a module scope.
   [[nodiscard]] bool prepareForDisposableScopeBody(BytecodeEmitter* bce);
 
-  [[nodiscard]] bool emitSwitchBlockEndForDisposableScopeBodyEnd(
-      BytecodeEmitter* bce);
-
   [[nodiscard]] bool emitDisposableScopeBodyEnd(BytecodeEmitter* bce);
-
-  [[nodiscard]] bool emitDisposableScopeBodyEndForNonLocalJump(
-      BytecodeEmitter* bce);
 
  public:
   [[nodiscard]] bool prepareForModuleDisposableScopeBody(BytecodeEmitter* bce);

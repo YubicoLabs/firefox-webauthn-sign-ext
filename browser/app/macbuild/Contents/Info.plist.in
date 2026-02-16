@@ -190,6 +190,8 @@
 	<string>@MAC_APP_NAME@ @APP_VERSION@</string>
 	<key>CFBundleIconFile</key>
 	<string>firefox.icns</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>@MOZ_MACBUNDLE_ID@</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -263,7 +265,7 @@
 	<key>SMPrivilegedExecutables</key>
 	<dict>
 		<key>org.mozilla.updater</key>
-		<string>identifier "org.mozilla.updater" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "43AQ936H96"</string>
+		<string>@MOZ_SMPRIVILEGEDEXECUTABLES_REQUIREMENTS@</string>
 	</dict>
   <key>MozillaDeveloperRepoPath</key>
   <string>@MOZ_DEVELOPER_REPO_PATH@</string>

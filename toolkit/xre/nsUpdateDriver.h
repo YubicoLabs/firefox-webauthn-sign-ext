@@ -4,15 +4,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsUpdateDriver_h__
-#define nsUpdateDriver_h__
+#ifndef nsUpdateDriver_h_
+#define nsUpdateDriver_h_
 
 #include "nscore.h"
 #include "nsIUpdateService.h"
 #include "nsIThread.h"
 #include "nsCOMPtr.h"
 #include "nsString.h"
-#include "mozilla/Attributes.h"
 
 class nsIFile;
 
@@ -61,20 +60,6 @@ typedef PRProcess* ProcessType;
 nsresult ProcessUpdates(nsIFile* greDir, nsIFile* appDir, nsIFile* updRootDir,
                         int argc, char** argv, const char* appVersion,
                         bool restart = true, ProcessType* pid = nullptr);
-
-/**
- * Checks if the Multi Session Install Lockout is active. This is a window after
- * an update is downloaded where we won't install updates at startup if another
- * application instance is running.
- *
- * @param  updRootDir
- *         The root update directory for this installation.
- * @param  isActive
- *         Outparam. On success, it is set to `true` if the MSIL lockout is
- *         active or `false` if it is not.
- */
-nsresult IsMultiSessionInstallLockoutActive(nsIFile* updRootDir,
-                                            bool& isActive);
 
 /**
  * This function is only needed for testing. When Firefox is started up with
@@ -134,4 +119,4 @@ class nsUpdateProcessor final : public nsIUpdateProcessor {
 #endif
   StagedUpdateInfo mInfo;
 };
-#endif  // nsUpdateDriver_h__
+#endif  // nsUpdateDriver_h_

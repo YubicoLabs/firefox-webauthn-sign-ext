@@ -1,5 +1,4 @@
 [DEFAULT]
-skip-if = ["os == 'android'"]
 support-files = [
   "xpcshellTestHarnessAdaptor.js",
   "ctypes.worker.js",
@@ -7,4 +6,3 @@ support-files = [
 ]
 
 ["test_ctypes.xhtml"]
-skip-if = ["verify"]

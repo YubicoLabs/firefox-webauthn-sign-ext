@@ -3,8 +3,8 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-#ifndef nsIFormControl_h___
-#define nsIFormControl_h___
+#ifndef nsIFormControl_h_
+#define nsIFormControl_h_
 
 #include "mozilla/EventForwards.h"
 #include "mozilla/StaticPrefs_dom.h"
@@ -77,12 +77,8 @@ static_assert(uint8_t(FormControlType::LastButtonElement) <
 static_assert(uint32_t(FormControlType::LastInputElement) < (1 << 8),
               "Too many form control types");
 
-#define NS_IFORMCONTROL_IID                          \
-  {                                                  \
-    0x4b89980c, 0x4dcd, 0x428f, {                    \
-      0xb7, 0xad, 0x43, 0x5b, 0x93, 0x29, 0x79, 0xec \
-    }                                                \
-  }
+#define NS_IFORMCONTROL_IID \
+  {0x4b89980c, 0x4dcd, 0x428f, {0xb7, 0xad, 0x43, 0x5b, 0x93, 0x29, 0x79, 0xec}}
 
 /**
  * Interface which all form controls (e.g. buttons, checkboxes, text,
@@ -93,7 +89,7 @@ class nsIFormControl : public nsISupports {
  public:
   nsIFormControl(FormControlType aType) : mType(aType) {}
 
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IFORMCONTROL_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_IFORMCONTROL_IID)
 
   static nsIFormControl* FromEventTarget(mozilla::dom::EventTarget* aTarget);
   static nsIFormControl* FromEventTargetOrNull(
@@ -115,10 +111,16 @@ class nsIFormControl : public nsISupports {
   virtual mozilla::dom::HTMLFieldSetElement* GetFieldSet() = 0;
 
   /**
+   * Get the form for this form control, retargeted to the appropriate scope.
+   * @return the form
+   */
+  virtual mozilla::dom::Element* GetFormForBindings() const = 0;
+
+  /**
    * Get the form for this form control.
    * @return the form
    */
-  virtual mozilla::dom::HTMLFormElement* GetForm() const = 0;
+  virtual mozilla::dom::HTMLFormElement* GetFormInternal() const = 0;
 
   /**
    * Set the form for this form control.
@@ -289,7 +291,7 @@ bool nsIFormControl::IsConceptButton() const {
 }
 
 bool nsIFormControl::IsButtonControl() const {
-  return IsConceptButton() && (!GetForm() || !IsSubmitControl());
+  return IsConceptButton() && (!GetFormInternal() || !IsSubmitControl());
 }
 
 bool nsIFormControl::AllowDraggableChildren() const {
@@ -298,6 +300,4 @@ bool nsIFormControl::AllowDraggableChildren() const {
          type == FormControlType::Output;
 }
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIFormControl, NS_IFORMCONTROL_IID)
-
-#endif /* nsIFormControl_h___ */
+#endif /* nsIFormControl_h_ */

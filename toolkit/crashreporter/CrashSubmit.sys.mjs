@@ -125,6 +125,8 @@ Submitter.prototype = {
   },
 
   submitForm: function Submitter_submitForm() {
+    this.submittedExtraKeyVals = {};
+
     if (!("ServerURL" in this.extraKeyVals)) {
       return false;
     }
@@ -145,8 +147,15 @@ Submitter.prototype = {
     // tell the server not to throttle this if requested
     this.extraKeyVals.Throttleable = this.noThrottle ? "0" : "1";
 
-    // add the data
-    let payload = Object.assign({}, this.extraKeyVals);
+    // add the data, keeping only annotations which are allowed for reports
+    let payload = Object.fromEntries(
+      Object.entries(this.extraKeyVals).filter(
+        ([annotation, _]) =>
+          Services.appinfo.isAnnotationValid(annotation) &&
+          Services.appinfo.isAnnotationAllowedForReport(annotation)
+      )
+    );
+    this.submittedExtraKeyVals = payload;
     let json = new Blob([JSON.stringify(payload)], {
       type: "application/json",
     });
@@ -280,7 +289,7 @@ Submitter.prototype = {
     let extraKeyValsBag = Cc["@mozilla.org/hash-property-bag;1"].createInstance(
       Ci.nsIWritablePropertyBag2
     );
-    for (let key in this.extraKeyVals) {
+    for (let key in this.submittedExtraKeyVals) {
       extraKeyValsBag.setPropertyAsAString(key, this.extraKeyVals[key]);
     }
     propBag.setPropertyAsInterface("extra", extraKeyValsBag);
@@ -294,6 +303,7 @@ Submitter.prototype = {
         break;
       case FAILED:
         this.rejectSubmitStatusPromise(`${FAILED}: ${ret}`);
+        Glean.crashSubmission.failureEvent.record({ id: this.id, reason: ret });
         Glean.crashSubmission.failure.add(1);
         break;
       default:
@@ -302,19 +312,8 @@ Submitter.prototype = {
   },
 
   readAnnotations: async function Submitter_readAnnotations(extra) {
-    // These annotations are used only by the crash reporter client and should
-    // not be submitted to Socorro.
-    const strippedAnnotations = [
-      "StackTraces",
-      "TelemetryClientId",
-      "TelemetryProfileGroupId",
-      "TelemetrySessionId",
-      "TelemetryServerURL",
-    ];
     let extraKeyVals = await IOUtils.readJSON(extra);
-
     this.extraKeyVals = { ...extraKeyVals, ...this.extraKeyVals };
-    strippedAnnotations.forEach(key => delete this.extraKeyVals[key]);
   },
 
   submit: async function Submitter_submit() {
@@ -489,6 +488,7 @@ export var CrashSubmit = {
 
   /**
    * Get the list of pending crash IDs, excluding those marked to be ignored
+   *
    * @param minFileDate
    *     A Date object. Any files last modified before that date will be ignored
    *

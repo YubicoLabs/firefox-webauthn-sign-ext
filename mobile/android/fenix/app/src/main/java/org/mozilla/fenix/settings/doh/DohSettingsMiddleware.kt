@@ -2,22 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+package org.mozilla.fenix.settings.doh
+
 import androidx.navigation.NavController
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
+import mozilla.components.lib.state.Store
 import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.HomeActivity
-import org.mozilla.fenix.settings.doh.BackClicked
-import org.mozilla.fenix.settings.doh.DohSettingsAction
-import org.mozilla.fenix.settings.doh.DohSettingsDestinations
-import org.mozilla.fenix.settings.doh.DohSettingsProvider
-import org.mozilla.fenix.settings.doh.DohSettingsRootAction
-import org.mozilla.fenix.settings.doh.DohSettingsState
-import org.mozilla.fenix.settings.doh.DohUrlValidator
-import org.mozilla.fenix.settings.doh.ExceptionsAction
-import org.mozilla.fenix.settings.doh.Init
-import org.mozilla.fenix.settings.doh.LearnMoreClicked
-import org.mozilla.fenix.settings.doh.UrlValidationException
 
 internal class DohSettingsMiddleware(
     private val getNavController: () -> NavController,
@@ -27,7 +18,7 @@ internal class DohSettingsMiddleware(
 ) : Middleware<DohSettingsState, DohSettingsAction> {
 
     override fun invoke(
-        context: MiddlewareContext<DohSettingsState, DohSettingsAction>,
+        store: Store<DohSettingsState, DohSettingsAction>,
         next: (DohSettingsAction) -> Unit,
         action: DohSettingsAction,
     ) {
@@ -36,7 +27,7 @@ internal class DohSettingsMiddleware(
         when (action) {
             Init -> {
                 // we dispatch another action that the reducer can handle
-                context.store.dispatch(
+                store.dispatch(
                     DohSettingsRootAction.DohSettingsLoaded(
                         allProtectionLevels = getSettingsProvider().getProtectionLevels(),
                         selectedProtectionLevel = getSettingsProvider().getSelectedProtectionLevel(),
@@ -70,7 +61,7 @@ internal class DohSettingsMiddleware(
             }
 
             is DohSettingsRootAction.DohCustomProviderDialogAction.AddCustomClicked -> {
-                handleAddCustomProvider(context, action)
+                handleAddCustomProvider(store, action)
             }
 
             is DohSettingsRootAction.DefaultInfoClicked -> {
@@ -90,12 +81,12 @@ internal class DohSettingsMiddleware(
             }
 
             is ExceptionsAction.RemoveClicked -> {
-                handleRemoveException(context, action)
+                handleRemoveException(store, action)
             }
 
             is ExceptionsAction.RemoveAllClicked -> {
                 getSettingsProvider().setExceptions(emptyList())
-                context.store.dispatch(
+                store.dispatch(
                     ExceptionsAction.ExceptionsUpdated(
                         emptyList(),
                     ),
@@ -103,7 +94,7 @@ internal class DohSettingsMiddleware(
             }
 
             is ExceptionsAction.SaveClicked -> {
-                handleSaveException(context, action)
+                handleSaveException(store, action)
             }
 
             else -> {}
@@ -111,37 +102,37 @@ internal class DohSettingsMiddleware(
     }
 
     private fun handleAddCustomProvider(
-        context: MiddlewareContext<DohSettingsState, DohSettingsAction>,
+        store: Store<DohSettingsState, DohSettingsAction>,
         action: DohSettingsRootAction.DohCustomProviderDialogAction.AddCustomClicked,
     ) {
         try {
             val normalizedUrl = DohUrlValidator.validate(action.url)
             getSettingsProvider().setCustomProvider(normalizedUrl)
-            context.store.dispatch(
+            store.dispatch(
                 DohSettingsRootAction.DohCustomProviderDialogAction.ValidUrlDetected(
                     action.customProvider,
                     normalizedUrl,
                 ),
             )
         } catch (e: UrlValidationException.NonHttpsUrlException) {
-            context.store.dispatch(
+            store.dispatch(
                 DohSettingsRootAction.DohCustomProviderDialogAction.NonHttpsUrlDetected,
             )
         } catch (e: UrlValidationException.InvalidUrlException) {
-            context.store.dispatch(
+            store.dispatch(
                 DohSettingsRootAction.DohCustomProviderDialogAction.InvalidUrlDetected,
             )
         }
     }
 
     private fun handleRemoveException(
-        context: MiddlewareContext<DohSettingsState, DohSettingsAction>,
+        store: Store<DohSettingsState, DohSettingsAction>,
         action: ExceptionsAction.RemoveClicked,
     ) {
         val updatedExceptions =
             getSettingsProvider().getExceptions().filter { it != action.url }
         getSettingsProvider().setExceptions(updatedExceptions)
-        context.store.dispatch(
+        store.dispatch(
             ExceptionsAction.ExceptionsUpdated(
                 updatedExceptions,
             ),
@@ -149,7 +140,7 @@ internal class DohSettingsMiddleware(
     }
 
     private fun handleSaveException(
-        context: MiddlewareContext<DohSettingsState, DohSettingsAction>,
+        store: Store<DohSettingsState, DohSettingsAction>,
         action: ExceptionsAction.SaveClicked,
     ) {
         val url = DohUrlValidator.dropScheme(action.url)
@@ -157,7 +148,7 @@ internal class DohSettingsMiddleware(
 
         // If the url is already in the list, just exit AddExceptionScreen
         if (currExceptions.contains(url)) {
-            context.store.dispatch(
+            store.dispatch(
                 BackClicked,
             )
             return
@@ -167,14 +158,14 @@ internal class DohSettingsMiddleware(
             DohUrlValidator.validate("https://$url")
             val updatedExceptions = currExceptions + url
             getSettingsProvider().setExceptions(updatedExceptions)
-            context.store.dispatch(
+            store.dispatch(
                 ExceptionsAction.ExceptionsUpdated(updatedExceptions),
             )
-            context.store.dispatch(
+            store.dispatch(
                 BackClicked,
             )
         } catch (e: UrlValidationException.InvalidUrlException) {
-            context.store.dispatch(ExceptionsAction.InvalidUrlDetected)
+            store.dispatch(ExceptionsAction.InvalidUrlDetected)
         }
     }
 }

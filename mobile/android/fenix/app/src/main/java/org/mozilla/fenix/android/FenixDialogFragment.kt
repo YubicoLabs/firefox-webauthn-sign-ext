@@ -6,7 +6,6 @@ package org.mozilla.fenix.android
 
 import android.app.Dialog
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -16,12 +15,12 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatDialogFragment
 import androidx.appcompat.view.ContextThemeWrapper
-import com.google.android.material.R
+import androidx.core.graphics.drawable.toDrawable
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import mozilla.components.concept.base.crash.Breadcrumb
-import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.ext.components
+import com.google.android.material.R as materialR
 
 /**
  * Base [AppCompatDialogFragment] that adds behaviour to create a top or bottom dialog.
@@ -44,8 +43,7 @@ abstract class FenixDialogFragment : AppCompatDialogFragment() {
         return if (gravity == Gravity.BOTTOM) {
             BottomSheetDialog(requireContext(), this.theme).apply {
                 setOnShowListener {
-                    val bottomSheet =
-                        findViewById<View>(R.id.design_bottom_sheet) as FrameLayout
+                    val bottomSheet = findViewById<View>(materialR.id.design_bottom_sheet) as FrameLayout
                     val behavior = BottomSheetBehavior.from(bottomSheet)
                     behavior.state = BottomSheetBehavior.STATE_EXPANDED
                 }
@@ -66,7 +64,7 @@ abstract class FenixDialogFragment : AppCompatDialogFragment() {
 
         window?.apply {
             setGravity(gravity)
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
             // This must be called after addContentView, or it won't fully fill to the edge.
             setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
@@ -75,8 +73,8 @@ abstract class FenixDialogFragment : AppCompatDialogFragment() {
 
     fun inflateRootView(container: ViewGroup? = null): View {
         val contextThemeWrapper = ContextThemeWrapper(
-            activity,
-            (activity as HomeActivity).themeManager.currentThemeResource,
+            requireContext(),
+            requireActivity().theme,
         )
         return LayoutInflater.from(contextThemeWrapper).inflate(
             layoutId,

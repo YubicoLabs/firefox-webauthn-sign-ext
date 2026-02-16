@@ -8,8 +8,6 @@
 
 #include "nsICODecoder.h"
 
-#include <stdlib.h>
-
 #include <utility>
 
 #include "RasterImage.h"
@@ -499,10 +497,10 @@ LexerTransition<ICOState> nsICODecoder::PrepareForMask() {
     if (NS_WARN_IF(!mMaskBuffer)) {
       return Transition::TerminateFailure();
     }
-    nsresult rv = mDownscaler->BeginFrame(mDirEntry->mSize.ToUnknownSize(),
-                                          Nothing(), mMaskBuffer.get(),
-                                          /* aHasAlpha = */ true,
-                                          /* aFlipVertically = */ true);
+    nsresult rv = mDownscaler->BeginFrame(
+        mDirEntry->mSize.ToUnknownSize(), Nothing(), mMaskBuffer.get(),
+        /* aFormat = */ gfx::SurfaceFormat::B8G8R8A8,
+        /* aFlipVertically = */ true);
     if (NS_FAILED(rv)) {
       return Transition::TerminateFailure();
     }

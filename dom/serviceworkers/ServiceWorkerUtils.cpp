@@ -6,8 +6,6 @@
 
 #include "ServiceWorkerUtils.h"
 
-#include "nsContentPolicyUtils.h"
-
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/LoadInfo.h"
@@ -15,6 +13,7 @@
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_extensions.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/ClientIPCTypes.h"
 #include "mozilla/dom/ClientInfo.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Navigator.h"
@@ -23,6 +22,7 @@
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerRunnable.h"
 #include "nsCOMPtr.h"
+#include "nsContentPolicyUtils.h"
 #include "nsIContentSecurityPolicy.h"
 #include "nsIGlobalObject.h"
 #include "nsIPrincipal.h"
@@ -55,9 +55,12 @@ bool ServiceWorkersEnabled(JSContext* aCx, JSObject* aGlobal) {
   nsIGlobalObject* global = xpc::CurrentNativeGlobal(aCx);
 
   if (const nsCOMPtr<nsIPrincipal> principal = global->PrincipalOrNull()) {
-    // ServiceWorkers are currently not available in PrivateBrowsing.
-    // Bug 1320796 will change this.
-    if (principal->GetIsInPrivateBrowsing()) {
+    // Only support ServiceWorkers in Private Browsing Mode (PBM) if Cache API
+    // and ServiceWorkers are enabled.  We'll get weird errors without Cache
+    // API.
+    if (principal->GetIsInPrivateBrowsing() &&
+        !(StaticPrefs::dom_cache_privateBrowsing_enabled() &&
+          StaticPrefs::dom_serviceWorkers_privateBrowsing_enabled())) {
       return false;
     }
 
@@ -77,6 +80,58 @@ bool ServiceWorkersEnabled(JSContext* aCx, JSObject* aGlobal) {
 
   return StaticPrefs::dom_serviceWorkers_testing_enabled() ||
          IsServiceWorkersTestingEnabledInGlobal(jsGlobal);
+}
+
+bool ServiceWorkersStorageAllowedForGlobal(nsIGlobalObject* aGlobal) {
+  Maybe<ClientInfo> clientInfo = aGlobal->GetClientInfo();
+  nsICookieJarSettings* cookieJarSettings = aGlobal->GetCookieJarSettings();
+  nsIPrincipal* principal = aGlobal->PrincipalOrNull();
+
+  if (NS_WARN_IF(clientInfo.isNothing() || !cookieJarSettings || !principal)) {
+    return false;
+  }
+
+  // Note that while we could call GetClientState on the global and it has a
+  // StorageAccess value, for non-fully active Window Clients, the storage
+  // access value is set to eDeny when snapshotted so we must not use it because
+  // this method may be called before a window becomes fully active.
+  auto storageAllowed = aGlobal->GetStorageAccess();
+
+  // Allow access if:
+  // - Storage access is explicitly granted.
+  // - We are in private browsing and ServiceWorkers is allowed in PBM.  Note
+  //   that we will also potentially partition in PBM, so we have to do a
+  //   separate PBM check in the partitioned case.
+  // - Partitioned access is granted and partitioning is enabled, plus if our
+  //   principal is in PBM that ServiceWorkers are enabled in PBM.
+  return (storageAllowed == StorageAccess::eAllow ||
+          (storageAllowed == StorageAccess::ePrivateBrowsing &&
+           StaticPrefs::dom_serviceWorkers_privateBrowsing_enabled()) ||
+          (ShouldPartitionStorage(storageAllowed) &&
+           StaticPrefs::privacy_partition_serviceWorkers() &&
+           StoragePartitioningEnabled(storageAllowed, cookieJarSettings) &&
+           (!principal->GetIsInPrivateBrowsing() ||
+            StaticPrefs::dom_serviceWorkers_privateBrowsing_enabled())));
+}
+
+bool ServiceWorkersStorageAllowedForClient(
+    const ClientInfoAndState& aInfoAndState) {
+  ClientInfo info(aInfoAndState.info());
+  ClientState state(ClientState::FromIPC(aInfoAndState.state()));
+
+  auto storageAllowed = state.GetStorageAccess();
+  // This is the same check as in ServiceWorkersStorageAllowedForGlobal except
+  // that because we have no access to a cookie-jar we can't call
+  // StoragePartitioningEnabled.  This isn't a concern in this case because any
+  // partitioning will already be baked into our principal.
+  return (storageAllowed == StorageAccess::eAllow ||
+          (storageAllowed == StorageAccess::ePrivateBrowsing &&
+           StaticPrefs::dom_serviceWorkers_privateBrowsing_enabled()) ||
+          (ShouldPartitionStorage(storageAllowed) &&
+           StaticPrefs::privacy_partition_serviceWorkers() &&
+           /* note: no call to StoragePartitioningEnabled here */
+           (!info.IsPrivateBrowsing() ||
+            StaticPrefs::dom_serviceWorkers_privateBrowsing_enabled())));
 }
 
 bool ServiceWorkerRegistrationDataIsValid(
@@ -180,7 +235,7 @@ void ServiceWorkerScopeAndScriptAreValid(const ClientInfo& aClientInfo,
   }
 
   auto hasHTTPScheme = [](nsIURI* aURI) -> bool {
-    return aURI->SchemeIs("http") || aURI->SchemeIs("https");
+    return net::SchemeIsHttpOrHttps(aURI);
   };
   auto hasMozExtScheme = [](nsIURI* aURI) -> bool {
     return aURI->SchemeIs("moz-extension");
@@ -224,13 +279,13 @@ void ServiceWorkerScopeAndScriptAreValid(const ClientInfo& aClientInfo,
   // The refs should really be empty coming in here, but if someone
   // injects bad data into IPC, who knows.  So let's revalidate that.
   nsAutoCString ref;
-  Unused << aScopeURI->GetRef(ref);
+  (void)aScopeURI->GetRef(ref);
   if (NS_WARN_IF(!ref.IsEmpty())) {
     aRv.ThrowSecurityError("Non-empty fragment on scope URL");
     return;
   }
 
-  Unused << aScriptURI->GetRef(ref);
+  (void)aScriptURI->GetRef(ref);
   if (NS_WARN_IF(!ref.IsEmpty())) {
     aRv.ThrowSecurityError("Non-empty fragment on script URL");
     return;
@@ -298,12 +353,18 @@ void ServiceWorkerScopeAndScriptAreValid(const ClientInfo& aClientInfo,
     // logic here (and the CheckMayLoad calls above) corresponds to the steps of
     // the register (https://w3c.github.io/ServiceWorker/#register-algorithm)
     // which explicitly throws a SecurityError.
-    nsCOMPtr<nsILoadInfo> secCheckLoadInfo = new mozilla::net::LoadInfo(
-        principal,  // loading principal
-        principal,  // triggering principal
-        maybeDoc,   // loading node
-        nsILoadInfo::SEC_ONLY_FOR_EXPLICIT_CONTENTSEC_CHECK,
-        nsIContentPolicy::TYPE_INTERNAL_SERVICE_WORKER, Some(aClientInfo));
+    Result<RefPtr<net::LoadInfo>, nsresult> maybeLoadInfo =
+        net::LoadInfo::Create(
+            principal,  // loading principal
+            principal,  // triggering principal
+            maybeDoc,   // loading node
+            nsILoadInfo::SEC_ONLY_FOR_EXPLICIT_CONTENTSEC_CHECK,
+            nsIContentPolicy::TYPE_INTERNAL_SERVICE_WORKER, Some(aClientInfo));
+    if (NS_WARN_IF(maybeLoadInfo.isErr())) {
+      aResult.ThrowSecurityError("Script URL is not allowed by policy.");
+      return;
+    }
+    RefPtr<net::LoadInfo> secCheckLoadInfo = maybeLoadInfo.unwrap();
 
     if (cspListener) {
       rv = secCheckLoadInfo->SetCspEventListener(cspListener);

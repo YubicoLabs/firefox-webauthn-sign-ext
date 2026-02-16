@@ -5,7 +5,7 @@
 
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.copy import deepcopy
-from taskgraph.util.schema import Schema, optionally_keyed_by, resolve_keyed_by
+from taskgraph.util.schema import LegacySchema, optionally_keyed_by, resolve_keyed_by
 from taskgraph.util.treeherder import join_symbol, split_symbol
 from voluptuous import Extra, Optional, Required
 
@@ -15,55 +15,49 @@ from gecko_taskgraph.util.perftest import is_external_browser
 transforms = TransformSequence()
 task_transforms = TransformSequence()
 
-raptor_description_schema = Schema(
-    {
-        # Raptor specific configs.
-        Optional("raptor"): {
-            Optional("activity"): optionally_keyed_by("app", str),
-            Optional("apps"): optionally_keyed_by("test-platform", "subtest", [str]),
-            Optional("binary-path"): optionally_keyed_by("app", str),
-            Optional("run-visual-metrics"): optionally_keyed_by(
-                "app", "test-platform", bool
-            ),
-            Optional("subtests"): optionally_keyed_by("app", "test-platform", list),
-            Optional("test"): str,
-            Optional("test-url-param"): optionally_keyed_by(
-                "subtest", "test-platform", str
-            ),
-            Optional("lull-schedule"): optionally_keyed_by(
-                "subtest", "test-platform", str
-            ),
-            Optional("network-conditions"): optionally_keyed_by("subtest", list),
-        },
-        # Configs defined in the 'test_description_schema'.
-        Optional("max-run-time"): optionally_keyed_by(
-            "app", "subtest", "test-platform", test_description_schema["max-run-time"]
+raptor_description_schema = LegacySchema({
+    # Raptor specific configs.
+    Optional("raptor"): {
+        Optional("activity"): optionally_keyed_by("app", str),
+        Optional("apps"): optionally_keyed_by("test-platform", "subtest", [str]),
+        Optional("binary-path"): optionally_keyed_by("app", str),
+        Optional("run-visual-metrics"): optionally_keyed_by(
+            "app", "test-platform", bool
         ),
-        Optional("run-on-projects"): optionally_keyed_by(
-            "app",
-            "test-name",
-            "raptor.test",
-            "subtest",
-            "variant",
-            test_description_schema["run-on-projects"],
+        Optional("subtests"): optionally_keyed_by("app", "test-platform", list),
+        Optional("test"): str,
+        Optional("test-url-param"): optionally_keyed_by(
+            "subtest", "test-platform", str
         ),
-        Optional("variants"): test_description_schema["variants"],
-        Optional("target"): optionally_keyed_by(
-            "app", test_description_schema["target"]
-        ),
-        Optional("tier"): optionally_keyed_by(
-            "app", "raptor.test", "subtest", "variant", test_description_schema["tier"]
-        ),
-        Required("test-name"): test_description_schema["test-name"],
-        Required("test-platform"): test_description_schema["test-platform"],
-        Required("require-signed-extensions"): test_description_schema[
-            "require-signed-extensions"
-        ],
-        Required("treeherder-symbol"): test_description_schema["treeherder-symbol"],
-        # Any unrecognized keys will be validated against the test_description_schema.
-        Extra: object,
-    }
-)
+        Optional("lull-schedule"): optionally_keyed_by("subtest", "test-platform", str),
+        Optional("network-conditions"): optionally_keyed_by("subtest", list),
+    },
+    # Configs defined in the 'test_description_schema'.
+    Optional("max-run-time"): optionally_keyed_by(
+        "app", "subtest", "test-platform", test_description_schema["max-run-time"]
+    ),
+    Optional("run-on-projects"): optionally_keyed_by(
+        "app",
+        "test-name",
+        "raptor.test",
+        "subtest",
+        "variant",
+        test_description_schema["run-on-projects"],
+    ),
+    Optional("variants"): test_description_schema["variants"],
+    Optional("target"): optionally_keyed_by("app", test_description_schema["target"]),
+    Optional("tier"): optionally_keyed_by(
+        "app", "raptor.test", "subtest", "variant", test_description_schema["tier"]
+    ),
+    Required("test-name"): test_description_schema["test-name"],
+    Required("test-platform"): test_description_schema["test-platform"],
+    Required("require-signed-extensions"): test_description_schema[
+        "require-signed-extensions"
+    ],
+    Required("treeherder-symbol"): test_description_schema["treeherder-symbol"],
+    # Any unrecognized keys will be validated against the test_description_schema.
+    Extra: object,
+})
 
 transforms.add_validate(raptor_description_schema)
 
@@ -141,7 +135,9 @@ def split_raptor_subtests(config, tests):
         # test job for every subtest (i.e. split out each page-load URL into its own job)
         subtests = test["raptor"].pop("subtests", None)
         if not subtests:
-            if "macosx1400" not in test["test-platform"]:
+            if all(
+                p not in test["test-platform"] for p in ("macosx1400", "macosx1500")
+            ):
                 yield test
             continue
 
@@ -209,12 +205,10 @@ def handle_network_conditions(config, tests):
             mozharness = new_test.setdefault("mozharness", {})
             extra_options = mozharness.setdefault("extra-options", [])
 
-            extra_options.extend(
-                [
-                    f"--browsertime-arg=network_type={network_type}",
-                    f"--browsertime-arg=pkt_loss_rate={packet_loss_rate}",
-                ]
-            )
+            extra_options.extend([
+                f"--browsertime-arg=network_type={network_type}",
+                f"--browsertime-arg=pkt_loss_rate={packet_loss_rate}",
+            ])
 
             new_test["test-name"] += f"-{subtest}-{network_type}-{packet_loss_rate}"
             new_test["try-name"] += f"-{subtest}-{network_type}-{packet_loss_rate}"
@@ -306,6 +300,16 @@ def modify_extra_options(config, tests):
                 if "extra-profiler-run" in opt:
                     if i:
                         extra_options.pop(i)
+                    break
+
+        if "jetstream" in test_name and test.get("app", "") in ("chrome", "custom-car"):
+            # Bug 1996836 - Disable jetstream 2/3 extra profile runs
+            extra_options = test.setdefault("mozharness", {}).setdefault(
+                "extra-options", []
+            )
+            for i, opt in enumerate(extra_options):
+                if "extra-profiler-run" in opt:
+                    extra_options.pop(i)
                     break
 
         yield test
@@ -446,4 +450,72 @@ def setup_lull_schedule(config, tasks):
             # so that it can be accessible through mozci
             lull_schedule = attrs.pop("lull-schedule")
             task.setdefault("extra", {})["lull-schedule"] = lull_schedule
+        yield task
+
+
+@task_transforms.add
+def setup_internal_artifacts(config, tasks):
+    for task in tasks:
+        if (
+            task["worker"]["os"] == "linux-bitbar"
+            or task["worker"]["os"] == "linux-lambda"
+        ):
+            task["worker"].setdefault("artifacts", []).append({
+                "name": "perftest",
+                "path": "workspace/build/perftest",
+                "type": "directory",
+            })
+        else:
+            task["worker"].setdefault("artifacts", []).append({
+                "name": "perftest",
+                "path": "build/perftest",
+                "type": "directory",
+            })
+        yield task
+
+
+@task_transforms.add
+def select_tasks_to_lambda(config, tasks):
+    """
+    all motionmark tests
+    unity-webgl test
+    all non-power-testing youtube-playback tests
+    all vpl (video-playback-latency) tests
+    all pageload tests (ideally fenix/CaR/ChR)
+
+    """
+    tests_to_run_at_lambdatest = [
+        "motionmark-1-3",
+        "motionmark-htmlsuite-1-3",
+        "unity-webgl",
+        "video-playback-latency",
+        "youtube-playback-av1-sfr",
+        "youtube-playback-hfr",
+        "youtube-playback-vp9-sfr",
+        "tp6m",
+    ]
+
+    for task in tasks:
+        if "android" in task["label"] and "a55" in task["label"]:
+            if any([t in task["label"] for t in tests_to_run_at_lambdatest]):
+                if task["worker-type"] == "t-bitbar-gw-perf-a55":
+                    task["tags"]["os"] = "linux-lambda"
+                    task["worker"]["os"] = "linux-lambda"
+                    task["worker-type"] = "t-lambda-perf-a55"
+                    task["worker"]["env"]["TASKCLUSTER_WORKER_TYPE"] = (
+                        "t-lambda-perf-a55"
+                    )
+                    cmds = []
+                    for cmd in task["worker"]["command"]:
+                        # Bug 1981862 - issues with condprof setup @ lambdatest
+                        cmds.append([
+                            c.replace(
+                                "/builds/taskcluster/script.py",
+                                "/home/ltuser/taskcluster/script.py",
+                            )
+                            for c in cmd
+                            if not c.startswith("--conditioned-profile")
+                        ])
+                    task["worker"]["command"] = cmds
+                    task["worker"]["env"]["DISABLE_USB_POWER_METER_RESET"] = "1"
         yield task

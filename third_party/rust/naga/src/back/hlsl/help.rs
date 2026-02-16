@@ -26,20 +26,34 @@ int dim_1d = NagaDimensions1D(image_1d);
 ```
 */
 
+use alloc::format;
+use core::fmt::Write;
+
 use super::{
     super::FunctionCtx,
     writer::{
-        ABS_FUNCTION, DIV_FUNCTION, EXTRACT_BITS_FUNCTION, INSERT_BITS_FUNCTION, MOD_FUNCTION,
-        NEG_FUNCTION,
+        ABS_FUNCTION, DIV_FUNCTION, EXTRACT_BITS_FUNCTION, F2I32_FUNCTION, F2I64_FUNCTION,
+        F2U32_FUNCTION, F2U64_FUNCTION, IMAGE_LOAD_EXTERNAL_FUNCTION,
+        IMAGE_SAMPLE_BASE_CLAMP_TO_EDGE_FUNCTION, INSERT_BITS_FUNCTION, MOD_FUNCTION, NEG_FUNCTION,
     },
-    BackendResult,
+    BackendResult, WrappedType,
 };
 use crate::{arena::Handle, proc::NameKey, ScalarKind};
-use std::fmt::Write;
 
 #[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) struct WrappedArrayLength {
     pub(super) writable: bool,
+}
+
+#[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct WrappedImageLoad {
+    pub(super) class: crate::ImageClass,
+}
+
+#[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct WrappedImageSample {
+    pub(super) class: crate::ImageClass,
+    pub(super) clamp_to_edge: bool,
 }
 
 #[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
@@ -93,6 +107,15 @@ pub(super) struct WrappedBinaryOp {
     // binary ops with other types, we'll need a better representation.
     pub(super) left_ty: (Option<crate::VectorSize>, crate::Scalar),
     pub(super) right_ty: (Option<crate::VectorSize>, crate::Scalar),
+}
+
+#[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct WrappedCast {
+    // This can only represent scalar or vector types. If we ever need to wrap
+    // casts with other types, we'll need a better representation.
+    pub(super) vector_size: Option<crate::VectorSize>,
+    pub(super) src_scalar: crate::Scalar,
+    pub(super) dst_scalar: crate::Scalar,
 }
 
 /// HLSL backend requires its own `ImageQuery` enum.
@@ -178,6 +201,11 @@ impl<W: Write> super::Writer<'_, W> {
                 let storage_format_str = format.to_hlsl_str();
                 write!(self.out, "<{storage_format_str}>")?
             }
+            crate::ImageClass::External => {
+                unreachable!(
+                    "external images should be handled by `write_global_external_texture`"
+                );
+            }
         }
         Ok(())
     }
@@ -236,6 +264,302 @@ impl<W: Write> super::Writer<'_, W> {
         Ok(())
     }
 
+    /// Helper function used by [`Self::write_wrapped_image_load_function`] and
+    /// [`Self::write_wrapped_image_sample_function`] to write the shared YUV
+    /// to RGB conversion code for external textures. Expects the preceding
+    /// code to declare the Y component as a `float` variable of name `y`, the
+    /// UV components as a `float2` variable of name `uv`, and the external
+    /// texture params as a variable of name `params`. The emitted code will
+    /// return the result.
+    fn write_convert_yuv_to_rgb_and_return(
+        &mut self,
+        level: crate::back::Level,
+        y: &str,
+        uv: &str,
+        params: &str,
+    ) -> BackendResult {
+        let l1 = level;
+        let l2 = l1.next();
+
+        // Convert from YUV to non-linear RGB in the source color space. We
+        // declare our matrices as row_major in HLSL, therefore we must reverse
+        // the order of this multiplication
+        writeln!(
+            self.out,
+            "{l1}float3 srcGammaRgb = mul(float4({y}, {uv}, 1.0), {params}.yuv_conversion_matrix).rgb;"
+        )?;
+
+        // Apply the inverse of the source transfer function to convert to
+        // linear RGB in the source color space.
+        writeln!(
+            self.out,
+            "{l1}float3 srcLinearRgb = srcGammaRgb < {params}.src_tf.k * {params}.src_tf.b ?"
+        )?;
+        writeln!(self.out, "{l2}srcGammaRgb / {params}.src_tf.k :")?;
+        writeln!(self.out, "{l2}pow((srcGammaRgb + {params}.src_tf.a - 1.0) / {params}.src_tf.a, {params}.src_tf.g);")?;
+
+        // Multiply by the gamut conversion matrix to convert to linear RGB in
+        // the destination color space. We declare our matrices as row_major in
+        // HLSL, therefore we must reverse the order of this multiplication.
+        writeln!(
+            self.out,
+            "{l1}float3 dstLinearRgb = mul(srcLinearRgb, {params}.gamut_conversion_matrix);"
+        )?;
+
+        // Finally, apply the dest transfer function to convert to non-linear
+        // RGB in the destination color space, and return the result.
+        writeln!(
+            self.out,
+            "{l1}float3 dstGammaRgb = dstLinearRgb < {params}.dst_tf.b ?"
+        )?;
+        writeln!(self.out, "{l2}{params}.dst_tf.k * dstLinearRgb :")?;
+        writeln!(self.out, "{l2}{params}.dst_tf.a * pow(dstLinearRgb, 1.0 / {params}.dst_tf.g) - ({params}.dst_tf.a - 1);")?;
+
+        writeln!(self.out, "{l1}return float4(dstGammaRgb, 1.0);")?;
+        Ok(())
+    }
+
+    pub(super) fn write_wrapped_image_load_function(
+        &mut self,
+        module: &crate::Module,
+        load: WrappedImageLoad,
+    ) -> BackendResult {
+        match load {
+            WrappedImageLoad {
+                class: crate::ImageClass::External,
+            } => {
+                let l1 = crate::back::Level(1);
+                let l2 = l1.next();
+                let l3 = l2.next();
+                let params_ty_name = &self.names
+                    [&NameKey::Type(module.special_types.external_texture_params.unwrap())];
+                writeln!(self.out, "float4 {IMAGE_LOAD_EXTERNAL_FUNCTION}(")?;
+                writeln!(self.out, "{l1}Texture2D<float4> plane0,")?;
+                writeln!(self.out, "{l1}Texture2D<float4> plane1,")?;
+                writeln!(self.out, "{l1}Texture2D<float4> plane2,")?;
+                writeln!(self.out, "{l1}{params_ty_name} params,")?;
+                writeln!(self.out, "{l1}uint2 coords)")?;
+                writeln!(self.out, "{{")?;
+                writeln!(self.out, "{l1}uint2 plane0_size;")?;
+                writeln!(
+                    self.out,
+                    "{l1}plane0.GetDimensions(plane0_size.x, plane0_size.y);"
+                )?;
+                // Clamp coords to provided size of external texture to prevent OOB read.
+                // If params.size is zero then clamp to the actual size of the texture.
+                writeln!(
+                    self.out,
+                    "{l1}uint2 cropped_size = any(params.size) ? params.size : plane0_size;"
+                )?;
+                writeln!(self.out, "{l1}coords = min(coords, cropped_size - 1);")?;
+
+                // Apply load transformation. We declare our matrices as row_major in
+                // HLSL, therefore we must reverse the order of this multiplication
+                writeln!(self.out, "{l1}float3x2 load_transform = float3x2(")?;
+                writeln!(self.out, "{l2}params.load_transform_0,")?;
+                writeln!(self.out, "{l2}params.load_transform_1,")?;
+                writeln!(self.out, "{l2}params.load_transform_2")?;
+                writeln!(self.out, "{l1});")?;
+                writeln!(self.out, "{l1}uint2 plane0_coords = uint2(round(mul(float3(coords, 1.0), load_transform)));")?;
+                writeln!(self.out, "{l1}if (params.num_planes == 1u) {{")?;
+                // For single plane, simply read from plane0
+                writeln!(
+                    self.out,
+                    "{l2}return plane0.Load(uint3(plane0_coords, 0u));"
+                )?;
+                writeln!(self.out, "{l1}}} else {{")?;
+
+                // Chroma planes may be subsampled so we must scale the coords accordingly.
+                writeln!(self.out, "{l2}uint2 plane1_size;")?;
+                writeln!(
+                    self.out,
+                    "{l2}plane1.GetDimensions(plane1_size.x, plane1_size.y);"
+                )?;
+                writeln!(self.out, "{l2}uint2 plane1_coords = uint2(floor(float2(plane0_coords) * float2(plane1_size) / float2(plane0_size)));")?;
+
+                // For multi-plane, read the Y value from plane 0
+                writeln!(
+                    self.out,
+                    "{l2}float y = plane0.Load(uint3(plane0_coords, 0u)).x;"
+                )?;
+
+                writeln!(self.out, "{l2}float2 uv;")?;
+                writeln!(self.out, "{l2}if (params.num_planes == 2u) {{")?;
+                // Read UV from interleaved plane 1
+                writeln!(
+                    self.out,
+                    "{l3}uv = plane1.Load(uint3(plane1_coords, 0u)).xy;"
+                )?;
+                writeln!(self.out, "{l2}}} else {{")?;
+                // Read U and V from planes 1 and 2 respectively
+                writeln!(self.out, "{l3}uint2 plane2_size;")?;
+                writeln!(
+                    self.out,
+                    "{l3}plane2.GetDimensions(plane2_size.x, plane2_size.y);"
+                )?;
+                writeln!(self.out, "{l3}uint2 plane2_coords = uint2(floor(float2(plane0_coords) * float2(plane2_size) / float2(plane0_size)));")?;
+                writeln!(self.out, "{l3}uv = float2(plane1.Load(uint3(plane1_coords, 0u)).x, plane2.Load(uint3(plane2_coords, 0u)).x);")?;
+                writeln!(self.out, "{l2}}}")?;
+
+                self.write_convert_yuv_to_rgb_and_return(l2, "y", "uv", "params")?;
+
+                writeln!(self.out, "{l1}}}")?;
+                writeln!(self.out, "}}")?;
+                writeln!(self.out)?;
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn write_wrapped_image_sample_function(
+        &mut self,
+        module: &crate::Module,
+        sample: WrappedImageSample,
+    ) -> BackendResult {
+        match sample {
+            WrappedImageSample {
+                class: crate::ImageClass::External,
+                clamp_to_edge: true,
+            } => {
+                let l1 = crate::back::Level(1);
+                let l2 = l1.next();
+                let l3 = l2.next();
+                let params_ty_name = &self.names
+                    [&NameKey::Type(module.special_types.external_texture_params.unwrap())];
+                writeln!(
+                    self.out,
+                    "float4 {IMAGE_SAMPLE_BASE_CLAMP_TO_EDGE_FUNCTION}("
+                )?;
+                writeln!(self.out, "{l1}Texture2D<float4> plane0,")?;
+                writeln!(self.out, "{l1}Texture2D<float4> plane1,")?;
+                writeln!(self.out, "{l1}Texture2D<float4> plane2,")?;
+                writeln!(self.out, "{l1}{params_ty_name} params,")?;
+                writeln!(self.out, "{l1}SamplerState samp,")?;
+                writeln!(self.out, "{l1}float2 coords)")?;
+                writeln!(self.out, "{{")?;
+                writeln!(self.out, "{l1}float2 plane0_size;")?;
+                writeln!(
+                    self.out,
+                    "{l1}plane0.GetDimensions(plane0_size.x, plane0_size.y);"
+                )?;
+                writeln!(self.out, "{l1}float3x2 sample_transform = float3x2(")?;
+                writeln!(self.out, "{l2}params.sample_transform_0,")?;
+                writeln!(self.out, "{l2}params.sample_transform_1,")?;
+                writeln!(self.out, "{l2}params.sample_transform_2")?;
+                writeln!(self.out, "{l1});")?;
+                // Apply sample transformation. We declare our matrices as row_major in
+                // HLSL, therefore we must reverse the order of this multiplication
+                writeln!(
+                    self.out,
+                    "{l1}coords = mul(float3(coords, 1.0), sample_transform);"
+                )?;
+                // Calculate the sample bounds. The purported size of the texture
+                // (params.size) is irrelevant here as we are dealing with normalized
+                // coordinates. Usually we would clamp to (0,0)..(1,1). However, we must
+                // apply the sample transformation to that, also bearing in mind that it
+                // may contain a flip on either axis. We calculate and adjust for the
+                // half-texel separately for each plane as it depends on the actual
+                // texture size which may vary between planes.
+                writeln!(
+                    self.out,
+                    "{l1}float2 bounds_min = mul(float3(0.0, 0.0, 1.0), sample_transform);"
+                )?;
+                writeln!(
+                    self.out,
+                    "{l1}float2 bounds_max = mul(float3(1.0, 1.0, 1.0), sample_transform);"
+                )?;
+                writeln!(self.out, "{l1}float4 bounds = float4(min(bounds_min, bounds_max), max(bounds_min, bounds_max));")?;
+                writeln!(
+                    self.out,
+                    "{l1}float2 plane0_half_texel = float2(0.5, 0.5) / plane0_size;"
+                )?;
+                writeln!(
+                    self.out,
+                    "{l1}float2 plane0_coords = clamp(coords, bounds.xy + plane0_half_texel, bounds.zw - plane0_half_texel);"
+                )?;
+                writeln!(self.out, "{l1}if (params.num_planes == 1u) {{")?;
+                // For single plane, simply sample from plane0
+                writeln!(
+                    self.out,
+                    "{l2}return plane0.SampleLevel(samp, plane0_coords, 0.0f);"
+                )?;
+                writeln!(self.out, "{l1}}} else {{")?;
+
+                writeln!(self.out, "{l2}float2 plane1_size;")?;
+                writeln!(
+                    self.out,
+                    "{l2}plane1.GetDimensions(plane1_size.x, plane1_size.y);"
+                )?;
+                writeln!(
+                    self.out,
+                    "{l2}float2 plane1_half_texel = float2(0.5, 0.5) / plane1_size;"
+                )?;
+                writeln!(
+                    self.out,
+                    "{l2}float2 plane1_coords = clamp(coords, bounds.xy + plane1_half_texel, bounds.zw - plane1_half_texel);"
+                )?;
+
+                // For multi-plane, sample the Y value from plane 0
+                writeln!(
+                    self.out,
+                    "{l2}float y = plane0.SampleLevel(samp, plane0_coords, 0.0f).x;"
+                )?;
+                writeln!(self.out, "{l2}float2 uv;")?;
+                writeln!(self.out, "{l2}if (params.num_planes == 2u) {{")?;
+                // Sample UV from interleaved plane 1
+                writeln!(
+                    self.out,
+                    "{l3}uv = plane1.SampleLevel(samp, plane1_coords, 0.0f).xy;"
+                )?;
+                writeln!(self.out, "{l2}}} else {{")?;
+                // Sample U and V from planes 1 and 2 respectively
+                writeln!(self.out, "{l3}float2 plane2_size;")?;
+                writeln!(
+                    self.out,
+                    "{l3}plane2.GetDimensions(plane2_size.x, plane2_size.y);"
+                )?;
+                writeln!(
+                    self.out,
+                    "{l3}float2 plane2_half_texel = float2(0.5, 0.5) / plane2_size;"
+                )?;
+                writeln!(self.out, "{l3}float2 plane2_coords = clamp(coords, bounds.xy + plane2_half_texel, bounds.zw - plane2_half_texel);")?;
+                writeln!(self.out, "{l3}uv = float2(plane1.SampleLevel(samp, plane1_coords, 0.0f).x, plane2.SampleLevel(samp, plane2_coords, 0.0f).x);")?;
+                writeln!(self.out, "{l2}}}")?;
+
+                self.write_convert_yuv_to_rgb_and_return(l2, "y", "uv", "params")?;
+
+                writeln!(self.out, "{l1}}}")?;
+                writeln!(self.out, "}}")?;
+                writeln!(self.out)?;
+            }
+            WrappedImageSample {
+                class:
+                    crate::ImageClass::Sampled {
+                        kind: ScalarKind::Float,
+                        multi: false,
+                    },
+                clamp_to_edge: true,
+            } => {
+                writeln!(self.out, "float4 {IMAGE_SAMPLE_BASE_CLAMP_TO_EDGE_FUNCTION}(Texture2D<float4> tex, SamplerState samp, float2 coords) {{")?;
+                let l1 = crate::back::Level(1);
+                writeln!(self.out, "{l1}float2 size;")?;
+                writeln!(self.out, "{l1}tex.GetDimensions(size.x, size.y);")?;
+                writeln!(self.out, "{l1}float2 half_texel = float2(0.5, 0.5) / size;")?;
+                writeln!(
+                    self.out,
+                    "{l1}return tex.SampleLevel(samp, clamp(coords, half_texel, 1.0 - half_texel), 0.0);"
+                )?;
+                writeln!(self.out, "}}")?;
+                writeln!(self.out)?;
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
     pub(super) fn write_wrapped_image_query_function_name(
         &mut self,
         query: WrappedImageQuery,
@@ -247,6 +571,7 @@ impl<W: Write> super::Writer<'_, W> {
             crate::ImageClass::Depth { multi: false } => "Depth",
             crate::ImageClass::Sampled { multi: false, .. } => "",
             crate::ImageClass::Storage { .. } => "RW",
+            crate::ImageClass::External => "External",
         };
         let arrayed_str = if query.arrayed { "Array" } else { "" };
         let query_str = match query.query {
@@ -277,101 +602,133 @@ impl<W: Write> super::Writer<'_, W> {
             ImageDimension as IDim,
         };
 
-        const ARGUMENT_VARIABLE_NAME: &str = "tex";
-        const RETURN_VARIABLE_NAME: &str = "ret";
-        const MIP_LEVEL_PARAM: &str = "mip_level";
+        match wiq.class {
+            crate::ImageClass::External => {
+                if wiq.query != ImageQuery::Size {
+                    return Err(super::Error::Custom(
+                        "External images only support `Size` queries".into(),
+                    ));
+                }
 
-        // Write function return type and name
-        let ret_ty = func_ctx.resolve_type(expr_handle, &module.types);
-        self.write_value_type(module, ret_ty)?;
-        write!(self.out, " ")?;
-        self.write_wrapped_image_query_function_name(wiq)?;
+                write!(self.out, "uint2 ")?;
+                self.write_wrapped_image_query_function_name(wiq)?;
+                let params_name = &self.names
+                    [&NameKey::Type(module.special_types.external_texture_params.unwrap())];
+                // Only plane0 and params are used by this implementation, but it's easier to
+                // always take all of them as arguments so that we can unconditionally expand an
+                // external texture expression each of its parts.
+                writeln!(self.out, "(Texture2D<float4> plane0, Texture2D<float4> plane1, Texture2D<float4> plane2, {params_name} params) {{")?;
+                let l1 = crate::back::Level(1);
+                let l2 = l1.next();
+                writeln!(self.out, "{l1}if (any(params.size)) {{")?;
+                writeln!(self.out, "{l2}return params.size;")?;
+                writeln!(self.out, "{l1}}} else {{")?;
+                // params.size == (0, 0) indicates to query and return plane 0's actual size
+                writeln!(self.out, "{l2}uint2 ret;")?;
+                writeln!(self.out, "{l2}plane0.GetDimensions(ret.x, ret.y);")?;
+                writeln!(self.out, "{l2}return ret;")?;
+                writeln!(self.out, "{l1}}}")?;
+                writeln!(self.out, "}}")?;
+                writeln!(self.out)?;
+            }
+            _ => {
+                const ARGUMENT_VARIABLE_NAME: &str = "tex";
+                const RETURN_VARIABLE_NAME: &str = "ret";
+                const MIP_LEVEL_PARAM: &str = "mip_level";
 
-        // Write function parameters
-        write!(self.out, "(")?;
-        // Texture always first parameter
-        self.write_image_type(wiq.dim, wiq.arrayed, wiq.class)?;
-        write!(self.out, " {ARGUMENT_VARIABLE_NAME}")?;
-        // Mipmap is a second parameter if exists
-        if let ImageQuery::SizeLevel = wiq.query {
-            write!(self.out, ", uint {MIP_LEVEL_PARAM}")?;
-        }
-        writeln!(self.out, ")")?;
+                // Write function return type and name
+                let ret_ty = func_ctx.resolve_type(expr_handle, &module.types);
+                self.write_value_type(module, ret_ty)?;
+                write!(self.out, " ")?;
+                self.write_wrapped_image_query_function_name(wiq)?;
 
-        // Write function body
-        writeln!(self.out, "{{")?;
+                // Write function parameters
+                write!(self.out, "(")?;
+                // Texture always first parameter
+                self.write_image_type(wiq.dim, wiq.arrayed, wiq.class)?;
+                write!(self.out, " {ARGUMENT_VARIABLE_NAME}")?;
+                // Mipmap is a second parameter if exists
+                if let ImageQuery::SizeLevel = wiq.query {
+                    write!(self.out, ", uint {MIP_LEVEL_PARAM}")?;
+                }
+                writeln!(self.out, ")")?;
 
-        let array_coords = usize::from(wiq.arrayed);
-        // extra parameter is the mip level count or the sample count
-        let extra_coords = match wiq.class {
-            crate::ImageClass::Storage { .. } => 0,
-            crate::ImageClass::Sampled { .. } | crate::ImageClass::Depth { .. } => 1,
-        };
+                // Write function body
+                writeln!(self.out, "{{")?;
 
-        // GetDimensions Overloaded Methods
-        // https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-to-getdimensions#overloaded-methods
-        let (ret_swizzle, number_of_params) = match wiq.query {
-            ImageQuery::Size | ImageQuery::SizeLevel => {
-                let ret = match wiq.dim {
-                    IDim::D1 => "x",
-                    IDim::D2 => "xy",
-                    IDim::D3 => "xyz",
-                    IDim::Cube => "xy",
+                let array_coords = usize::from(wiq.arrayed);
+                // extra parameter is the mip level count or the sample count
+                let extra_coords = match wiq.class {
+                    crate::ImageClass::Storage { .. } => 0,
+                    crate::ImageClass::Sampled { .. } | crate::ImageClass::Depth { .. } => 1,
+                    crate::ImageClass::External => unreachable!(),
                 };
-                (ret, ret.len() + array_coords + extra_coords)
-            }
-            ImageQuery::NumLevels | ImageQuery::NumSamples | ImageQuery::NumLayers => {
-                if wiq.arrayed || wiq.dim == IDim::D3 {
-                    ("w", 4)
-                } else {
-                    ("z", 3)
+
+                // GetDimensions Overloaded Methods
+                // https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-to-getdimensions#overloaded-methods
+                let (ret_swizzle, number_of_params) = match wiq.query {
+                    ImageQuery::Size | ImageQuery::SizeLevel => {
+                        let ret = match wiq.dim {
+                            IDim::D1 => "x",
+                            IDim::D2 => "xy",
+                            IDim::D3 => "xyz",
+                            IDim::Cube => "xy",
+                        };
+                        (ret, ret.len() + array_coords + extra_coords)
+                    }
+                    ImageQuery::NumLevels | ImageQuery::NumSamples | ImageQuery::NumLayers => {
+                        if wiq.arrayed || wiq.dim == IDim::D3 {
+                            ("w", 4)
+                        } else {
+                            ("z", 3)
+                        }
+                    }
+                };
+
+                // Write `GetDimensions` function.
+                writeln!(self.out, "{INDENT}uint4 {RETURN_VARIABLE_NAME};")?;
+                write!(self.out, "{INDENT}{ARGUMENT_VARIABLE_NAME}.GetDimensions(")?;
+                match wiq.query {
+                    ImageQuery::SizeLevel => {
+                        write!(self.out, "{MIP_LEVEL_PARAM}, ")?;
+                    }
+                    _ => match wiq.class {
+                        crate::ImageClass::Sampled { multi: true, .. }
+                        | crate::ImageClass::Depth { multi: true }
+                        | crate::ImageClass::Storage { .. } => {}
+                        _ => {
+                            // Write zero mipmap level for supported types
+                            write!(self.out, "0, ")?;
+                        }
+                    },
                 }
-            }
-        };
 
-        // Write `GetDimensions` function.
-        writeln!(self.out, "{INDENT}uint4 {RETURN_VARIABLE_NAME};")?;
-        write!(self.out, "{INDENT}{ARGUMENT_VARIABLE_NAME}.GetDimensions(")?;
-        match wiq.query {
-            ImageQuery::SizeLevel => {
-                write!(self.out, "{MIP_LEVEL_PARAM}, ")?;
-            }
-            _ => match wiq.class {
-                crate::ImageClass::Sampled { multi: true, .. }
-                | crate::ImageClass::Depth { multi: true }
-                | crate::ImageClass::Storage { .. } => {}
-                _ => {
-                    // Write zero mipmap level for supported types
-                    write!(self.out, "0, ")?;
+                for component in COMPONENTS[..number_of_params - 1].iter() {
+                    write!(self.out, "{RETURN_VARIABLE_NAME}.{component}, ")?;
                 }
-            },
+
+                // write last parameter without comma and space for last parameter
+                write!(
+                    self.out,
+                    "{}.{}",
+                    RETURN_VARIABLE_NAME,
+                    COMPONENTS[number_of_params - 1]
+                )?;
+
+                writeln!(self.out, ");")?;
+
+                // Write return value
+                writeln!(
+                    self.out,
+                    "{INDENT}return {RETURN_VARIABLE_NAME}.{ret_swizzle};"
+                )?;
+
+                // End of function body
+                writeln!(self.out, "}}")?;
+                // Write extra new line
+                writeln!(self.out)?;
+            }
         }
-
-        for component in COMPONENTS[..number_of_params - 1].iter() {
-            write!(self.out, "{RETURN_VARIABLE_NAME}.{component}, ")?;
-        }
-
-        // write last parameter without comma and space for last parameter
-        write!(
-            self.out,
-            "{}.{}",
-            RETURN_VARIABLE_NAME,
-            COMPONENTS[number_of_params - 1]
-        )?;
-
-        writeln!(self.out, ");")?;
-
-        // Write return value
-        writeln!(
-            self.out,
-            "{INDENT}return {RETURN_VARIABLE_NAME}.{ret_swizzle};"
-        )?;
-
-        // End of function body
-        writeln!(self.out, "}}")?;
-        // Write extra new line
-        writeln!(self.out)?;
-
         Ok(())
     }
 
@@ -937,7 +1294,7 @@ impl<W: Write> super::Writer<'_, W> {
                     match module.types[ty].inner {
                         crate::TypeInner::Struct { .. } | crate::TypeInner::Array { .. } => {
                             let constructor = WrappedConstructor { ty };
-                            if self.wrapped.constructors.insert(constructor) {
+                            if self.wrapped.insert(WrappedType::Constructor(constructor)) {
                                 self.write_wrapped_constructor_function(module, constructor)?;
                             }
                         }
@@ -953,7 +1310,7 @@ impl<W: Write> super::Writer<'_, W> {
                         } => {
                             if format.single_component() {
                                 let scalar: crate::Scalar = format.into();
-                                if self.wrapped.image_load_scalars.insert(scalar) {
+                                if self.wrapped.insert(WrappedType::ImageLoadScalar(scalar)) {
                                     self.write_loaded_scalar_to_storage_loaded_value(scalar)?;
                                 }
                             }
@@ -989,7 +1346,7 @@ impl<W: Write> super::Writer<'_, W> {
         for (handle, _) in expressions.iter() {
             if let crate::Expression::ZeroValue(ty) = expressions[handle] {
                 let zero_value = WrappedZeroValue { ty };
-                if self.wrapped.zero_values.insert(zero_value) {
+                if self.wrapped.insert(WrappedType::ZeroValue(zero_value)) {
                     self.write_wrapped_zero_value_function(module, zero_value)?;
                 }
             }
@@ -1036,7 +1393,7 @@ impl<W: Write> super::Writer<'_, W> {
                             components,
                         };
 
-                        if !self.wrapped.math.insert(wrapped) {
+                        if !self.wrapped.insert(WrappedType::Math(wrapped)) {
                             continue;
                         }
 
@@ -1078,7 +1435,7 @@ impl<W: Write> super::Writer<'_, W> {
                             components,
                         };
 
-                        if !self.wrapped.math.insert(wrapped) {
+                        if !self.wrapped.insert(WrappedType::Math(wrapped)) {
                             continue;
                         }
 
@@ -1147,7 +1504,7 @@ impl<W: Write> super::Writer<'_, W> {
                             components,
                         };
 
-                        if !self.wrapped.math.insert(wrapped) {
+                        if !self.wrapped.insert(WrappedType::Math(wrapped)) {
                             continue;
                         }
 
@@ -1198,7 +1555,7 @@ impl<W: Write> super::Writer<'_, W> {
                 // find another solution for different bit-widths.
                 match (op, scalar) {
                     (crate::UnaryOperator::Negate, crate::Scalar::I32) => {
-                        if !self.wrapped.unary_op.insert(wrapped) {
+                        if !self.wrapped.insert(WrappedType::UnaryOp(wrapped)) {
                             continue;
                         }
 
@@ -1259,7 +1616,7 @@ impl<W: Write> super::Writer<'_, W> {
                             left_ty: left_wrapped_ty,
                             right_ty: right_wrapped_ty,
                         };
-                        if !self.wrapped.binary_op.insert(wrapped) {
+                        if !self.wrapped.insert(WrappedType::BinaryOp(wrapped)) {
                             continue;
                         }
 
@@ -1272,8 +1629,16 @@ impl<W: Write> super::Writer<'_, W> {
                         let level = crate::back::Level(1);
                         match scalar.kind {
                             ScalarKind::Sint => {
-                                let min = -1i64 << (scalar.width as u32 * 8 - 1);
-                                writeln!(self.out, "{level}return lhs / (((lhs == {min} & rhs == -1) | (rhs == 0)) ? 1 : rhs);")?
+                                let min_val = match scalar.width {
+                                    4 => crate::Literal::I32(i32::MIN),
+                                    8 => crate::Literal::I64(i64::MIN),
+                                    _ => {
+                                        return Err(super::Error::UnsupportedScalar(scalar));
+                                    }
+                                };
+                                write!(self.out, "{level}return lhs / (((lhs == ")?;
+                                self.write_literal(min_val)?;
+                                writeln!(self.out, " & rhs == -1) | (rhs == 0)) ? 1 : rhs);")?
                             }
                             ScalarKind::Uint => {
                                 writeln!(self.out, "{level}return lhs / (rhs == 0u ? 1u : rhs);")?
@@ -1299,7 +1664,7 @@ impl<W: Write> super::Writer<'_, W> {
                         crate::BinaryOperator::Modulo,
                         Some(
                             scalar @ crate::Scalar {
-                                kind: ScalarKind::Sint | ScalarKind::Uint,
+                                kind: ScalarKind::Sint | ScalarKind::Uint | ScalarKind::Float,
                                 ..
                             },
                         ),
@@ -1315,7 +1680,7 @@ impl<W: Write> super::Writer<'_, W> {
                             left_ty: left_wrapped_ty,
                             right_ty: right_wrapped_ty,
                         };
-                        if !self.wrapped.binary_op.insert(wrapped) {
+                        if !self.wrapped.insert(WrappedType::BinaryOp(wrapped)) {
                             continue;
                         }
 
@@ -1328,10 +1693,18 @@ impl<W: Write> super::Writer<'_, W> {
                         let level = crate::back::Level(1);
                         match scalar.kind {
                             ScalarKind::Sint => {
-                                let min = -1i64 << (scalar.width as u32 * 8 - 1);
+                                let min_val = match scalar.width {
+                                    4 => crate::Literal::I32(i32::MIN),
+                                    8 => crate::Literal::I64(i64::MIN),
+                                    _ => {
+                                        return Err(super::Error::UnsupportedScalar(scalar));
+                                    }
+                                };
                                 write!(self.out, "{level}")?;
                                 self.write_value_type(module, right_ty)?;
-                                writeln!(self.out, " divisor = ((lhs == {min} & rhs == -1) | (rhs == 0)) ? 1 : rhs;")?;
+                                write!(self.out, " divisor = ((lhs == ")?;
+                                self.write_literal(min_val)?;
+                                writeln!(self.out, " & rhs == -1) | (rhs == 0)) ? 1 : rhs;")?;
                                 writeln!(
                                     self.out,
                                     "{level}return lhs - (lhs / divisor) * divisor;"
@@ -1339,6 +1712,14 @@ impl<W: Write> super::Writer<'_, W> {
                             }
                             ScalarKind::Uint => {
                                 writeln!(self.out, "{level}return lhs % (rhs == 0u ? 1u : rhs);")?
+                            }
+                            // HLSL's fmod has the same definition as WGSL's % operator but due
+                            // to its implementation in DXC it is not as accurate as the WGSL spec
+                            // requires it to be. See:
+                            // - https://shader-playground.timjones.io/0c8572816dbb6fc4435cc5d016a978a7
+                            // - https://github.com/llvm/llvm-project/blob/50f9b8acafdca48e87e6b8e393c1f116a2d193ee/clang/lib/Headers/hlsl/hlsl_intrinsic_helpers.h#L78-L81
+                            ScalarKind::Float => {
+                                writeln!(self.out, "{level}return lhs - rhs * trunc(lhs / rhs);")?
                             }
                             _ => unreachable!(),
                         }
@@ -1353,6 +1734,97 @@ impl<W: Write> super::Writer<'_, W> {
         Ok(())
     }
 
+    fn write_wrapped_cast_functions(
+        &mut self,
+        module: &crate::Module,
+        func_ctx: &FunctionCtx,
+    ) -> BackendResult {
+        for (_, expression) in func_ctx.expressions.iter() {
+            if let crate::Expression::As {
+                expr,
+                kind,
+                convert: Some(width),
+            } = *expression
+            {
+                // Avoid undefined behaviour when casting from a float to integer
+                // when the value is out of range for the target type. Additionally
+                // ensure we clamp to the correct value as per the WGSL spec.
+                //
+                // https://www.w3.org/TR/WGSL/#floating-point-conversion:
+                // * If X is exactly representable in the target type T, then the
+                //   result is that value.
+                // * Otherwise, the result is the value in T closest to
+                //   truncate(X) and also exactly representable in the original
+                //   floating point type.
+                let src_ty = func_ctx.resolve_type(expr, &module.types);
+                let Some((vector_size, src_scalar)) = src_ty.vector_size_and_scalar() else {
+                    continue;
+                };
+                let dst_scalar = crate::Scalar { kind, width };
+                if src_scalar.kind != ScalarKind::Float
+                    || (dst_scalar.kind != ScalarKind::Sint && dst_scalar.kind != ScalarKind::Uint)
+                {
+                    continue;
+                }
+
+                let wrapped = WrappedCast {
+                    src_scalar,
+                    vector_size,
+                    dst_scalar,
+                };
+                if !self.wrapped.insert(WrappedType::Cast(wrapped)) {
+                    continue;
+                }
+
+                let (src_ty, dst_ty) = match vector_size {
+                    None => (
+                        crate::TypeInner::Scalar(src_scalar),
+                        crate::TypeInner::Scalar(dst_scalar),
+                    ),
+                    Some(vector_size) => (
+                        crate::TypeInner::Vector {
+                            scalar: src_scalar,
+                            size: vector_size,
+                        },
+                        crate::TypeInner::Vector {
+                            scalar: dst_scalar,
+                            size: vector_size,
+                        },
+                    ),
+                };
+                let (min, max) =
+                    crate::proc::min_max_float_representable_by(src_scalar, dst_scalar);
+                let cast_str = format!(
+                    "{}{}",
+                    dst_scalar.to_hlsl_str()?,
+                    vector_size
+                        .map(crate::common::vector_size_str)
+                        .unwrap_or(""),
+                );
+                let fun_name = match dst_scalar {
+                    crate::Scalar::I32 => F2I32_FUNCTION,
+                    crate::Scalar::U32 => F2U32_FUNCTION,
+                    crate::Scalar::I64 => F2I64_FUNCTION,
+                    crate::Scalar::U64 => F2U64_FUNCTION,
+                    _ => unreachable!(),
+                };
+                self.write_value_type(module, &dst_ty)?;
+                write!(self.out, " {fun_name}(")?;
+                self.write_value_type(module, &src_ty)?;
+                writeln!(self.out, " value) {{")?;
+                let level = crate::back::Level(1);
+                write!(self.out, "{level}return {cast_str}(clamp(value, ")?;
+                self.write_literal(min)?;
+                write!(self.out, ", ")?;
+                self.write_literal(max)?;
+                writeln!(self.out, "));",)?;
+                writeln!(self.out, "}}")?;
+                writeln!(self.out)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Helper function that writes various wrapped functions
     pub(super) fn write_wrapped_functions(
         &mut self,
@@ -1364,6 +1836,7 @@ impl<W: Write> super::Writer<'_, W> {
         self.write_wrapped_binary_ops(module, func_ctx)?;
         self.write_wrapped_expression_functions(module, func_ctx.expressions, Some(func_ctx))?;
         self.write_wrapped_zero_value_functions(module, func_ctx.expressions)?;
+        self.write_wrapped_cast_functions(module, func_ctx)?;
 
         for (handle, _) in func_ctx.expressions.iter() {
             match func_ctx.expressions[handle] {
@@ -1391,8 +1864,35 @@ impl<W: Write> super::Writer<'_, W> {
                         writable: storage_access.contains(crate::StorageAccess::STORE),
                     };
 
-                    if self.wrapped.array_lengths.insert(wal) {
+                    if self.wrapped.insert(WrappedType::ArrayLength(wal)) {
                         self.write_wrapped_array_length_function(wal)?;
+                    }
+                }
+                crate::Expression::ImageLoad { image, .. } => {
+                    let class = match *func_ctx.resolve_type(image, &module.types) {
+                        crate::TypeInner::Image { class, .. } => class,
+                        _ => unreachable!(),
+                    };
+                    let wrapped = WrappedImageLoad { class };
+                    if self.wrapped.insert(WrappedType::ImageLoad(wrapped)) {
+                        self.write_wrapped_image_load_function(module, wrapped)?;
+                    }
+                }
+                crate::Expression::ImageSample {
+                    image,
+                    clamp_to_edge,
+                    ..
+                } => {
+                    let class = match *func_ctx.resolve_type(image, &module.types) {
+                        crate::TypeInner::Image { class, .. } => class,
+                        _ => unreachable!(),
+                    };
+                    let wrapped = WrappedImageSample {
+                        class,
+                        clamp_to_edge,
+                    };
+                    if self.wrapped.insert(WrappedType::ImageSample(wrapped)) {
+                        self.write_wrapped_image_sample_function(module, wrapped)?;
                     }
                 }
                 crate::Expression::ImageQuery { image, query } => {
@@ -1410,7 +1910,7 @@ impl<W: Write> super::Writer<'_, W> {
                         _ => unreachable!("we only query images"),
                     };
 
-                    if self.wrapped.image_queries.insert(wiq) {
+                    if self.wrapped.insert(WrappedType::ImageQuery(wiq)) {
                         self.write_wrapped_image_query_function(module, wiq, handle, func_ctx)?;
                     }
                 }
@@ -1439,7 +1939,7 @@ impl<W: Write> super::Writer<'_, W> {
                                 }
 
                                 let constructor = WrappedConstructor { ty };
-                                if writer.wrapped.constructors.insert(constructor) {
+                                if writer.wrapped.insert(WrappedType::Constructor(constructor)) {
                                     writer
                                         .write_wrapped_constructor_function(module, constructor)?;
                                 }
@@ -1448,7 +1948,7 @@ impl<W: Write> super::Writer<'_, W> {
                                 write_wrapped_constructor(writer, base, module)?;
 
                                 let constructor = WrappedConstructor { ty };
-                                if writer.wrapped.constructors.insert(constructor) {
+                                if writer.wrapped.insert(WrappedType::Constructor(constructor)) {
                                     writer
                                         .write_wrapped_constructor_function(module, constructor)?;
                                 }
@@ -1484,7 +1984,7 @@ impl<W: Write> super::Writer<'_, W> {
                                 let ty = base_ty_handle.unwrap();
                                 let access = WrappedStructMatrixAccess { ty, index };
 
-                                if self.wrapped.struct_matrix_access.insert(access) {
+                                if self.wrapped.insert(WrappedType::StructMatrixAccess(access)) {
                                     self.write_wrapped_struct_matrix_get_function(module, access)?;
                                     self.write_wrapped_struct_matrix_set_function(module, access)?;
                                     self.write_wrapped_struct_matrix_set_vec_function(
@@ -1713,7 +2213,7 @@ impl<W: Write> super::Writer<'_, W> {
                 }) = super::writer::get_inner_matrix_data(module, global.ty)
                 {
                     let entry = WrappedMatCx2 { columns };
-                    if self.wrapped.mat_cx2s.insert(entry) {
+                    if self.wrapped.insert(WrappedType::MatCx2(entry)) {
                         self.write_mat_cx2_typedef_and_functions(entry)?;
                     }
                 }
@@ -1731,7 +2231,7 @@ impl<W: Write> super::Writer<'_, W> {
                         }) = super::writer::get_inner_matrix_data(module, member.ty)
                         {
                             let entry = WrappedMatCx2 { columns };
-                            if self.wrapped.mat_cx2s.insert(entry) {
+                            if self.wrapped.insert(WrappedType::MatCx2(entry)) {
                                 self.write_mat_cx2_typedef_and_functions(entry)?;
                             }
                         }
@@ -1774,8 +2274,6 @@ impl<W: Write> super::Writer<'_, W> {
         zero_value: WrappedZeroValue,
     ) -> BackendResult {
         use crate::back::INDENT;
-
-        const RETURN_VARIABLE_NAME: &str = "ret";
 
         // Write function return type and name
         if let crate::TypeInner::Array { base, size, .. } = module.types[zero_value.ty].inner {

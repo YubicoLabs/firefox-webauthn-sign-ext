@@ -59,8 +59,7 @@ const allowedLicenses = [
   'CC0-1.0',
   '0BSD',
 
-  // Combinations.
-  '(AFL-2.1 OR BSD-2-Clause)',
+  'AFL-2.1',
 ];
 
 // Name variations of SPDX licenses that some packages have.
@@ -85,19 +84,19 @@ const ignoredPackages = [
 // Check if a license is accepted by an array of accepted licenses
 function _passesSpdx(licenses: string[], accepted: string[]) {
   try {
-    return spdxSatisfies(licenses.join(' AND '), accepted.join(' OR '));
-  } catch {
-    return false;
+    return spdxSatisfies(licenses.join(' AND '), accepted);
+  } catch (error) {
+    console.error('error while checking licenses:', error);
+    process.exit(1);
   }
 }
 
 function main(): Promise<number> {
   return new Promise(resolve => {
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    const startFolder = join(__dirname, '..', '..');
+    const startFolder = join(import.meta.dirname, '..', '..');
     checker.init(
       {start: startFolder, excludePrivatePackages: true},
-      (err: Error, json: object) => {
+      (err: Error, json: Record<string, unknown>) => {
         if (err) {
           console.error(`Something happened:\n${err.message}`);
           resolve(1);
@@ -133,7 +132,7 @@ function main(): Promise<number> {
 
           // Report packages with bad licenses
           if (badLicensePackages.length > 0) {
-            console.error('Invalid package licences found:');
+            console.error('Invalid package licenses found:');
             badLicensePackages.forEach(pkg => {
               console.error(`${pkg.id}: ${JSON.stringify(pkg.licenses)}`);
             });

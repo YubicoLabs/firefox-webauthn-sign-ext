@@ -7,12 +7,12 @@ Returns the partial derivative of e with respect to window y coordinates.
 `;
 
 import { makeTestGroup } from '../../../../../../common/framework/test_group.js';
-import { GPUTest } from '../../../../../gpu_test.js';
+import { AllFeaturesMaxLimitsGPUTest } from '../../../../../gpu_test.js';
 
 import { d } from './derivatives.cache.js';
 import { runDerivativeTest } from './derivatives.js';
 
-export const g = makeTestGroup(GPUTest);
+export const g = makeTestGroup(AllFeaturesMaxLimitsGPUTest);
 
 const builtin = 'dpdyFine';
 
@@ -24,6 +24,7 @@ g.test('f32')
       .combine('non_uniform_discard', [false, true])
   )
   .fn(async t => {
+    t.skipIf(t.isCompatibility, `${builtin} not supported in compatibility mode`);
     const cases = await d.get('scalar');
     runDerivativeTest(t, cases, builtin, t.params.non_uniform_discard, t.params.vectorize);
   });

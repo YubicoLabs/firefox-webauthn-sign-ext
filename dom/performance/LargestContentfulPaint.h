@@ -4,15 +4,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_LargestContentfulPaint_h___
-#define mozilla_dom_LargestContentfulPaint_h___
+#ifndef mozilla_dom_LargestContentfulPaint_h_
+#define mozilla_dom_LargestContentfulPaint_h_
 
-#include "nsCycleCollectionParticipant.h"
+#include "imgRequestProxy.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/PerformanceEntry.h"
 #include "mozilla/dom/PerformanceLargestContentfulPaintBinding.h"
-
-#include "imgRequestProxy.h"
+#include "nsCycleCollectionParticipant.h"
 
 class nsTextFrame;
 namespace mozilla::dom {
@@ -90,6 +89,8 @@ class LargestContentfulPaint final : public PerformanceEntry {
   DOMHighResTimeStamp RenderTime() const;
   DOMHighResTimeStamp LoadTime() const;
   DOMHighResTimeStamp StartTime() const override;
+  DOMHighResTimeStamp PaintTime() const { return RenderTime(); }
+  Nullable<DOMHighResTimeStamp> GetPresentationTime() const { return nullptr; }
 
   unsigned long Size() const { return mSize; }
   void GetId(nsAString& aId) const {

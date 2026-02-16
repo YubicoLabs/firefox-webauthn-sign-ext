@@ -11,7 +11,6 @@ import os
 import sys
 import traceback
 from pathlib import Path
-from typing import List
 
 from .base import (
     CommandContext,
@@ -363,6 +362,8 @@ To see more help for a specific command, run:
         log_level = logging.INFO
         if args.verbose:
             log_level = logging.DEBUG
+        elif args.quiet:
+            log_level = logging.ERROR
 
         self.log_manager.register_structured_logger(logging.getLogger("mach"))
 
@@ -451,7 +452,7 @@ To see more help for a specific command, run:
             # command's fault.
             self._print_error_header(argv, sys.stdout)
 
-            if len(other_frames):
+            if other_frames:
                 print(MODULE_ERROR_TEMPLATE % handler.name)
             else:
                 print(COMMAND_ERROR_TEMPLATE % handler.name)
@@ -476,17 +477,15 @@ To see more help for a specific command, run:
         fh.write(ERROR_FOOTER)
         fh.write("\n")
 
-        for l in traceback.format_exception_only(exc_type, exc_value):
-            fh.write(l)
-
-        fh.write("\n")
-        for l in traceback.format_list(stack):
+        for l in traceback.format_exception(
+            exc_type, exc_value, exc_value.__traceback__
+        ):
             fh.write(l)
 
         if not sentry_event_id:
             return
 
-        fh.write("\nSentry event ID: {}\n".format(sentry_event_id))
+        fh.write(f"\nSentry event ID: {sentry_event_id}\n")
 
     def load_settings(self):
         if not self.settings_loaded:
@@ -499,7 +498,7 @@ To see more help for a specific command, run:
             self.load_settings_by_file(setting_paths_to_pass)
             self.settings_loaded = True
 
-    def load_settings_by_file(self, paths: List[Path]):
+    def load_settings_by_file(self, paths: list[Path]):
         """Load the specified settings files.
 
         If a directory is specified, the following basenames will be
@@ -529,7 +528,7 @@ def get_argument_parser(context=None, action=CommandAction, topsrcdir=None):
 
     parser = ArgumentParser(
         add_help=False,
-        usage="%(prog)s [global arguments] " "command [command arguments]",
+        usage="%(prog)s [global arguments] command [command arguments]",
     )
 
     # WARNING!!! If you add a global argument here, also add it to the
@@ -538,13 +537,22 @@ def get_argument_parser(context=None, action=CommandAction, topsrcdir=None):
     # help messages are printed.
     global_group = parser.add_argument_group("Global Arguments")
 
-    global_group.add_argument(
+    verbosity = global_group.add_mutually_exclusive_group()
+    verbosity.add_argument(
         "-v",
         "--verbose",
         dest="verbose",
         action="store_true",
         default=False,
         help="Print verbose output.",
+    )
+    verbosity.add_argument(
+        "-q",
+        "--quiet",
+        dest="quiet",
+        action="store_true",
+        default=False,
+        help="Don't print as much output.",
     )
     global_group.add_argument(
         "-l",

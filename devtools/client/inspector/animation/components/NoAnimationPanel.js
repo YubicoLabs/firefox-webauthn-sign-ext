@@ -6,9 +6,9 @@
 
 const {
   Component,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   connect,
 } = require("resource://devtools/client/shared/vendor/react-redux.js");
@@ -40,9 +40,8 @@ class NoAnimationPanel extends Component {
       dom.p(null, L10N.getStr("panel.noAnimation")),
       dom.button({
         className:
-          "animation-element-picker devtools-button" +
+          "animation-element-picker devtools-button devtools-button-standalone" +
           (elementPickerEnabled ? " checked" : ""),
-        "data-standalone": true,
         onClick: event => {
           event.stopPropagation();
           toggleElementPicker();

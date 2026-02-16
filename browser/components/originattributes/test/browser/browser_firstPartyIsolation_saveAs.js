@@ -5,6 +5,10 @@
 
 "use strict";
 
+const { SearchService } = ChromeUtils.importESModule(
+  "moz-src:///toolkit/components/search/SearchService.sys.mjs"
+);
+
 Services.scriptloader.loadSubScript(
   "chrome://mochitests/content/browser/toolkit/content/tests/browser/common/mockTransfer.js",
   this
@@ -36,6 +40,7 @@ add_setup(async function () {
 
   await SpecialPowers.pushPrefEnv({
     set: [
+      ["test.wait300msAfterTabSwitch", true],
       ["privacy.firstparty.isolate", true],
       ["dom.security.https_first", false],
     ],
@@ -128,7 +133,7 @@ async function doCommandForFrameType() {
 
 add_task(async function test_setup() {
   // Make sure SearchService is ready for it to be called.
-  await Services.search.init();
+  await SearchService.init();
 });
 
 add_task(async function testContextMenuSaveAs() {

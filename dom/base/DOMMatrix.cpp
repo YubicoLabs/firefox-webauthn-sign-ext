@@ -9,15 +9,13 @@
 #include <cmath>
 #include <cstdint>
 #include <new>
+
 #include "ErrorList.h"
 #include "js/Conversions.h"
 #include "js/Equality.h"
 #include "js/StructuredClone.h"
 #include "js/Value.h"
-#include "mozilla/Casting.h"
 #include "mozilla/ErrorResult.h"
-#include "mozilla/FloatingPoint.h"
-#include "mozilla/MacroForEach.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/ServoCSSParser.h"
 #include "mozilla/dom/BindingDeclarations.h"
@@ -127,12 +125,19 @@ static bool ValidateAndFixupMatrixInit(DOMMatrixInit& aMatrixInit,
 void DOMMatrixReadOnly::SetDataFromMatrix2DInit(
     const DOMMatrix2DInit& aMatrixInit) {
   MOZ_ASSERT(Is2D());
-  mMatrix2D->_11 = aMatrixInit.mM11.Value();
-  mMatrix2D->_12 = aMatrixInit.mM12.Value();
-  mMatrix2D->_21 = aMatrixInit.mM21.Value();
-  mMatrix2D->_22 = aMatrixInit.mM22.Value();
-  mMatrix2D->_31 = aMatrixInit.mM41.Value();
-  mMatrix2D->_32 = aMatrixInit.mM42.Value();
+  *mMatrix2D = ToMatrixDouble(aMatrixInit);
+}
+
+gfx::MatrixDouble DOMMatrixReadOnly::ToMatrixDouble(
+    const DOMMatrix2DInit& aMatrixInit) {
+  gfx::MatrixDouble matrix{};
+  matrix._11 = aMatrixInit.mM11.Value();
+  matrix._12 = aMatrixInit.mM12.Value();
+  matrix._21 = aMatrixInit.mM21.Value();
+  matrix._22 = aMatrixInit.mM22.Value();
+  matrix._31 = aMatrixInit.mM41.Value();
+  matrix._32 = aMatrixInit.mM42.Value();
+  return matrix;
 }
 
 void DOMMatrixReadOnly::SetDataFromMatrixInit(
@@ -173,6 +178,16 @@ already_AddRefed<DOMMatrixReadOnly> DOMMatrixReadOnly::FromMatrix(
       new DOMMatrixReadOnly(aParent, /* is2D */ true);
   matrix->SetDataFromMatrix2DInit(matrixInit);
   return matrix.forget();
+}
+
+gfx::MatrixDouble DOMMatrixReadOnly::ToValidatedMatrixDouble(
+    const DOMMatrix2DInit& aMatrixInit, ErrorResult& aRv) {
+  DOMMatrix2DInit matrixInit(aMatrixInit);
+  if (!ValidateAndFixupMatrix2DInit(matrixInit, aRv)) {
+    return gfx::MatrixDouble{};
+  };
+
+  return ToMatrixDouble(matrixInit);
 }
 
 already_AddRefed<DOMMatrixReadOnly> DOMMatrixReadOnly::FromMatrix(
@@ -932,19 +947,42 @@ DOMMatrix* DOMMatrix::RotateSelf(double aRotX, const Optional<double>& aRotY,
   return this;
 }
 
+// https://drafts.fxtf.org/geometry/#dom-dommatrix-rotateaxisangleself
 DOMMatrix* DOMMatrix::RotateAxisAngleSelf(double aX, double aY, double aZ,
                                           double aAngle) {
+  // (Unspecified but rather obvious optimization)
   if (fmod(aAngle, 360) == 0) {
     return this;
   }
 
   aAngle *= radPerDegree;
 
-  Ensure3DMatrix();
+  // Step 1: Post-multiply a rotation transformation on the current matrix
+  // around the specified vector x, y, z by the specified rotation angle in
+  // degrees.
+  // (But actual multiplication happens below with step 2)
   gfx::Matrix4x4Double m;
   m.SetRotateAxisAngle(aX, aY, aZ, aAngle);
 
-  *mMatrix3D = m * *mMatrix3D;
+  // Step 2: If x or y are not 0 or -0, set is 2D of the current matrix to
+  // false.
+  // (But we don't have "is 2D" flag and need to multiply either 2D or 3D
+  // matrix)
+  if (mMatrix3D || aX != 0 || aY != 0) {
+    Ensure3DMatrix();
+    *mMatrix3D = m * *mMatrix3D;
+    return this;
+  }
+
+  gfx::Matrix4x4Double result = m * gfx::Matrix4x4Double::From2D(*mMatrix2D);
+  mMatrix2D->_11 = result._11;
+  mMatrix2D->_12 = result._12;
+  mMatrix2D->_21 = result._21;
+  mMatrix2D->_22 = result._22;
+
+  // Different field names, see ::From2D implementation
+  mMatrix2D->_31 = result._41;
+  mMatrix2D->_32 = result._42;
 
   return this;
 }

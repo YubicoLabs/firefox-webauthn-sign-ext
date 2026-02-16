@@ -26,7 +26,7 @@ enum HighlightType {
  *
  * See https://drafts.csswg.org/css-highlight-api-1/#highlight
  */
-[Pref="dom.customHighlightAPI.enabled", Exposed=Window]
+[Exposed=Window]
 interface Highlight {
 
   [Throws]
@@ -41,7 +41,7 @@ partial interface Highlight {
   // Iterating a setlike is not possible from C++ yet.
   // Therefore a separate data structure must be held and kept in sync.
   [Throws]
-  undefined add(AbstractRange range);
+  Highlight add(AbstractRange range);
   [Throws]
   undefined clear();
   [Throws]
@@ -53,7 +53,7 @@ partial interface Highlight {
  *
  * See https://drafts.csswg.org/css-highlight-api-1/#highlightregistry
  */
-[Pref="dom.customHighlightAPI.enabled", Exposed=Window]
+[Exposed=Window]
 interface HighlightRegistry {
   maplike<DOMString, Highlight>;
 };
@@ -63,7 +63,7 @@ partial interface HighlightRegistry {
   // Iterating a maplike is not possible from C++ yet.
   // Therefore, a separate data structure must be held and kept in sync.
   [Throws]
-  undefined set(DOMString key, Highlight value);
+  HighlightRegistry set(DOMString key, Highlight value);
   [Throws]
   undefined clear();
   [Throws]

@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsXPCOMCIDInternal_h__
-#define nsXPCOMCIDInternal_h__
+#ifndef nsXPCOMCIDInternal_h_
+#define nsXPCOMCIDInternal_h_
 
 #include "nsXPCOMCID.h"
 
@@ -13,12 +13,8 @@
  * A hashtable-based property bag component.
  * @implements nsIWritablePropertyBag, nsIWritablePropertyBag2
  */
-#define NS_HASH_PROPERTY_BAG_CID                     \
-  {                                                  \
-    0x678c50b8, 0x6bcb, 0x4ad0, {                    \
-      0xb9, 0xb8, 0xc8, 0x11, 0x75, 0x95, 0x51, 0x99 \
-    }                                                \
-  }
+#define NS_HASH_PROPERTY_BAG_CID \
+  {0x678c50b8, 0x6bcb, 0x4ad0, {0xb9, 0xb8, 0xc8, 0x11, 0x75, 0x95, 0x51, 0x99}}
 #define NS_HASH_PROPERTY_BAG_CONTRACTID "@mozilla.org/hash-property-bag;1"
 
 /**
@@ -46,4 +42,4 @@
  */
 #define XULRUNTIME_SERVICE_CONTRACTID "@mozilla.org/xre/runtime;1"
 
-#endif  // nsXPCOMCIDInternal_h__
+#endif  // nsXPCOMCIDInternal_h_

@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_serviceworkerregistrationparent_h__
-#define mozilla_dom_serviceworkerregistrationparent_h__
+#ifndef mozilla_dom_serviceworkerregistrationparent_h_
+#define mozilla_dom_serviceworkerregistrationparent_h_
 
 #include "mozilla/dom/PServiceWorkerRegistrationParent.h"
 
@@ -17,14 +17,11 @@ class ServiceWorkerRegistrationProxy;
 class ServiceWorkerRegistrationParent final
     : public PServiceWorkerRegistrationParent {
   RefPtr<ServiceWorkerRegistrationProxy> mProxy;
-  bool mDeleteSent;
 
   ~ServiceWorkerRegistrationParent();
 
   // PServiceWorkerRegistrationParent
   void ActorDestroy(ActorDestroyReason aReason) override;
-
-  mozilla::ipc::IPCResult RecvTeardown() override;
 
   mozilla::ipc::IPCResult RecvUnregister(
       UnregisterResolver&& aResolver) override;
@@ -49,6 +46,7 @@ class ServiceWorkerRegistrationParent final
  public:
   NS_INLINE_DECL_REFCOUNTING(ServiceWorkerRegistrationParent, override);
 
+  // If we default this we have to fully define ServiceWorkerRegistrationProxy.
   ServiceWorkerRegistrationParent();
 
   void Init(const IPCServiceWorkerRegistrationDescriptor& aDescriptor,
@@ -59,4 +57,4 @@ class ServiceWorkerRegistrationParent final
 
 }  // namespace mozilla::dom
 
-#endif  // mozilla_dom_serviceworkerregistrationparent_h__
+#endif  // mozilla_dom_serviceworkerregistrationparent_h_

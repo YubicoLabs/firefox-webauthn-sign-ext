@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef _NS_CERTTREE_H_
-#define _NS_CERTTREE_H_
+#ifndef NS_CERTTREE_H_
+#define NS_CERTTREE_H_
 
 #include "nsCOMPtr.h"
 #include "nsICertTree.h"
@@ -12,7 +12,6 @@
 #include "nsNSSComponent.h"
 #include "nsTArray.h"
 #include "PLDHashTable.h"
-#include "mozilla/Attributes.h"
 
 /* Disable the "base class XXX should be explicitly initialized
    in the copy constructor" warning. */
@@ -128,4 +127,4 @@ class nsCertTree : public nsICertTree {
   nsCOMPtr<nsIMutableArray> mCellText;
 };
 
-#endif /* _NS_CERTTREE_H_ */
+#endif /* NS_CERTTREE_H_ */

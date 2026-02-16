@@ -5,7 +5,6 @@
 #include "mojo/core/ports/event.h"
 
 #include <stdint.h>
-#include <string.h>
 
 #include "base/logging.h"
 #include "mojo/core/ports/name.h"
@@ -105,8 +104,6 @@ static_assert(sizeof(UpdatePreviousPeerEventData) % kPortsMessageAlignment == 0,
               "Invalid UpdatePreviousPeerEventData size.");
 
 }  // namespace
-
-Event::PortDescriptor::PortDescriptor() { memset(padding, 0, sizeof(padding)); }
 
 Event::~Event() = default;
 

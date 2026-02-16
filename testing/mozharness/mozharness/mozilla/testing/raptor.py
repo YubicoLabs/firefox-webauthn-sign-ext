@@ -17,7 +17,6 @@ import tempfile
 from shutil import copyfile, rmtree
 
 from mozsystemmonitor.resourcemonitor import SystemResourceMonitor
-from six import string_types
 
 import mozharness
 from mozharness.base.errors import PythonErrorList
@@ -73,9 +72,9 @@ RaptorErrorList = (
 # the users locally cached ffmpeg binary from from when the user
 # ran `./mach browsertime --setup`
 FFMPEG_LOCAL_CACHE = {
-    "mac": "ffmpeg-macos",
-    "linux": "ffmpeg-4.4.1-i686-static",
-    "win": "ffmpeg-4.4.1-full_build",
+    "mac": "ffmpeg-7.1",
+    "linux": "ffmpeg-master-latest-linux64-gpl-shared",
+    "win": "ffmpeg-n7.1-latest-win64-gpl-shared-7.1",
 }
 
 
@@ -284,7 +283,10 @@ class Raptor(
                     "dest": "gecko_profile",
                     "action": "store_true",
                     "default": False,
-                    "help": "Whether to profile the test run and save the profile results.",
+                    "help": (
+                        "Whether to profile the test run and save the profile results. "
+                        "Copy paste the parameters used in this profiling run directly from about:profiling in Nightly."
+                    ),
                 },
             ],
             [
@@ -664,7 +666,7 @@ class Raptor(
             ],
         )
         kwargs.setdefault("config", {})
-        super(Raptor, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         # Convenience
         self.workdir = self.query_abs_dirs()["abs_work_dir"]
@@ -771,21 +773,25 @@ class Raptor(
         if self.gecko_profile:
             gecko_results.append("--gecko-profile")
             if self.gecko_profile_interval:
-                gecko_results.extend(
-                    ["--gecko-profile-interval", str(self.gecko_profile_interval)]
-                )
+                gecko_results.extend([
+                    "--gecko-profile-interval",
+                    str(self.gecko_profile_interval),
+                ])
             if self.gecko_profile_entries:
-                gecko_results.extend(
-                    ["--gecko-profile-entries", str(self.gecko_profile_entries)]
-                )
+                gecko_results.extend([
+                    "--gecko-profile-entries",
+                    str(self.gecko_profile_entries),
+                ])
             if self.gecko_profile_features:
-                gecko_results.extend(
-                    ["--gecko-profile-features", self.gecko_profile_features]
-                )
+                gecko_results.extend([
+                    "--gecko-profile-features",
+                    self.gecko_profile_features,
+                ])
             if self.gecko_profile_threads:
-                gecko_results.extend(
-                    ["--gecko-profile-threads", self.gecko_profile_threads]
-                )
+                gecko_results.extend([
+                    "--gecko-profile-threads",
+                    self.gecko_profile_threads,
+                ])
         elif self.extra_profiler_run:
             gecko_results.append("--extra-profiler-run")
         return gecko_results
@@ -793,7 +799,7 @@ class Raptor(
     def query_abs_dirs(self):
         if self.abs_dirs:
             return self.abs_dirs
-        abs_dirs = super(Raptor, self).query_abs_dirs()
+        abs_dirs = super().query_abs_dirs()
         abs_dirs["abs_blob_upload_dir"] = os.path.join(
             abs_dirs["abs_work_dir"], "blobber_upload_dir"
         )
@@ -915,7 +921,7 @@ class Raptor(
                 self.chromium_dist_path = "/usr/bin/google-chrome"
             elif mac in self.platform_name():
                 self.chromium_dist_path = (
-                    "/Applications/Google Chrome.app/" "Contents/MacOS/Google Chrome"
+                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
                 )
             else:
                 self.error(
@@ -1079,36 +1085,30 @@ class Raptor(
         if self.config.get("verbose", False):
             options.extend(["--verbose"])
         if self.config.get("extra_prefs"):
-            options.extend(
-                ["--setpref={}".format(i) for i in self.config.get("extra_prefs")]
-            )
+            options.extend([f"--setpref={i}" for i in self.config.get("extra_prefs")])
         if self.config.get("environment"):
-            options.extend(
-                ["--setenv={}".format(i) for i in self.config.get("environment")]
-            )
+            options.extend([f"--setenv={i}" for i in self.config.get("environment")])
         if self.config.get("enable_marionette_trace", False):
             options.extend(["--enable-marionette-trace"])
         if self.config.get("browser_cycles"):
-            options.extend(
-                ["--browser-cycles={}".format(self.config.get("browser_cycles"))]
-            )
+            options.extend([
+                "--browser-cycles={}".format(self.config.get("browser_cycles"))
+            ])
         if self.config.get("test_bytecode_cache", False):
             options.extend(["--test-bytecode-cache"])
         if self.config.get("collect_perfstats", False):
             options.extend(["--collect-perfstats"])
         if self.config.get("extra_summary_methods"):
-            options.extend(
-                [
-                    "--extra-summary-methods={}".format(method)
-                    for method in self.config.get("extra_summary_methods")
-                ]
-            )
+            options.extend([
+                f"--extra-summary-methods={method}"
+                for method in self.config.get("extra_summary_methods")
+            ])
         if self.config.get("page_timeout"):
             options.extend([f"--page-timeout={self.page_timeout}"])
         if self.config.get("post_startup_delay"):
-            options.extend(
-                [f"--post-startup-delay={self.config['post_startup_delay']}"]
-            )
+            options.extend([
+                f"--post-startup-delay={self.config['post_startup_delay']}"
+            ])
         if (
             self.config.get("screenshot_on_failure", False)
             or os.environ.get("MOZ_AUTOMATION", None) is not None
@@ -1124,7 +1124,7 @@ class Raptor(
                 # Check for modifications done to the instance variables
                 value = getattr(self, details["dest"], None)
             if value and arg not in self.config.get("raptor_cmd_line_args", []):
-                if isinstance(value, string_types):
+                if isinstance(value, str):
                     options.extend([arg, os.path.expandvars(value)])
                 elif isinstance(value, (tuple, list)):
                     for val in value:
@@ -1148,7 +1148,7 @@ class Raptor(
     def clobber(self):
         # Recreate the upload directory for storing the logcat collected
         # during APK installation.
-        super(Raptor, self).clobber()
+        super().clobber()
         upload_dir = self.query_abs_dirs()["abs_blob_upload_dir"]
         if not os.path.isdir(upload_dir):
             self.mkdir_p(upload_dir)
@@ -1159,7 +1159,7 @@ class Raptor(
         # the logcat file will be left in the upload directory.
         self.logcat_start()
         try:
-            super(Raptor, self).install_android_app(apk, replace=replace)
+            super().install_android_app(apk, replace=replace)
         finally:
             self.logcat_stop()
 
@@ -1171,7 +1171,7 @@ class Raptor(
             "tools/wpt_third_party/h2/*",
             "tools/wpt_third_party/pywebsocket3/*",
         ]
-        return super(Raptor, self).download_and_extract(
+        return super().download_and_extract(
             extract_dirs=extract_dirs, suite_categories=["common", "condprof", "raptor"]
         )
 
@@ -1236,34 +1236,39 @@ class Raptor(
 
         modules = ["pip>=1.5"]
 
-        # Add modules required for visual metrics
+        # Add modules required for visual metrics. Packages with non-Python
+        # components are particularly fussy about python version.
         py3_minor = sys.version_info.minor
         if py3_minor <= 7:
-            modules.extend(
-                [
-                    "numpy==1.16.1",
-                    "Pillow==6.1.0",
-                    "scipy==1.2.3",
-                    "pyssim==0.4",
-                    "opencv-python==4.5.4.60",
-                ]
-            )
-        else:  # python version >= 3.8
-            modules.extend(
-                [
-                    "numpy==1.23.5",
-                    "Pillow==9.2.0",
-                    "scipy==1.9.3",
-                    "pyssim==0.4",
-                    "opencv-python==4.6.0.66",
-                ]
-            )
+            modules.extend([
+                "numpy==1.16.1",
+                "Pillow==6.1.0",
+                "scipy==1.2.3",
+                "pyssim==0.4",
+                "opencv-python==4.5.4.60",
+            ])
+        elif py3_minor <= 11:
+            modules.extend([
+                "numpy==1.23.5",
+                "Pillow==9.2.0",
+                "scipy==1.9.3",
+                "pyssim==0.4",
+                "opencv-python==4.6.0.66",
+            ])
+        else:  # python version >= 3.12
+            modules.extend([
+                "numpy==2.2.3",
+                "Pillow==11.1.0",
+                "scipy==1.15.2",
+                "pyssim==0.7",
+                "opencv-python==4.11.0.86",
+            ])
 
         if self.run_local:
             self.setup_local_ffmpeg()
 
         # Require pip >= 1.5 so pip will prefer .whl files to install
-        super(Raptor, self).create_virtualenv(modules=modules)
+        super().create_virtualenv(modules=modules)
 
         # Install Raptor dependencies
         self.install_module(requirements=[raptor_requirements])
@@ -1321,9 +1326,13 @@ class Raptor(
                     installer_path = self.installer_path
 
                 self.info(f"Installing APK from: {installer_path}")
-                self.install_android_app(str(installer_path))
+                if self.app == "fenix":
+                    self.info("Installing Fenix APK with baseline profile")
+                    self.device.install_app_baseline_profile(installer_path)
+                else:
+                    self.install_android_app(str(installer_path))
             else:
-                super(Raptor, self).install()
+                super().install()
 
     def _artifact_perf_data(self, src, dest):
         if not os.path.isdir(os.path.dirname(dest)):
@@ -1386,6 +1395,13 @@ class Raptor(
             env["XPCSHELL_PATH"] = os.path.join(
                 self.obj_path, "dist", "bin", "xpcshell.exe"
             )
+
+        if not self.run_local:
+            env["MOZ_INTERNAL_UPLOAD_DIR"] = os.path.join(
+                os.path.dirname(env["MOZ_UPLOAD_DIR"]), "perftest"
+            )
+            if not os.path.exists(env["MOZ_INTERNAL_UPLOAD_DIR"]):
+                os.makedirs(env["MOZ_INTERNAL_UPLOAD_DIR"])
 
         # Needed to load unsigned Raptor WebExt on release builds
         if self.is_release_build:
@@ -1501,7 +1517,7 @@ class RaptorOutputParser(OutputParser):
     RE_PERF_DATA = re.compile(r".*PERFHERDER_DATA:\s+(\{.*\})")
 
     def __init__(self, **kwargs):
-        super(RaptorOutputParser, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.minidump_output = None
         self.found_perf_data = []
         self.tbpl_status = TBPL_SUCCESS
@@ -1536,4 +1552,4 @@ class RaptorOutputParser(OutputParser):
                 return
             else:
                 SystemResourceMonitor.record_event(raptor_line)
-        super(RaptorOutputParser, self).parse_single_line(line)
+        super().parse_single_line(line)

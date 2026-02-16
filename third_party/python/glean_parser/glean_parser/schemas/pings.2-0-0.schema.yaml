@@ -15,10 +15,6 @@ description: |
 $id: moz://mozilla.org/schemas/glean/pings/2-0-0
 
 definitions:
-  dotted_snake_case:
-    type: string
-    pattern: "^[a-z_][a-z0-9_]{0,29}(\\.[a-z_][a-z0-9_]{0,29})*$"
-    maxLength: 40
   # Prior to version 2.0.0 of the schema, special ping names with underscores
   # were also supported.
   kebab_case:
@@ -126,6 +122,21 @@ additionalProperties:
         Interaction with `metadata.include_info_sections`: `include_client_id`
         only takes effect when `metadata.include_info_sections` is `true`.
       type: boolean
+
+    uploader_capabilities:
+      title: Uploader Capabilities
+      description: |
+        **Optional.**
+
+        An optional list of capability strings that the ping uploader must be
+        capable of supporting in order to upload this ping.
+        These are supplied exactly as defined (including order) to the uploader
+        every time upload is attempted for this ping.
+        The uploader must only attempt upload if it satisfies the supplied
+        capabilities. If not, it must refuse to upload the ping.
+      type: [array, "null"]
+      items:
+        type: string
 
     send_if_empty:
       title: Send if empty

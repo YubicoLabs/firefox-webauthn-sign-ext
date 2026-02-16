@@ -7,31 +7,33 @@
 #ifndef mozilla_EncoderConfig_h_
 #define mozilla_EncoderConfig_h_
 
-#include "mozilla/Variant.h"
-
-#include "mozilla/dom/ImageBitmapBinding.h"
 #include "H264.h"
+#include "MediaResult.h"
+#include "mozilla/Result.h"
+#include "mozilla/Variant.h"
+#include "mozilla/dom/ImageBitmapBinding.h"
+#include "mozilla/ipc/IPCCore.h"
 
 namespace mozilla {
 
-enum class CodecType {
-  _BeginVideo_,
-  H264,
-  H265,
-  VP8,
-  VP9,
-  AV1,
-  _EndVideo_,
-  _BeginAudio_ = _EndVideo_,
-  Opus,
-  Vorbis,
-  Flac,
-  AAC,
-  PCM,
-  G722,
-  _EndAudio_,
-  Unknown,
-};
+namespace layers {
+class Image;
+}  // namespace layers
+
+MOZ_DEFINE_ENUM_CLASS_WITH_TOSTRING(CodecType,
+                                    (_BeginVideo_, H264, H265, VP8, VP9, AV1,
+                                     _EndVideo_, _BeginAudio_, Opus, Vorbis,
+                                     Flac, AAC, PCM, G722, _EndAudio_,
+                                     Unknown));
+
+constexpr bool IsVideo(CodecType aCodecType) {
+  return aCodecType > CodecType::_BeginVideo_ &&
+         aCodecType < CodecType::_EndVideo_;
+}
+constexpr bool IsAudio(CodecType aCodecType) {
+  return aCodecType > CodecType::_BeginAudio_ &&
+         aCodecType < CodecType::_EndAudio_;
+}
 
 enum class Usage {
   Realtime,  // Low latency prefered
@@ -42,18 +44,21 @@ enum class BitrateMode { Constant, Variable };
 // https://www.w3.org/TR/webrtc-svc/
 enum class ScalabilityMode { None, L1T2, L1T3 };
 
-enum class HardwarePreference { RequireHardware, RequireSoftware, None };
+enum class HardwarePreference { None, RequireHardware, RequireSoftware };
 
-// TODO: Automatically generate this (Bug 1865896)
-const char* GetCodecTypeString(const CodecType& aCodecType);
+const char* YUVColorSpaceToString(const gfx::YUVColorSpace& aYUVColorSpace);
+const char* ColorSpace2ToString(const gfx::ColorSpace2& aColorSpace2);
+const char* TransferFunctionToString(
+    const gfx::TransferFunction& aTransferFunction);
 
 enum class H264BitStreamFormat { AVC, ANNEXB };
 
 struct H264Specific final {
-  const H264_PROFILE mProfile;
-  const H264_LEVEL mLevel;
-  const H264BitStreamFormat mFormat;
+  H264_PROFILE mProfile{H264_PROFILE::H264_PROFILE_UNKNOWN};
+  H264_LEVEL mLevel{H264_LEVEL::H264_LEVEL_1};
+  H264BitStreamFormat mFormat{H264BitStreamFormat::AVC};
 
+  H264Specific() = default;
   H264Specific(H264_PROFILE aProfile, H264_LEVEL aLevel,
                H264BitStreamFormat aFormat)
       : mProfile(aProfile), mLevel(aLevel), mFormat(aFormat) {}
@@ -87,12 +92,12 @@ struct VP8Specific {
         mDenoising(aDenoising),
         mAutoResize(aAutoResize),
         mFrameDropping(aFrameDropping) {}
-  const VPXComplexity mComplexity{VPXComplexity::Normal};
-  const bool mResilience{true};
-  const uint8_t mNumTemporalLayers{1};
-  const bool mDenoising{true};
-  const bool mAutoResize{false};
-  const bool mFrameDropping{false};
+  VPXComplexity mComplexity{VPXComplexity::Normal};
+  bool mResilience{true};
+  uint8_t mNumTemporalLayers{1};
+  bool mDenoising{true};
+  bool mAutoResize{false};
+  bool mFrameDropping{false};
 };
 
 struct VP9Specific : public VP8Specific {
@@ -107,9 +112,9 @@ struct VP9Specific : public VP8Specific {
         mAdaptiveQp(aAdaptiveQp),
         mNumSpatialLayers(aNumSpatialLayers),
         mFlexible(aFlexible) {}
-  const bool mAdaptiveQp{true};
-  const uint8_t mNumSpatialLayers{1};
-  const bool mFlexible{false};
+  bool mAdaptiveQp{true};
+  uint8_t mNumSpatialLayers{1};
+  bool mFlexible{false};
 };
 
 // A class that holds the intial configuration of an encoder. For simplicity,
@@ -117,22 +122,83 @@ struct VP9Specific : public VP8Specific {
 // instance are to be ignored, and are set at their default value.
 class EncoderConfig final {
  public:
-  using PixelFormat = dom::ImageBitmapFormat;
   using CodecSpecific =
-      Variant<H264Specific, OpusSpecific, VP8Specific, VP9Specific>;
+      Variant<void_t, H264Specific, OpusSpecific, VP8Specific, VP9Specific>;
 
+  struct VideoColorSpace {
+    Maybe<gfx::ColorRange> mRange;
+    Maybe<gfx::YUVColorSpace> mMatrix;
+    Maybe<gfx::ColorSpace2> mPrimaries;
+    Maybe<gfx::TransferFunction> mTransferFunction;
+
+    VideoColorSpace() = default;
+    VideoColorSpace(const gfx::ColorRange& aColorRange,
+                    const gfx::YUVColorSpace& aMatrix,
+                    const gfx::ColorSpace2& aPrimaries,
+                    const gfx::TransferFunction& aTransferFunction)
+        : mRange(Some(aColorRange)),
+          mMatrix(Some(aMatrix)),
+          mPrimaries(Some(aPrimaries)),
+          mTransferFunction(Some(aTransferFunction)) {}
+
+    bool operator==(const VideoColorSpace& aOther) const {
+      return mRange == aOther.mRange && mMatrix == aOther.mMatrix &&
+             mPrimaries == aOther.mPrimaries &&
+             mTransferFunction == aOther.mTransferFunction;
+    }
+    bool operator!=(const VideoColorSpace& aOther) const {
+      return !(*this == aOther);
+    }
+    nsCString ToString() const;
+  };
+
+  struct SampleFormat {
+    dom::ImageBitmapFormat mPixelFormat;
+    VideoColorSpace mColorSpace;
+
+    SampleFormat(const dom::ImageBitmapFormat& aPixelFormat,
+                 const VideoColorSpace& aColorSpace)
+        : mPixelFormat(aPixelFormat), mColorSpace(aColorSpace) {}
+    explicit SampleFormat(const dom::ImageBitmapFormat& aPixelFormat)
+        : mPixelFormat(aPixelFormat) {}
+
+    bool operator==(const SampleFormat& aOther) const {
+      return mPixelFormat == aOther.mPixelFormat &&
+             mColorSpace == aOther.mColorSpace;
+    }
+    bool operator!=(const SampleFormat& aOther) const {
+      return !(*this == aOther);
+    }
+
+    nsCString ToString() const;
+
+    bool IsRGB32() const {
+      return mPixelFormat == dom::ImageBitmapFormat::BGRA32 ||
+             mPixelFormat == dom::ImageBitmapFormat::RGBA32;
+    }
+    bool IsYUV() const {
+      return mPixelFormat == dom::ImageBitmapFormat::YUV444P ||
+             mPixelFormat == dom::ImageBitmapFormat::YUV422P ||
+             mPixelFormat == dom::ImageBitmapFormat::YUV420P ||
+             mPixelFormat == dom::ImageBitmapFormat::YUV420SP_NV12 ||
+             mPixelFormat == dom::ImageBitmapFormat::YUV420SP_NV21;
+    }
+
+    static Result<SampleFormat, MediaResult> FromImage(layers::Image* aImage);
+  };
+
+  EncoderConfig() = default;
   EncoderConfig(const EncoderConfig& aConfig) = default;
 
   // This constructor is used for video encoders
   EncoderConfig(const CodecType aCodecType, gfx::IntSize aSize,
-                const Usage aUsage, const PixelFormat aPixelFormat,
-                const PixelFormat aSourcePixelFormat, const uint32_t aFramerate,
-                const size_t aKeyframeInterval, const uint32_t aBitrate,
-                const uint32_t aMinBitrate, const uint32_t aMaxBitrate,
-                const BitrateMode aBitrateMode,
+                const Usage aUsage, const SampleFormat& aFormat,
+                const uint32_t aFramerate, const size_t aKeyframeInterval,
+                const uint32_t aBitrate, const uint32_t aMinBitrate,
+                const uint32_t aMaxBitrate, const BitrateMode aBitrateMode,
                 const HardwarePreference aHardwarePreference,
                 const ScalabilityMode aScalabilityMode,
-                const Maybe<CodecSpecific>& aCodecSpecific)
+                const CodecSpecific& aCodecSpecific)
       : mCodec(aCodecType),
         mSize(aSize),
         mBitrateMode(aBitrateMode),
@@ -141,8 +207,7 @@ class EncoderConfig final {
         mMaxBitrate(aMaxBitrate),
         mUsage(aUsage),
         mHardwarePreference(aHardwarePreference),
-        mPixelFormat(aPixelFormat),
-        mSourcePixelFormat(aSourcePixelFormat),
+        mFormat(aFormat),
         mScalabilityMode(aScalabilityMode),
         mFramerate(aFramerate),
         mKeyframeInterval(aKeyframeInterval),
@@ -153,7 +218,7 @@ class EncoderConfig final {
   // This constructor is used for audio encoders
   EncoderConfig(const CodecType aCodecType, uint32_t aNumberOfChannels,
                 const BitrateMode aBitrateMode, uint32_t aSampleRate,
-                uint32_t aBitrate, const Maybe<CodecSpecific>& aCodecSpecific)
+                uint32_t aBitrate, const CodecSpecific& aCodecSpecific)
       : mCodec(aCodecType),
         mBitrateMode(aBitrateMode),
         mBitrate(aBitrate),
@@ -163,17 +228,11 @@ class EncoderConfig final {
     MOZ_ASSERT(IsAudio());
   }
 
-  static CodecType CodecTypeForMime(const nsACString& aMimeType);
-
   nsCString ToString() const;
 
-  bool IsVideo() const {
-    return mCodec > CodecType::_BeginVideo_ && mCodec < CodecType::_EndVideo_;
-  }
+  bool IsVideo() const { return mozilla::IsVideo(mCodec); }
 
-  bool IsAudio() const {
-    return mCodec > CodecType::_BeginAudio_ && mCodec < CodecType::_EndAudio_;
-  }
+  bool IsAudio() const { return mozilla::IsAudio(mCodec); }
 
   CodecType mCodec{};
   gfx::IntSize mSize{};
@@ -181,18 +240,17 @@ class EncoderConfig final {
   uint32_t mBitrate{};
   uint32_t mMinBitrate{};
   uint32_t mMaxBitrate{};
-  Usage mUsage{};
+  Usage mUsage{Usage::Record};
   // Video-only
-  HardwarePreference mHardwarePreference{};
-  PixelFormat mPixelFormat{};
-  PixelFormat mSourcePixelFormat{};
+  HardwarePreference mHardwarePreference{HardwarePreference::None};
+  SampleFormat mFormat{dom::ImageBitmapFormat::YUV420P};
   ScalabilityMode mScalabilityMode{};
   uint32_t mFramerate{};
   size_t mKeyframeInterval{};
   // Audio-only
   uint32_t mNumberOfChannels{};
   uint32_t mSampleRate{};
-  Maybe<CodecSpecific> mCodecSpecific{};
+  CodecSpecific mCodecSpecific{void_t{}};
 };
 
 }  // namespace mozilla

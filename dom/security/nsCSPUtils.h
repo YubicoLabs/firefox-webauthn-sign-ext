@@ -4,9 +4,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsCSPUtils_h___
-#define nsCSPUtils_h___
+#ifndef nsCSPUtils_h_
+#define nsCSPUtils_h_
 
+#include "mozilla/ErrorResult.h"
 #include "nsCOMPtr.h"
 #include "nsILoadInfo.h"
 #include "nsIURI.h"
@@ -115,7 +116,8 @@ CSPDirective CSP_StringToCSPDirective(const nsAString& aDir);
   MACRO(CSP_REPORT_SAMPLE, "'report-sample'")       \
   MACRO(CSP_STRICT_DYNAMIC, "'strict-dynamic'")     \
   MACRO(CSP_WASM_UNSAFE_EVAL, "'wasm-unsafe-eval'") \
-  MACRO(CSP_ALLOW_DUPLICATES, "'allow-duplicates'")
+  MACRO(CSP_ALLOW_DUPLICATES, "'allow-duplicates'") \
+  MACRO(CSP_TRUSTED_TYPES_EVAL, "'trusted-types-eval'")
 
 enum CSPKeyword {
 #define KEYWORD_ENUM(id_, string_) id_,
@@ -193,10 +195,15 @@ nsresult CSP_AppendCSPFromHeader(nsIContentSecurityPolicy* aCsp,
 
 /* =============== Helpers ================== */
 
+already_AddRefed<nsIContentSecurityPolicy> CSP_CreateFromHeader(
+    const nsAString& aHeaderValue, nsIURI* aSelfURI,
+    nsIPrincipal* aLoadingPrincipal, mozilla::ErrorResult& aRv);
+
 class nsCSPHostSrc;
 
 nsCSPHostSrc* CSP_CreateHostSrcFromSelfURI(nsIURI* aSelfURI);
 bool CSP_IsEmptyDirective(const nsAString& aValue, const nsAString& aDir);
+bool CSP_IsInvalidDirectiveValue(mozilla::Span<const char16_t> aValue);
 bool CSP_IsDirective(const nsAString& aValue, CSPDirective aDir);
 bool CSP_IsKeyword(const nsAString& aValue, enum CSPKeyword aKey);
 bool CSP_IsQuotelessKeyword(const nsAString& aKey);
@@ -206,9 +213,13 @@ class nsCSPSrcVisitor;
 
 void CSP_PercentDecodeStr(const nsAString& aEncStr, nsAString& outDecStr);
 bool CSP_ShouldResponseInheritCSP(nsIChannel* aChannel);
+bool CSP_ShouldURIInheritCSP(nsIURI* aURI);
 
 void CSP_ApplyMetaCSPToDoc(mozilla::dom::Document& aDoc,
                            const nsAString& aPolicyStr);
+
+// Checks if the URI is "chrome://browser/content/browser.xhtml"
+bool CSP_IsBrowserXHTML(nsIURI* aURI);
 
 /* =============== nsCSPSrc ================== */
 
@@ -435,6 +446,19 @@ class nsCSPTrustedTypesDirectivePolicyName : public nsCSPBaseSrc {
 
  private:
   const nsString mName;
+};
+
+class nsCSPTrustedTypesDirectiveInvalidToken : public nsCSPBaseSrc {
+ public:
+  explicit nsCSPTrustedTypesDirectiveInvalidToken(
+      const nsAString& aInvalidToken);
+  virtual ~nsCSPTrustedTypesDirectiveInvalidToken() = default;
+
+  bool visit(nsCSPSrcVisitor* aVisitor) const override;
+  void toString(nsAString& aOutStr) const override;
+
+ private:
+  const nsString mInvalidToken;
 };
 
 /* =============== nsCSPSrcVisitor ================== */
@@ -769,4 +793,4 @@ class nsCSPPolicy {
   bool mDeliveredViaMetaTag;
 };
 
-#endif /* nsCSPUtils_h___ */
+#endif /* nsCSPUtils_h_ */

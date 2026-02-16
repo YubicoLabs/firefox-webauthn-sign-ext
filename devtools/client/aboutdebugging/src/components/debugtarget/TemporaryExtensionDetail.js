@@ -7,9 +7,9 @@
 const {
   createFactory,
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 
 const FluentReact = require("resource://devtools/client/shared/vendor/fluent-react.js");
 const Localized = createFactory(FluentReact.Localized);
@@ -24,7 +24,7 @@ const FieldPair = createFactory(
 const Types = require("resource://devtools/client/aboutdebugging/src/types/index.js");
 
 const TEMP_ID_DOC_URL =
-  "https://developer.mozilla.org/Add-ons/WebExtensions/WebExtensions_and_the_Add-on_ID";
+  "https://extensionworkshop.com/documentation/develop/extensions-and-the-add-on-id/";
 
 /**
  * This component displays detail information for a temporary extension.

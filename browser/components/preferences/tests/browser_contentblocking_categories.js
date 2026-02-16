@@ -1,8 +1,6 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
-/* eslint-env webextensions */
-
 ChromeUtils.defineESModuleGetters(this, {
   Preferences: "resource://gre/modules/Preferences.sys.mjs",
 });
@@ -13,11 +11,15 @@ const NCB_PREF = "network.cookie.cookieBehavior";
 const NCBP_PREF = "network.cookie.cookieBehavior.pbmode";
 const CAT_PREF = "browser.contentblocking.category";
 const FP_PREF = "privacy.trackingprotection.fingerprinting.enabled";
-const CM_PREF = "privacy.trackingprotection.cryptomining.enabled";
+const CRYPTO_TP_PREF = "privacy.trackingprotection.cryptomining.enabled";
 const STP_PREF = "privacy.trackingprotection.socialtracking.enabled";
 const EMAIL_TP_PREF = "privacy.trackingprotection.emailtracking.enabled";
 const EMAIL_TP_PBM_PREF =
   "privacy.trackingprotection.emailtracking.pbmode.enabled";
+const CONSENTMANAGER_SKIP_PREF =
+  "privacy.trackingprotection.consentmanager.skip.enabled";
+const CONSENTMANAGER_SKIP_PBM_PREF =
+  "privacy.trackingprotection.consentmanager.skip.pbmode.enabled";
 const LEVEL2_PREF = "privacy.annotate_channels.strict_list.enabled";
 const REFERRER_PREF = "network.http.referer.disallowCrossSiteRelaxingDefault";
 const REFERRER_TOP_PREF =
@@ -57,8 +59,8 @@ add_task(async function testContentBlockingStandardDefinition() {
     `${FP_PREF} pref has the default value`
   );
   ok(
-    !Services.prefs.prefHasUserValue(CM_PREF),
-    `${CM_PREF} pref has the default value`
+    !Services.prefs.prefHasUserValue(CRYPTO_TP_PREF),
+    `${CRYPTO_TP_PREF} pref has the default value`
   );
   ok(
     !Services.prefs.prefHasUserValue(STP_PREF),
@@ -71,6 +73,14 @@ add_task(async function testContentBlockingStandardDefinition() {
   ok(
     !Services.prefs.prefHasUserValue(EMAIL_TP_PBM_PREF),
     `${EMAIL_TP_PBM_PREF} pref has the default value`
+  );
+  ok(
+    !Services.prefs.prefHasUserValue(CONSENTMANAGER_SKIP_PREF),
+    `${CONSENTMANAGER_SKIP_PREF} pref has the default value`
+  );
+  ok(
+    !Services.prefs.prefHasUserValue(CONSENTMANAGER_SKIP_PBM_PREF),
+    `${CONSENTMANAGER_SKIP_PBM_PREF} pref has the default value`
   );
   ok(
     !Services.prefs.prefHasUserValue(NCB_PREF),
@@ -125,10 +135,16 @@ add_task(async function testContentBlockingStandardDefinition() {
   let originalTP = defaults.getBoolPref(TP_PREF);
   let originalTPPBM = defaults.getBoolPref(TP_PBM_PREF);
   let originalFP = defaults.getBoolPref(FP_PREF);
-  let originalCM = defaults.getBoolPref(CM_PREF);
+  let originalCryptoTP = defaults.getBoolPref(CRYPTO_TP_PREF);
   let originalSTP = defaults.getBoolPref(STP_PREF);
   let originalEmailTP = defaults.getBoolPref(EMAIL_TP_PREF);
   let originalEmailTPPBM = defaults.getBoolPref(EMAIL_TP_PBM_PREF);
+  let originalConsentmanagerSkip = defaults.getBoolPref(
+    CONSENTMANAGER_SKIP_PREF
+  );
+  let originalConsentmanagerSkipPBM = defaults.getBoolPref(
+    CONSENTMANAGER_SKIP_PBM_PREF
+  );
   let originalNCB = defaults.getIntPref(NCB_PREF);
   let originalNCBP = defaults.getIntPref(NCBP_PREF);
   let originalLEVEL2 = defaults.getBoolPref(LEVEL2_PREF);
@@ -167,10 +183,15 @@ add_task(async function testContentBlockingStandardDefinition() {
   defaults.setBoolPref(TP_PREF, !originalTP);
   defaults.setBoolPref(TP_PBM_PREF, !originalTPPBM);
   defaults.setBoolPref(FP_PREF, !originalFP);
-  defaults.setBoolPref(CM_PREF, !originalCM);
-  defaults.setBoolPref(CM_PREF, !originalSTP);
+  defaults.setBoolPref(CRYPTO_TP_PREF, !originalCryptoTP);
+  defaults.setBoolPref(CRYPTO_TP_PREF, !originalSTP);
   defaults.setBoolPref(EMAIL_TP_PREF, !originalEmailTP);
   defaults.setBoolPref(EMAIL_TP_PBM_PREF, !originalEmailTPPBM);
+  defaults.setBoolPref(CONSENTMANAGER_SKIP_PREF, !originalConsentmanagerSkip);
+  defaults.setBoolPref(
+    CONSENTMANAGER_SKIP_PBM_PREF,
+    !originalConsentmanagerSkipPBM
+  );
   defaults.setIntPref(NCB_PREF, !originalNCB);
   defaults.setBoolPref(LEVEL2_PREF, !originalLEVEL2);
   defaults.setBoolPref(REFERRER_PREF, !originalREFERRER);
@@ -196,8 +217,8 @@ add_task(async function testContentBlockingStandardDefinition() {
     `${FP_PREF} pref has the default value`
   );
   ok(
-    !Services.prefs.prefHasUserValue(CM_PREF),
-    `${CM_PREF} pref has the default value`
+    !Services.prefs.prefHasUserValue(CRYPTO_TP_PREF),
+    `${CRYPTO_TP_PREF} pref has the default value`
   );
   ok(
     !Services.prefs.prefHasUserValue(STP_PREF),
@@ -210,6 +231,14 @@ add_task(async function testContentBlockingStandardDefinition() {
   ok(
     !Services.prefs.prefHasUserValue(EMAIL_TP_PBM_PREF),
     `${EMAIL_TP_PBM_PREF} pref has the default value`
+  );
+  ok(
+    !Services.prefs.prefHasUserValue(CONSENTMANAGER_SKIP_PREF),
+    `${CONSENTMANAGER_SKIP_PREF} pref has the default value`
+  );
+  ok(
+    !Services.prefs.prefHasUserValue(CONSENTMANAGER_SKIP_PBM_PREF),
+    `${CONSENTMANAGER_SKIP_PBM_PREF} pref has the default value`
   );
   ok(
     !Services.prefs.prefHasUserValue(NCB_PREF),
@@ -265,10 +294,15 @@ add_task(async function testContentBlockingStandardDefinition() {
   defaults.setBoolPref(TP_PREF, originalTP);
   defaults.setBoolPref(TP_PBM_PREF, originalTPPBM);
   defaults.setBoolPref(FP_PREF, originalFP);
-  defaults.setBoolPref(CM_PREF, originalCM);
+  defaults.setBoolPref(CRYPTO_TP_PREF, originalCryptoTP);
   defaults.setBoolPref(STP_PREF, originalSTP);
   defaults.setBoolPref(EMAIL_TP_PREF, originalEmailTP);
   defaults.setBoolPref(EMAIL_TP_PBM_PREF, originalEmailTPPBM);
+  defaults.setBoolPref(CONSENTMANAGER_SKIP_PREF, originalConsentmanagerSkip);
+  defaults.setBoolPref(
+    CONSENTMANAGER_SKIP_PBM_PREF,
+    originalConsentmanagerSkipPBM
+  );
   defaults.setIntPref(NCB_PREF, originalNCB);
   defaults.setIntPref(NCBP_PREF, originalNCBP);
   defaults.setBoolPref(LEVEL2_PREF, originalLEVEL2);
@@ -291,7 +325,7 @@ add_task(async function testContentBlockingStrictDefinition() {
   let originalStrictPref = defaults.getStringPref(STRICT_DEF_PREF);
   defaults.setStringPref(
     STRICT_DEF_PREF,
-    "tp,tpPrivate,fp,cm,cookieBehavior0,cookieBehaviorPBM0,stp,emailTP,emailTPPrivate,lvl2,rp,rpTop,ocsp,qps,qpsPBM,fpp,fppPrivate,3pcd,btp"
+    "tp,tpPrivate,fp,cryptoTP,cookieBehavior0,cookieBehaviorPBM0,stp,emailTP,emailTPPrivate,consentmanagerSkip,consentmanagerSkipPrivate,lvl2,rp,rpTop,ocsp,qps,qpsPBM,fpp,fppPrivate,3pcd,btp"
   );
   Services.prefs.setStringPref(CAT_PREF, "strict");
   is(
@@ -306,7 +340,7 @@ add_task(async function testContentBlockingStrictDefinition() {
   );
   is(
     Services.prefs.getStringPref(STRICT_DEF_PREF),
-    "tp,tpPrivate,fp,cm,cookieBehavior0,cookieBehaviorPBM0,stp,emailTP,emailTPPrivate,lvl2,rp,rpTop,ocsp,qps,qpsPBM,fpp,fppPrivate,3pcd,btp",
+    "tp,tpPrivate,fp,cryptoTP,cookieBehavior0,cookieBehaviorPBM0,stp,emailTP,emailTPPrivate,consentmanagerSkip,consentmanagerSkipPrivate,lvl2,rp,rpTop,ocsp,qps,qpsPBM,fpp,fppPrivate,3pcd,btp",
     `${STRICT_DEF_PREF} changed to what we set.`
   );
 
@@ -323,12 +357,12 @@ add_task(async function testContentBlockingStrictDefinition() {
   is(
     Services.prefs.getBoolPref(FP_PREF),
     true,
-    `${CM_PREF} pref has been set to true`
+    `${FP_PREF} pref has been set to true`
   );
   is(
-    Services.prefs.getBoolPref(CM_PREF),
+    Services.prefs.getBoolPref(CRYPTO_TP_PREF),
     true,
-    `${CM_PREF} pref has been set to true`
+    `${CRYPTO_TP_PREF} pref has been set to true`
   );
   is(
     Services.prefs.getBoolPref(STP_PREF),
@@ -344,6 +378,16 @@ add_task(async function testContentBlockingStrictDefinition() {
     Services.prefs.getBoolPref(EMAIL_TP_PBM_PREF),
     true,
     `${EMAIL_TP_PBM_PREF} pref has been set to true`
+  );
+  is(
+    Services.prefs.getBoolPref(CONSENTMANAGER_SKIP_PREF),
+    true,
+    `${CONSENTMANAGER_SKIP_PREF} pref has been set to true`
+  );
+  is(
+    Services.prefs.getBoolPref(CONSENTMANAGER_SKIP_PBM_PREF),
+    true,
+    `${CONSENTMANAGER_SKIP_PBM_PREF} pref has been set to true`
   );
   is(
     Services.prefs.getIntPref(NCB_PREF),
@@ -422,8 +466,8 @@ add_task(async function testContentBlockingStrictDefinition() {
     `${FP_PREF} pref has the default value`
   );
   ok(
-    !Services.prefs.prefHasUserValue(CM_PREF),
-    `${CM_PREF} pref has the default value`
+    !Services.prefs.prefHasUserValue(CRYPTO_TP_PREF),
+    `${CRYPTO_TP_PREF} pref has the default value`
   );
   ok(
     !Services.prefs.prefHasUserValue(STP_PREF),
@@ -488,7 +532,7 @@ add_task(async function testContentBlockingStrictDefinition() {
 
   defaults.setStringPref(
     STRICT_DEF_PREF,
-    "-tpPrivate,-fp,-cm,-tp,cookieBehavior3,cookieBehaviorPBM2,-stp,-emailTP,-emailTPPrivate,-lvl2,-rp,-ocsp,-qps,-qpsPBM,-fpp,-fppPrivate,-3pcd,-btp"
+    "-tpPrivate,-fp,-cryptoTP,-tp,cookieBehavior3,cookieBehaviorPBM2,-stp,-emailTP,-emailTPPrivate,-consentmanagerSkip,-consentmanagerSkipPrivate,-lvl2,-rp,-ocsp,-qps,-qpsPBM,-fpp,-fppPrivate,-3pcd,-btp"
   );
   is(
     Services.prefs.getBoolPref(TP_PREF),
@@ -506,9 +550,9 @@ add_task(async function testContentBlockingStrictDefinition() {
     `${FP_PREF} pref has been set to false`
   );
   is(
-    Services.prefs.getBoolPref(CM_PREF),
+    Services.prefs.getBoolPref(CRYPTO_TP_PREF),
     false,
-    `${CM_PREF} pref has been set to false`
+    `${CRYPTO_TP_PREF} pref has been set to false`
   );
   is(
     Services.prefs.getBoolPref(STP_PREF),
@@ -524,6 +568,16 @@ add_task(async function testContentBlockingStrictDefinition() {
     Services.prefs.getBoolPref(EMAIL_TP_PBM_PREF),
     false,
     `${EMAIL_TP_PBM_PREF} pref has been set to false`
+  );
+  is(
+    Services.prefs.getBoolPref(CONSENTMANAGER_SKIP_PREF),
+    false,
+    `${CONSENTMANAGER_SKIP_PREF} pref has been set to false`
+  );
+  is(
+    Services.prefs.getBoolPref(CONSENTMANAGER_SKIP_PBM_PREF),
+    false,
+    `${CONSENTMANAGER_SKIP_PBM_PREF} pref has been set to false`
   );
   is(
     Services.prefs.getIntPref(NCB_PREF),
@@ -588,5 +642,95 @@ add_task(async function testContentBlockingStrictDefinition() {
 
   // cleanup
   defaults.setStringPref(STRICT_DEF_PREF, originalStrictPref);
+  Services.prefs.setStringPref(CAT_PREF, "standard");
+});
+
+// Tests that LNA blocking is controlled by network.lna.etp.enabled pref
+// and is managed by ETP strict/standard categories when enabled.
+add_task(async function testLNABlockingWithETPCategories() {
+  const LNA_BLOCKING_PREF = "network.lna.blocking";
+  const LNA_ETP_ENABLED_PREF = "network.lna.etp.enabled";
+
+  let defaults = Services.prefs.getDefaultBranch("");
+  let originalStrictPref = defaults.getStringPref(STRICT_DEF_PREF);
+
+  let lnaDefault = Services.prefs.getBoolPref(LNA_BLOCKING_PREF);
+  // Test 1: LNA blocking should be disabled when network.lna.etp.enabled is false (default)
+  Services.prefs.setBoolPref(LNA_ETP_ENABLED_PREF, false);
+
+  Services.prefs.setStringPref(CAT_PREF, "strict");
+  is(
+    Services.prefs.getBoolPref(LNA_BLOCKING_PREF),
+    lnaDefault,
+    `${LNA_BLOCKING_PREF} should remain unchanged when LNA_ETP_ENABLED_PREF is false`
+  );
+
+  Services.prefs.setStringPref(CAT_PREF, "standard");
+  is(
+    Services.prefs.getBoolPref(LNA_BLOCKING_PREF),
+    lnaDefault,
+    `${LNA_BLOCKING_PREF} should remain unchanged when switching to standard with LNA_ETP_ENABLED_PREF false`
+  );
+
+  // Test 2: LNA blocking SHOULD be managed when network.lna.etp.enabled is true
+  Services.prefs.setBoolPref(LNA_ETP_ENABLED_PREF, true);
+
+  // Set strict mode with lna enabled
+  defaults.setStringPref(STRICT_DEF_PREF, "lna");
+  Services.prefs.setStringPref(CAT_PREF, "strict");
+
+  is(
+    Services.prefs.getBoolPref(LNA_BLOCKING_PREF),
+    true,
+    `${LNA_BLOCKING_PREF} should be set to true in strict mode with lna feature enabled`
+  );
+
+  // Switch to standard mode - should clear LNA blocking
+  Services.prefs.setStringPref(CAT_PREF, "standard");
+  ok(
+    !Services.prefs.prefHasUserValue(LNA_BLOCKING_PREF),
+    `${LNA_BLOCKING_PREF} should be cleared in standard mode when LNA_ETP_ENABLED_PREF is true`
+  );
+
+  // Test 3: LNA blocking with -lna (disabled) in strict mode
+  defaults.setStringPref(STRICT_DEF_PREF, "-lna");
+  Services.prefs.setStringPref(CAT_PREF, "strict");
+
+  is(
+    Services.prefs.getBoolPref(LNA_BLOCKING_PREF),
+    false,
+    `${LNA_BLOCKING_PREF} should be set to false in strict mode with -lna feature`
+  );
+
+  // Test 4: Switching to custom mode should preserve current LNA blocking value
+  Services.prefs.setBoolPref(LNA_BLOCKING_PREF, true);
+  Services.prefs.setStringPref(CAT_PREF, "custom");
+
+  is(
+    Services.prefs.getBoolPref(LNA_BLOCKING_PREF),
+    true,
+    `${LNA_BLOCKING_PREF} should be preserved when switching to custom mode`
+  );
+
+  // Test 5: Toggling network.lna.etp.enabled should trigger pref expectations update
+  Services.prefs.setStringPref(CAT_PREF, "strict");
+  defaults.setStringPref(STRICT_DEF_PREF, "lna");
+
+  // Disable LNA ETP integration
+  Services.prefs.setBoolPref(LNA_ETP_ENABLED_PREF, false);
+  Services.prefs.setBoolPref(LNA_BLOCKING_PREF, false);
+
+  // Re-enable LNA ETP integration - should apply strict mode settings
+  Services.prefs.setBoolPref(LNA_ETP_ENABLED_PREF, true);
+  is(
+    Services.prefs.getBoolPref(LNA_BLOCKING_PREF),
+    true,
+    `${LNA_BLOCKING_PREF} should be set to true when re-enabling LNA_ETP_ENABLED_PREF in strict mode`
+  );
+
+  // cleanup
+  defaults.setStringPref(STRICT_DEF_PREF, originalStrictPref);
+  Services.prefs.clearUserPref(LNA_ETP_ENABLED_PREF);
+  Services.prefs.clearUserPref(LNA_BLOCKING_PREF);
   Services.prefs.setStringPref(CAT_PREF, "standard");
 });

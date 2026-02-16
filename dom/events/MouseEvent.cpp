@@ -239,6 +239,17 @@ bool MouseEvent::ClickEventPrevented() {
   return false;
 }
 
+already_AddRefed<Event> MouseEvent::GetTriggerEvent() const {
+  if (WidgetMouseEvent* mouseEvent = mEvent->AsMouseEvent()) {
+    NS_WARNING_ASSERTION(
+        mouseEvent->mMessage == eXULPopupShowing,
+        "triggerEvent is supported for popupshowing event only");
+    RefPtr<Event> e = mouseEvent->mTriggerEvent;
+    return e.forget();
+  }
+  return nullptr;
+}
+
 int16_t MouseEvent::Button() {
   switch (mEvent->mClass) {
     case eMouseEventClass:
@@ -254,7 +265,7 @@ int16_t MouseEvent::Button() {
   }
 }
 
-uint16_t MouseEvent::Buttons() {
+uint16_t MouseEvent::Buttons() const {
   switch (mEvent->mClass) {
     case eMouseEventClass:
     case eMouseScrollEventClass:
@@ -429,7 +440,9 @@ nsIntPoint MouseEvent::GetMovementPoint() const {
   }
 
   if (!mEvent || !mEvent->AsGUIEvent()->mWidget ||
-      (mEvent->mMessage != eMouseMove && mEvent->mMessage != ePointerMove)) {
+      (mEvent->mMessage != eMouseMove && mEvent->mMessage != ePointerMove &&
+       !(StaticPrefs::dom_event_pointer_rawupdate_movement_enabled() &&
+         mEvent->mMessage == ePointerRawUpdate))) {
     // Pointer Lock spec defines that movementX/Y must be zero for all mouse
     // events except mousemove.
     return nsIntPoint(0, 0);
@@ -453,7 +466,7 @@ float MouseEvent::MozPressure(CallerType aCallerType) const {
   if (nsContentUtils::ShouldResistFingerprinting(aCallerType, GetParentObject(),
                                                  RFPTarget::PointerEvents)) {
     // Use the spoofed value from PointerEvent::Pressure
-    return 0.5;
+    return Buttons() == 0 ? 0.0f : 0.5f;
   }
 
   return mEvent->AsMouseEventBase()->mPressure;

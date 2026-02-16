@@ -260,8 +260,9 @@ if [ -z "${INIT_SOURCED}" -o "${INIT_SOURCED}" != "TRUE" ]; then
     gtest_parse_report_helper()
     {
       # Check XML reports for normal test runs and failures.
-      local successes=$(gtest_parse_report_xpath "//testcase[@status='run'][count(*)=0]" "$@" )
-      local failures=$(gtest_parse_report_xpath "//failure/.." "$@" )
+      local successes failures
+      successes=$(gtest_parse_report_xpath "//testcase[@status='run'][count(*)=0]" "$@" )
+      failures=$(gtest_parse_report_xpath "//failure/.." "$@" )
 
       # Print all tests that succeeded.
       while read result name; do
@@ -363,6 +364,15 @@ NSS=trustOrder=100
     ignore_blank_lines()
     {
       LC_ALL=C egrep -v '^[[:space:]]*(#|$)' "$1"
+    }
+
+    using_sql()
+    {
+        dbtype=$(nssdefaults --dbtype)
+        if [ ${dbtype##*: } = "sql" ]; then
+            return 0; # success case for bash
+        fi
+        return 1; # fail case for bash
     }
 
 #directory name init

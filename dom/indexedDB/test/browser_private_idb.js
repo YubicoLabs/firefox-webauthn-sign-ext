@@ -46,7 +46,7 @@ async function idbCheckFunc() {
 
 async function workerDriverFunc() {
   const resultPromise = idbCheckFunc();
-  /* eslint-env worker */
+
   // (SharedWorker)
   if (!("postMessage" in self)) {
     addEventListener("connect", function (evt) {
@@ -138,6 +138,12 @@ async function checkTabSharedWorkerIDB(tab) {
     workerCheckDeployer
   );
 }
+
+add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
+});
 
 add_task(async function () {
   const pageUrl =

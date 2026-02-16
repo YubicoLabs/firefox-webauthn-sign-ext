@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef InputChannelThrottleQueueParent_h__
-#define InputChannelThrottleQueueParent_h__
+#ifndef InputChannelThrottleQueueParent_h_
+#define InputChannelThrottleQueueParent_h_
 
 #include "nsISupportsImpl.h"
 #include "nsIThrottledInputChannel.h"
@@ -13,12 +13,8 @@
 namespace mozilla {
 namespace net {
 
-#define INPUT_CHANNEL_THROTTLE_QUEUE_PARENT_IID      \
-  {                                                  \
-    0x4f151655, 0x70b3, 0x4350, {                    \
-      0x9b, 0xd9, 0xe3, 0x2b, 0xe5, 0xeb, 0xb2, 0x9e \
-    }                                                \
-  }
+#define INPUT_CHANNEL_THROTTLE_QUEUE_PARENT_IID \
+  {0x4f151655, 0x70b3, 0x4350, {0x9b, 0xd9, 0xe3, 0x2b, 0xe5, 0xeb, 0xb2, 0x9e}}
 
 class InputChannelThrottleQueueParent final
     : public PInputChannelThrottleQueueParent,
@@ -26,7 +22,7 @@ class InputChannelThrottleQueueParent final
  public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSIINPUTCHANNELTHROTTLEQUEUE
-  NS_DECLARE_STATIC_IID_ACCESSOR(INPUT_CHANNEL_THROTTLE_QUEUE_PARENT_IID)
+  NS_INLINE_DECL_STATIC_IID(INPUT_CHANNEL_THROTTLE_QUEUE_PARENT_IID)
 
   friend class PInputChannelThrottleQueueParent;
 
@@ -42,10 +38,7 @@ class InputChannelThrottleQueueParent final
   uint32_t mMaxBytesPerSecond{0};
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(InputChannelThrottleQueueParent,
-                              INPUT_CHANNEL_THROTTLE_QUEUE_PARENT_IID)
-
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // InputChannelThrottleQueueParent_h__
+#endif  // InputChannelThrottleQueueParent_h_

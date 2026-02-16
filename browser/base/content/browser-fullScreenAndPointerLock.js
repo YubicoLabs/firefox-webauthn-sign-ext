@@ -3,9 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// This file is loaded into the browser window scope.
-/* eslint-env mozilla/browser-window */
-
 var PointerlockFsWarning = {
   _element: null,
   _origin: null,
@@ -103,10 +100,9 @@ var PointerlockFsWarning = {
     } else {
       textElem.removeAttribute("hidden");
       // Document's principal's URI has a host. Display a warning including it.
-      let { DownloadUtils } = ChromeUtils.importESModule(
-        "resource://gre/modules/DownloadUtils.sys.mjs"
-      );
-      let displayHost = DownloadUtils.getURIHost(uri.spec)[0];
+      let displayHost = BrowserUtils.formatURIForDisplay(uri, {
+        onlyBaseDomain: true,
+      });
       let l10nString = {
         "fullscreen-warning": "fullscreen-warning-domain",
         "pointerlock-warning": "pointerlock-warning-domain",
@@ -133,6 +129,7 @@ var PointerlockFsWarning = {
 
   /**
    * Close the full screen or pointerlock warning.
+   *
    * @param {('fullscreen-warning'|'pointerlock-warning')} elementId - Id of the
    * warning element to close. If the id does not match the currently shown
    * warning this is a no-op.
@@ -293,6 +290,44 @@ var PointerLock = {
   },
 };
 
+/*
+ * So that the PiP doesn't interfere with the fullscreen notification,
+ * move and resize it to a safe place.
+ */
+function moveDocumentPiPForFullscreen(win) {
+  const { availLeft, availTop, availHeight, availWidth } = win.screen;
+
+  // This is less than the limit for documentPictureInPicture.requestWindow(),
+  // but let's limit extent to 50% screen size when in fullscreen.
+  const maxWidth = availWidth * 0.5;
+  const maxHeight = availHeight * 0.5;
+
+  const newWidth = Math.min(win.outerWidth, maxWidth);
+  const newHeight = Math.min(win.outerHeight, maxHeight);
+
+  win.resizeTo(newWidth, newHeight);
+
+  // Move to lower right, see DocumentPictureInPicture::CalcInitialPos
+  // With the difference, that we use the outer size here.
+  const xMost = availLeft + availWidth;
+  const yMost = availTop + availHeight;
+
+  const offset = 100;
+  const newX = Math.max(availLeft, xMost - newWidth - offset);
+  const newY = Math.max(availTop, yMost - newHeight - offset);
+
+  win.moveTo(newX, newY);
+}
+
+function moveAllDocumentPiPForFullscreen() {
+  const windowList = Services.wm.getEnumerator("navigator:browser");
+  for (const win of windowList) {
+    if (win.browsingContext?.isDocumentPiP) {
+      moveDocumentPiPForFullscreen(win);
+    }
+  }
+}
+
 var FullScreen = {
   init() {
     XPCOMUtils.defineLazyPreferenceGetter(
@@ -346,11 +381,7 @@ var FullScreen = {
     // Toggle the View:FullScreen command, which controls elements like the
     // fullscreen menuitem, and menubars.
     let fullscreenCommand = document.getElementById("View:FullScreen");
-    if (enterFS) {
-      fullscreenCommand.setAttribute("checked", enterFS);
-    } else {
-      fullscreenCommand.removeAttribute("checked");
-    }
+    fullscreenCommand.toggleAttribute("checked", enterFS);
 
     if (AppConstants.platform == "macosx") {
       // Make sure the menu items are adjusted.
@@ -385,12 +416,14 @@ var FullScreen = {
       document.addEventListener("keypress", this._keyToggleCallback);
       document.addEventListener("popupshown", this._setPopupOpen);
       document.addEventListener("popuphidden", this._setPopupOpen);
-      gURLBar.controller.addQueryListener(this);
+      gURLBar.controller.addListener(this);
 
       // In DOM fullscreen mode, we hide toolbars with CSS
       if (!document.fullscreenElement) {
         this.hideNavToolbox(true);
       }
+
+      moveAllDocumentPiPForFullscreen();
     } else {
       this.showNavToolbox(false);
       // This is needed if they use the context menu to quit fullscreen
@@ -412,6 +445,7 @@ var FullScreen = {
   /**
    * Shifts the browser toolbar down when it is moused over on macOS in
    * fullscreen.
+   *
    * @param {number} shiftSize
    *   A distance, in pixels, by which to shift the browser toolbar down.
    */
@@ -428,9 +462,7 @@ var FullScreen = {
 
     let transform = shiftSize > 0 ? `translateY(${shiftSize}px)` : "";
     gNavToolbox.style.transform = transform;
-    gURLBar.textbox.style.transform = gURLBar.textbox.hasAttribute("breakout")
-      ? transform
-      : "";
+    gURLBar.style.transform = gURLBar.hasAttribute("breakout") ? transform : "";
     if (shiftSize > 0) {
       // If the mouse tracking missed our fullScreenToggler, then the toolbox
       // might not have been shown before the menubar is animated down. Make
@@ -525,7 +557,7 @@ var FullScreen = {
         // If there is no appropriate actor to send the message we have
         // no way to complete the transition and should abort by exiting
         // fullscreen.
-        this._abortEnterFullscreen();
+        this._abortEnterFullscreen(aActor);
         return;
       }
       // Record that the actor is waiting for its child to enter
@@ -552,7 +584,7 @@ var FullScreen = {
       // full-screen was made. Cancel full-screen.
       Services.focus.activeWindow != window
     ) {
-      this._abortEnterFullscreen();
+      this._abortEnterFullscreen(aActor);
       return;
     }
 
@@ -598,7 +630,7 @@ var FullScreen = {
       document.removeEventListener("keypress", this._keyToggleCallback);
       document.removeEventListener("popupshown", this._setPopupOpen);
       document.removeEventListener("popuphidden", this._setPopupOpen);
-      gURLBar.controller.removeQueryListener(this);
+      gURLBar.controller.removeListener(this);
     }
   },
 
@@ -670,17 +702,18 @@ var FullScreen = {
     return needToWaitForChildExit;
   },
 
-  _abortEnterFullscreen() {
+  _abortEnterFullscreen(aActor) {
     // This function is called synchronously in fullscreen change, so
     // we have to avoid calling exitFullscreen synchronously here.
     //
     // This could reject if we're not currently in fullscreen
     // so just ignore rejection.
     setTimeout(() => document.exitFullscreen().catch(() => {}), 0);
-    if (TelemetryStopwatch.running("FULLSCREEN_CHANGE_MS")) {
+    if (aActor.timerId) {
       // Cancel the stopwatch for any fullscreen change to avoid
       // errors if it is started again.
-      TelemetryStopwatch.cancel("FULLSCREEN_CHANGE_MS");
+      Glean.fullscreen.change.cancel(aActor.timerId);
+      aActor.timerId = null;
     }
   },
 
@@ -688,7 +721,6 @@ var FullScreen = {
    * Search for the first ancestor of aActor that lives in a different process.
    * If found, that ancestor actor and the browsing context for its child which
    * was in process are returned. Otherwise [request origin, null].
-   *
    *
    * @param {JSWindowActorParent} aActor
    *        The actor that called this function.
@@ -839,7 +871,7 @@ var FullScreen = {
 
   // Autohide helpers for the context menu item
   updateAutohideMenuitem(aItem) {
-    aItem.setAttribute(
+    aItem.toggleAttribute(
       "checked",
       Services.prefs.getBoolPref("browser.fullscreen.autohide")
     );
@@ -878,7 +910,11 @@ var FullScreen = {
     }
 
     this._isChromeCollapsed = false;
-    Services.obs.notifyObservers(null, "fullscreen-nav-toolbox", "shown");
+    Services.obs.notifyObservers(
+      gNavToolbox,
+      "fullscreen-nav-toolbox",
+      "shown"
+    );
   },
 
   hideNavToolbox(aAnimate = false) {
@@ -942,7 +978,11 @@ var FullScreen = {
     gNavToolbox.style.marginTop =
       -gNavToolbox.getBoundingClientRect().height + "px";
     this._isChromeCollapsed = true;
-    Services.obs.notifyObservers(null, "fullscreen-nav-toolbox", "hidden");
+    Services.obs.notifyObservers(
+      gNavToolbox,
+      "fullscreen-nav-toolbox",
+      "hidden"
+    );
 
     MousePosTracker.removeListener(this);
   },

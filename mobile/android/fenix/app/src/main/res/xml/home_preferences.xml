@@ -29,8 +29,7 @@
 
     <androidx.preference.SwitchPreference
         android:key="@string/pref_key_pocket_homescreen_recommendations"
-        android:title="@string/customize_toggle_pocket_2"
-        android:summary="@string/customize_toggle_pocket_summary" />
+        android:title="@string/customize_toggle_pocket_3" />
 
     <androidx.preference.CheckBoxPreference
         android:dependency="@string/pref_key_pocket_homescreen_recommendations"
@@ -49,17 +48,14 @@
         app:iconSpaceReserved="false">
 
         <org.mozilla.fenix.settings.RadioButtonPreference
-            android:defaultValue="false"
             android:key="@string/pref_key_start_on_home_always"
             android:title="@string/opening_screen_homepage" />
 
         <org.mozilla.fenix.settings.RadioButtonPreference
-            android:defaultValue="false"
             android:key="@string/pref_key_start_on_home_never"
             android:title="@string/opening_screen_last_tab" />
 
         <org.mozilla.fenix.settings.RadioButtonPreference
-            android:defaultValue="true"
             android:key="@string/pref_key_start_on_home_after_four_hours"
             android:title="@string/opening_screen_after_four_hours_of_inactivity" />
 

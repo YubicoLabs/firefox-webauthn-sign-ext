@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsDragService_h__
-#define nsDragService_h__
+#ifndef nsDragService_h_
+#define nsDragService_h_
 
 #include "mozilla/RefPtr.h"
 #include "nsBaseDragService.h"
@@ -130,6 +130,8 @@ class nsDragSession : public nsBaseDragSession, public nsIObserver {
   };
 
   static int GetLoopDepth() { return sEventLoopDepth; };
+
+  static bool IsTextFlavor(GdkAtom aFlavor);
 
  protected:
   // mScheduledTask indicates what signal has been received from GTK and
@@ -266,6 +268,8 @@ class nsDragSession : public nsBaseDragSession, public nsIObserver {
   static GdkAtom sFilePromiseURLMimeAtom;
   static GdkAtom sFilePromiseMimeAtom;
   static GdkAtom sNativeImageMimeAtom;
+  static GdkAtom sUTF8STRINGMimeAtom;
+  static GdkAtom sSTRINGMimeAtom;
 
   nsDragSession();
 
@@ -278,9 +282,9 @@ class nsDragSession : public nsBaseDragSession, public nsIObserver {
   // nsIDragSession
   MOZ_CAN_RUN_SCRIPT NS_IMETHOD InvokeDragSession(
       nsIWidget* aWidget, nsINode* aDOMNode, nsIPrincipal* aPrincipal,
-      nsIContentSecurityPolicy* aCsp, nsICookieJarSettings* aCookieJarSettings,
-      nsIArray* anArrayTransferables, uint32_t aActionType,
-      nsContentPolicyType aContentPolicyType) override;
+      nsIPolicyContainer* aPolicyContainer,
+      nsICookieJarSettings* aCookieJarSettings, nsIArray* anArrayTransferables,
+      uint32_t aActionType, nsContentPolicyType aContentPolicyType) override;
 
   // Methods called from nsWindow to handle responding to GTK drag
   // destination signals
@@ -328,10 +332,17 @@ class nsDragSession : public nsBaseDragSession, public nsIObserver {
   // set the drag icon during drag-begin
   void SetDragIcon(GdkDragContext* aContext);
 
+  void MarkAsActive();
+  bool IsActive() const;
+  RefPtr<GdkDragContext> GetSourceDragContext();
+
  protected:
   virtual ~nsDragSession();
 
  private:
+  // Used to cancel initiated D&D operation from nsWindow.
+  RefPtr<GdkDragContext> mSourceDragContext;
+
   // target/destination side vars
   // These variables keep track of the state of the current drag.
 
@@ -347,7 +358,8 @@ class nsDragSession : public nsBaseDragSession, public nsIObserver {
 
   mozilla::LayoutDeviceIntPoint mTargetWindowPoint;
 
-  int mWaitingForDragDataRequests = 0;
+  // Track gtk_drag_get_data() requests here.
+  RefPtr<GdkDragContext> mWaitingForDragDataContext;
 
   bool IsDragFlavorAvailable(GdkAtom aRequestedFlavor);
 
@@ -402,4 +414,4 @@ class nsDragService : public nsBaseDragService {
   already_AddRefed<nsIDragSession> CreateDragSession() override;
 };
 
-#endif  // nsDragService_h__
+#endif  // nsDragService_h_

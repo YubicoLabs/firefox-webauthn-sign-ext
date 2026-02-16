@@ -3,7 +3,9 @@ dupe-manifest = ""
 firefox-appdir = "browser"
 head = "head_search.js"
 prefs = ["browser.search.removeEngineInfobar.enabled=true"]
-skip-if = ["os == 'android'"]
+skip-if = [
+  "os == 'android'",
+]
 support-files = [
   "icons/bigIcon.ico",
   "icons/multipleSizes.ico",
@@ -24,16 +26,13 @@ tags = "searchmain"
 ["test_appDefaultEngine.js"]
 
 ["test_appProvided_engine.js"]
-prefs = ["browser.search.newSearchConfig.enabled=true"]
 support-files = [
   "../../schema/search-config-v2-schema.json",
 ]
 
 ["test_appProvided_icons.js"]
-prefs = ["browser.search.newSearchConfig.enabled=true"]
 
 ["test_appProvided_icons_updates.js"]
-prefs = ["browser.search.newSearchConfig.enabled=true"]
 tags = "remote-settings"
 
 ["test_async.js"]
@@ -57,6 +56,8 @@ support-files = [
 
 ["test_engine_alias.js"]
 
+["test_engine_has_been_used.js"]
+
 ["test_engine_ids.js"]
 
 ["test_engine_multiple_alias.js"]
@@ -70,7 +71,7 @@ support-files = [
 ["test_engine_selector_remote_override.js"]
 
 ["test_engine_selector_remote_settings.js"]
-tags = "remotesettings searchmain"
+tags = "remote-settings searchmain"
 
 ["test_engine_selector_subvariants.js"]
 
@@ -102,6 +103,8 @@ support-files = ["settings/ignorelist.json"]
 ["test_maybereloadengine_order.js"]
 
 ["test_migrateWebExtensionEngine.js"]
+
+["test_no_excess_default_engine_changed_notifications.js"]
 
 ["test_nodb_pluschanges.js"]
 
@@ -199,7 +202,21 @@ support-files = [
 
 ["test_sendSubmissionURL.js"]
 
+["test_settings.js"]
+support-files = [
+  "settings/settings-loading.json",
+  "settings/v6-correct-default-engine-hashes.json",
+  "settings/v6-wrong-default-engine-hashes.json",
+  "settings/v6-wrong-third-party-engine-hashes.json",
+]
+
+["test_settings_broken.js"]
+
 ["test_settings_corrupt.js"]
+
+["test_settings_duplicate.js"]
+
+["test_settings_good.js"]
 
 ["test_settings_migrate_11.js"]
 support-files = [
@@ -211,19 +228,7 @@ support-files = [
   "icons/remoteIcon.ico",
 ]
 
-["test_settings.js"]
-support-files = [
-  "settings/settings-loading.json",
-  "settings/v6-correct-default-engine-hashes.json",
-  "settings/v6-wrong-default-engine-hashes.json",
-  "settings/v6-wrong-third-party-engine-hashes.json",
-]
-
-["test_settings_broken.js"]
-
-["test_settings_duplicate.js"]
-
-["test_settings_good.js"]
+["test_settings_migrate_13.js"]
 
 ["test_settings_migrate_id_format.js"]
 
@@ -236,7 +241,6 @@ support-files = ["settings/v6-ids-upgrade.json"]
 support-files = ["settings/v7-loadPath-migration.json"]
 
 ["test_settings_migration_renames.js"]
-prefs = ["browser.search.newSearchConfig.enabled=true"]
 support-files = ["settings/v6-migration-renames.json"]
 
 ["test_settings_none.js"]
@@ -258,7 +262,7 @@ support-files = [
 
 ["test_userEngine.js"]
 
-["test_userInstalledAppEngine.js"]
+["test_userInstalledConfigEngine.js"]
 
 ["test_validate_engines.js"]
 

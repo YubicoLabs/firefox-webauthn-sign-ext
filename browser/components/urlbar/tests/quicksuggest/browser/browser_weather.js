@@ -23,6 +23,7 @@ add_setup(async function () {
     ],
   });
   await MerinoTestUtils.initWeather();
+  GeolocationTestUtils.stubGeolocation(GeolocationTestUtils.SAN_FRANCISCO);
 });
 
 // Does a search, clicks the "Show less frequently" result menu command, and
@@ -114,22 +115,13 @@ add_task(async function showLessFrequentlyCapReached_manySearches() {
   UrlbarPrefs.clear("weather.showLessFrequentlyCount");
 });
 
-// Tests the "Not interested" result menu dismissal command.
-add_task(async function notInterested() {
+// Tests the "Don't show weather suggestions" result menu dismissal command.
+add_task(async function dontShow() {
   await UrlbarTestUtils.promiseAutocompleteResultPopup({
     window,
     value: "weather",
   });
-  await doDismissTest("not_interested");
-});
-
-// Tests the "Not relevant" result menu dismissal command.
-add_task(async function notRelevant() {
-  await UrlbarTestUtils.promiseAutocompleteResultPopup({
-    window,
-    value: "weather",
-  });
-  await doDismissTest("not_relevant");
+  await doDismissTest("dismiss");
 });
 
 async function doDismissTest(command) {
@@ -137,11 +129,15 @@ async function doDismissTest(command) {
   let details = await assertWeatherResultPresent();
 
   // Click the command.
-  await UrlbarTestUtils.openResultMenuAndClickItem(
-    window,
-    ["[data-l10n-id=firefox-suggest-command-dont-show-this]", command],
-    { resultIndex: EXPECTED_RESULT_INDEX, openByMouse: true }
+  let dismissalPromise = TestUtils.topicObserved(
+    "quicksuggest-dismissals-changed"
   );
+  await UrlbarTestUtils.openResultMenuAndClickItem(window, command, {
+    resultIndex: EXPECTED_RESULT_INDEX,
+    openByMouse: true,
+  });
+  info("Awaiting dismissal promise");
+  await dismissalPromise;
 
   Assert.ok(
     !UrlbarPrefs.get("suggest.weather"),
@@ -254,7 +250,7 @@ async function doSessionOngoingCommandTest(command) {
   );
 
   info("Doing dismissal");
-  await doDismissTest("not_interested");
+  await doDismissTest("dismiss");
 }
 
 // Test for menu item to manage the suggest.

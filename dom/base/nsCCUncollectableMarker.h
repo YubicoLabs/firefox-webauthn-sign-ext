@@ -8,7 +8,6 @@
 #define nsCCUncollectableMarker_h_
 
 #include "js/TracingAPI.h"
-#include "mozilla/Attributes.h"
 #include "nsIObserver.h"
 
 class nsCCUncollectableMarker final : public nsIObserver {
@@ -32,11 +31,15 @@ class nsCCUncollectableMarker final : public nsIObserver {
     return InGeneration(aGeneration) && !aCb.WantAllTraces();
   }
 
+  static void CleanupForForgetSkippable();
+
   static uint32_t sGeneration;
 
  private:
   nsCCUncollectableMarker() = default;
   ~nsCCUncollectableMarker() = default;
+
+  nsresult Cleanup(bool aPrepareForCC);
 };
 
 namespace mozilla::dom {

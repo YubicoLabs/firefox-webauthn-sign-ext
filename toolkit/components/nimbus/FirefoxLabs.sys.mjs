@@ -6,6 +6,8 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   ExperimentAPI: "resource://nimbus/ExperimentAPI.sys.mjs",
+  NimbusTelemetry: "resource://nimbus/lib/Telemetry.sys.mjs",
+  UnenrollmentCause: "resource://nimbus/lib/ExperimentManager.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
@@ -42,7 +44,7 @@ export class FirefoxLabs {
       throw new Error("FirefoxLabs can only be created in the main process");
     }
 
-    const recipes = await lazy.ExperimentAPI._manager.getAllOptInRecipes();
+    const recipes = await lazy.ExperimentAPI.manager.getAllOptInRecipes();
     return new FirefoxLabs(recipes);
   }
 
@@ -71,7 +73,7 @@ export class FirefoxLabs {
     }
 
     try {
-      await lazy.ExperimentAPI._manager.enroll(recipe, "rs-loader", {
+      await lazy.ExperimentAPI.manager.enroll(recipe, "rs-loader", {
         branchSlug,
       });
     } catch (e) {
@@ -95,7 +97,12 @@ export class FirefoxLabs {
     }
 
     try {
-      lazy.ExperimentAPI._manager.unenroll(slug, "labs-opt-out");
+      lazy.ExperimentAPI.manager.unenroll(
+        slug,
+        lazy.UnenrollmentCause.fromReason(
+          lazy.NimbusTelemetry.UnenrollReason.LABS_OPT_OUT
+        )
+      );
     } catch (e) {
       lazy.log.error(`unenroll: failed to unenroll from ${slug}`, e);
     }

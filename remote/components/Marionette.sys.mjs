@@ -21,6 +21,7 @@ ChromeUtils.defineLazyGetter(lazy, "logger", () =>
 ChromeUtils.defineLazyGetter(lazy, "textEncoder", () => new TextEncoder());
 
 const NOTIFY_LISTENING = "marionette-listening";
+const SHARED_DATA_ACTIVE_KEY = "Marionette:Active";
 
 // Complements -marionette flag for starting the Marionette server.
 // We also set this if Marionette is running in order to start the server
@@ -50,13 +51,8 @@ class MarionetteParentProcess {
     this.server = null;
     this._activePortPath;
 
-    this.classID = Components.ID("{786a1369-dca5-4adc-8486-33d23c88010a}");
-    this.helpInfo = "  --marionette       Enable remote control server.\n";
-
     // Initially set the enabled state based on the environment variable.
     this.enabled = Services.env.exists(ENV_ENABLED);
-
-    Services.ppmm.addMessageListener("Marionette:IsRunning", this);
 
     this.#browserStartupFinished = lazy.Deferred();
   }
@@ -90,15 +86,14 @@ class MarionetteParentProcess {
     return !!this.server && this.server.alive;
   }
 
-  receiveMessage({ name }) {
-    switch (name) {
-      case "Marionette:IsRunning":
-        return this.running;
-
-      default:
-        lazy.logger.warn("Unknown IPC message to parent process: " + name);
-        return null;
-    }
+  /**
+   * Syncs the Marionette active flag with the web content processes.
+   *
+   * @param {boolean} value - Flag indicating if Marionette is active or not.
+   */
+  updateWebdriverActiveFlag(value) {
+    Services.ppmm.sharedData.set(SHARED_DATA_ACTIVE_KEY, value);
+    Services.ppmm.sharedData.flush();
   }
 
   handle(cmdLine) {
@@ -111,7 +106,7 @@ class MarionetteParentProcess {
     cmdLine.handleFlag("marionette", false);
   }
 
-  async observe(subject, topic) {
+  async observe(subject, topic, data) {
     if (this.enabled) {
       lazy.logger.trace(`Received observer notification ${topic}`);
     }
@@ -180,6 +175,9 @@ class MarionetteParentProcess {
         Services.obs.addObserver(this, "mail-idle-startup-tasks-finished");
         Services.obs.addObserver(this, "quit-application");
 
+        Services.obs.addObserver(this, "xpcom-shutdown");
+        Services.obs.addObserver(this, "xpcom-shutdown-threads");
+
         await this.init();
         break;
 
@@ -196,7 +194,16 @@ class MarionetteParentProcess {
 
       case "quit-application":
         Services.obs.removeObserver(this, topic);
+        lazy.logger.trace(
+          `Application is shutting down with reason: "${data || "unknown"}"`
+        );
         await this.uninit();
+        break;
+
+      // Used for logging purposes to help identify slow shutdown sequences.
+      case "xpcom-shutdown":
+      case "xpcom-shutdown-threads":
+        Services.obs.removeObserver(this, topic);
         break;
     }
   }
@@ -208,7 +215,7 @@ class MarionetteParentProcess {
         let dialog = win.document.getElementById("safeModeDialog");
         if (dialog) {
           // accept the dialog to start in safe-mode
-          lazy.logger.trace("Safe mode detected, supressing dialog");
+          lazy.logger.trace("Safe mode detected, suppressing dialog");
           win.setTimeout(() => {
             dialog.getButton("accept").click();
           });
@@ -235,6 +242,8 @@ class MarionetteParentProcess {
       return;
     }
 
+    this.updateWebdriverActiveFlag(true);
+
     Services.env.set(ENV_ENABLED, "1");
     Services.obs.notifyObservers(this, NOTIFY_LISTENING, true);
     lazy.logger.debug("Marionette is listening");
@@ -258,8 +267,9 @@ class MarionetteParentProcess {
   async uninit() {
     if (this.running) {
       await this.server.stop();
+      this.updateWebdriverActiveFlag(false);
+
       Services.obs.notifyObservers(this, NOTIFY_LISTENING);
-      lazy.logger.debug("Marionette stopped listening");
 
       try {
         await IOUtils.remove(this._activePortPath);
@@ -268,35 +278,30 @@ class MarionetteParentProcess {
           `Failed to remove ${this._activePortPath} (${e.message})`
         );
       }
+
+      lazy.logger.debug("Marionette stopped listening");
     }
   }
 
-  get QueryInterface() {
-    return ChromeUtils.generateQI([
-      "nsICommandLineHandler",
-      "nsIMarionette",
-      "nsIObserver",
-    ]);
-  }
+  // XPCOM
+
+  helpInfo = "  --marionette       Enable remote control server.\n";
+
+  QueryInterface = ChromeUtils.generateQI([
+    "nsICommandLineHandler",
+    "nsIMarionette",
+    "nsIObserver",
+  ]);
 }
 
 class MarionetteContentProcess {
-  constructor() {
-    this.classID = Components.ID("{786a1369-dca5-4adc-8486-33d23c88010a}");
-  }
-
   get running() {
-    let reply = Services.cpmm.sendSyncMessage("Marionette:IsRunning");
-    if (!reply.length) {
-      lazy.logger.warn("No reply from parent process");
-      return false;
-    }
-    return reply[0];
+    return Services.cpmm.sharedData.get(SHARED_DATA_ACTIVE_KEY) ?? false;
   }
 
-  get QueryInterface() {
-    return ChromeUtils.generateQI(["nsIMarionette"]);
-  }
+  // XPCOM
+
+  QueryInterface = ChromeUtils.generateQI(["nsIMarionette"]);
 }
 
 export var Marionette;

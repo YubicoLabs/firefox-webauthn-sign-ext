@@ -21,6 +21,8 @@ class nsCocoaFeatures {
   static bool OnBigSurOrLater();
   static bool OnMontereyOrLater();
   static bool OnVenturaOrLater();
+  static bool OnSonomaOrLater();
+  static bool OnTahoeOrLater();
 
   static bool IsAtLeastVersion(int32_t aMajor, int32_t aMinor,
                                int32_t aBugFix = 0);
@@ -40,9 +42,7 @@ class nsCocoaFeatures {
 
  private:
   nsCocoaFeatures() = delete;  // Prevent instantiation.
-  static void InitializeVersionNumbers();
-
-  static int32_t mOSVersion;
+  static int32_t ComputeVersion();
 };
 
 #endif  // nsCocoaFeatures_h_

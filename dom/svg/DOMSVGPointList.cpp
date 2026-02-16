@@ -6,15 +6,16 @@
 
 #include "DOMSVGPointList.h"
 
-#include "nsContentUtils.h"
+#include <algorithm>
+
 #include "DOMSVGPoint.h"
-#include "nsError.h"
 #include "SVGAnimatedPointList.h"
 #include "SVGAttrTearoffTable.h"
 #include "SVGPolyElement.h"
 #include "mozilla/dom/SVGElement.h"
 #include "mozilla/dom/SVGPointListBinding.h"
-#include <algorithm>
+#include "nsContentUtils.h"
+#include "nsError.h"
 
 // See the comment in this file's header.
 
@@ -90,9 +91,12 @@ void DOMSVGPointList::RemoveFromTearoffTable() {
   //
   // There are now no longer any references to us held by script or list items.
   // Note we must use GetAnimValKey/GetBaseValKey here, NOT InternalList()!
-  void* key = mIsAnimValList ? InternalAList().GetAnimValKey()
-                             : InternalAList().GetBaseValKey();
-  SVGPointListTearoffTable().RemoveTearoff(key);
+  if (mIsInTearoffTable) {
+    void* key = mIsAnimValList ? InternalAList().GetAnimValKey()
+                               : InternalAList().GetBaseValKey();
+    SVGPointListTearoffTable().RemoveTearoff(key);
+    mIsInTearoffTable = false;
+  }
 }
 
 DOMSVGPointList::~DOMSVGPointList() { RemoveFromTearoffTable(); }

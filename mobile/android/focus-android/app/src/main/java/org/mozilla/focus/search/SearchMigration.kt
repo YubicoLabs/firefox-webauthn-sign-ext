@@ -6,6 +6,7 @@ package org.mozilla.focus.search
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.feature.search.ext.parseLegacySearchEngine
 import mozilla.components.feature.search.middleware.SearchMiddleware
@@ -37,9 +38,9 @@ class SearchMigration(
             defaultSearchEngineName = context.settings.defaultSearchEngineName,
         )
 
-        preferences.edit()
-            .putBoolean(PREF_KEY_MIGRATED, true)
-            .apply()
+        preferences.edit {
+            putBoolean(PREF_KEY_MIGRATED, true)
+        }
 
         return values
     }
@@ -54,15 +55,15 @@ class SearchMigration(
                 .byteInputStream()
                 .buffered()
 
-            loadSafely(engine, engineInputStream)
+            loadSafely(context, engine, engineInputStream)
         }
     }
 }
 
-@Suppress("SwallowedException", "DEPRECATION")
-private fun loadSafely(id: String, stream: BufferedInputStream?): SearchEngine? {
+@Suppress("DEPRECATION")
+private fun loadSafely(context: Context, id: String, stream: BufferedInputStream?): SearchEngine? {
     return try {
-        stream?.let { parseLegacySearchEngine(id, it) }
+        stream?.let { parseLegacySearchEngine(context, id, it) }
     } catch (e: IOException) {
         null
     } catch (e: XmlPullParserException) {

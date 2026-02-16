@@ -17,6 +17,9 @@
 // Globals
 
 const kDeleteTempFileOnExit = "browser.helperApps.deleteTempFileOnExit";
+// TODO (bug 1986365): we should replace the setting of this pref with an actual
+// test for the "new" behaviour (introduced in bug 1790641).
+const kDeletePrivateFileFeature = "browser.download.enableDeletePrivate";
 
 ChromeUtils.defineESModuleGetters(this, {
   FileUtils: "resource://gre/modules/FileUtils.sys.mjs",
@@ -26,10 +29,10 @@ ChromeUtils.defineESModuleGetters(this, {
  * Creates and starts a new download, using either DownloadCopySaver or
  * DownloadLegacySaver based on the current test run.
  *
- * @return {Promise}
- * @resolves The newly created Download object.  The download may be in progress
- *           or already finished.  The promiseDownloadStopped function can be
- *           used to wait for completion.
+ * @returns {Promise}
+ *   Resolves to the newly created Download object. The download may be in
+ *   progress or already finished. The promiseDownloadStopped function can be
+ *   used to wait for completion.
  * @rejects JavaScript exception.
  */
 function promiseStartDownload(aSourceUrl) {
@@ -52,8 +55,8 @@ function promiseStartDownload(aSourceUrl) {
  * @param expectedContents
  *        String containing the octets that are expected in the file.
  *
- * @return {Promise}
- * @resolves When the properties have been verified.
+ * @returns {Promise<void>}
+ *   Resolves when the properties have been verified.
  * @rejects JavaScript exception.
  */
 var promiseVerifyTarget = async function (downloadTarget, expectedContents) {
@@ -289,6 +292,98 @@ add_task(async function test_unix_permissions() {
 });
 
 /**
+ * Tests the MacOS xattr com.apple.metadata:kMDItemWhereFroms information of the final target
+ * once the download finished. This xattr should contain both the download source URL as well
+ * as the referrer for that source, unless the referrer policy would have blocked tracking the
+ * referrer.
+ */
+add_task(async function test_macos_xattrItemWhereFroms() {
+  // This test is only executed on MacOS.
+  if (Services.appinfo.OS != "Darwin") {
+    info("Skipping test.");
+    return;
+  }
+
+  const sourceUrl = httpUrl("source.txt");
+  const xattrName = "com.apple.metadata:kMDItemWhereFroms";
+
+  let unsafeReferrerInfo = new ReferrerInfo(
+    Ci.nsIReferrerInfo.UNSAFE_URL,
+    true,
+    NetUtil.newURI(TEST_REFERRER_URL)
+  );
+  Assert.notEqual(unsafeReferrerInfo, null);
+
+  let noReferrerInfo = new ReferrerInfo(
+    Ci.nsIReferrerInfo.NO_REFERRER,
+    true,
+    NetUtil.newURI(TEST_REFERRER_URL)
+  );
+
+  let targetFile = getTempFile(TEST_TARGET_FILE_NAME);
+
+  try {
+    if (!gUseLegacySaver) {
+      let download = await Downloads.createDownload({
+        source: { url: sourceUrl, referrerInfo: unsafeReferrerInfo },
+        target: targetFile.path,
+      });
+      await download.start();
+    } else {
+      let download = await promiseStartLegacyDownload(sourceUrl, {
+        targetFile,
+        referrerInfo: unsafeReferrerInfo,
+      });
+      await promiseDownloadStopped(download);
+    }
+    await promiseVerifyContents(targetFile.path, TEST_DATA_SHORT);
+
+    // Check the ItemWhereFroms xattr
+    let plist = new TextDecoder().decode(
+      await IOUtils.getMacXAttr(targetFile.path, xattrName)
+    );
+    info(plist);
+    // Test that the download source is captured in the xattr
+    Assert.ok(plist.includes(sourceUrl));
+    // Test that the referrer is in the xattr when the Referrer-policy doesn't prohibit it
+    Assert.ok(plist.includes(TEST_REFERRER_URL));
+  } finally {
+    await IOUtils.remove(targetFile.path);
+  }
+
+  targetFile = getTempFile(TEST_TARGET_FILE_NAME);
+
+  info(targetFile.path);
+  try {
+    if (!gUseLegacySaver) {
+      let download = await Downloads.createDownload({
+        source: { url: sourceUrl, referrerInfo: noReferrerInfo },
+        target: targetFile.path,
+      });
+      await download.start();
+    } else {
+      let download = await promiseStartLegacyDownload(sourceUrl, {
+        targetFile,
+        referrerInfo: noReferrerInfo,
+      });
+      await promiseDownloadStopped(download);
+    }
+    await promiseVerifyContents(targetFile.path, TEST_DATA_SHORT);
+    // Check the ItemWhereFroms xattr
+    let plist = new TextDecoder().decode(
+      await IOUtils.getMacXAttr(targetFile.path, xattrName)
+    );
+    info(plist);
+    // Test that the download source is captured in the xattr
+    Assert.ok(plist.includes(sourceUrl));
+    // Test that the referrer is not in the xattr when the Referrer-policy prohibits it
+    Assert.ok(!plist.includes(TEST_REFERRER_URL));
+  } finally {
+    await IOUtils.remove(targetFile.path);
+  }
+});
+
+/**
  * Tests the zone information of the final target once the download finished.
  */
 add_task(async function test_windows_zoneInformation() {
@@ -307,7 +402,7 @@ add_task(async function test_windows_zoneInformation() {
     "xpcshell-download-test.txt"
   );
 
-  // The template file name lenght is more than MAX_PATH characters. The final
+  // The template file name length is more than MAX_PATH characters. The final
   // full path will be shortened to MAX_PATH length by the createUnique call.
   let longTargetFile = await IOUtils.getFile(
     Services.dirsvc.get("LocalAppData", Ci.nsIFile).path,
@@ -559,9 +654,9 @@ add_task(async function test_initial_final_state() {
     Assert.ok(download.stopped);
     Assert.ok(!download.succeeded);
     Assert.ok(!download.canceled);
-    Assert.ok(download.error === null);
+    Assert.strictEqual(download.error, null);
     Assert.equal(download.progress, 0);
-    Assert.ok(download.startTime === null);
+    Assert.strictEqual(download.startTime, null);
     Assert.ok(!download.target.exists);
     Assert.equal(download.target.size, 0);
 
@@ -576,7 +671,7 @@ add_task(async function test_initial_final_state() {
   Assert.ok(download.stopped);
   Assert.ok(download.succeeded);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
   Assert.equal(download.progress, 100);
   Assert.ok(isValidDate(download.startTime));
   Assert.ok(download.target.exists);
@@ -806,7 +901,7 @@ add_task(async function test_start_twice() {
   Assert.ok(download.stopped);
   Assert.ok(download.succeeded);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   await promiseVerifyTarget(download.target, TEST_DATA_SHORT + TEST_DATA_SHORT);
 });
@@ -865,7 +960,7 @@ add_task(async function test_cancel_midway() {
 
   Assert.ok(download.stopped);
   Assert.ok(download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
   Assert.ok(!download.target.exists);
   Assert.equal(download.target.size, 0);
 
@@ -908,7 +1003,7 @@ add_task(async function test_cancel_midway_tryToKeepPartialData() {
 
   Assert.ok(download.stopped);
   Assert.ok(download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   Assert.equal(false, await IOUtils.exists(download.target.path));
   Assert.equal(false, await IOUtils.exists(download.target.partFilePath));
@@ -944,7 +1039,7 @@ add_task(async function test_cancel_immediately() {
 
   Assert.ok(download.stopped);
   Assert.ok(download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   Assert.equal(false, await IOUtils.exists(download.target.path));
 
@@ -974,7 +1069,7 @@ add_task(async function test_cancel_midway_restart() {
   // Download state should have already been reset.
   Assert.ok(!download.stopped);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   // For the following test, we rely on the network layer reporting its progress
   // asynchronously.  Otherwise, there is nothing stopping the restarted
@@ -988,7 +1083,7 @@ add_task(async function test_cancel_midway_restart() {
   Assert.ok(download.stopped);
   Assert.ok(download.succeeded);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   await promiseVerifyTarget(download.target, TEST_DATA_SHORT + TEST_DATA_SHORT);
 });
@@ -1162,7 +1257,7 @@ add_task(async function test_cancel_immediately_restart_immediately() {
   let promiseRestarted = download.start();
   Assert.ok(!download.stopped);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   // For the following test, we rely on the network layer reporting its progress
   // asynchronously.  Otherwise, there is nothing stopping the restarted
@@ -1194,7 +1289,7 @@ add_task(async function test_cancel_immediately_restart_immediately() {
   Assert.ok(download.stopped);
   Assert.ok(download.succeeded);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   await promiseVerifyTarget(download.target, TEST_DATA_SHORT + TEST_DATA_SHORT);
 });
@@ -1216,7 +1311,7 @@ add_task(async function test_cancel_midway_restart_immediately() {
   let promiseRestarted = download.start();
   Assert.ok(!download.stopped);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   // For the following test, we rely on the network layer reporting its progress
   // asynchronously.  Otherwise, there is nothing stopping the restarted
@@ -1244,7 +1339,7 @@ add_task(async function test_cancel_midway_restart_immediately() {
   Assert.ok(download.stopped);
   Assert.ok(download.succeeded);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   await promiseVerifyTarget(download.target, TEST_DATA_SHORT + TEST_DATA_SHORT);
 });
@@ -1262,7 +1357,7 @@ add_task(async function test_cancel_successful() {
   Assert.ok(download.stopped);
   Assert.ok(download.succeeded);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   await promiseVerifyTarget(download.target, TEST_DATA_SHORT);
 });
@@ -1300,7 +1395,7 @@ add_task(async function test_cancel_twice() {
   Assert.ok(download.stopped);
   Assert.ok(!download.succeeded);
   Assert.ok(download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   Assert.equal(false, await IOUtils.exists(download.target.path));
 });
@@ -1352,7 +1447,7 @@ add_task(async function test_finalize() {
   Assert.ok(download.stopped);
   Assert.ok(!download.succeeded);
   Assert.ok(download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   Assert.equal(false, await IOUtils.exists(download.target.path));
 });
@@ -1420,7 +1515,7 @@ add_task(async function test_whenSucceeded_after_restart() {
   Assert.ok(download.stopped);
   Assert.ok(download.succeeded);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
 
   await promiseVerifyTarget(download.target, TEST_DATA_SHORT + TEST_DATA_SHORT);
 });
@@ -1440,7 +1535,7 @@ add_task(async function test_error_source() {
         // returned by the "start" method is rejected.
         download = await promiseNewDownload(sourceUrl);
 
-        Assert.ok(download.error === null);
+        Assert.strictEqual(download.error, null);
 
         await download.start();
       } else {
@@ -1462,7 +1557,7 @@ add_task(async function test_error_source() {
     // Check the properties now that the download stopped.
     Assert.ok(download.stopped);
     Assert.ok(!download.canceled);
-    Assert.ok(download.error !== null);
+    Assert.notStrictEqual(download.error, null);
     Assert.ok(download.error.becauseSourceFailed);
     Assert.ok(!download.error.becauseTargetFailed);
 
@@ -1501,7 +1596,7 @@ add_task(async function test_error_source_partial() {
       // returned by the "start" method is rejected.
       download = await promiseNewDownload(sourceUrl);
 
-      Assert.ok(download.error === null);
+      Assert.strictEqual(download.error, null);
 
       await download.start();
     } else {
@@ -1523,7 +1618,7 @@ add_task(async function test_error_source_partial() {
   // Check the properties now that the download stopped.
   Assert.ok(download.stopped);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error !== null);
+  Assert.notStrictEqual(download.error, null);
   Assert.ok(download.error.becauseSourceFailed);
   Assert.ok(!download.error.becauseTargetFailed);
   Assert.equal(download.error.result, Cr.NS_ERROR_NET_PARTIAL_TRANSFER);
@@ -1548,7 +1643,7 @@ add_task(async function test_error_source_netreset() {
       // returned by the "start" method is rejected.
       download = await promiseNewDownload(httpUrl("netreset.txt"));
 
-      Assert.ok(download.error === null);
+      Assert.strictEqual(download.error, null);
 
       await download.start();
     } else {
@@ -1570,7 +1665,7 @@ add_task(async function test_error_source_netreset() {
   // Check the properties now that the download stopped.
   Assert.ok(download.stopped);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error !== null);
+  Assert.notStrictEqual(download.error, null);
   Assert.ok(download.error.becauseSourceFailed);
   Assert.ok(!download.error.becauseTargetFailed);
   Assert.equal(download.error.result, Cr.NS_ERROR_NET_RESET);
@@ -1615,7 +1710,7 @@ add_task(async function test_error_target() {
     // Check the properties now that the download stopped.
     Assert.ok(download.stopped);
     Assert.ok(!download.canceled);
-    Assert.ok(download.error !== null);
+    Assert.notStrictEqual(download.error, null);
     Assert.ok(download.error.becauseTargetFailed);
     Assert.ok(!download.error.becauseSourceFailed);
 
@@ -1685,7 +1780,7 @@ add_task(async function test_error_restart() {
   Assert.ok(download.stopped);
   Assert.ok(download.succeeded);
   Assert.ok(!download.canceled);
-  Assert.ok(download.error === null);
+  Assert.strictEqual(download.error, null);
   Assert.equal(download.progress, 100);
 
   await promiseVerifyTarget(download.target, TEST_DATA_SHORT);
@@ -1764,7 +1859,7 @@ add_task(async function test_cancel_immediately_restart_and_check_startTime() {
   await promiseTimeout(10);
 
   await download.start();
-  Assert.ok(download.startTime.getTime() > startTime.getTime());
+  Assert.greater(download.startTime.getTime(), startTime.getTime());
 });
 
 /**
@@ -2090,7 +2185,7 @@ add_task(async function test_blocked_applicationReputation_race() {
         // 3. Allow the first attempt to finish with a blocked response.
         return Promise.resolve({
           shouldBlock: true,
-          verdict: Downloads.Error.BLOCK_VERDICT_UNCOMMON,
+          verdict: Ci.nsIApplicationReputationService.VERDICT_UNCOMMON,
         });
       }
 
@@ -2099,7 +2194,7 @@ add_task(async function test_blocked_applicationReputation_race() {
       //      is blocked, but not blocking here makes the test simpler.
       return Promise.resolve({
         shouldBlock: false,
-        verdict: "",
+        verdict: Ci.nsIApplicationReputationService.VERDICT_SAFE,
       });
     },
     shouldKeepBlockedData: () => Promise.resolve(true),
@@ -2400,7 +2495,7 @@ add_task(async function test_launch() {
     // Verify that the results match the test case.
     if (!launcherPath) {
       // This indicates that the default handler has been chosen.
-      Assert.ok(result === null);
+      Assert.strictEqual(result, null);
     } else {
       // Check the nsIMIMEInfo instance that would have been used for launching.
       Assert.equal(result.preferredAction, Ci.nsIMIMEInfo.useHelperApp);
@@ -2465,7 +2560,7 @@ add_task(
       // Verify that the results match the test case.
       if (!launcherId) {
         // This indicates that the default handler has been chosen.
-        Assert.ok(result === null);
+        Assert.strictEqual(result, null);
       } else {
         // Check the nsIMIMEInfo instance that would have been used for launching.
         let launcher = Cc["@mozilla.org/gio-service;1"]
@@ -2605,7 +2700,7 @@ add_task(async function test_launchWhenSucceeded() {
     // Verify that the results match the test case.
     if (!launcherPath) {
       // This indicates that the default handler has been chosen.
-      Assert.ok(result === null);
+      Assert.strictEqual(result, null);
     } else {
       // Check the nsIMIMEInfo instance that would have been used for launching.
       Assert.equal(result.preferredAction, Ci.nsIMIMEInfo.useHelperApp);
@@ -2774,7 +2869,7 @@ add_task(async function test_history_tryToKeepPartialData() {
   // The time set by nsIHelperAppService may be different than the start time in
   // the download object, thus we only check that it is a meaningful time.  Note
   // that we subtract one second from the earliest time to account for rounding.
-  Assert.ok(time >= beforeStartTimeMs - 1000);
+  Assert.greaterOrEqual(time, beforeStartTimeMs - 1000);
 
   // Complete the download before finishing the test.
   continueResponses();
@@ -2874,6 +2969,7 @@ add_task(async function test_launchWhenSucceeded_deleteTempFileOnExit() {
   let autoDeleteTargetPathTwo = getTempFile(TEST_TARGET_FILE_NAME).path;
   let noAutoDeleteTargetPath = getTempFile(TEST_TARGET_FILE_NAME).path;
 
+  Services.prefs.setBoolPref(kDeletePrivateFileFeature, false);
   let autoDeleteDownloadOne = await Downloads.createDownload({
     source: { url: httpUrl("source.txt"), isPrivate: true },
     target: autoDeleteTargetPathOne,
@@ -2902,13 +2998,27 @@ add_task(async function test_launchWhenSucceeded_deleteTempFileOnExit() {
 
   Services.prefs.clearUserPref(kDeleteTempFileOnExit);
 
-  Assert.ok(await IOUtils.exists(autoDeleteTargetPathOne));
-  Assert.ok(await IOUtils.exists(autoDeleteTargetPathTwo));
-  Assert.ok(await IOUtils.exists(noAutoDeleteTargetPath));
+  Assert.ok(
+    await IOUtils.exists(autoDeleteTargetPathOne),
+    "Auto-delete target one should exist"
+  );
+  Assert.ok(
+    await IOUtils.exists(autoDeleteTargetPathTwo),
+    "Auto-delete target two should exist"
+  );
+  Assert.ok(
+    await IOUtils.exists(noAutoDeleteTargetPath),
+    "No auto-delete target should exist"
+  );
 
   // Simulate leaving private browsing mode
   Services.obs.notifyObservers(null, "last-pb-context-exited");
-  Assert.equal(false, await IOUtils.exists(autoDeleteTargetPathOne));
+  Assert.equal(
+    false,
+    await IOUtils.exists(autoDeleteTargetPathOne),
+    "Auto-delete target one should not exist after exiting pb"
+  );
+  Services.prefs.clearUserPref(kDeletePrivateFileFeature);
 
   // Simulate browser shutdown
   let expire = Cc[
@@ -2917,8 +3027,14 @@ add_task(async function test_launchWhenSucceeded_deleteTempFileOnExit() {
   expire.observe(null, "profile-before-change", null);
 
   // The file should still exist following the simulated shutdown.
-  Assert.ok(await IOUtils.exists(autoDeleteTargetPathTwo));
-  Assert.ok(await IOUtils.exists(noAutoDeleteTargetPath));
+  Assert.ok(
+    await IOUtils.exists(autoDeleteTargetPathTwo),
+    "Auto-delete target two should exist"
+  );
+  Assert.ok(
+    await IOUtils.exists(noAutoDeleteTargetPath),
+    "No auto-delete target should exist"
+  );
 });
 
 /**
@@ -2933,6 +3049,8 @@ add_task(
     let autoDeleteTargetPathOne = getTempFile(TEST_TARGET_FILE_NAME).path;
     let autoDeleteTargetPathTwo = getTempFile(TEST_TARGET_FILE_NAME).path;
     let noAutoDeleteTargetPath = getTempFile(TEST_TARGET_FILE_NAME).path;
+
+    Services.prefs.setBoolPref(kDeletePrivateFileFeature, false);
 
     let autoDeleteDownloadOne = await Downloads.createDownload({
       source: { url: httpUrl("source.txt"), isPrivate: true },
@@ -2962,13 +3080,28 @@ add_task(
 
     Services.prefs.clearUserPref(kDeleteTempFileOnExit);
 
-    Assert.ok(await IOUtils.exists(autoDeleteTargetPathOne));
-    Assert.ok(await IOUtils.exists(autoDeleteTargetPathTwo));
-    Assert.ok(await IOUtils.exists(noAutoDeleteTargetPath));
+    Assert.ok(
+      await IOUtils.exists(autoDeleteTargetPathOne),
+      "Auto-delete target one should exist"
+    );
+    Assert.ok(
+      await IOUtils.exists(autoDeleteTargetPathTwo),
+      "Auto-delete target two should exist"
+    );
+    Assert.ok(
+      await IOUtils.exists(noAutoDeleteTargetPath),
+      "No auto-delete target should exist"
+    );
 
     // Simulate leaving private browsing mode
     Services.obs.notifyObservers(null, "last-pb-context-exited");
-    Assert.equal(false, await IOUtils.exists(autoDeleteTargetPathOne));
+    Assert.equal(
+      false,
+      await IOUtils.exists(autoDeleteTargetPathOne),
+      "Auto-delete target one should not exist after exiting pb"
+    );
+
+    Services.prefs.clearUserPref(kDeletePrivateFileFeature);
 
     // Simulate browser shutdown
     let expire = Cc[
@@ -2984,7 +3117,6 @@ add_task(
 
 add_task(async function test_partitionKey() {
   let targetFile = getTempFile(TEST_TARGET_FILE_NAME);
-  Services.prefs.setBoolPref("privacy.partition.network_state", true);
 
   function promiseVerifyDownloadChannel(url, partitionKey) {
     return TestUtils.topicObserved("http-on-modify-request", subject => {
@@ -3052,6 +3184,92 @@ add_task(async function test_partitionKey() {
   }
 
   await verifyPromise;
+});
 
-  Services.prefs.clearUserPref("privacy.partition.network_state");
+add_task(async function test_isInCurrentBatch() {
+  let i = 0;
+  function promiseControlledDownload(len) {
+    const path = `controlled_${i++}.txt`;
+    const sourcePath = `/${path}`;
+    return new Promise(function (resolve) {
+      promiseNewDownload(httpUrl(path)).then(download => {
+        registerCleanupFunction(() =>
+          gHttpServer.registerPathHandler(sourcePath, null)
+        );
+        gHttpServer.registerPathHandler(
+          sourcePath,
+          function (aRequest, aResponse) {
+            info(`Controlled ${path} request started.`);
+
+            aResponse.processAsync();
+            aResponse.setHeader("Content-Type", "text/plain", false);
+            aResponse.setHeader("Content-Length", "" + len, false);
+
+            let remaining = len;
+            resolve(
+              Object.assign(download, {
+                advance(amount) {
+                  aResponse.write("a".repeat(amount));
+                  remaining -= amount;
+                  if (remaining <= 0) {
+                    aResponse.finish();
+                    info(`Controlled ${path} request finished.`);
+                  }
+                },
+              })
+            );
+          }
+        );
+        download.start();
+      });
+    });
+  }
+
+  const dls = [];
+  function assertCurrentBatch(...expected) {
+    Assert.deepEqual(
+      dls.map(d => d.isInCurrentBatch),
+      expected
+    );
+  }
+  dls.push(await promiseControlledDownload(100));
+  dls[0].advance(50);
+  await promiseDownloadMidway(dls[0]);
+
+  assertCurrentBatch(true);
+
+  dls.push(await promiseControlledDownload(100));
+  dls[1].advance(50);
+  await promiseDownloadMidway(dls[1]);
+
+  assertCurrentBatch(true, true);
+
+  dls[0].advance(50);
+  await promiseDownloadFinished(dls[0]);
+
+  assertCurrentBatch(true, true);
+
+  dls.push(await promiseControlledDownload(100));
+  dls[1].cancel();
+  dls[1].advance(50);
+  dls[2].advance(50);
+  await promiseDownloadMidway(dls[2]);
+
+  assertCurrentBatch(true, false, true);
+
+  dls[2].advance(50);
+  await promiseDownloadFinished(dls[2]);
+
+  assertCurrentBatch(false, false, false);
+
+  dls.push(await promiseControlledDownload(100));
+  dls[3].advance(50);
+  await promiseDownloadMidway(dls[3]);
+
+  assertCurrentBatch(false, false, false, true);
+
+  dls[3].advance(50);
+  await promiseDownloadFinished(dls[3]);
+
+  assertCurrentBatch(false, false, false, false);
 });

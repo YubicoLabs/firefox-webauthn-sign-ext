@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __LookAndFeel
-#define __LookAndFeel
+#ifndef LookAndFeel_h_
+#define LookAndFeel_h_
 
 #ifndef MOZILLA_INTERNAL_API
 #  error "This header is only usable from within libxul (MOZILLA_INTERNAL_API)."
@@ -33,6 +33,7 @@ class Document;
 
 namespace widget {
 class FullLookAndFeel;
+class LookAndFeelFont;
 }  // namespace widget
 
 enum class StyleSystemColor : uint8_t;
@@ -117,12 +118,10 @@ class LookAndFeel {
     MacBigSurTheme,
 
     /*
-     * A Boolean value to determine whether macOS is in RTL mode or not.
+     * A Boolean value to determine whether the macOS Tahoe-specific
+     * theming should be used.
      */
-    MacRTL,
-
-    /* Native macOS titlebar height. */
-    MacTitlebarHeight,
+    MacTahoeTheme,
 
     /*
      * AlertNotificationOrigin indicates from which corner of the
@@ -301,8 +300,8 @@ class LookAndFeel {
     /** GTK titlebar radius */
     TitlebarRadius,
 
-    /** GTK button-to-button spacing in the inline axis */
-    TitlebarButtonSpacing,
+    /** GTK tooltip radius */
+    TooltipRadius,
 
     /**
      * Corresponding to dynamic-range.
@@ -330,6 +329,12 @@ class LookAndFeel {
     // Note that PrimaryPointerCapabilities may not be replaceable as it has a
     // bit more system specific heuristic, e.g. IsTabletMode on Windows.
     PointingDeviceKinds,
+
+    /* Whether the menubar is native / outside the application */
+    NativeMenubar,
+
+    // The system's hour cycle, either 0 if unknown, 12, or 24.
+    HourCycle,
 
     /*
      * Not an ID; used to define the range of valid IDs.  Must be last.
@@ -506,6 +511,7 @@ class LookAndFeel {
    * @param aStyle Styling to apply to the font.
    */
   static bool GetFont(FontID aID, nsString& aName, gfxFontStyle& aStyle);
+  static void GetFont(FontID, widget::LookAndFeelFont&);
 
   /**
    * GetPasswordCharacter() returns a unicode character which should be used
@@ -567,14 +573,10 @@ class LookAndFeel {
   static void Refresh();
 
   /**
-   * GTK's initialization code can't be run off main thread, call this
-   * if you plan on using LookAndFeel off main thread later.
-   *
-   * This initialized state may get reset due to theme changes, so it
-   * must be called prior to each potential off-main-thread LookAndFeel
-   * call, not just once.
+   * LookAndFeel initialization must be done on the main thread. If you need
+   * LookAndFeel to be initialized OMT then you need to call this first.
    */
-  static void NativeInit();
+  static void EnsureInit();
 
   static void SetData(widget::FullLookAndFeel&& aTables);
   static void NotifyChangedAllWindows(widget::ThemeChangeKind);
@@ -622,4 +624,4 @@ constexpr nscolor NS_40PERCENT_FOREGROUND_COLOR =
 #define NS_ALERT_LEFT 2
 #define NS_ALERT_TOP 4
 
-#endif /* __LookAndFeel */
+#endif /* LookAndFeel_h_ */

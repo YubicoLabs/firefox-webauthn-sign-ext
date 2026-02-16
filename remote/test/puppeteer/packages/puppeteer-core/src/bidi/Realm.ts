@@ -3,11 +3,11 @@
  * Copyright 2024 Google Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as Bidi from 'chromium-bidi/lib/cjs/protocol/protocol.js';
+import * as Bidi from 'webdriver-bidi-protocol';
 
 import type {JSHandle} from '../api/JSHandle.js';
 import {Realm} from '../api/Realm.js';
-import {ARIAQueryHandler} from '../cdp/AriaQueryHandler.js';
+import {ARIAQueryHandler} from '../common/AriaQueryHandler.js';
 import {LazyArg} from '../common/LazyArg.js';
 import {scriptInjector} from '../common/ScriptInjector.js';
 import type {TimeoutSettings} from '../common/TimeoutSettings.js';
@@ -20,7 +20,7 @@ import {
   PuppeteerURL,
   SOURCE_URL_REGEX,
 } from '../common/util.js';
-import type PuppeteerUtil from '../injected/injected.js';
+import type {PuppeteerInjectedUtil} from '../injected/injected.js';
 import {AsyncIterableUtil} from '../util/AsyncIterableUtil.js';
 import {stringifyFunction} from '../util/Function.js';
 
@@ -32,7 +32,7 @@ import type {
 import type {WindowRealm} from './core/Realm.js';
 import {BidiDeserializer} from './Deserializer.js';
 import {BidiElementHandle} from './ElementHandle.js';
-import {ExposeableFunction} from './ExposedFunction.js';
+import {ExposableFunction} from './ExposedFunction.js';
 import type {BidiFrame} from './Frame.js';
 import {BidiJSHandle} from './JSHandle.js';
 import {BidiSerializer} from './Serializer.js';
@@ -61,8 +61,10 @@ export abstract class BidiRealm extends Realm {
     });
   }
 
-  protected internalPuppeteerUtil?: Promise<BidiJSHandle<PuppeteerUtil>>;
-  get puppeteerUtil(): Promise<BidiJSHandle<PuppeteerUtil>> {
+  protected internalPuppeteerUtil?: Promise<
+    BidiJSHandle<PuppeteerInjectedUtil>
+  >;
+  get puppeteerUtil(): Promise<BidiJSHandle<PuppeteerInjectedUtil>> {
     const promise = Promise.resolve() as Promise<unknown>;
     scriptInjector.inject(script => {
       if (this.internalPuppeteerUtil) {
@@ -72,11 +74,13 @@ export abstract class BidiRealm extends Realm {
       }
       this.internalPuppeteerUtil = promise.then(() => {
         return this.evaluateHandle(script) as Promise<
-          BidiJSHandle<PuppeteerUtil>
+          BidiJSHandle<PuppeteerInjectedUtil>
         >;
       });
     }, !this.internalPuppeteerUtil);
-    return this.internalPuppeteerUtil as Promise<BidiJSHandle<PuppeteerUtil>>;
+    return this.internalPuppeteerUtil as Promise<
+      BidiJSHandle<PuppeteerInjectedUtil>
+    >;
   }
 
   override async evaluateHandle<
@@ -183,9 +187,13 @@ export abstract class BidiRealm extends Realm {
       throw createEvaluationError(result.exceptionDetails);
     }
 
-    return returnByValue
-      ? BidiDeserializer.deserialize(result.result)
-      : this.createHandle(result.result);
+    if (returnByValue) {
+      return BidiDeserializer.deserialize(result.result);
+    }
+
+    return this.createHandle(result.result) as unknown as HandleFor<
+      Awaited<ReturnType<Func>>
+    >;
   }
 
   createHandle(
@@ -304,18 +312,18 @@ export class BidiFrameRealm extends BidiRealm {
   }
 
   #bindingsInstalled = false;
-  override get puppeteerUtil(): Promise<BidiJSHandle<PuppeteerUtil>> {
+  override get puppeteerUtil(): Promise<BidiJSHandle<PuppeteerInjectedUtil>> {
     let promise = Promise.resolve() as Promise<unknown>;
     if (!this.#bindingsInstalled) {
       promise = Promise.all([
-        ExposeableFunction.from(
-          this.environment as BidiFrame,
+        ExposableFunction.from(
+          this.environment,
           '__ariaQuerySelector',
           ARIAQueryHandler.queryOne,
           !!this.sandbox,
         ),
-        ExposeableFunction.from(
-          this.environment as BidiFrame,
+        ExposableFunction.from(
+          this.environment,
           '__ariaQuerySelectorAll',
           async (
             element: BidiElementHandle<Node>,

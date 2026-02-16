@@ -1080,22 +1080,15 @@ SECOidTag
 CMSU_FindTagFromString(const char *cipherString)
 {
     SECOidTag tag;
-    SECOidData *oid;
     size_t slen;
 
     /* future enhancement: accept dotted oid spec? */
-
-    for (tag = 1; (oid = SECOID_FindOIDByTag(tag)) != NULL; tag++) {
-        /* only interested in oids that we actually understand */
-        if (oid->mechanism == CKM_INVALID_MECHANISM) {
-            continue;
-        }
-        if (PORT_Strcasecmp(oid->desc, cipherString) != 0) {
-            continue;
-        }
+    slen = PORT_Strlen(cipherString);
+    tag = SECOID_FindOIDTagFromDescripton(cipherString, slen, PR_TRUE);
+    if (tag != SEC_OID_UNKNOWN) {
         return tag;
     }
-    slen = PORT_Strlen(cipherString);
+
     if ((slen > 3) && (PORT_Strncasecmp(cipherString, "SHA", 3) == 0) &&
         (cipherString[3] != '-')) {
         int i;
@@ -1635,7 +1628,8 @@ main(int argc, char **argv)
                                    NULL, NULL);    /* detached digests    */
         if (!ecx) {
             fprintf(stderr, "%s: cannot create encoder context.\n", progName);
-            exit(1);
+            exitstatus = 1;
+            goto loser;
         }
         if (cms_verbose) {
             fprintf(stderr, "input len [%d]\n", input.len);
@@ -1650,13 +1644,18 @@ main(int argc, char **argv)
             if (rv) {
                 fprintf(stderr,
                         "%s: failed to add data to encoder.\n", progName);
-                exit(1);
+                (void)NSS_CMSEncoder_Finish(ecx);
+                PORT_FreeArena(arena, PR_FALSE);
+                exitstatus = 1;
+                goto loser;
             }
         }
         rv = NSS_CMSEncoder_Finish(ecx);
         if (rv) {
             SECU_PrintError(progName, "failed to encode data");
-            exit(1);
+            PORT_FreeArena(arena, PR_FALSE);
+            exitstatus = 1;
+            goto loser;
         }
 
         if (cms_verbose) {
@@ -1668,6 +1667,7 @@ main(int argc, char **argv)
         }
         PORT_FreeArena(arena, PR_FALSE);
     }
+loser:
     if (cmsg)
         NSS_CMSMessage_Destroy(cmsg);
     if (outFile != stdout)

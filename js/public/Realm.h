@@ -21,8 +21,8 @@
 
 namespace js {
 namespace gc {
-JS_PUBLIC_API void TraceRealm(JSTracer* trc, JS::Realm* realm,
-                              const char* name);
+JS_PUBLIC_API void TraceRealmRoot(JSTracer* trc, JS::Realm* realm,
+                                  const char* name);
 }  // namespace gc
 }  // namespace js
 
@@ -34,7 +34,7 @@ template <>
 struct GCPolicy<Realm*> : public NonGCPointerPolicy<Realm*> {
   static void trace(JSTracer* trc, Realm** vp, const char* name) {
     if (*vp) {
-      ::js::gc::TraceRealm(trc, *vp, name);
+      ::js::gc::TraceRealmRoot(trc, *vp, name);
     }
   }
 };
@@ -52,6 +52,8 @@ inline JS::Compartment* GetCompartmentForRealm(Realm* realm) {
 // created in a particular realm, which never changes. Returns null if obj is
 // a cross-compartment wrapper.
 extern JS_PUBLIC_API Realm* GetObjectRealmOrNull(JSObject* obj);
+
+extern JS_PUBLIC_API bool HasRealmInitializedGlobal(Realm* realm);
 
 // Get the value of the "private data" internal field of the given Realm.
 // This field is initially null and is set using SetRealmPrivate.

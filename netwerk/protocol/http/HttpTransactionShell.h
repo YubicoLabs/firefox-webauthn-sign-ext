@@ -2,19 +2,21 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef HttpTransactionShell_h__
-#define HttpTransactionShell_h__
+#ifndef HttpTransactionShell_h_
+#define HttpTransactionShell_h_
 
 #include <functional>
 
 #include "TimingStruct.h"
-#include "mozilla/Maybe.h"
 #include "mozilla/UniquePtr.h"
 #include "nsIClassOfService.h"
 #include "nsIEarlyHintObserver.h"
+#include "nsILoadInfo.h"
 #include "nsISupports.h"
 #include "nsITransportSecurityInfo.h"
 #include "nsInputStreamPump.h"
+#include "nsHttpRequestHead.h"
+#include "nsITRRSkipReason.h"
 
 class nsIEventTraget;
 class nsIInputStream;
@@ -26,7 +28,6 @@ class nsITransportEventSink;
 namespace mozilla::net {
 
 enum HttpTrafficCategory : uint8_t;
-class Http2PushedStreamWrapper;
 class HttpTransactionParent;
 class nsHttpConnectionInfo;
 class nsHttpHeaderArray;
@@ -35,26 +36,31 @@ class nsHttpTransaction;
 class TransactionObserverResult;
 union NetAddr;
 
+enum class LNAPermission {
+  Granted,
+  Denied,
+  Pending,
+};
+
+struct LNAPerms {
+  LNAPermission mLocalHostPermission{LNAPermission::Pending};
+  LNAPermission mLocalNetworkPermission{LNAPermission::Pending};
+};
+
 //----------------------------------------------------------------------------
 // Abstract base class for a HTTP transaction in the chrome process
 //----------------------------------------------------------------------------
 
 // 95e5a5b7-6aa2-4011-920a-0908b52f95d4
-#define HTTPTRANSACTIONSHELL_IID                     \
-  {                                                  \
-    0x95e5a5b7, 0x6aa2, 0x4011, {                    \
-      0x92, 0x0a, 0x09, 0x08, 0xb5, 0x2f, 0x95, 0xd4 \
-    }                                                \
-  }
+#define HTTPTRANSACTIONSHELL_IID \
+  {0x95e5a5b7, 0x6aa2, 0x4011, {0x92, 0x0a, 0x09, 0x08, 0xb5, 0x2f, 0x95, 0xd4}}
 
 class HttpTransactionShell : public nsISupports {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(HTTPTRANSACTIONSHELL_IID)
+  NS_INLINE_DECL_STATIC_IID(HTTPTRANSACTIONSHELL_IID)
 
   using TransactionObserverFunc =
       std::function<void(TransactionObserverResult&&)>;
-  using OnPushCallback = std::function<nsresult(
-      uint32_t, const nsACString&, const nsACString&, HttpTransactionShell*)>;
 
   //
   // called to initialize the transaction
@@ -86,9 +92,8 @@ class HttpTransactionShell : public nsISupports {
       ClassOfService classOfService, uint32_t initialRwin,
       bool responseTimeoutEnabled, uint64_t channelId,
       TransactionObserverFunc&& transactionObserver,
-      OnPushCallback&& aOnPushCallback,
-      HttpTransactionShell* aTransWithPushedStream,
-      uint32_t aPushedStreamId) = 0;
+      nsILoadInfo::IPAddressSpace aParentIPAddressSpace,
+      const LNAPerms& aLnaPermissionStatus) = 0;
 
   // @param aListener
   //        receives notifications.
@@ -101,7 +106,8 @@ class HttpTransactionShell : public nsISupports {
 
   // Called to take ownership of the response headers; the transaction
   // will drop any reference to the response headers after this call.
-  virtual UniquePtr<nsHttpResponseHead> TakeResponseHead() = 0;
+  virtual UniquePtr<nsHttpResponseHead> TakeResponseHeadAndConnInfo(
+      nsHttpConnectionInfo** aOut) = 0;
 
   // Called to take ownership of the trailer headers.
   // Returning null if there is no trailer.
@@ -115,6 +121,8 @@ class HttpTransactionShell : public nsISupports {
                                    nsIRequest::TRRMode& aEffectiveTRRMode,
                                    TRRSkippedReason& aSkipReason,
                                    bool& aEchConfigUsed) = 0;
+
+  virtual nsILoadInfo::IPAddressSpace GetTargetIPAddressSpace() = 0;
 
   // Functions for Timing interface
   virtual mozilla::TimeStamp GetDomainLookupStart() = 0;
@@ -175,8 +183,6 @@ class HttpTransactionShell : public nsISupports {
   virtual TimeStamp GetOnStopRequestStartTime() const { return TimeStamp(); }
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(HttpTransactionShell, HTTPTRANSACTIONSHELL_IID)
-
 #define NS_DECL_HTTPTRANSACTIONSHELL                                           \
   virtual nsresult Init(                                                       \
       uint32_t caps, nsHttpConnectionInfo* connInfo,                           \
@@ -188,12 +194,12 @@ NS_DEFINE_STATIC_IID_ACCESSOR(HttpTransactionShell, HTTPTRANSACTIONSHELL_IID)
       ClassOfService classOfService, uint32_t initialRwin,                     \
       bool responseTimeoutEnabled, uint64_t channelId,                         \
       TransactionObserverFunc&& transactionObserver,                           \
-      OnPushCallback&& aOnPushCallback,                                        \
-      HttpTransactionShell* aTransWithPushedStream, uint32_t aPushedStreamId)  \
-      override;                                                                \
+      nsILoadInfo::IPAddressSpace aParentIPAddressSpace,                       \
+      const LNAPerms& aLnaPermissionStatus) override;                          \
   virtual nsresult AsyncRead(nsIStreamListener* listener, nsIRequest** pump)   \
       override;                                                                \
-  virtual UniquePtr<nsHttpResponseHead> TakeResponseHead() override;           \
+  virtual UniquePtr<nsHttpResponseHead> TakeResponseHeadAndConnInfo(           \
+      nsHttpConnectionInfo** aOut) override;                                   \
   virtual UniquePtr<nsHttpHeaderArray> TakeResponseTrailers() override;        \
   virtual already_AddRefed<nsITransportSecurityInfo> SecurityInfo() override;  \
   virtual void SetSecurityCallbacks(nsIInterfaceRequestor* aCallbacks)         \
@@ -235,8 +241,9 @@ NS_DEFINE_STATIC_IID_ACCESSOR(HttpTransactionShell, HTTPTRANSACTIONSHELL_IID)
   virtual bool Http3Disabled() const override;                                 \
   virtual already_AddRefed<nsHttpConnectionInfo> GetConnInfo() const override; \
   virtual bool GetSupportsHTTP3() override;                                    \
-  virtual void SetIsForWebTransport(bool aIsForWebTransport) override;
+  virtual void SetIsForWebTransport(bool aIsForWebTransport) override;         \
+  virtual nsILoadInfo::IPAddressSpace GetTargetIPAddressSpace() override;
 
 }  // namespace mozilla::net
 
-#endif  // HttpTransactionShell_h__
+#endif  // HttpTransactionShell_h_

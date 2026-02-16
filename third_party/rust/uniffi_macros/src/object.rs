@@ -4,22 +4,58 @@ use syn::DeriveInput;
 
 use crate::{
     ffiops,
-    util::{create_metadata_items, extract_docstring, ident_to_string, mod_path},
+    util::{
+        create_metadata_items, either_attribute_arg, extract_docstring, ident_to_string, kw,
+        mod_path, wasm_single_threaded_annotation, AttributeSliceExt, UniffiAttributeArgs,
+    },
     DeriveOptions,
 };
+use syn::{parse::ParseStream, LitStr, Token};
 use uniffi_meta::ObjectImpl;
+
+/// Handle #[uniffi(...)] attributes for objects
+#[derive(Clone, Default)]
+pub struct ObjectAttr {
+    pub name: Option<String>,
+}
+
+impl UniffiAttributeArgs for ObjectAttr {
+    fn parse_one(input: ParseStream<'_>) -> syn::Result<Self> {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(kw::name) {
+            let _: kw::name = input.parse()?;
+            let _: Token![=] = input.parse()?;
+            let name = Some(input.parse::<LitStr>()?.value());
+            Ok(Self { name })
+        } else {
+            Err(syn::Error::new(
+                input.span(),
+                format!("attribute `{input}` is not supported here."),
+            ))
+        }
+    }
+
+    fn merge(self, other: Self) -> syn::Result<Self> {
+        Ok(Self {
+            name: either_attribute_arg(self.name, other.name)?,
+        })
+    }
+}
 
 /// Stores parsed data from the Derive Input for the struct/enum.
 struct ObjectItem {
     ident: Ident,
     docstring: String,
+    attr: ObjectAttr,
 }
 
 impl ObjectItem {
     fn new(input: DeriveInput) -> syn::Result<Self> {
+        let attr = input.attrs.parse_uniffi_attr_args::<ObjectAttr>()?;
         Ok(Self {
             ident: input.ident,
             docstring: extract_docstring(&input.attrs)?,
+            attr,
         })
     }
 
@@ -31,6 +67,13 @@ impl ObjectItem {
         ident_to_string(&self.ident)
     }
 
+    fn foreign_name(&self) -> String {
+        match &self.attr.name {
+            Some(name) => name.clone(),
+            None => self.name(),
+        }
+    }
+
     fn docstring(&self) -> &str {
         self.docstring.as_str()
     }
@@ -39,52 +82,49 @@ impl ObjectItem {
 pub fn expand_object(input: DeriveInput, options: DeriveOptions) -> syn::Result<TokenStream> {
     let module_path = mod_path()?;
     let object = ObjectItem::new(input)?;
-    let name = object.name();
+    let name = &object.foreign_name();
     let ident = object.ident();
     let clone_fn_ident = Ident::new(
-        &uniffi_meta::clone_fn_symbol_name(&module_path, &name),
+        &uniffi_meta::clone_fn_symbol_name(&module_path, name),
         Span::call_site(),
     );
     let free_fn_ident = Ident::new(
-        &uniffi_meta::free_fn_symbol_name(&module_path, &name),
+        &uniffi_meta::free_fn_symbol_name(&module_path, name),
         Span::call_site(),
     );
     let meta_static_var = options.generate_metadata.then(|| {
-        interface_meta_static_var(
-            object.ident(),
-            ObjectImpl::Struct,
-            &module_path,
-            object.docstring(),
-        )
-        .unwrap_or_else(syn::Error::into_compile_error)
+        interface_meta_static_var(name, ObjectImpl::Struct, object.docstring())
+            .unwrap_or_else(syn::Error::into_compile_error)
     });
     let interface_impl = interface_impl(&object, &options);
 
     Ok(quote! {
         #[doc(hidden)]
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe extern "C" fn #clone_fn_ident(
-            ptr: *const ::std::ffi::c_void,
+            handle: ::uniffi::ffi::Handle,
             call_status: &mut ::uniffi::RustCallStatus
-        ) -> *const ::std::ffi::c_void {
+        ) -> ::uniffi::ffi::Handle {
+            ::uniffi::deps::trace!("clone: {} ({:?})", #name, handle);
             ::uniffi::rust_call(call_status, || {
-                unsafe { ::std::sync::Arc::increment_strong_count(ptr) };
-                ::std::result::Result::Ok(ptr)
+                unsafe {
+                    handle.clone_arc_handle::<#ident>()
+                };
+                ::std::result::Result::Ok(handle)
             })
         }
 
         #[doc(hidden)]
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe extern "C" fn #free_fn_ident(
-            ptr: *const ::std::ffi::c_void,
+            handle: ::uniffi::ffi::Handle,
             call_status: &mut ::uniffi::RustCallStatus
         ) {
+            ::uniffi::deps::trace!("free: {} ({:?})", #name, handle);
             ::uniffi::rust_call(call_status, || {
-                assert!(!ptr.is_null());
-                let ptr = ptr.cast::<#ident>();
-                unsafe {
-                    ::std::sync::Arc::decrement_strong_count(ptr);
-                }
+                ::std::mem::drop(unsafe {
+                    handle.into_arc::<#ident>()
+                });
                 ::std::result::Result::Ok(())
             });
         }
@@ -95,17 +135,13 @@ pub fn expand_object(input: DeriveInput, options: DeriveOptions) -> syn::Result<
 }
 
 fn interface_impl(object: &ObjectItem, options: &DeriveOptions) -> TokenStream {
-    let name = object.name();
+    let name = object.foreign_name();
     let ident = object.ident();
     let impl_spec = options.ffi_impl_header("FfiConverterArc", ident);
     let lower_return_impl_spec = options.ffi_impl_header("LowerReturn", ident);
     let lower_error_impl_spec = options.ffi_impl_header("LowerError", ident);
     let type_id_impl_spec = options.ffi_impl_header("TypeId", ident);
     let lift_ref_impl_spec = options.ffi_impl_header("LiftRef", ident);
-    let mod_path = match mod_path() {
-        Ok(p) => p,
-        Err(e) => return e.into_compile_error(),
-    };
     let arc_self_type = quote! { ::std::sync::Arc<Self> };
     let lower_arc = ffiops::lower(&arc_self_type);
     let type_id_meta_arc = ffiops::type_id_meta(&arc_self_type);
@@ -113,15 +149,21 @@ fn interface_impl(object: &ObjectItem, options: &DeriveOptions) -> TokenStream {
     let lower_return_type_arc = ffiops::lower_return_type(&arc_self_type);
     let lower_return_arc = ffiops::lower_return(&arc_self_type);
     let lower_error_arc = ffiops::lower_error(&arc_self_type);
+    let single_threaded_annotation = wasm_single_threaded_annotation();
 
     quote! {
         // All Object structs must be `Sync + Send`. The generated scaffolding will fail to compile
         // if they are not, but unfortunately it fails with an unactionably obscure error message.
         // By asserting the requirement explicitly, we help Rust produce a more scrutable error message
         // and thus help the user debug why the requirement isn't being met.
+        #single_threaded_annotation
         ::uniffi::deps::static_assertions::assert_impl_all!(
             #ident: ::core::marker::Sync, ::core::marker::Send
         );
+
+        // We're going to be casting raw pointers to `u64` values to pass them across the FFI.
+        // Ensure that we're not on some 128-bit machine where this would overflow.
+        ::uniffi::deps::static_assertions::const_assert!(::std::mem::size_of::<*const ()>() <= 8);
 
         #[doc(hidden)]
         #[automatically_derived]
@@ -131,8 +173,7 @@ fn interface_impl(object: &ObjectItem, options: &DeriveOptions) -> TokenStream {
         /// by reference must be encapsulated in an `Arc`, and must be safe to share
         /// across threads.
         unsafe #impl_spec {
-            // Don't use a pointer to <T> as that requires a `pub <T>`
-            type FfiType = *const ::std::os::raw::c_void;
+            type FfiType = ::uniffi::ffi::Handle;
 
             /// When lowering, we have an owned `Arc` and we transfer that ownership
             /// to the foreign-language code, "leaking" it out of Rust's ownership system
@@ -144,13 +185,15 @@ fn interface_impl(object: &ObjectItem, options: &DeriveOptions) -> TokenStream {
             /// call the destructor function specific to the type `T`. Calling the destructor
             /// function for other types may lead to undefined behaviour.
             fn lower(obj: ::std::sync::Arc<Self>) -> Self::FfiType {
-                ::std::sync::Arc::into_raw(obj) as Self::FfiType
+                ::uniffi::deps::trace!("lower: {} {:?}", #name, ::std::sync::Arc::as_ptr(&obj));
+                let handle = ::uniffi::ffi::Handle::from_arc(obj);
+                handle
             }
 
             /// When lifting, we receive an owned `Arc` that the foreign language code cloned.
-            fn try_lift(v: Self::FfiType) -> ::uniffi::Result<::std::sync::Arc<Self>> {
-                let v = v as *const #ident;
-                ::std::result::Result::Ok(unsafe { ::std::sync::Arc::<Self>::from_raw(v) })
+            fn try_lift(handle: Self::FfiType) -> ::uniffi::Result<::std::sync::Arc<Self>> {
+                ::uniffi::deps::trace!("lift: {} ({:?})", #name, handle);
+                ::std::result::Result::Ok(unsafe { handle.into_arc() })
             }
 
             /// When writing as a field of a complex structure, make a clone and transfer ownership
@@ -162,8 +205,7 @@ fn interface_impl(object: &ObjectItem, options: &DeriveOptions) -> TokenStream {
             /// call the destructor function specific to the type `T`. Calling the destructor
             /// function for other types may lead to undefined behaviour.
             fn write(obj: ::std::sync::Arc<Self>, buf: &mut ::std::vec::Vec<u8>) {
-                ::uniffi::deps::static_assertions::const_assert!(::std::mem::size_of::<*const ::std::ffi::c_void>() <= 8);
-                ::uniffi::deps::bytes::BufMut::put_u64(buf, #lower_arc(obj) as ::std::primitive::u64);
+                ::uniffi::deps::bytes::BufMut::put_u64(buf, #lower_arc(obj).as_raw());
             }
 
             /// When reading as a field of a complex structure, we receive a "borrow" of the `Arc`
@@ -172,13 +214,12 @@ fn interface_impl(object: &ObjectItem, options: &DeriveOptions) -> TokenStream {
             /// Safety: the buffer must contain a pointer previously obtained by calling
             /// the `lower()` or `write()` method of this impl.
             fn try_read(buf: &mut &[u8]) -> ::uniffi::Result<::std::sync::Arc<Self>> {
-                ::uniffi::deps::static_assertions::const_assert!(::std::mem::size_of::<*const ::std::ffi::c_void>() <= 8);
                 ::uniffi::check_remaining(buf, 8)?;
-                #try_lift_arc(::uniffi::deps::bytes::Buf::get_u64(buf) as Self::FfiType)
+                #try_lift_arc(::uniffi::ffi::Handle::from_raw_unchecked(::uniffi::deps::bytes::Buf::get_u64(buf)))
             }
 
             const TYPE_ID_META: ::uniffi::MetadataBuffer = ::uniffi::MetadataBuffer::from_code(::uniffi::metadata::codes::TYPE_INTERFACE)
-                .concat_str(#mod_path)
+                .concat_str(module_path!())
                 .concat_str(#name);
         }
 
@@ -207,12 +248,10 @@ fn interface_impl(object: &ObjectItem, options: &DeriveOptions) -> TokenStream {
 }
 
 pub(crate) fn interface_meta_static_var(
-    ident: &Ident,
+    name: &str,
     imp: ObjectImpl,
-    module_path: &str,
     docstring: &str,
 ) -> syn::Result<TokenStream> {
-    let name = ident_to_string(ident);
     let code = match imp {
         ObjectImpl::Struct => quote! { ::uniffi::metadata::codes::INTERFACE },
         ObjectImpl::Trait => quote! { ::uniffi::metadata::codes::TRAIT_INTERFACE },
@@ -221,10 +260,10 @@ pub(crate) fn interface_meta_static_var(
 
     Ok(create_metadata_items(
         "interface",
-        &name,
+        name,
         quote! {
             ::uniffi::MetadataBuffer::from_code(#code)
-                .concat_str(#module_path)
+                .concat_str(module_path!())
                 .concat_str(#name)
                 .concat_long_str(#docstring)
         },

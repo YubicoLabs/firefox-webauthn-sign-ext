@@ -6,7 +6,7 @@
 const {
   Component,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 loader.lazyRequireGetter(
   this,
   "PropTypes",
@@ -121,7 +121,6 @@ class App extends Component {
       filterBarDisplayMode: PropTypes.oneOf([
         ...Object.values(FILTERBAR_DISPLAY_MODES),
       ]).isRequired,
-      showEvaluationContextSelector: PropTypes.bool,
     };
   }
 
@@ -135,8 +134,16 @@ class App extends Component {
   }
 
   componentDidMount() {
-    window.addEventListener("blur", this.onBlur);
+    window.addEventListener("blur", this.onBlur, {
+      signal: this.#abortController.signal,
+    });
   }
+
+  componentWillUnmount() {
+    this.#abortController.abort();
+  }
+
+  #abortController = new AbortController();
 
   onBlur() {
     this.props.dispatch(actions.autocompleteClear());
@@ -275,7 +282,9 @@ class App extends Component {
       }
     };
 
-    input.addEventListener("keyup", pasteKeyUpHandler);
+    input.addEventListener("keyup", pasteKeyUpHandler, {
+      signal: this.#abortController.signal,
+    });
   }
 
   renderChromeDebugToolbar() {
@@ -308,7 +317,6 @@ class App extends Component {
       reverseSearchInputVisible,
       serviceContainer,
       webConsoleUI,
-      showEvaluationContextSelector,
       inputEnabled,
     } = this.props;
 
@@ -323,7 +331,6 @@ class App extends Component {
           dispatch,
           reverseSearchInputVisible,
           serviceContainer,
-          showEvaluationContextSelector,
           webConsoleUI,
         })
       : null;
@@ -503,7 +510,6 @@ const mapStateToProps = state => ({
   filterBarDisplayMode: state.ui.filterBarDisplayMode,
   eagerEvaluationEnabled: state.prefs.eagerEvaluation,
   autocomplete: state.prefs.autocomplete,
-  showEvaluationContextSelector: state.ui.showEvaluationContextSelector,
 });
 
 const mapDispatchToProps = dispatch => ({

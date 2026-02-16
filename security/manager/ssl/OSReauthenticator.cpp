@@ -47,10 +47,8 @@ using mozilla::dom::Promise;
 #  define SECURITY_WIN32
 #  include <security.h>
 #  include <shlwapi.h>
-#  if !defined(__MINGW32__)
-#    include <Lm.h>
-#    undef ACCESS_READ  // nsWindowsRegKey defines its own ACCESS_READ
-#  endif                // !defined(__MINGW32__)
+#  include <lm.h>
+#  undef ACCESS_READ  // nsWindowsRegKey defines its own ACCESS_READ
 struct HandleCloser {
   typedef HANDLE pointer;
   void operator()(HANDLE h) {
@@ -86,8 +84,7 @@ constexpr int64_t Int32Modulo = 2147483648;
 std::unique_ptr<char[]> GetTokenInfo(ScopedHANDLE& token) {
   DWORD length = 0;
   // https://docs.microsoft.com/en-us/windows/desktop/api/securitybaseapi/nf-securitybaseapi-gettokeninformation
-  mozilla::Unused << GetTokenInformation(token.get(), TokenUser, nullptr, 0,
-                                         &length);
+  (void)GetTokenInformation(token.get(), TokenUser, nullptr, 0, &length);
   if (!length || GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
     MOZ_LOG(gCredentialManagerSecretLog, LogLevel::Debug,
             ("Unable to obtain current token info."));
@@ -118,10 +115,6 @@ std::unique_ptr<char[]> GetUserTokenInfo() {
 }
 
 Maybe<int64_t> GetPasswordLastChanged(const WCHAR* username) {
-#  if defined(__MINGW32__)
-  // NetUserGetInfo requires Lm.h which is not provided in MinGW builds
-  return mozilla::Nothing();
-#  else
   LPUSER_INFO_1 user_info = NULL;
   DWORD passwordAgeInSeconds = 0;
 
@@ -139,7 +132,6 @@ Maybe<int64_t> GetPasswordLastChanged(const WCHAR* username) {
   // Return the time that the password was changed so we can use this
   // for future comparisons.
   return mozilla::Some(PR_Now() - passwordAgeInSeconds * PR_USEC_PER_SEC);
-#  endif
 }
 
 bool IsAutoAdminLogonEnabled() {

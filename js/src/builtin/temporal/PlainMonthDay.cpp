@@ -7,9 +7,6 @@
 #include "builtin/temporal/PlainMonthDay.h"
 
 #include "mozilla/Assertions.h"
-#include "mozilla/EnumSet.h"
-
-#include <utility>
 
 #include "jspubtd.h"
 #include "NamespaceImports.h"
@@ -82,12 +79,12 @@ static PlainMonthDayObject* CreateTemporalMonthDay(
 
   // Step 4.
   auto packedDate = PackedDate::pack(isoDate);
-  object->setFixedSlot(PlainMonthDayObject::PACKED_DATE_SLOT,
-                       PrivateUint32Value(packedDate.value));
+  object->initFixedSlot(PlainMonthDayObject::PACKED_DATE_SLOT,
+                        PrivateUint32Value(packedDate.value));
 
   // Step 5.
-  object->setFixedSlot(PlainMonthDayObject::CALENDAR_SLOT,
-                       calendar.toSlotValue());
+  object->initFixedSlot(PlainMonthDayObject::CALENDAR_SLOT,
+                        calendar.toSlotValue());
 
   // Step 6.
   return object;
@@ -111,12 +108,12 @@ PlainMonthDayObject* js::temporal::CreateTemporalMonthDay(
 
   // Step 4.
   auto packedDate = PackedDate::pack(monthDay);
-  object->setFixedSlot(PlainMonthDayObject::PACKED_DATE_SLOT,
-                       PrivateUint32Value(packedDate.value));
+  object->initFixedSlot(PlainMonthDayObject::PACKED_DATE_SLOT,
+                        PrivateUint32Value(packedDate.value));
 
   // Step 5.
-  object->setFixedSlot(PlainMonthDayObject::CALENDAR_SLOT,
-                       monthDay.calendar().toSlotValue());
+  object->initFixedSlot(PlainMonthDayObject::CALENDAR_SLOT,
+                        monthDay.calendar().toSlotValue());
 
   // Step 6.
   return object;
@@ -274,33 +271,30 @@ static bool ToTemporalMonthDay(JSContext* cx, Handle<Value> item,
   }
 
   // Step 10.
-  if (!hasYear) {
+  if (calendar.identifier() == CalendarId::ISO8601) {
     // Step 10.a.
-    MOZ_ASSERT(calendar.identifier() == CalendarId::ISO8601);
-
-    // Step 10.b.
     constexpr int32_t referenceISOYear = 1972;
 
+    // Step 10.b.
+    auto isoDate = ISODate{referenceISOYear, date.month, date.day};
+
     // Step 10.c.
-    return CreateTemporalMonthDay(cx, {referenceISOYear, date.month, date.day},
-                                  calendar, result);
+    return CreateTemporalMonthDay(cx, isoDate, calendar, result);
   }
 
-  // Steps 11.
-  //
-  // Call CreateTemporalMonthDay to reject too large dates early.
+  // Steps 11-12.
   Rooted<PlainMonthDay> monthDay(cx);
   if (!CreateTemporalMonthDay(cx, date, calendar, &monthDay)) {
     return false;
   }
 
-  // Step 12.
+  // Step 13.
   Rooted<CalendarFields> fields(cx);
   if (!ISODateToFields(cx, monthDay, &fields)) {
     return false;
   }
 
-  // Steps 13-14.
+  // Steps 14-15.
   return CalendarMonthDayFromFields(cx, calendar, fields,
                                     TemporalOverflow::Constrain, result);
 }
@@ -632,9 +626,8 @@ static bool PlainMonthDay_toString(JSContext* cx, unsigned argc, Value* vp) {
  */
 static bool PlainMonthDay_toLocaleString(JSContext* cx, const CallArgs& args) {
   // Steps 3-4.
-  Handle<PropertyName*> required = cx->names().date;
-  Handle<PropertyName*> defaults = cx->names().date;
-  return TemporalObjectToLocaleString(cx, args, required, defaults);
+  return intl::TemporalObjectToLocaleString(cx, args,
+                                            intl::DateTimeFormatKind::Date);
 }
 
 /**

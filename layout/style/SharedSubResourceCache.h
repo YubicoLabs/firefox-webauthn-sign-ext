@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_SharedSubResourceCache_h__
-#define mozilla_SharedSubResourceCache_h__
+#ifndef mozilla_SharedSubResourceCache_h_
+#define mozilla_SharedSubResourceCache_h_
 
 // A cache that allows us to share subresources across documents. In order to
 // use it you need to provide some types, mainly:
@@ -26,24 +26,36 @@
 //   ValueForCache() and ExpirationTime() members. For style, this is the
 //   SheetLoadData.
 
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/PrincipalHashKey.h"
 #include "mozilla/RefPtr.h"
-#include "mozilla/WeakPtr.h"
-#include "nsTHashMap.h"
-#include "nsIMemoryReporter.h"
-#include "nsRefPtrHashtable.h"
-#include "mozilla/MemoryReporting.h"
+#include "mozilla/StaticPtr.h"
 #include "mozilla/StoragePrincipalHelper.h"
-#include "mozilla/dom/CacheExpirationTime.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/WeakPtr.h"
+#include "mozilla/dom/CacheExpirationTime.h"
+#include "mozilla/dom/CacheablePerformanceTimingData.h"
 #include "mozilla/dom/Document.h"
 #include "nsContentUtils.h"
-#include "nsHttpResponseHead.h"
+#include "nsIMemoryReporter.h"
 #include "nsISupportsImpl.h"
-#include "mozilla/StaticPtr.h"
-#include "mozilla/dom/CacheablePerformanceTimingData.h"
+#include "nsRefPtrHashtable.h"
+#include "nsTHashMap.h"
+
+class nsIObserver;
 
 namespace mozilla {
+
+namespace net {
+class nsHttpResponseHead;
+}
+
+namespace SharedSubResourceCacheUtils {
+
+void AddMemoryPressureObserver(nsIObserver* aObserver);
+void RemoveMemoryPressureObserver(nsIObserver* aObserver);
+
+}  // namespace SharedSubResourceCacheUtils
 
 // A struct to hold the network-related metadata associated with the cache.
 //
@@ -71,8 +83,13 @@ class SubResourceNetworkMetadataHolder {
 
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(SubResourceNetworkMetadataHolder)
 
+  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const {
+    return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
+  }
+  size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const;
+
  private:
-  ~SubResourceNetworkMetadataHolder() = default;
+  ~SubResourceNetworkMetadataHolder();
 
   mozilla::Maybe<dom::CacheablePerformanceTimingData> mPerfData;
   mozilla::UniquePtr<net::nsHttpResponseHead> mResponseHead;
@@ -120,6 +137,13 @@ void AddPerformanceEntryForCache(
     const SubResourceNetworkMetadataHolder* aNetworkMetadata,
     TimeStamp aStartTime, TimeStamp aEndTime, dom::Document* aDocument);
 
+bool ShouldClearEntry(nsIURI* aEntryURI, nsIPrincipal* aEntryPartitionPrincipal,
+                      const Maybe<bool>& aChrome,
+                      const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
+                      const Maybe<nsCString>& aSchemelessSite,
+                      const Maybe<OriginAttributesPattern>& aPattern,
+                      const Maybe<nsCString>& aURL);
+
 }  // namespace SharedSubResourceCacheUtils
 
 template <typename Traits, typename Derived>
@@ -154,10 +178,16 @@ class SharedSubResourceCache {
     MOZ_DIAGNOSTIC_ASSERT(!sSingleton);
     sSingleton = new Derived();
     sSingleton->Init();
+    SharedSubResourceCacheUtils::AddMemoryPressureObserver(sSingleton);
     return sSingleton.get();
   }
 
-  static void DeleteSingleton() { sSingleton = nullptr; }
+  static void DeleteSingleton() {
+    if (sSingleton) {
+      SharedSubResourceCacheUtils::RemoveMemoryPressureObserver(sSingleton);
+    }
+    sSingleton = nullptr;
+  }
 
  protected:
   struct CompleteSubResource {
@@ -173,6 +203,11 @@ class SharedSubResourceCache {
           mWasSyncLoad(aValue.IsSyncLoad()) {}
 
     inline bool Expired() const;
+
+    size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const {
+      return mResource->SizeOfIncludingThis(aMallocSizeOf) +
+             mNetworkMetadata->SizeOfIncludingThis(aMallocSizeOf);
+    }
   };
 
  public:
@@ -206,7 +241,7 @@ class SharedSubResourceCache {
   [[nodiscard]] bool CoalesceLoad(const Key&, LoadingValue& aNewLoad,
                                   CachedSubResourceState aExistingLoadState);
 
-  size_t SizeOfIncludingThis(MallocSizeOf) const;
+  size_t SizeOfExcludingThis(MallocSizeOf) const;
 
   // Puts the load into the "loading" set.
   void LoadStarted(const Key&, LoadingValue&);
@@ -239,15 +274,56 @@ class SharedSubResourceCache {
   // to be called when the document goes away, or when its principal changes.
   void UnregisterLoader(Loader&);
 
+  void PrepareForShutdown();
+
   void ClearInProcess(const Maybe<bool>& aChrome,
                       const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
                       const Maybe<nsCString>& aSchemelessSite,
-                      const Maybe<OriginAttributesPattern>& aPattern);
+                      const Maybe<OriginAttributesPattern>& aPattern,
+                      const Maybe<nsCString>& aURL);
+
+  // Returns true if we're low on memory.
+  // The flag itself does nothing inside SharedSubResourceCache itself.
+  // The subclass and its consumer can use this flag to decide whether to
+  // put a new cache.
+  bool IsLowMemory() const { return mIsLowMemory; }
+
+ protected:
+  virtual bool ShouldIgnoreMemoryPressure() = 0;
+
+  // Due to the restriction around the inheritance,
+  // SharedSubResourceCache cannot directly implement nsIObserver.
+  // Subclass should implement nsIObserver and call this method.
+  nsresult DoObserve(nsISupports* aSubject, const char* aTopic,
+                     const char16_t* aData) {
+    if (ShouldIgnoreMemoryPressure()) {
+      return NS_OK;
+    }
+
+    if (strcmp(aTopic, "memory-pressure") == 0) {
+      ClearInProcessForMemoryPressure();
+      nsDependentString data(aData);
+      if (data.EqualsLiteral("low-memory")) {
+        mIsLowMemory = true;
+      }
+    } else if (strcmp(aTopic, "memory-pressure-stop") == 0) {
+      mIsLowMemory = false;
+    }
+
+    return NS_OK;
+  }
+
+ private:
+  void ClearInProcessForMemoryPressure() {
+    ClearInProcess(Nothing(), Nothing(), Nothing(), Nothing(), Nothing());
+  }
 
  protected:
   void CancelPendingLoadsForLoader(Loader&);
 
   void WillStartPendingLoad(LoadingValue&);
+
+  void EvictPrincipal(nsIPrincipal*);
 
   nsTHashMap<Key, CompleteSubResource> mComplete;
   nsRefPtrHashtable<Key, LoadingValue> mPending;
@@ -266,71 +342,29 @@ class SharedSubResourceCache {
   // Lazily created in the first Get() call.
   // The singleton should be deleted by DeleteSingleton() during shutdown.
   inline static MOZ_GLOBINIT StaticRefPtr<Derived> sSingleton;
+
+ private:
+  bool mIsLowMemory = false;
 };
 
 template <typename Traits, typename Derived>
 void SharedSubResourceCache<Traits, Derived>::ClearInProcess(
     const Maybe<bool>& aChrome, const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
     const Maybe<nsCString>& aSchemelessSite,
-    const Maybe<OriginAttributesPattern>& aPattern) {
+    const Maybe<OriginAttributesPattern>& aPattern,
+    const Maybe<nsCString>& aURL) {
   MOZ_ASSERT(aSchemelessSite.isSome() == aPattern.isSome(),
              "Must pass both site and OA pattern.");
 
-  if (!aChrome && !aPrincipal && !aSchemelessSite) {
+  if (!aChrome && !aPrincipal && !aSchemelessSite && !aURL) {
     mComplete.Clear();
     return;
   }
 
   for (auto iter = mComplete.Iter(); !iter.Done(); iter.Next()) {
-    const bool shouldRemove = [&] {
-      if (aChrome.isSome()) {
-        nsIURI* uri = iter.Key().URI();
-        bool isChrome = uri->SchemeIs("chrome") || uri->SchemeIs("resource");
-        if (*aChrome != isChrome) {
-          return false;
-        }
-
-        if (!aPrincipal && !aSchemelessSite) {
-          return true;
-        }
-      }
-
-      if (aPrincipal && iter.Key().Principal()->Equals(aPrincipal.ref())) {
-        return true;
-      }
-      if (!aSchemelessSite) {
-        return false;
-      }
-      // Clear by site.
-      nsIPrincipal* partitionPrincipal = iter.Key().PartitionPrincipal();
-
-      // Clear entries with site. This includes entries which are partitioned
-      // under other top level sites (= have a partitionKey set).
-      nsAutoCString principalBaseDomain;
-      nsresult rv = partitionPrincipal->GetBaseDomain(principalBaseDomain);
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return false;
-      }
-      if (principalBaseDomain.Equals(aSchemelessSite.ref()) &&
-          aPattern.ref().Matches(partitionPrincipal->OriginAttributesRef())) {
-        return true;
-      }
-
-      // Clear entries partitioned under aSchemelessSite. We need to add the
-      // partition key filter to aPattern so that we include any OA filtering
-      // specified by the caller. For example the caller may pass aPattern = {
-      // privateBrowsingId: 1 } which means we may only clear partitioned
-      // private browsing data.
-      OriginAttributesPattern patternWithPartitionKey(aPattern.ref());
-      patternWithPartitionKey.mPartitionKeyPattern.Construct();
-      patternWithPartitionKey.mPartitionKeyPattern.Value()
-          .mBaseDomain.Construct(NS_ConvertUTF8toUTF16(aSchemelessSite.ref()));
-
-      return patternWithPartitionKey.Matches(
-          partitionPrincipal->OriginAttributesRef());
-    }();
-
-    if (shouldRemove) {
+    if (SharedSubResourceCacheUtils::ShouldClearEntry(
+            iter.Key().URI(), iter.Key().PartitionPrincipal(), aChrome,
+            aPrincipal, aSchemelessSite, aPattern, aURL)) {
       iter.Remove();
     }
   }
@@ -350,11 +384,18 @@ void SharedSubResourceCache<Traits, Derived>::UnregisterLoader(
   MOZ_RELEASE_ASSERT(lookup.Data());
   if (!--lookup.Data()) {
     lookup.Remove();
-    // TODO(emilio): Do this off a timer or something maybe.
-    for (auto iter = mComplete.Iter(); !iter.Done(); iter.Next()) {
-      if (iter.Key().LoaderPrincipal()->Equals(prin)) {
-        iter.Remove();
-      }
+    // TODO(emilio): Do this off a timer or something maybe, though in practice
+    // BFCache is good enough at keeping things alive.
+    AsDerived().EvictPrincipal(prin);
+  }
+}
+
+template <typename Traits, typename Derived>
+void SharedSubResourceCache<Traits, Derived>::EvictPrincipal(
+    nsIPrincipal* aPrincipal) {
+  for (auto iter = mComplete.Iter(); !iter.Done(); iter.Next()) {
+    if (iter.Key().LoaderPrincipal()->Equals(aPrincipal)) {
+      iter.Remove();
     }
   }
 }
@@ -568,13 +609,11 @@ auto SharedSubResourceCache<Traits, Derived>::Lookup(Loader& aLoader,
 }
 
 template <typename Traits, typename Derived>
-size_t SharedSubResourceCache<Traits, Derived>::SizeOfIncludingThis(
+size_t SharedSubResourceCache<Traits, Derived>::SizeOfExcludingThis(
     MallocSizeOf aMallocSizeOf) const {
-  size_t n = aMallocSizeOf(&AsDerived());
-
-  n += mComplete.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  size_t n = mComplete.ShallowSizeOfExcludingThis(aMallocSizeOf);
   for (const auto& data : mComplete.Values()) {
-    n += data.mResource->SizeOfIncludingThis(aMallocSizeOf);
+    n += data.SizeOfExcludingThis(aMallocSizeOf);
   }
 
   return n;
@@ -607,7 +646,7 @@ void SharedSubResourceCache<Traits, Derived>::LoadCompleted(
   Maybe<LoadingValue*> value = mLoading.Extract(key);
   MOZ_DIAGNOSTIC_ASSERT(value);
   MOZ_DIAGNOSTIC_ASSERT(value.value() == &aValue);
-  Unused << value;
+  (void)value;
   aValue.SetLoadCompleted();
   MOZ_ASSERT(!aValue.IsLoading(), "Check that SetLoadCompleted is effectful.");
 }

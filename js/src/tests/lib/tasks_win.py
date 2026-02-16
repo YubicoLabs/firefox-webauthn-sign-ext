@@ -4,9 +4,8 @@
 import subprocess
 import sys
 from datetime import datetime, timedelta
+from queue import Empty, Queue
 from threading import Thread
-
-from six.moves.queue import Empty, Queue
 
 from .adaptor import xdr_annotate
 from .progressbar import ProgressBar
@@ -91,8 +90,8 @@ def _do_work(
         # parameter to the Popen constructor, so we have to decode the output
         # here.
         system_encoding = "mbcs" if sys.platform == "win32" else "utf-8"
-        out = out.decode(system_encoding)
-        err = err.decode(system_encoding)
+        out = out.decode(system_encoding, errors="replace")
+        err = err.decode(system_encoding, errors="replace")
         qWatch.put(TaskFinishedMarker)
 
         # Create a result record and forward to result processing.
@@ -121,7 +120,7 @@ def _do_watch(qWatch, timeout):
             # Timed out, force-kill the test.
             try:
                 proc.terminate()
-            except WindowsError as ex:
+            except OSError as ex:
                 # If the process finishes after we time out but before we
                 # terminate, the terminate call will fail. We can safely
                 # ignore this.

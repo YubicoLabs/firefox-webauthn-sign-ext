@@ -7,15 +7,15 @@
 #ifndef MobileViewportManager_h_
 #define MobileViewportManager_h_
 
+#include "UnitTransforms.h"
+#include "Units.h"
 #include "mozilla/Logging.h"
-#include "mozilla/Maybe.h"
 #include "mozilla/MVMContext.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/PresShellForwards.h"
 #include "nsCOMPtr.h"
 #include "nsIDOMEventListener.h"
 #include "nsIObserver.h"
-#include "Units.h"
-#include "UnitTransforms.h"
 
 class nsViewportInfo;
 
@@ -67,6 +67,11 @@ class MobileViewportManager final : public nsIDOMEventListener,
    * reasons explained at the declaration of FrameMetrics::mPresShellResolution.
    */
   float ComputeIntrinsicResolution() const;
+
+  /* Return the intrinsic scale based on viewport size (from meta viewport),
+   * and content size. Use this for position:fixed calculations.
+   */
+  mozilla::CSSToScreenScale GetIntrinsicScaleForFixedViewport() const;
 
   /* The only direct calls to this should be in test code.
    * Normally, it gets called by HandleEvent().

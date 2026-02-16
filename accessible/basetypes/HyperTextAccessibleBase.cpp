@@ -244,14 +244,9 @@ LayoutDeviceIntRect HyperTextAccessibleBase::TextBounds(int32_t aStartOffset,
 
   index_t startOffset = ConvertMagicOffset(aStartOffset);
   index_t endOffset = ConvertMagicOffset(aEndOffset);
-  if (!startOffset.IsValid() || startOffset >= endOffset) {
+  if (!startOffset.IsValid() || startOffset > endOffset) {
     return LayoutDeviceIntRect();
   }
-
-  // Here's where things get complicated. We can't simply query the first
-  // and last character, and union their bounds. They might reside on different
-  // lines, and a simple union may yield an incorrect width. We
-  // should use the length of the longest spanned line for our width.
 
   TextLeafPoint startPoint =
       ToTextLeafPoint(static_cast<int32_t>(startOffset), false);
@@ -262,20 +257,8 @@ LayoutDeviceIntRect HyperTextAccessibleBase::TextBounds(int32_t aStartOffset,
     return LayoutDeviceIntRect();
   }
 
-  // Step backwards from the point returned by ToTextLeafPoint above.
-  // For our purposes, `endPoint` should be inclusive.
-  endPoint =
-      endPoint.FindBoundary(nsIAccessibleText::BOUNDARY_CHAR, eDirPrevious);
-  if (endPoint < startPoint) {
-    return result;
-  }
-
-  if (endPoint == startPoint) {
-    result = startPoint.CharBounds();
-  } else {
-    TextLeafRange range(startPoint, endPoint);
-    result = range.Bounds();
-  }
+  TextLeafRange range(startPoint, endPoint);
+  result = range.Bounds();
 
   // Calls to TextLeafRange::Bounds() will construct screen coordinates.
   // Perform any additional conversions here.
@@ -342,12 +325,15 @@ TextLeafPoint HyperTextAccessibleBase::ToTextLeafPoint(int32_t aOffset,
   if (!child) {
     return TextLeafPoint();
   }
-  if (HyperTextAccessibleBase* childHt = child->AsHyperTextBase()) {
-    return childHt->ToTextLeafPoint(
-        aDescendToEnd ? static_cast<int32_t>(childHt->CharacterCount()) : 0,
-        aDescendToEnd);
-  }
   int32_t offset = aOffset - GetChildOffset(child);
+  if (HyperTextAccessibleBase* childHt = child->AsHyperTextBase()) {
+    // This child is an embedded object, so the offset can only be 0 or 1.
+    MOZ_ASSERT(offset == 0 || offset == 1);
+    // Offset 1 refers to the end of this container, so descend to its end.
+    const bool end = aDescendToEnd || offset == 1;
+    return childHt->ToTextLeafPoint(
+        end ? static_cast<int32_t>(childHt->CharacterCount()) : 0, end);
+  }
   return TextLeafPoint(child, offset);
 }
 
@@ -654,12 +640,21 @@ int32_t HyperTextAccessibleBase::CaretLineNumber() {
     return -1;
   }
 
-  TextLeafPoint firstPointInThis = TextLeafPoint(Acc(), 0);
-  int32_t lineNumber = 1;
-  for (TextLeafPoint line = point; line && firstPointInThis < line;
+  // Walk forward by line from the start of the container.
+  TextLeafPoint line = TextLeafPoint(Acc(), 0);
+  int32_t lineNumber = 0;
+  for (; line && line < point;
        line = line.FindBoundary(nsIAccessibleText::BOUNDARY_LINE_START,
-                                eDirPrevious)) {
-    lineNumber++;
+                                eDirNext)) {
+    ++lineNumber;
+  }
+  // The caret might be right at the start of a line, in which case we should
+  // increment the line number. We shouldn't do that if the caret is at the end
+  // of a line or container, though.
+  if (line == point && !point.mIsEndOfLineInsertionPoint &&
+      point.mOffset <
+          static_cast<int32_t>(nsAccUtils::TextLength(point.mAcc))) {
+    ++lineNumber;
   }
 
   return lineNumber;

@@ -14,7 +14,6 @@ PYTHON_UNITTEST_MANIFESTS += [
     "/testing/mochitest/tests/python/python.toml",
     "/testing/raptor/test/python.toml",
     "/testing/talos/talos/unittests/python.toml",
-    "/toolkit/components/featuregates/test/python/python.toml",
 ]
 
 DIRS += [
@@ -59,10 +58,15 @@ if CONFIG["MOZ_AUTH_EXTENSION"]:
     DIRS += ["/extensions/auth"]
 
 if CONFIG["MOZ_UPDATER"] and CONFIG["OS_TARGET"] != "Android":
-    DIRS += [
-        "/toolkit/mozapps/update/updater/bspatch",
-        "/other-licenses/bsdiff",
-    ]
+    if CONFIG["MOZ_BSPATCH"]:
+        DIRS += [
+            "/toolkit/mozapps/update/updater/bspatch",
+            "/other-licenses/bsdiff",
+        ]
+    if CONFIG["MOZ_ZUCCHINI"]:
+        DIRS += [
+            "/third_party/zucchini",
+        ]
 
 # Gecko/Core components.
 
@@ -101,7 +105,6 @@ DIRS += [
     "/gfx",
     "/image",
     "/dom",
-    "/view",
     "/widget",
     "/editor",
     "/layout",

@@ -6,6 +6,8 @@
 
 #include "MobileViewportManager.h"
 
+#include "UnitTransforms.h"
+#include "gfxPlatform.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/ToString.h"
 #include "mozilla/dom/Document.h"
@@ -14,9 +16,7 @@
 #include "mozilla/dom/InteractiveWidget.h"
 #include "nsIFrame.h"
 #include "nsLayoutUtils.h"
-#include "nsViewManager.h"
 #include "nsViewportInfo.h"
-#include "UnitTransforms.h"
 
 mozilla::LazyLogModule MobileViewportManager::gLog("apz.mobileviewport");
 #define MVM_LOG(...) \
@@ -755,6 +755,21 @@ CSSSize MobileViewportManager::GetIntrinsicCompositionSize() const {
                             compositionSize, mMobileViewportSize);
 
   return ScreenSize(compositionSize) / intrinsicScale;
+}
+
+CSSToScreenScale MobileViewportManager::GetIntrinsicScaleForFixedViewport()
+    const {
+  const ScreenIntSize displaySize = GetLayoutDisplaySize();
+  const ScreenIntSize compositionSize = GetCompositionSize(displaySize);
+  const nsViewportInfo viewportInfo = mContext->GetViewportInfo(displaySize);
+
+  CSSSize contentSize{};
+  if (Maybe<CSSRect> scrollableRect =
+          mContext->CalculateScrollableRectForRSF()) {
+    contentSize = scrollableRect->Size();
+  }
+
+  return ComputeIntrinsicScale(viewportInfo, compositionSize, contentSize);
 }
 
 ParentLayerSize MobileViewportManager::GetCompositionSizeWithoutDynamicToolbar()

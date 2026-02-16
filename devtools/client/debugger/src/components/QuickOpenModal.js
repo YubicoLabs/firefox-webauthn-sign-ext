@@ -19,7 +19,7 @@ import {
   getQuickOpenType,
   getSelectedLocation,
   getSettledSourceTextContent,
-  getSourceTabs,
+  getOpenedSources,
   getBlackBoxRanges,
   getProjectDirectoryRoot,
 } from "../selectors/index";
@@ -54,6 +54,8 @@ export class QuickOpenModal extends Component {
   // Put it on the class so it can be retrieved in tests
   static UPDATE_RESULTS_THROTTLE = 100;
 
+  #willUnmountCalled = false;
+
   constructor(props) {
     super(props);
     this.state = { results: null, selectedIndex: 0 };
@@ -80,11 +82,10 @@ export class QuickOpenModal extends Component {
       selectedContentLoaded: PropTypes.bool,
       selectedLocation: PropTypes.object,
       setQuickOpenQuery: PropTypes.func.isRequired,
-      openedTabUrls: PropTypes.array.isRequired,
+      openedSources: PropTypes.array.isRequired,
       toggleShortcutsModal: PropTypes.func.isRequired,
       projectDirectoryRoot: PropTypes.string,
       getFunctionSymbols: PropTypes.func.isRequired,
-      updateCursorPosition: PropTypes.func.isRequired,
     };
   }
 
@@ -113,6 +114,10 @@ export class QuickOpenModal extends Component {
     }
   }
 
+  componentWillUnmount() {
+    this.#willUnmountCalled = true;
+  }
+
   closeModal = () => {
     this.props.closeQuickOpen();
   };
@@ -123,12 +128,12 @@ export class QuickOpenModal extends Component {
   };
 
   formatSources = memoizeLast(
-    (displayedSources, openedTabUrls, blackBoxRanges, projectDirectoryRoot) => {
+    (displayedSources, openedSources, blackBoxRanges, projectDirectoryRoot) => {
       // Note that we should format all displayed sources,
       // the actual filtering will only be done late from `searchSources()`
       return displayedSources.map(source => {
         const isBlackBoxed = !!blackBoxRanges[source.url];
-        const hasTabOpened = openedTabUrls.includes(source.url);
+        const hasTabOpened = openedSources.includes(source);
         return formatSourceForList(
           source,
           hasTabOpened,
@@ -142,14 +147,14 @@ export class QuickOpenModal extends Component {
   searchSources = query => {
     const {
       displayedSources,
-      openedTabUrls,
+      openedSources,
       blackBoxRanges,
       projectDirectoryRoot,
     } = this.props;
 
     const sources = this.formatSources(
       displayedSources,
-      openedTabUrls,
+      openedSources,
       blackBoxRanges,
       projectDirectoryRoot
     );
@@ -187,49 +192,59 @@ export class QuickOpenModal extends Component {
    * This method is called when we just opened the modal and the query input is empty
    */
   showTopSources = () => {
-    const { openedTabUrls, blackBoxRanges, projectDirectoryRoot } = this.props;
+    const { openedSources, blackBoxRanges, projectDirectoryRoot } = this.props;
     let { displayedSources } = this.props;
 
     // If there is some tabs opened, only show tab's sources.
     // Otherwise, we display all visible sources (per SourceTree definition),
     // setResults will restrict the number of results to a maximum limit.
-    if (openedTabUrls.length) {
+    if (openedSources.length) {
       displayedSources = displayedSources.filter(
-        source => !!source.url && openedTabUrls.includes(source.url)
+        source => !!source.url && openedSources.includes(source)
       );
     }
 
     this.setResults(
       this.formatSources(
         displayedSources,
-        openedTabUrls,
+        openedSources,
         blackBoxRanges,
         projectDirectoryRoot
       )
     );
   };
 
-  updateResults = throttle(query => {
-    if (this.isGotoQuery()) {
-      return;
-    }
+  updateResults = throttle(async query => {
+    try {
+      if (this.isGotoQuery()) {
+        return;
+      }
 
-    if (query == "" && !this.isShortcutQuery()) {
-      this.showTopSources();
-      return;
-    }
+      if (query == "" && !this.isShortcutQuery()) {
+        this.showTopSources();
+        return;
+      }
 
-    if (this.isSymbolSearch()) {
-      this.searchSymbols(query);
-      return;
-    }
+      if (this.isSymbolSearch()) {
+        await this.searchSymbols(query);
+        return;
+      }
 
-    if (this.isShortcutQuery()) {
-      this.searchShortcuts(query);
-      return;
-    }
+      if (this.isShortcutQuery()) {
+        this.searchShortcuts(query);
+        return;
+      }
 
-    this.searchSources(query);
+      this.searchSources(query);
+    } catch (e) {
+      // Due to throttling this might get scheduled after the component and the
+      // toolbox are destroyed.
+      if (this.#willUnmountCalled) {
+        console.warn("Throttled QuickOpen.updateResults failed", e);
+      } else {
+        throw e;
+      }
+    }
   }, QuickOpenModal.UPDATE_RESULTS_THROTTLE);
 
   setModifier = item => {
@@ -302,8 +317,7 @@ export class QuickOpenModal extends Component {
   };
 
   gotoLocation = location => {
-    const { selectSpecificLocation, selectedLocation, updateCursorPosition } =
-      this.props;
+    const { selectSpecificLocation, selectedLocation } = this.props;
 
     if (location != null) {
       const sourceLocation = createLocation({
@@ -312,7 +326,6 @@ export class QuickOpenModal extends Component {
         column: location.column || 0,
       });
       selectSpecificLocation(sourceLocation);
-      updateCursorPosition(sourceLocation);
       this.closeModal();
     }
   };
@@ -483,8 +496,7 @@ export class QuickOpenModal extends Component {
 function mapStateToProps(state) {
   const selectedLocation = getSelectedLocation(state);
   const displayedSources = getDisplayedSourcesList(state);
-  const tabs = getSourceTabs(state);
-  const openedTabUrls = [...new Set(tabs.map(tab => tab.url))];
+  const openedSources = getOpenedSources(state);
 
   return {
     displayedSources,
@@ -496,7 +508,7 @@ function mapStateToProps(state) {
       : undefined,
     query: getQuickOpenQuery(state),
     searchType: getQuickOpenType(state),
-    openedTabUrls,
+    openedSources,
   };
 }
 
@@ -507,5 +519,4 @@ export default connect(mapStateToProps, {
   clearHighlightLineRange: actions.clearHighlightLineRange,
   closeQuickOpen: actions.closeQuickOpen,
   getFunctionSymbols: actions.getFunctionSymbols,
-  updateCursorPosition: actions.updateCursorPosition,
 })(QuickOpenModal);

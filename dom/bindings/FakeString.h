@@ -4,14 +4,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_FakeString_h__
-#define mozilla_dom_FakeString_h__
+#ifndef mozilla_dom_FakeString_h_
+#define mozilla_dom_FakeString_h_
 
-#include "nsString.h"
-#include "mozilla/StringBuffer.h"
+#include "js/String.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Span.h"
-#include "js/String.h"
+#include "mozilla/StringBuffer.h"
+#include "nsString.h"
 #include "nsTStringRepr.h"
 
 namespace mozilla::dom::binding_detail {
@@ -23,7 +23,7 @@ namespace mozilla::dom::binding_detail {
 // or point at the buffer of an nsAString whose lifetime is longer than that of
 // the FakeString.
 template <typename CharT>
-struct FakeString {
+struct MOZ_GSL_OWNER FakeString {
   using char_type = CharT;
   using string_type = nsTString<CharT>;
   using size_type = typename string_type::size_type;
@@ -268,4 +268,4 @@ inline void AssignFromStringBuffer(
 
 }  // namespace mozilla
 
-#endif /* mozilla_dom_FakeString_h__ */
+#endif /* mozilla_dom_FakeString_h_ */

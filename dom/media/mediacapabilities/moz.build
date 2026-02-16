@@ -7,25 +7,10 @@ EXPORTS.mozilla.dom += [
     "MediaCapabilities.h",
 ]
 
-EXPORTS.mozilla += [
-    "BenchmarkStorageChild.h",
-    "BenchmarkStorageParent.h",
-    "KeyValueStorage.h",
-]
-
-EXPORTS += [
-    "DecoderBenchmark.h",
-]
-
 UNIFIED_SOURCES += [
-    "BenchmarkStorageChild.cpp",
-    "BenchmarkStorageParent.cpp",
-    "DecoderBenchmark.cpp",
-    "KeyValueStorage.cpp",
     "MediaCapabilities.cpp",
+    "MediaCapabilitiesValidation.cpp",
 ]
-
-IPDL_SOURCES += ["PBenchmarkStorage.ipdl"]
 
 include("/ipc/chromium/chromium-config.mozbuild")
 

@@ -16,12 +16,13 @@
 #include "mozilla/Assertions.h"  // for MOZ_ASSERT_HELPER2
 #include "mozilla/DataMutex.h"   // for DataMutex
 #include "mozilla/gfx/CompositorHitTestInfo.h"
-#include "mozilla/gfx/Logging.h"              // for gfx::TreeLog
-#include "mozilla/gfx/Matrix.h"               // for Matrix4x4
-#include "mozilla/layers/APZInputBridge.h"    // for APZInputBridge
-#include "mozilla/layers/APZTestData.h"       // for APZTestData
-#include "mozilla/layers/APZUtils.h"          // for GeckoViewMetrics
-#include "mozilla/layers/IAPZCTreeManager.h"  // for IAPZCTreeManager
+#include "mozilla/gfx/Logging.h"            // for gfx::TreeLog
+#include "mozilla/gfx/Matrix.h"             // for Matrix4x4
+#include "mozilla/layers/APZInputBridge.h"  // for APZInputBridge
+#include "mozilla/layers/APZUtils.h"        // for AsyncTransformComponents
+#include "mozilla/layers/CompositorScrollUpdate.h"  // for CompositorScrollUpdate
+#include "mozilla/layers/IAPZCTreeManager.h"        // for IAPZCTreeManager
+#include "mozilla/layers/PWebRenderBridgeParent.h"
 #include "mozilla/layers/ScrollbarData.h"
 #include "mozilla/layers/LayersTypes.h"
 #include "mozilla/layers/KeyboardMap.h"      // for KeyboardMap
@@ -34,6 +35,7 @@
 #include "mozilla/UniquePtr.h"       // for UniquePtr
 #include "nsCOMPtr.h"                // for already_AddRefed
 #include "nsTArray.h"
+#include "VsyncSource.h"
 
 namespace mozilla {
 class MultiTouchInput;
@@ -53,8 +55,10 @@ class Layer;
 class AsyncPanZoomController;
 class APZCTreeManagerParent;
 class APZSampler;
+class APZTestData;
 class APZUpdater;
 class CompositorBridgeParent;
+class MatrixMessage;
 class OverscrollHandoffChain;
 struct OverscrollHandoffState;
 class FocusTarget;
@@ -490,6 +494,9 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
    */
   static void FlushApzRepaints(LayersId aLayersId);
 
+  void EndWheelTransaction(
+      PWebRenderBridgeParent::EndWheelTransactionResolver&& aResolver);
+
   /**
    * Mark |aLayersId| as having been moved from the compositor that owns this
    * tree manager to a compositor that doesn't use APZ.
@@ -518,7 +525,8 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
   APZUpdater* GetUpdater() const;
 
   bool AdvanceAnimationsInternal(const MutexAutoLock& aProofOfMapLock,
-                                 const SampleTime& aSampleTime);
+                                 const SampleTime& aSampleTime)
+      MOZ_REQUIRES(mMapLock);
 
   // We need to allow APZUpdater to lock and unlock this tree during a WR
   // scene swap. We do this using private helpers to avoid exposing these
@@ -531,6 +539,9 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
   // Protected hooks for gtests subclass
   virtual already_AddRefed<AsyncPanZoomController> NewAPZCInstance(
       LayersId aLayersId, GeckoContentController* aController);
+
+  void SetFixedLayerMarginsOnRootContentApzcs(
+      const RecursiveMutexAutoLock& aProofOfTreeLock) MOZ_REQUIRES(mTreeLock);
 
  public:
   // Public hook for gtests subclass
@@ -555,6 +566,11 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
   already_AddRefed<AsyncPanZoomController> GetTargetAPZC(
       const LayersId& aLayersId,
       const ScrollableLayerGuid::ViewID& aScrollId) const;
+  // GetTargetAPZC() should be marked MOZ_REQUIRES(mMapLock) but it's called by
+  // code external to this class (APZSampler.cpp) via CallWithMapLock().
+  // We can't place a MOZ_REQUIRES(mMapLock) annotation on a method of another
+  // class, so we have a runtime assertion about holding mMapLock in the
+  // function body instead.
   already_AddRefed<AsyncPanZoomController> GetTargetAPZC(
       const LayersId& aLayersId, const ScrollableLayerGuid::ViewID& aScrollId,
       const MutexAutoLock& aProofOfMapLock) const;
@@ -680,7 +696,8 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
   // Returns true if |aFixedInfo| represents a layer that is fixed to the root
   // content APZC.
   bool IsFixedToRootContent(const FixedPositionInfo& aFixedInfo,
-                            const MutexAutoLock& aProofOfMapLock) const;
+                            const MutexAutoLock& aProofOfMapLock) const
+      MOZ_REQUIRES(mMapLock);
 
   // Returns the vertical sides of |aNode| that are stuck to the root content.
   // The map lock is required within these functions; if the map lock is already
@@ -690,7 +707,8 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
                                    AsyncTransformConsumer aMode) const;
   SideBits SidesStuckToRootContent(const StickyPositionInfo& aStickyInfo,
                                    AsyncTransformConsumer aMode,
-                                   const MutexAutoLock& aProofOfMapLock) const;
+                                   const MutexAutoLock& aProofOfMapLock) const
+      MOZ_REQUIRES(mMapLock);
 
   /**
    * Perform hit testing for a touch-start event.
@@ -809,20 +827,42 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
   // and therefore requires the caller to hold the map lock.
   ParentLayerRect ComputeClippedCompositionBounds(
       const MutexAutoLock& aProofOfMapLock,
-      ClippedCompositionBoundsMap& aDestMap, ScrollableLayerGuid aGuid);
+      ClippedCompositionBoundsMap& aDestMap, ScrollableLayerGuid aGuid)
+      MOZ_REQUIRES(mMapLock);
 
   ScreenMargin GetCompositorFixedLayerMargins(
-      const MutexAutoLock& aProofOfMapLock) const;
+      const MutexAutoLock& aProofOfMapLock) const MOZ_REQUIRES(mMapLock);
 
   /**
    * Compute the translation that should be applied to a layer that's fixed
    * at |eFixedSides|, to respect the fixed layer margins
-   * |aCompositorFixedLayerMargins|, given that the most recent main thread
+   * |mCompositorFixedLayerMargins|, given that the most recent main thread
    * paint has taken into account |aGeckoFixedLayerMargins|.
    */
   ScreenPoint ComputeFixedMarginsOffset(
-      const ScreenMargin& aCompositorFixedLayerMargins, SideBits aFixedSides,
-      const ScreenMargin& aGeckoFixedLayerMargins) const;
+      const MutexAutoLock& aProofOfMapLock, SideBits aFixedSides,
+      const ScreenMargin& aGeckoFixedLayerMargins) const MOZ_REQUIRES(mMapLock);
+
+  // Accessors for mIsSoftwareKeyboardVisible and mInteractiveWidget which
+  // ensure that we are holding the map lock.
+  bool IsSoftwareKeyboardVisible(const MutexAutoLock& aProofOfMapLock) const
+      MOZ_REQUIRES(mMapLock) {
+    return mIsSoftwareKeyboardVisible;
+  }
+  void SetIsSoftwareKeyboardVisible(bool aIsSoftwareKeyboardVisible,
+                                    const MutexAutoLock& aProofOfMapLock)
+      MOZ_REQUIRES(mMapLock) {
+    mIsSoftwareKeyboardVisible = aIsSoftwareKeyboardVisible;
+  }
+  dom::InteractiveWidget InteractiveWidgetMode(
+      const MutexAutoLock& aProofOfMapLock) const MOZ_REQUIRES(mMapLock) {
+    return mInteractiveWidget;
+  }
+  void SetInteractiveWidgetMode(dom::InteractiveWidget aInteractiveWidgetMode,
+                                const MutexAutoLock& aProofOfMapLock)
+      MOZ_REQUIRES(mMapLock) {
+    mInteractiveWidget = aInteractiveWidgetMode;
+  }
 
  protected:
   /* The input queue where input events are held until we know enough to
@@ -894,7 +934,7 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
   std::unordered_map<ScrollableLayerGuid, ApzcMapData,
                      ScrollableLayerGuid::HashIgnoringPresShellFn,
                      ScrollableLayerGuid::EqualIgnoringPresShellFn>
-      mApzcMap;
+      mApzcMap MOZ_GUARDED_BY(mMapLock);
   /**
    * A helper structure to store all the information needed to compute the
    * async transform for a scrollthumb on the sampler thread.
@@ -932,7 +972,7 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
    * sampler thread. mMapLock must be acquired while accessing or modifying
    * mScrollThumbInfo.
    */
-  std::vector<ScrollThumbInfo> mScrollThumbInfo;
+  std::vector<ScrollThumbInfo> mScrollThumbInfo MOZ_GUARDED_BY(mMapLock);
 
   /**
    * A helper structure to store all the information needed to compute the
@@ -957,7 +997,7 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
    * do on the sampler thread.
    * mMapLock must be acquired while accessing or modifying mRootScrollbarInfo.
    */
-  std::vector<RootScrollbarInfo> mRootScrollbarInfo;
+  std::vector<RootScrollbarInfo> mRootScrollbarInfo MOZ_GUARDED_BY(mMapLock);
 
   /**
    * A helper structure to store all the information needed to compute the
@@ -981,7 +1021,7 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
    * mMapLock which is safe to do on the sampler thread. mMapLock must be
    * acquired while accessing or modifying mFixedPositionInfo.
    */
-  std::vector<FixedPositionInfo> mFixedPositionInfo;
+  std::vector<FixedPositionInfo> mFixedPositionInfo MOZ_GUARDED_BY(mMapLock);
 
   /**
    * A helper structure to store all the information needed to compute the
@@ -1007,7 +1047,7 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
    * mMapLock which is safe to do on the sampler thread. mMapLock must be
    * acquired while accessing or modifying mStickyPositionInfo.
    */
-  std::vector<StickyPositionInfo> mStickyPositionInfo;
+  std::vector<StickyPositionInfo> mStickyPositionInfo MOZ_GUARDED_BY(mMapLock);
 
   /* Holds the zoom constraints for scrollable layers, as determined by the
    * the main-thread gecko code. This can only be accessed on the updater
@@ -1068,13 +1108,13 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
    * RCD-RSF, to account for the dynamic toolbar.
    * Acquire mMapLock before accessing this.
    */
-  ScreenMargin mCompositorFixedLayerMargins;
+  ScreenMargin mCompositorFixedLayerMargins MOZ_GUARDED_BY(mMapLock);
   /* Similar to above |mCompositorFixedLayerMargins|. But this value is the
    * margins on the main-thread at the last time position:fixed elements were
    * updated during the dynamic toolbar transitions.
    * Acquire mMapLock before accessing this.
    */
-  ScreenMargin mGeckoFixedLayerMargins;
+  ScreenMargin mGeckoFixedLayerMargins MOZ_GUARDED_BY(mMapLock);
   /* For logging the APZC tree for debugging (enabled by the apz.printtree
    * pref). The purpose of using LOG_CRITICAL is so that you don't also need to
    * change the gfx.logging.level pref to see the output. */
@@ -1096,6 +1136,9 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
   friend class IAPZHitTester;
   UniquePtr<IAPZHitTester> mHitTester;
 
+  // An array of root content APZCs in this tree.
+  nsTArray<AsyncPanZoomController*> mRootContentApzcs MOZ_GUARDED_BY(mTreeLock);
+
   // NOTE: This ScrollGenerationCounter needs to be per APZCTreeManager since
   // the generation is bumped up on the sampler theread which is per
   // APZCTreeManager.
@@ -1104,20 +1147,16 @@ class APZCTreeManager : public IAPZCTreeManager, public APZInputBridge {
 
   // The interactive-widget of the top level content document.
   // https://drafts.csswg.org/css-viewport/#interactive-widget-section
-  dom::InteractiveWidget mInteractiveWidget;
+  // Acquire mMapLock before accessing this.
+  dom::InteractiveWidget mInteractiveWidget MOZ_GUARDED_BY(mMapLock);
 
   // Whether the software keyboard is visible or not.
-  bool mIsSoftwareKeyboardVisible;
+  // Acquire mMapLock before accessing this.
+  bool mIsSoftwareKeyboardVisible MOZ_GUARDED_BY(mMapLock);
 
   // Whether there's any OOP iframe in this tree.
   // NOTE: This variable needs to be guarded by mTreeLock.
   bool mHaveOOPIframes;
-
-#if defined(MOZ_WIDGET_ANDROID)
- private:
-  // Last Frame metrics sent to java through UIController.
-  GeckoViewMetrics mLastRootMetrics;
-#endif  // defined(MOZ_WIDGET_ANDROID)
 };
 
 }  // namespace layers

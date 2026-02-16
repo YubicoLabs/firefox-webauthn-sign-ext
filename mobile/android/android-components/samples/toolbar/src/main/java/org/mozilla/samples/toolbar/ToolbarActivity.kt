@@ -11,23 +11,22 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.annotation.DrawableRes
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import mozilla.components.browser.domains.autocomplete.CustomDomainsProvider
 import mozilla.components.browser.domains.autocomplete.ShippedDomainsProvider
@@ -41,20 +40,15 @@ import mozilla.components.browser.menu2.BrowserMenuController
 import mozilla.components.browser.toolbar.BrowserToolbar
 import mozilla.components.browser.toolbar.display.DisplayToolbar
 import mozilla.components.compose.base.theme.AcornTheme
-import mozilla.components.compose.browser.toolbar.BrowserToolbarDefaults
-import mozilla.components.compose.browser.toolbar.CustomTabToolbarColors
-import mozilla.components.compose.browser.toolbar.concept.Action.ActionButton
-import mozilla.components.compose.browser.toolbar.concept.Action.CustomAction
+import mozilla.components.compose.browser.toolbar.concept.Action.ActionButtonRes
 import mozilla.components.compose.browser.toolbar.store.BrowserEditToolbarAction
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarEvent
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarState
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarStore
 import mozilla.components.compose.browser.toolbar.store.DisplayState
-import mozilla.components.compose.browser.toolbar.store.EditState
 import mozilla.components.compose.browser.toolbar.store.Mode
-import mozilla.components.compose.browser.toolbar.ui.SearchSelector
 import mozilla.components.concept.menu.Side
-import mozilla.components.concept.menu.candidate.DecorativeTextMenuCandidate
 import mozilla.components.concept.menu.candidate.DividerMenuCandidate
 import mozilla.components.concept.menu.candidate.DrawableMenuIcon
 import mozilla.components.concept.menu.candidate.NestedMenuCandidate
@@ -63,10 +57,14 @@ import mozilla.components.concept.toolbar.Toolbar
 import mozilla.components.feature.toolbar.ToolbarAutocompleteFeature
 import mozilla.components.support.ktx.android.content.res.resolveAttribute
 import mozilla.components.support.ktx.android.view.hideKeyboard
+import mozilla.components.support.ktx.android.view.setupPersistentInsets
 import mozilla.components.support.ktx.util.URLStringUtils
-import mozilla.components.ui.tabcounter.TabCounter
+import mozilla.components.ui.tabcounter.TabCounterView
 import org.mozilla.samples.toolbar.compose.BrowserToolbar
 import org.mozilla.samples.toolbar.databinding.ActivityToolbarBinding
+import org.mozilla.samples.toolbar.middleware.BrowserToolbarMiddleware
+import org.mozilla.samples.toolbar.middleware.BrowserToolbarMiddleware.Companion.Dependencies
+import kotlin.coroutines.cancellation.CancellationException
 import mozilla.components.browser.menu.R as menuR
 import mozilla.components.browser.toolbar.R as toolbarR
 import mozilla.components.ui.colors.R as colorsR
@@ -84,6 +82,8 @@ class ToolbarActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityToolbarBinding.inflate(layoutInflater)
+
+        window.setupPersistentInsets()
 
         shippedDomainsProvider.initialize(this)
         customDomainsProvider.initialize(this)
@@ -147,7 +147,7 @@ class ToolbarActivity : AppCompatActivity() {
         // Use the iconic gradient background
         // //////////////////////////////////////////////////////////////////////////////////////////
 
-        val background = ContextCompat.getDrawable(this, R.drawable.focus_background)
+        val background = AppCompatResources.getDrawable(this, R.drawable.focus_background)
         binding.toolbar.background = background
 
         // //////////////////////////////////////////////////////////////////////////////////////////
@@ -257,7 +257,7 @@ class ToolbarActivity : AppCompatActivity() {
         // Use the iconic gradient background
         // //////////////////////////////////////////////////////////////////////////////////////////
 
-        val background = ContextCompat.getDrawable(this, R.drawable.focus_background)
+        val background = AppCompatResources.getDrawable(this, R.drawable.focus_background)
         binding.toolbar.background = background
 
         // //////////////////////////////////////////////////////////////////////////////////////////
@@ -328,7 +328,7 @@ class ToolbarActivity : AppCompatActivity() {
     }
 
     private class FakeTabCounterToolbarButton : Toolbar.Action {
-        override fun createView(parent: ViewGroup): View = TabCounter(parent.context).apply {
+        override fun createView(parent: ViewGroup): View = TabCounterView(parent.context).apply {
             setCount(2)
             setBackgroundResource(
                 parent.context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless),
@@ -358,10 +358,10 @@ class ToolbarActivity : AppCompatActivity() {
             siteInfoIconSecure = 0xFF20123a.toInt(),
             text = 0xFF0c0c0d.toInt(),
             menu = 0xFF20123a.toInt(),
-            separator = 0x1E15141a.toInt(),
+            separator = 0x1E15141a,
             trackingProtection = 0xFF20123a.toInt(),
             emptyIcon = 0xFF20123a.toInt(),
-            hint = 0x1E15141a.toInt(),
+            hint = 0x1E15141a,
         )
 
         binding.toolbar.display.urlFormatter = { url ->
@@ -369,7 +369,7 @@ class ToolbarActivity : AppCompatActivity() {
         }
 
         binding.toolbar.display.setUrlBackground(
-            ContextCompat.getDrawable(this, R.drawable.fenix_url_background),
+            AppCompatResources.getDrawable(this, R.drawable.fenix_url_background),
         )
         binding.toolbar.display.hint = "Search or enter address"
         binding.toolbar.display.setOnUrlLongClickListener {
@@ -410,10 +410,10 @@ class ToolbarActivity : AppCompatActivity() {
         )
 
         binding.toolbar.edit.setUrlBackground(
-            ContextCompat.getDrawable(this, R.drawable.fenix_url_background),
+            AppCompatResources.getDrawable(this, R.drawable.fenix_url_background),
         )
         binding.toolbar.edit.setIcon(
-            ContextCompat.getDrawable(this, iconsR.drawable.mozac_ic_search_24)!!,
+            AppCompatResources.getDrawable(this, iconsR.drawable.mozac_ic_search_24)!!,
             "Search",
         )
 
@@ -446,7 +446,7 @@ class ToolbarActivity : AppCompatActivity() {
             text = 0xFF0c0c0d.toInt(),
             title = 0xFF0c0c0d.toInt(),
             menu = 0xFF20123a.toInt(),
-            separator = 0x1E15141a.toInt(),
+            separator = 0x1E15141a,
             trackingProtection = 0xFF20123a.toInt(),
         )
 
@@ -463,7 +463,7 @@ class ToolbarActivity : AppCompatActivity() {
 
         binding.toolbar.url = "https://www.mozilla.org/en-US/firefox/mobile/"
 
-        val drawableIcon = ContextCompat.getDrawable(this, iconsR.drawable.mozac_ic_cross_24)
+        val drawableIcon = AppCompatResources.getDrawable(this, iconsR.drawable.mozac_ic_cross_24)
 
         drawableIcon?.apply {
             setTint(0xFF20123a.toInt())
@@ -477,7 +477,7 @@ class ToolbarActivity : AppCompatActivity() {
             binding.toolbar.addNavigationAction(button)
         }
 
-        val drawable = ContextCompat.getDrawable(this, iconsR.drawable.mozac_ic_share_android_24)?.apply {
+        val drawable = AppCompatResources.getDrawable(this, iconsR.drawable.mozac_ic_share_android_24)?.apply {
             setTint(0xFF20123a.toInt())
         }
 
@@ -497,83 +497,28 @@ class ToolbarActivity : AppCompatActivity() {
         }
     }
 
-    @Suppress("LongMethod")
     private fun setupComposeToolbar() {
         showToolbar(isCompose = true)
 
-        val header = DecorativeTextMenuCandidate(
-            text = "This time search in:",
+        val store = BrowserToolbarStore(
+            middleware = listOf(
+                BrowserToolbarMiddleware(
+                    initialDependencies = Dependencies(
+                        context = this,
+                    ),
+                ),
+            ),
         )
-        val bookmarks = TextMenuCandidate(
-            "Bookmarks",
-            start = DrawableMenuIcon(this, iconsR.drawable.mozac_ic_bookmark_tray_24),
-        ) { /* Do nothing */ }
-        val tabs = TextMenuCandidate(
-            "Tabs",
-            start = DrawableMenuIcon(this, iconsR.drawable.mozac_ic_tab_tray_24),
-        ) { /* Do nothing */ }
-        val history = TextMenuCandidate(
-            "History",
-            start = DrawableMenuIcon(this, iconsR.drawable.mozac_ic_history_24),
-        ) { /* Do nothing */ }
-        val settings = TextMenuCandidate(
-            "Search settings",
-            start = DrawableMenuIcon(this, iconsR.drawable.mozac_ic_settings_24),
-        ) { /* Do nothing */ }
-
-        val items = listOf(header, bookmarks, tabs, history, settings)
-        val menuController = BrowserMenuController().apply {
-            submitList(items)
-        }
 
         binding.composeToolbar.setContent {
             AcornTheme {
-                val iconPrimaryTint = AcornTheme.colors.iconPrimary.toArgb()
-
-                val store = remember {
-                    BrowserToolbarStore(
-                        initialState = BrowserToolbarState(
-                            displayState = DisplayState(
-                                hint = "Search or enter address",
-                                pageActions = listOf(
-                                    ActionButton(
-                                        icon = iconsR.drawable.mozac_ic_arrow_clockwise_24,
-                                        contentDescription = null,
-                                        tint = iconPrimaryTint,
-                                        onClick = {},
-                                    ),
-                                ),
-                            ),
-                            editState = EditState(
-                                editActionsStart = listOf(
-                                    CustomAction(
-                                        content = {
-                                            SearchSelector(
-                                                onClick = {},
-                                                menu = menuController,
-                                                icon = ContextCompat.getDrawable(
-                                                    LocalContext.current,
-                                                    iconsR.drawable.mozac_ic_search_24,
-                                                ),
-                                            )
-                                        },
-                                    ),
-                                ),
-                            ),
-                        ),
-                    )
-                }
-
                 BrowserToolbar(
                     store = store,
-                    onDisplayToolbarClick = {
-                        store.dispatch(BrowserToolbarAction.ToggleEditMode(editMode = true))
-                    },
                     onTextEdit = { text ->
-                        store.dispatch(BrowserEditToolbarAction.UpdateEditText(text = text))
+                        store.dispatch(BrowserEditToolbarAction.SearchQueryUpdated(query = text))
                     },
                     onTextCommit = {
-                        store.dispatch(BrowserToolbarAction.ToggleEditMode(editMode = false))
+                        store.dispatch(BrowserToolbarAction.ExitEditMode)
                     },
                     url = "https://www.mozilla.org/en-US/firefox/mobile/",
                 )
@@ -586,27 +531,23 @@ class ToolbarActivity : AppCompatActivity() {
 
         binding.composeToolbar.setContent {
             AcornTheme {
-                val iconPrimaryTint = AcornTheme.colors.iconPrimary.toArgb()
-
                 val store = remember {
                     BrowserToolbarStore(
                         initialState = BrowserToolbarState(
-                            mode = Mode.CUSTOM_TAB,
+                            mode = Mode.DISPLAY,
                             displayState = DisplayState(
-                                navigationActions = listOf(
-                                    ActionButton(
-                                        icon = iconsR.drawable.mozac_ic_cross_24,
-                                        contentDescription = null,
-                                        tint = iconPrimaryTint,
-                                        onClick = {},
+                                browserActionsStart = listOf(
+                                    ActionButtonRes(
+                                        drawableResId = iconsR.drawable.mozac_ic_cross_24,
+                                        contentDescription = R.string.page_action_clear_input_description,
+                                        onClick = object : BrowserToolbarEvent {},
                                     ),
                                 ),
-                                browserActions = listOf(
-                                    ActionButton(
-                                        icon = iconsR.drawable.mozac_ic_arrow_clockwise_24,
-                                        contentDescription = null,
-                                        tint = iconPrimaryTint,
-                                        onClick = {},
+                                browserActionsEnd = listOf(
+                                    ActionButtonRes(
+                                        drawableResId = iconsR.drawable.mozac_ic_arrow_clockwise_24,
+                                        contentDescription = R.string.page_action_refresh_description,
+                                        onClick = object : BrowserToolbarEvent {},
                                     ),
                                 ),
                             ),
@@ -616,18 +557,9 @@ class ToolbarActivity : AppCompatActivity() {
 
                 BrowserToolbar(
                     store = store,
-                    onDisplayToolbarClick = {},
                     onTextEdit = {},
                     onTextCommit = {},
-                    colors = BrowserToolbarDefaults.colors(
-                        customTabToolbarColors = CustomTabToolbarColors(
-                            background = AcornTheme.colors.layer1,
-                            title = AcornTheme.colors.textPrimary,
-                            url = AcornTheme.colors.textSecondary,
-                        ),
-                    ),
                     url = "https://www.mozilla.org/en-US/firefox/mobile/",
-                    title = "Mozilla",
                 )
             }
         }
@@ -663,18 +595,16 @@ class ToolbarActivity : AppCompatActivity() {
 
     private var loading = MutableLiveData<Boolean>()
 
-    @Suppress("TooGenericExceptionCaught", "LongMethod", "ComplexMethod")
+    @Suppress("TooGenericExceptionCaught", "CognitiveComplexMethod")
     private fun simulateReload(view: UrlBoxProgressView? = null) {
         job?.cancel()
 
         loading.value = true
 
-        job = CoroutineScope(Dispatchers.Main).launch {
+        job = lifecycleScope.launch {
             try {
                 loop@ for (progress in PROGRESS_RANGE step RELOAD_STEP_SIZE) {
-                    if (!isActive) {
-                        break@loop
-                    }
+                    ensureActive()
 
                     if (view == null) {
                         binding.toolbar.displayProgress(progress)
@@ -683,6 +613,13 @@ class ToolbarActivity : AppCompatActivity() {
                     }
 
                     delay(progress * RELOAD_STEP_SIZE.toLong())
+                }
+            } catch (e: CancellationException) {
+                // Handle cancellation specifically
+                if (view == null) {
+                    binding.toolbar.displayProgress(0)
+                } else {
+                    view.progress = 0
                 }
             } catch (t: Throwable) {
                 if (view == null) {
@@ -704,7 +641,9 @@ class ToolbarActivity : AppCompatActivity() {
         binding.toolbar.invalidateActions()
     }
 
-    private fun Resources.getThemedDrawable(@DrawableRes resId: Int) = ResourcesCompat.getDrawable(this, resId, theme)
+    private fun Resources.getThemedDrawable(
+        @DrawableRes resId: Int,
+    ) = ResourcesCompat.getDrawable(this, resId, theme)
 
     companion object {
         private val PROGRESS_RANGE = 0..100

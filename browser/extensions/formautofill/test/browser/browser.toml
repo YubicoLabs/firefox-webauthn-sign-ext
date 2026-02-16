@@ -5,30 +5,40 @@ support-files = [
   "../fixtures/autocomplete_basic.html",
   "../fixtures/autocomplete_iframe.html",
   "../fixtures/autocomplete_iframe_sandboxed.html",
+  "../fixtures/autocomplete_multiple_emails_checkout.html",
   "../fixtures/autocomplete_simple_basic.html",
-  "../fixtures/dynamic_form_changes.html",
-  "../fixtures/form_change_on_user_interaction.html",
-  "../fixtures/dynamic_formless_changes_node_mutations.html",
-  "../fixtures/dynamic_formless_changes_element_visiblity_state.html",
+  "../fixtures/dynamic_forms.html",
+  "../fixtures/dynamic_formless_fields_updated_due_to_node_mutations.html",
+  "../fixtures/dynamic_formless_fields_updated_due_to_visiblity_state_change.html",
+  "../fixtures/dynamic_form_changing_on_user_interaction.html",
+  "../fixtures/dynamic_form_replacing_all_fields.html",
+  "../fixtures/dynamic_form_replace_form.html",
   "../fixtures/page_navigation.html",
   "./empty.html",
   "../fixtures/**",
 ]
 
 ["browser_autocomplete_footer.js"]
-skip-if = ["verify"]
+skip-if = [
+  "verify-standalone",
+]
 
 ["browser_autocomplete_marked_back_forward.js"]
 
 ["browser_autocomplete_marked_detached_tab.js"]
 skip-if = [
-  "verify && os == 'win'",
-  "os == 'mac'",
+  "os == 'mac' && os_version == '10.15' && arch == 'x86_64'",
+  "os == 'mac' && os_version == '14.70' && arch == 'x86_64'",
+  "os == 'mac' && os_version == '15.30' && arch == 'aarch64'",
 ]
 
 ["browser_autocomplete_region.js"]
 
 ["browser_autofill_address_housenumber.js"]
+
+["browser_autofill_address_level.js"]
+
+["browser_autofill_address_name.js"]
 
 ["browser_autofill_address_select.js"]
 
@@ -36,13 +46,17 @@ skip-if = [
 
 ["browser_autofill_address_select_match_isoid.js"]
 
+["browser_autofill_address_textarea.js"]
+
+["browser_autofill_creditCard_expiry.js"]
+
 ["browser_autofill_creditCard_name.js"]
 
 ["browser_autofill_creditCard_type.js"]
 
 ["browser_autofill_duplicate_fields.js"]
 skip-if = [
-  "os == 'win' && os_version == '11.26100' && processor == 'x86_64' && debug", # Bug 1917060
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && debug", # Bug 1917060
 ]
 
 ["browser_autofill_invisible_fields.js"]
@@ -61,20 +75,26 @@ skip-if = [
 
 ["browser_dropdown_layout.js"]
 
-["browser_dynamic_form_change_detection.js"]
+["browser_dynamic_form_autocompletion.js"]
+
+["browser_dynamic_form_detection.js"]
+
+["browser_dynamic_form_refill_on_site_clearing_values.js"]
+
+["browser_dynamic_form_telemetry.js"]
 
 ["browser_editAddressDialog.js"]
 skip-if = [
-  "verify",
-  "win11_2009", # Bug 1797751
-  "os == 'linux'" , # Bug 1788900
+  "os == 'linux' && os_version == '22.04' && arch == 'x86_64' && display == 'wayland'", # Bug 1788900
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'", # Bug 1788900
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && debug && socketprocess_networking && verify-standalone",
 ]
+
+["browser_email_dropdown.js"]
 
 ["browser_fathom_cc.js"]
 
 ["browser_fillclear_events.js"]
-
-["browser_fill_on_dynamic_form_change_detection.js"]
 
 ["browser_form_changes.js"]
 
@@ -82,8 +102,7 @@ skip-if = [
 
 ["browser_iframe_autofill_sandbox.js"]
 skip-if = [
-  "os == 'linux' && os_version == '18.04' && processor == 'x86_64' && asan", # Bug 1916287
-  "os == 'linux' && os_version == '18.04' && processor == 'x86_64' && debug", # Bug 1916287
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && asan && swgl", # Bug 1916287
 ]
 
 ["browser_iframe_capture.js"]
@@ -94,29 +113,28 @@ skip-if = [
 
 ["browser_iframe_layout_telemetry.js"]
 
+["browser_iframe_nested.js"]
+
 ["browser_iframe_same_origin_field_detection.js"]
 
 ["browser_iframe_update_fields.js"]
 
-["browser_manageAddressesDialog.js"]
+["browser_label_matching.js"]
 
-["browser_ml_model.js"]
+["browser_manageAddressesDialog.js"]
 
 ["browser_nested_forms.js"]
 
 ["browser_page_navigation_in_subtree.js"]
 skip-if = [
-  "win11_2009", # Bug 1924248
-  "os == 'win' && os_version == '11.26100' && bits == 64", # Bug 1924248
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1924248
 ]
 
 ["browser_previewFormFields.js"]
 
 ["browser_privacyPreferences.js"]
 skip-if = [
-  "os == 'mac'",   # perma-fail see Bug 1600059
-  "os == 'linux'", # perma-fail see Bug 1600059
-  "os == 'win'",   # perma-fail see Bug 1600059
+  "true", # perma-fail see Bug 1600059
 ]
 
 ["browser_remoteiframe.js"]

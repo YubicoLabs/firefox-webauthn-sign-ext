@@ -6,8 +6,6 @@
 
 #include "TrackBuffersManager.h"
 
-#include <limits>
-
 #include "ContainerParser.h"
 #include "MP4Demuxer.h"
 #include "MediaInfo.h"
@@ -96,7 +94,6 @@ TrackBuffersManager::TrackBuffersManager(MediaSourceDecoder* aParentDecoder,
           "TrackBuffersManager::mParentDecoder", aParentDecoder,
           false /* strict */)),
       mAbstractMainThread(aParentDecoder->AbstractMainThread()),
-      mEnded(false),
       mVideoEvictionThreshold(Preferences::GetUint(
           "media.mediasource.eviction_threshold.video", 150 * 1024 * 1024)),
       mAudioEvictionThreshold(Preferences::GetUint(
@@ -119,7 +116,7 @@ RefPtr<TrackBuffersManager::AppendPromise> TrackBuffersManager::AppendData(
   RefPtr<MediaByteBuffer> data(aData);
   MSE_DEBUG("Appending %zu bytes", data->Length());
 
-  mEnded = false;
+  Reopen();
 
   return InvokeAsync(static_cast<AbstractThread*>(GetTaskQueueSafe().get()),
                      this, __func__, &TrackBuffersManager::DoAppendData,
@@ -156,7 +153,7 @@ void TrackBuffersManager::QueueTask(SourceBufferTask* aTask) {
             "TrackBuffersManager::QueueTask", this,
             &TrackBuffersManager::QueueTask, aTask));
     MOZ_DIAGNOSTIC_ASSERT(NS_SUCCEEDED(rv));
-    Unused << rv;
+    (void)rv;
     return;
   }
   mQueue.Push(aTask);
@@ -325,7 +322,7 @@ TrackBuffersManager::RangeRemoval(TimeUnit aStart, TimeUnit aEnd) {
   MOZ_ASSERT(NS_IsMainThread());
   MSE_DEBUG("From %.2f to %.2f", aStart.ToSeconds(), aEnd.ToSeconds());
 
-  mEnded = false;
+  Reopen();
 
   return InvokeAsync(static_cast<AbstractThread*>(GetTaskQueueSafe().get()),
                      this, __func__,
@@ -462,7 +459,25 @@ TimeIntervals TrackBuffersManager::Buffered() const {
 
 int64_t TrackBuffersManager::GetSize() const { return mSizeSourceBuffer; }
 
-void TrackBuffersManager::Ended() { mEnded = true; }
+void TrackBuffersManager::SetEnded(
+    const dom::Optional<dom::MediaSourceEndOfStreamError>& aError) {
+  MOZ_ASSERT(NS_IsMainThread());
+  MutexAutoLock lock(mMutex);
+  if (!aError.WasPassed()) {
+    // error is not set.
+    // Notify the media element that it now has all of the media data.
+    // https://w3c.github.io/media-source/#dfn-end-of-stream
+    mHaveAllData = true;
+  }
+  mEnded = true;
+}
+
+void TrackBuffersManager::Reopen() {
+  MOZ_ASSERT(NS_IsMainThread());
+  MutexAutoLock lock(mMutex);
+  mHaveAllData = false;
+  mEnded = false;
+}
 
 void TrackBuffersManager::Detach() {
   MOZ_ASSERT(NS_IsMainThread());
@@ -1726,6 +1741,10 @@ void TrackBuffersManager::OnDemuxFailed(TrackType aTrack,
       }
       break;
     default:
+      // https://w3c.github.io/media-source/#sourcebuffer-segment-parser-loop
+      // 2. If the [[input buffer]] contains bytes that violate the
+      //    SourceBuffer byte stream format specification, then run the append
+      //    error algorithm and abort this algorithm.
       RejectProcessing(aError, __func__);
       break;
   }
@@ -2513,7 +2532,7 @@ uint32_t TrackBuffersManager::RemoveFrames(const TimeIntervals& aIntervals,
       bool found = false;
       TimeUnit startTime = intersection.GetStart(&found);
       MOZ_DIAGNOSTIC_ASSERT(found, "Must intersect with added coded frames");
-      Unused << found;
+      (void)found;
       // Signal that this frame should be truncated when decoded.
       if (!sample->mOriginalPresentationWindow) {
         sample->mOriginalPresentationWindow = Some(sampleInterval);

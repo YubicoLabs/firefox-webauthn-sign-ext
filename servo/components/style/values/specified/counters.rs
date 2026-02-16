@@ -15,7 +15,7 @@ use crate::values::specified::image::Image;
 use crate::values::specified::Attr;
 use crate::values::specified::Integer;
 use crate::values::CustomIdent;
-use cssparser::{Parser, Token};
+use cssparser::{match_ignore_ascii_case, Parser, Token};
 use selectors::parser::SelectorParseErrorKind;
 use style_traits::{ParseError, StyleParseErrorKind};
 
@@ -113,7 +113,7 @@ fn parse_counters<'i, 't>(
 
         let value = match input.try_parse(|input| Integer::parse(context, input)) {
             Ok(start) => {
-                if start.value == i32::min_value() {
+                if start.value() == i32::min_value() {
                     // The spec says that values must be clamped to the valid range,
                     // and we reserve i32::min_value() as an internal magic value.
                     // https://drafts.csswg.org/css-lists/#auto-numbering
@@ -226,7 +226,7 @@ impl Parse for Content {
                             let style = Content::parse_counter_style(context, input);
                             Ok(generics::ContentItem::Counters(name, separator, style))
                         }),
-                        "attr" => input.parse_nested_block(|input| {
+                        "attr" if !static_prefs::pref!("layout.css.attr.enabled") => input.parse_nested_block(|input| {
                             Ok(generics::ContentItem::Attr(Attr::parse_function(context, input)?))
                         }),
                         _ => {
@@ -262,9 +262,9 @@ impl Parse for Content {
                     });
                 },
                 Token::Delim('/')
-                    if alt_start.is_none() &&
-                        !items.is_empty() &&
-                        static_prefs::pref!("layout.css.content.alt-text.enabled") =>
+                    if alt_start.is_none()
+                        && !items.is_empty()
+                        && static_prefs::pref!("layout.css.content.alt-text.enabled") =>
                 {
                     alt_start = Some(items.len());
                 },

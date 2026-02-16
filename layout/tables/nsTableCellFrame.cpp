@@ -5,6 +5,8 @@
 
 #include "nsTableCellFrame.h"
 
+#include <algorithm>
+
 #include "celldata.h"
 #include "gfxContext.h"
 #include "gfxUtils.h"
@@ -14,28 +16,27 @@
 #include "mozilla/StaticPrefs_layout.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/Helpers.h"
-#include "nsTableFrame.h"
-#include "nsTableColFrame.h"
-#include "nsTableRowFrame.h"
-#include "nsTableRowGroupFrame.h"
-#include "nsStyleConsts.h"
-#include "nsPresContext.h"
+#include "nsAttrValueInlines.h"
 #include "nsCSSRendering.h"
+#include "nsDisplayList.h"
+#include "nsGenericHTMLElement.h"
+#include "nsGkAtoms.h"
+#include "nsHTMLParts.h"
 #include "nsIContent.h"
 #include "nsIFrame.h"
 #include "nsIFrameInlines.h"
-#include "nsGenericHTMLElement.h"
-#include "nsAttrValueInlines.h"
-#include "nsHTMLParts.h"
-#include "nsGkAtoms.h"
-#include "nsDisplayList.h"
 #include "nsLayoutUtils.h"
+#include "nsPresContext.h"
+#include "nsStyleConsts.h"
+#include "nsTableColFrame.h"
+#include "nsTableFrame.h"
+#include "nsTableRowFrame.h"
+#include "nsTableRowGroupFrame.h"
 #include "nsTextFrame.h"
-#include <algorithm>
 
 // TABLECELL SELECTION
-#include "nsFrameSelection.h"
 #include "mozilla/LookAndFeel.h"
+#include "nsFrameSelection.h"
 
 #ifdef ACCESSIBILITY
 #  include "nsAccessibilityService.h"
@@ -160,8 +161,7 @@ bool nsTableCellFrame::NeedsToObserve(const ReflowInput& aReflowInput) {
 }
 
 nsresult nsTableCellFrame::AttributeChanged(int32_t aNameSpaceID,
-                                            nsAtom* aAttribute,
-                                            int32_t aModType) {
+                                            nsAtom* aAttribute, AttrModType) {
   // We need to recalculate in this case because of the nowrap quirk in
   // BasicTableLayoutStrategy
   if (aNameSpaceID == kNameSpaceID_None && aAttribute == nsGkAtoms::nowrap &&
@@ -172,7 +172,7 @@ nsresult nsTableCellFrame::AttributeChanged(int32_t aNameSpaceID,
 
   const nsAtom* colSpanAttribute =
       MOZ_UNLIKELY(mContent->AsElement()->IsMathMLElement())
-          ? nsGkAtoms::columnspan_
+          ? nsGkAtoms::columnspan
           : nsGkAtoms::colspan;
   if (aAttribute == nsGkAtoms::rowspan || aAttribute == colSpanAttribute) {
     nsLayoutUtils::PostRestyleEvent(mContent->AsElement(), RestyleHint{0},
@@ -255,63 +255,62 @@ inline nscolor EnsureDifferentColors(nscolor colorA, nscolor colorB) {
 void nsTableCellFrame::DecorateForSelection(DrawTarget* aDrawTarget,
                                             nsPoint aPt) {
   NS_ASSERTION(IsSelected(), "Should only be called for selected cells");
-  int16_t displaySelection;
-  displaySelection = DetermineDisplaySelection();
-  if (displaySelection) {
-    RefPtr<nsFrameSelection> frameSelection = PresShell()->FrameSelection();
-
-    if (frameSelection->IsInTableSelectionMode()) {
-      nscolor bordercolor;
-      if (displaySelection == nsISelectionController::SELECTION_DISABLED) {
-        bordercolor = NS_RGB(176, 176, 176);  // disabled color
-      } else {
-        bordercolor = LookAndFeel::Color(LookAndFeel::ColorID::Highlight, this);
-      }
-      nscoord threePx = nsPresContext::CSSPixelsToAppUnits(3);
-      if ((mRect.width > threePx) && (mRect.height > threePx)) {
-        // compare bordercolor to background-color
-        bordercolor = EnsureDifferentColors(
-            bordercolor, StyleBackground()->BackgroundColor(this));
-
-        int32_t appUnitsPerDevPixel = PresContext()->AppUnitsPerDevPixel();
-        Point devPixelOffset = NSPointToPoint(aPt, appUnitsPerDevPixel);
-
-        AutoRestoreTransform autoRestoreTransform(aDrawTarget);
-        aDrawTarget->SetTransform(
-            aDrawTarget->GetTransform().PreTranslate(devPixelOffset));
-
-        ColorPattern color(ToDeviceColor(bordercolor));
-
-        nscoord onePixel = nsPresContext::CSSPixelsToAppUnits(1);
-
-        StrokeLineWithSnapping(nsPoint(onePixel, 0), nsPoint(mRect.width, 0),
-                               appUnitsPerDevPixel, *aDrawTarget, color);
-        StrokeLineWithSnapping(nsPoint(0, onePixel), nsPoint(0, mRect.height),
-                               appUnitsPerDevPixel, *aDrawTarget, color);
-        StrokeLineWithSnapping(nsPoint(onePixel, mRect.height),
-                               nsPoint(mRect.width, mRect.height),
-                               appUnitsPerDevPixel, *aDrawTarget, color);
-        StrokeLineWithSnapping(nsPoint(mRect.width, onePixel),
-                               nsPoint(mRect.width, mRect.height),
-                               appUnitsPerDevPixel, *aDrawTarget, color);
-        // middle
-        nsRect r(onePixel, onePixel, mRect.width - onePixel,
-                 mRect.height - onePixel);
-        Rect devPixelRect =
-            NSRectToSnappedRect(r, appUnitsPerDevPixel, *aDrawTarget);
-        aDrawTarget->StrokeRect(devPixelRect, color);
-        // shading
-        StrokeLineWithSnapping(
-            nsPoint(2 * onePixel, mRect.height - 2 * onePixel),
-            nsPoint(mRect.width - onePixel, mRect.height - (2 * onePixel)),
-            appUnitsPerDevPixel, *aDrawTarget, color);
-        StrokeLineWithSnapping(
-            nsPoint(mRect.width - (2 * onePixel), 2 * onePixel),
-            nsPoint(mRect.width - (2 * onePixel), mRect.height - onePixel),
-            appUnitsPerDevPixel, *aDrawTarget, color);
-      }
-    }
+  if (!IsSelectable()) {
+    return;
   }
+  RefPtr<nsFrameSelection> frameSelection = PresShell()->FrameSelection();
+  if (!frameSelection->IsInTableSelectionMode()) {
+    return;
+  }
+  nscoord threePx = nsPresContext::CSSPixelsToAppUnits(3);
+  if (mRect.width <= threePx || mRect.height <= threePx) {
+    return;
+  }
+  nscolor bordercolor;
+  if (frameSelection->GetDisplaySelection() ==
+      nsISelectionController::SELECTION_DISABLED) {
+    bordercolor = NS_RGB(176, 176, 176);  // disabled color
+  } else {
+    bordercolor = LookAndFeel::Color(LookAndFeel::ColorID::Highlight, this);
+  }
+  // compare bordercolor to background-color
+  bordercolor = EnsureDifferentColors(bordercolor,
+                                      StyleBackground()->BackgroundColor(this));
+
+  int32_t appUnitsPerDevPixel = PresContext()->AppUnitsPerDevPixel();
+  Point devPixelOffset = NSPointToPoint(aPt, appUnitsPerDevPixel);
+
+  AutoRestoreTransform autoRestoreTransform(aDrawTarget);
+  aDrawTarget->SetTransform(
+      aDrawTarget->GetTransform().PreTranslate(devPixelOffset));
+
+  ColorPattern color(ToDeviceColor(bordercolor));
+
+  nscoord onePixel = nsPresContext::CSSPixelsToAppUnits(1);
+
+  StrokeLineWithSnapping(nsPoint(onePixel, 0), nsPoint(mRect.width, 0),
+                         appUnitsPerDevPixel, *aDrawTarget, color);
+  StrokeLineWithSnapping(nsPoint(0, onePixel), nsPoint(0, mRect.height),
+                         appUnitsPerDevPixel, *aDrawTarget, color);
+  StrokeLineWithSnapping(nsPoint(onePixel, mRect.height),
+                         nsPoint(mRect.width, mRect.height),
+                         appUnitsPerDevPixel, *aDrawTarget, color);
+  StrokeLineWithSnapping(nsPoint(mRect.width, onePixel),
+                         nsPoint(mRect.width, mRect.height),
+                         appUnitsPerDevPixel, *aDrawTarget, color);
+  // middle
+  nsRect r(onePixel, onePixel, mRect.width - onePixel, mRect.height - onePixel);
+  Rect devPixelRect = NSRectToSnappedRect(r, appUnitsPerDevPixel, *aDrawTarget);
+  aDrawTarget->StrokeRect(devPixelRect, color);
+  // shading
+  StrokeLineWithSnapping(
+      nsPoint(2 * onePixel, mRect.height - 2 * onePixel),
+      nsPoint(mRect.width - onePixel, mRect.height - (2 * onePixel)),
+      appUnitsPerDevPixel, *aDrawTarget, color);
+  StrokeLineWithSnapping(
+      nsPoint(mRect.width - (2 * onePixel), 2 * onePixel),
+      nsPoint(mRect.width - (2 * onePixel), mRect.height - onePixel),
+      appUnitsPerDevPixel, *aDrawTarget, color);
 }
 
 void nsTableCellFrame::ProcessBorders(nsTableFrame* aFrame,
@@ -392,91 +391,88 @@ LogicalSides nsTableCellFrame::GetLogicalSkipSides() const {
 /* virtual */
 nsMargin nsTableCellFrame::GetBorderOverflow() { return nsMargin(0, 0, 0, 0); }
 
-void nsTableCellFrame::BlockDirAlignChild(
-    WritingMode aWM, nscoord aMaxAscent,
-    ForceAlignTopForTableCell aForceAlignTop) {
+void nsTableCellFrame::AlignChildWithinCell(
+    nscoord aMaxAscent, ForceAlignTopForTableCell aForceAlignTop) {
   MOZ_ASSERT(aForceAlignTop != ForceAlignTopForTableCell::Yes ||
                  PresContext()->IsPaginated(),
-             "We shouldn't force table-cells to do 'vertical-align:top' if "
+             "We shouldn't force table-cells to do top alignment if "
              "we're not in printing!");
 
-  /* It's the 'border-collapse' on the table that matters */
-  const LogicalMargin border = GetLogicalUsedBorder(GetWritingMode())
-                                   .ApplySkipSides(GetLogicalSkipSides())
-                                   .ConvertTo(aWM, GetWritingMode());
+  nsIFrame* const inner = Inner();
+  const WritingMode tableWM = GetWritingMode();
+  const WritingMode innerWM = inner->GetWritingMode();
 
-  nscoord bStartInset = border.BStart(aWM);
-  nscoord bEndInset = border.BEnd(aWM);
+  // The anonymous block child is to be placed within the cell's padding rect.
+  // Get it in the inner frame's writing mode for alignment calculation.
+  const nsSize containerSize = mRect.Size();
+  const LogicalRect paddingRect(innerWM, GetPaddingRectRelativeToSelf(),
+                                containerSize);
 
-  nscoord bSize = BSize(aWM);
-  nsIFrame* inner = Inner();
-  nsSize containerSize = mRect.Size();
-  LogicalRect kidRect = inner->GetLogicalRect(aWM, containerSize);
-  nscoord childBSize = kidRect.BSize(aWM);
+  const LogicalRect kidRect = inner->GetLogicalRect(innerWM, containerSize);
 
-  // Vertically align the child
-  const auto verticalAlign = aForceAlignTop == ForceAlignTopForTableCell::Yes
-                                 ? StyleVerticalAlignKeyword::Top
-                                 : GetVerticalAlign();
-  nscoord kidBStart = 0;
-  switch (verticalAlign) {
-    case StyleVerticalAlignKeyword::Baseline:
+  // Calculate the position for the inner frame, initializing to the origin.
+  LogicalPoint kidPosition = paddingRect.Origin(innerWM);
+
+  // Apply table cell alignment to the block coordinate.
+  const auto alignment = aForceAlignTop == ForceAlignTopForTableCell::Yes
+                             ? TableCellAlignment::Top
+                             : GetTableCellAlignment();
+  switch (alignment) {
+    case TableCellAlignment::Baseline:
       if (auto baseline = GetCellBaseline()) {
-        // Align the baselines of the child frame with the baselines of
-        // other children in the same row which have 'vertical-align: baseline'
-        kidBStart = bStartInset + aMaxAscent - *baseline;
+        // Align the baseline of the child frame with the baselines of other
+        // children in the same row which have baseline alignment
+        kidPosition.B(innerWM) =
+            paddingRect.BStart(innerWM) + aMaxAscent - *baseline;
         break;
       }
       // fallback to start alignment
       [[fallthrough]];
-    case StyleVerticalAlignKeyword::Top:
-      // Align the top of the child frame with the top of the content area,
-      kidBStart = bStartInset;
+    case TableCellAlignment::Top:
+      // Leave kidPosition at the origin: the child frame will be aligned
+      // with the padding rect's block-start.
       break;
 
-    case StyleVerticalAlignKeyword::Bottom:
-      // Align the bottom of the child frame with the bottom of the content
-      // area,
-      kidBStart = bSize - childBSize - bEndInset;
+    case TableCellAlignment::Bottom:
+      // Align the block-end of the child frame with the block-end of the
+      // padding rect.
+      kidPosition.B(innerWM) =
+          paddingRect.BEnd(innerWM) - kidRect.BSize(innerWM);
       break;
 
     default:
-    case StyleVerticalAlignKeyword::Middle:
-      // Align the middle of the child frame with the middle of the content
-      // area,
-      kidBStart = (bSize - childBSize - bEndInset + bStartInset) / 2;
+    case TableCellAlignment::Middle:
+      // Align the middle of the child frame with the middle of the cell's
+      // padding rect.
+      kidPosition.B(innerWM) =
+          paddingRect.BStart(innerWM) +
+          (paddingRect.BSize(innerWM) - kidRect.BSize(innerWM)) / 2;
   }
-  // If the content is larger than the cell bsize, align from bStartInset
-  // (cell's content-box bstart edge).
-  kidBStart = std::max(bStartInset, kidBStart);
 
-  if (kidBStart != kidRect.BStart(aWM)) {
-    // Invalidate at the old position first
+  // If the content is larger than the cell bSize, align from the padding-rect's
+  // bStart edge.
+  kidPosition.B(innerWM) =
+      std::max(paddingRect.BStart(innerWM), kidPosition.B(innerWM));
+
+  if (kidPosition != kidRect.Origin(innerWM)) {
+    // If we're moving the inner frame, invalidate at the old position first.
     inner->InvalidateFrameSubtree();
   }
 
-  inner->SetPosition(aWM, LogicalPoint(aWM, kidRect.IStart(aWM), kidBStart),
-                     containerSize);
-  ReflowOutput desiredSize(aWM);
-  desiredSize.SetSize(aWM, GetLogicalSize(aWM));
+  inner->SetPosition(innerWM, kidPosition, containerSize);
+
+  ReflowOutput reflowOutput(tableWM);
+  reflowOutput.SetSize(tableWM, GetLogicalSize(tableWM));
 
   nsRect overflow(nsPoint(), GetSize());
   overflow.Inflate(GetBorderOverflow());
-  desiredSize.mOverflowAreas.SetAllTo(overflow);
-  ConsiderChildOverflow(desiredSize.mOverflowAreas, inner);
-  FinishAndStoreOverflow(&desiredSize);
-  if (kidBStart != kidRect.BStart(aWM)) {
-    // Make sure any child views are correctly positioned. We know the inner
-    // table cell won't have a view
-    nsContainerFrame::PositionChildViews(inner);
+  reflowOutput.mOverflowAreas.SetAllTo(overflow);
+  ConsiderChildOverflow(reflowOutput.mOverflowAreas, inner);
+  FinishAndStoreOverflow(&reflowOutput);
 
-    // Invalidate new overflow rect
+  if (kidPosition != kidRect.Origin(innerWM)) {
+    // Invalidate new overflow rect.
     inner->InvalidateFrameSubtree();
-  }
-  if (HasView()) {
-    nsContainerFrame::SyncFrameViewAfterReflow(PresContext(), this, GetView(),
-                                               desiredSize.InkOverflow(),
-                                               ReflowChildFlags::Default);
   }
 }
 
@@ -490,17 +486,26 @@ bool nsTableCellFrame::ComputeCustomOverflow(OverflowAreas& aOverflowAreas) {
 
 // Per CSS 2.1, we map 'sub', 'super', 'text-top', 'text-bottom',
 // length, percentage, and calc() values to 'baseline'.
-StyleVerticalAlignKeyword nsTableCellFrame::GetVerticalAlign() const {
-  const StyleVerticalAlign& verticalAlign = StyleDisplay()->mVerticalAlign;
-  if (verticalAlign.IsKeyword()) {
-    auto value = verticalAlign.AsKeyword();
-    if (value == StyleVerticalAlignKeyword::Top ||
-        value == StyleVerticalAlignKeyword::Middle ||
-        value == StyleVerticalAlignKeyword::Bottom) {
-      return value;
+TableCellAlignment nsTableCellFrame::GetTableCellAlignment() const {
+  const auto& baselineShift = StyleDisplay()->mBaselineShift;
+  if (baselineShift.IsKeyword()) {
+    auto value = baselineShift.AsKeyword();
+    switch (value) {
+      case StyleBaselineShiftKeyword::Top:
+        return TableCellAlignment::Top;
+      case StyleBaselineShiftKeyword::Bottom:
+        return TableCellAlignment::Bottom;
+      default:
+        break;
     }
   }
-  return StyleVerticalAlignKeyword::Baseline;
+
+  const auto& alignmentBaseline = StyleDisplay()->mAlignmentBaseline;
+  if (alignmentBaseline == StyleAlignmentBaseline::Middle) {
+    return TableCellAlignment::Middle;
+  }
+
+  return TableCellAlignment::Baseline;
 }
 
 static bool CellHasVisibleContent(nsTableFrame* aTableFrame,
@@ -587,7 +592,7 @@ int32_t nsTableCellFrame::GetColSpan() {
   if (!Style()->IsPseudoOrAnonBox()) {
     dom::Element* elem = mContent->AsElement();
     const nsAttrValue* attr = elem->GetParsedAttr(
-        MOZ_UNLIKELY(elem->IsMathMLElement()) ? nsGkAtoms::columnspan_
+        MOZ_UNLIKELY(elem->IsMathMLElement()) ? nsGkAtoms::columnspan
                                               : nsGkAtoms::colspan);
     // Note that we don't need to check the tag name, because only table cells
     // (including MathML <mtd>) and table headers parse the "colspan" attribute
@@ -1155,6 +1160,9 @@ void nsTableCellFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
 
   // the 'empty-cells' property has no effect on 'outline'
   DisplayOutline(aBuilder, aLists);
+  if (HidesContent()) {
+    return;
+  }
 
   // The child's background will go in our BorderBackground() list.
   // This isn't a problem since it won't have a real background except for

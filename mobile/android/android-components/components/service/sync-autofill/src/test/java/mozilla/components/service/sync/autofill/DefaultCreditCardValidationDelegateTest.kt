@@ -5,8 +5,8 @@
 package mozilla.components.service.sync.autofill
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
+import mozilla.appservices.RustComponentsInitializer
 import mozilla.components.concept.storage.CreditCardEntry
 import mozilla.components.concept.storage.CreditCardNumber
 import mozilla.components.concept.storage.CreditCardValidationDelegate.Result
@@ -18,7 +18,6 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-@ExperimentalCoroutinesApi
 @RunWith(AndroidJUnit4::class)
 class DefaultCreditCardValidationDelegateTest {
 
@@ -28,6 +27,7 @@ class DefaultCreditCardValidationDelegateTest {
 
     @Before
     fun before() = runBlocking {
+        RustComponentsInitializer.init()
         // forceInsecure is set in the tests because a keystore wouldn't be configured in the test environment.
         securePrefs = SecureAbove22Preferences(testContext, "autofill", forceInsecure = true)
         storage = AutofillCreditCardsAddressesStorage(testContext, lazy { securePrefs })

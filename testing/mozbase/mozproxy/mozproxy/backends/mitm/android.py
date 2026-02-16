@@ -63,7 +63,7 @@ class MitmproxyAndroid(Mitmproxy):
                 and os.access(self.certutil_path, os.X_OK)
             ):
                 raise Exception(
-                    "Abort: unable to execute certutil: {}".format(self.certutil_path)
+                    f"Abort: unable to execute certutil: {self.certutil_path}"
                 )
             self.certutil_path = os.environ["MOZ_HOST_BIN"]
             os.environ["LD_LIBRARY_PATH"] = self.certutil_path
@@ -235,12 +235,11 @@ class MitmproxyAndroid(Mitmproxy):
             LOG.info("Certutil returncode: %s" % cmd_proc.returncode)
             LOG.info("Certutil output: %s" % cmd_output)
             return cmd_output
+        elif raise_exception:
+            LOG.critical("Certutil command failed!!")
+            LOG.info("Certutil returncode: %s" % cmd_proc.returncode)
+            LOG.info("Certutil output: %s" % cmd_output)
+            LOG.info("Certutil error: %s" % errs)
+            raise Exception("Certutil command failed!!")
         else:
-            if raise_exception:
-                LOG.critical("Certutil command failed!!")
-                LOG.info("Certutil returncode: %s" % cmd_proc.returncode)
-                LOG.info("Certutil output: %s" % cmd_output)
-                LOG.info("Certutil error: %s" % errs)
-                raise Exception("Certutil command failed!!")
-            else:
-                return False
+            return False

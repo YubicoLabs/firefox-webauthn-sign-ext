@@ -4,46 +4,54 @@
 
 package org.mozilla.fenix.downloads.listscreen.middleware
 
-import kotlinx.coroutines.CoroutineDispatcher
+import androidx.annotation.FloatRange
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import mozilla.components.browser.state.action.DownloadAction
 import mozilla.components.browser.state.state.content.DownloadState
 import mozilla.components.browser.state.store.BrowserStore
-import mozilla.components.feature.downloads.toMegabyteOrKilobyteString
+import mozilla.components.feature.downloads.DateTimeProvider
+import mozilla.components.feature.downloads.DefaultDateTimeProvider
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
 import mozilla.components.lib.state.Store
 import mozilla.components.lib.state.ext.flow
 import org.mozilla.fenix.downloads.listscreen.store.DownloadUIAction
 import org.mozilla.fenix.downloads.listscreen.store.DownloadUIState
 import org.mozilla.fenix.downloads.listscreen.store.FileItem
-import java.io.File
+import org.mozilla.fenix.downloads.listscreen.store.TimeCategory
+import org.mozilla.fenix.ext.getBaseDomainUrl
+import java.time.Instant
 
 /**
  * Middleware for loading and mapping download items from the browser store.
  *
  * @param browserStore [BrowserStore] instance to get the download items from.
+ * @param fileItemDescriptionProvider [FileItemDescriptionProvider] used to format the description
+ * of the file item.
  * @param scope The [CoroutineScope] that will be used to launch coroutines.
- * @param ioDispatcher The [CoroutineDispatcher] that will be used for IO operations.
+ * @param dateTimeProvider The [DateTimeProvider] that will be used to get the current date.
  */
 class DownloadUIMapperMiddleware(
     private val browserStore: BrowserStore,
+    private val fileItemDescriptionProvider: FileItemDescriptionProvider,
     private val scope: CoroutineScope,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val dateTimeProvider: DateTimeProvider = DefaultDateTimeProvider(),
 ) : Middleware<DownloadUIState, DownloadUIAction> {
 
     override fun invoke(
-        context: MiddlewareContext<DownloadUIState, DownloadUIAction>,
+        store: Store<DownloadUIState, DownloadUIAction>,
         next: (DownloadUIAction) -> Unit,
         action: DownloadUIAction,
     ) {
         next(action)
         when (action) {
-            is DownloadUIAction.Init -> update(context.store)
+            is DownloadUIAction.Init -> {
+                browserStore.dispatch(DownloadAction.RemoveDeletedDownloads)
+                update(store)
+            }
+
             else -> {
                 // no - op
             }
@@ -55,7 +63,6 @@ class DownloadUIMapperMiddleware(
             browserStore.flow()
                 .distinctUntilChangedBy { it.downloads }
                 .map { it.downloads.toFileItemsList() }
-                .map { it.filterExistsOnDisk(ioDispatcher) }
                 .collect {
                     store.dispatch(DownloadUIAction.UpdateFileItems(it))
                 }
@@ -64,10 +71,13 @@ class DownloadUIMapperMiddleware(
 
     private fun Map<String, DownloadState>.toFileItemsList(): List<FileItem> =
         values
-            .distinctBy { it.fileName }
+            .filter { isDisplayableItem(it.status) }
+            .distinctBy { Pair(it.fileName, it.status) }
             .sortedByDescending { it.createdTime } // sort from newest to oldest
             .map { it.toFileItem() }
-            .filter { it.status == DownloadState.Status.COMPLETED }
+
+    private fun isDisplayableItem(status: DownloadState.Status) =
+        status != DownloadState.Status.CANCELLED
 
     private fun DownloadState.toFileItem() =
         FileItem(
@@ -75,19 +85,51 @@ class DownloadUIMapperMiddleware(
             url = url,
             fileName = fileName,
             filePath = filePath,
-            formattedSize = contentLength?.toMegabyteOrKilobyteString() ?: "0",
+            displayedShortUrl = url.getBaseDomainUrl(),
             contentType = contentType,
-            status = status,
+            status = status.toFileItemStatus(progress = progress),
+            timeCategory = categorizeGroup(
+                epochMillis = createdTime,
+                status = status,
+            ),
+            description = fileItemDescriptionProvider.getDescription(downloadState = this),
         )
-}
 
-/**
- * Returns a filtered list of [FileItem]s containing only items that are present on the disk.
- * If a user has deleted the downloaded item it should not show on the downloaded list.
- */
-suspend fun List<FileItem>.filterExistsOnDisk(dispatcher: CoroutineDispatcher): List<FileItem> =
-    withContext(dispatcher) {
-        filter {
-            File(it.filePath).exists()
+    private fun DownloadState.Status.toFileItemStatus(
+        @FloatRange(from = 0.0, to = 1.0) progress: Float?,
+    ): FileItem.Status = when (this) {
+        DownloadState.Status.INITIATED -> FileItem.Status.Initiated
+        DownloadState.Status.DOWNLOADING -> FileItem.Status.Downloading(progress = progress)
+        DownloadState.Status.PAUSED -> FileItem.Status.Paused(progress = progress)
+        DownloadState.Status.CANCELLED -> FileItem.Status.Cancelled
+        DownloadState.Status.FAILED -> FileItem.Status.Failed
+        DownloadState.Status.COMPLETED -> FileItem.Status.Completed
+    }
+
+    private fun categorizeGroup(epochMillis: Long, status: DownloadState.Status): TimeCategory {
+        if (isDisplayableItem(status) && status != DownloadState.Status.COMPLETED) {
+            return TimeCategory.IN_PROGRESS
+        }
+
+        val currentDate = dateTimeProvider.currentLocalDate()
+        val inputDate = Instant.ofEpochMilli(epochMillis)
+            .atZone(dateTimeProvider.currentZoneId())
+            .toLocalDate()
+
+        return when {
+            inputDate.isEqual(currentDate) -> TimeCategory.TODAY
+            inputDate.isEqual(currentDate.minusDays(1)) -> TimeCategory.YESTERDAY
+            inputDate.isAfter(currentDate.minusDays(NUM_DAYS_IN_LAST_7_DAYS_PERIOD)) -> TimeCategory.LAST_7_DAYS
+            inputDate.isAfter(currentDate.minusDays(NUM_DAYS_IN_LAST_30_DAYS_PERIOD)) -> TimeCategory.LAST_30_DAYS
+            else -> TimeCategory.OLDER
         }
     }
+
+    /**
+     * Constants for [DownloadUIMapperMiddleware].
+     */
+    companion object {
+        private const val NUM_DAYS_IN_LAST_7_DAYS_PERIOD = 7L
+        private const val NUM_DAYS_IN_LAST_30_DAYS_PERIOD = 30L
+    }
+}

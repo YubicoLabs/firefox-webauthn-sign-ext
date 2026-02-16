@@ -2,8 +2,8 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-#ifndef __nsmultimixedconv__h__
-#define __nsmultimixedconv__h__
+#ifndef _nsmultimixedconv_h_
+#define _nsmultimixedconv_h_
 
 #include "nsIStreamConverter.h"
 #include "nsIChannel.h"
@@ -11,17 +11,16 @@
 #include "nsCOMPtr.h"
 #include "nsIByteRangeRequest.h"
 #include "nsIMultiPartChannel.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/IncrementalTokenizer.h"
 #include "nsHttpResponseHead.h"
 #include "mozilla/UniquePtr.h"
 
-#define NS_MULTIMIXEDCONVERTER_CID                 \
-  { /* 7584CE90-5B25-11d3-A175-0050041CAF44 */     \
-    0x7584ce90, 0x5b25, 0x11d3, {                  \
-      0xa1, 0x75, 0x0, 0x50, 0x4, 0x1c, 0xaf, 0x44 \
-    }                                              \
-  }
+#define NS_MULTIMIXEDCONVERTER_CID            \
+  {/* 7584CE90-5B25-11d3-A175-0050041CAF44 */ \
+   0x7584ce90,                                \
+   0x5b25,                                    \
+   0x11d3,                                    \
+   {0xa1, 0x75, 0x0, 0x50, 0x4, 0x1c, 0xaf, 0x44}}
 
 //
 // nsPartChannel is a "dummy" channel which represents an individual part of
@@ -258,4 +257,4 @@ class nsMultiMixedConv : public nsIStreamConverter {
   nsresult ConsumeToken(Token const& token);
 };
 
-#endif /* __nsmultimixedconv__h__ */
+#endif /* _nsmultimixedconv_h_ */

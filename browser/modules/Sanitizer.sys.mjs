@@ -3,7 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
 const lazy = {};
@@ -15,13 +14,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   PrincipalsCollector: "resource://gre/modules/PrincipalsCollector.sys.mjs",
 });
-
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "useOldClearHistoryDialog",
-  "privacy.sanitize.useOldClearHistoryDialog",
-  false
-);
 
 var logConsole;
 function log(...msgs) {
@@ -58,15 +50,7 @@ export var Sanitizer = {
    * Pref branches to fetch sanitization options from.
    */
   PREF_CPD_BRANCH: "privacy.cpd.",
-  /*
-   * We need to choose between two branches for shutdown since there are separate prefs for the new
-   * clear history dialog
-   */
-  get PREF_SHUTDOWN_BRANCH() {
-    return lazy.useOldClearHistoryDialog
-      ? "privacy.clearOnShutdown."
-      : "privacy.clearOnShutdown_v2.";
-  },
+  PREF_SHUTDOWN_BRANCH: "privacy.clearOnShutdown_v2.",
 
   /**
    * The fallback timestamp used when no argument is given to
@@ -142,9 +126,7 @@ export var Sanitizer = {
       parentWindow = null;
     }
 
-    let dialogFile = lazy.useOldClearHistoryDialog
-      ? "sanitize.xhtml"
-      : "sanitize_v2.xhtml";
+    let dialogFile = "sanitize_v2.xhtml";
 
     if (parentWindow?.gDialogBox) {
       parentWindow.gDialogBox.open(`chrome://browser/content/${dialogFile}`, {
@@ -425,12 +407,9 @@ export var Sanitizer = {
       return;
     }
 
-    // Get all the old pref values to migrate to the new ones
-    let cookies = Services.prefs.getBoolPref(`privacy.${context}.cookies`);
-    let cache = Services.prefs.getBoolPref(`privacy.${context}.cache`);
-    let siteSettings = Services.prefs.getBoolPref(
-      `privacy.${context}.siteSettings`
-    );
+    let newContext =
+      context == "clearOnShutdown" ? "clearOnShutdown_v2" : "clearHistory";
+
     let formData = Services.prefs.getBoolPref(`privacy.${context}.formdata`);
     // Bug 1888466 lead to splitting the clearhistory v2 history, formdata and downloads pref into history and formdata
     // so we have to now check for both the old pref and the new pref
@@ -448,31 +427,38 @@ export var Sanitizer = {
         `privacy.${formDataContext}.historyFormDataAndDownloads`
       );
       formData = history;
+    } else {
+      // migrate from v1 (old dialog) to v3 (latest version of new dialog)
+      // hasMigratedToNewPrefs3 == false and hasMigratedToNewPrefs2 == false
+
+      // Get all the old pref values to migrate to the new ones
+      let cookies = Services.prefs.getBoolPref(`privacy.${context}.cookies`);
+      let cache = Services.prefs.getBoolPref(`privacy.${context}.cache`);
+      let siteSettings = Services.prefs.getBoolPref(
+        `privacy.${context}.siteSettings`
+      );
+
+      // We set cookiesAndStorage to true if cookies are enabled for clearing
+      // regardless of what sessions and offlineApps are set to
+      // This is because cookie clearing behaviour takes precedence over sessions and offlineApps clearing.
+      Services.prefs.setBoolPref(
+        `privacy.${newContext}.cookiesAndStorage`,
+        cookies
+      );
+
+      // cache, siteSettings and formdata follow the old dialog prefs
+      Services.prefs.setBoolPref(`privacy.${newContext}.cache`, cache);
+
+      Services.prefs.setBoolPref(
+        `privacy.${newContext}.siteSettings`,
+        siteSettings
+      );
     }
-
-    let newContext =
-      context == "clearOnShutdown" ? "clearOnShutdown_v2" : "clearHistory";
-
-    // We set cookiesAndStorage to true if cookies are enabled for clearing
-    // regardless of what sessions and offlineApps are set to
-    // This is because cookie clearing behaviour takes precedence over sessions and offlineApps clearing.
-    Services.prefs.setBoolPref(
-      `privacy.${newContext}.cookiesAndStorage`,
-      cookies
-    );
 
     // we set browsingHistoryAndDownloads to true if history is enabled for clearing, regardless of what downloads is set to.
     Services.prefs.setBoolPref(
       `privacy.${newContext}.browsingHistoryAndDownloads`,
       history
-    );
-
-    // cache, siteSettings and formdata follow the old dialog prefs
-    Services.prefs.setBoolPref(`privacy.${newContext}.cache`, cache);
-
-    Services.prefs.setBoolPref(
-      `privacy.${newContext}.siteSettings`,
-      siteSettings
     );
 
     Services.prefs.setBoolPref(`privacy.${newContext}.formdata`, formData);
@@ -1016,66 +1002,31 @@ async function sanitizeInternal(items, aItemsToClear, options) {
 
 async function sanitizeOnShutdown(progress) {
   log("Sanitizing on shutdown");
-  if (lazy.useOldClearHistoryDialog) {
-    progress.sanitizationPrefs = {
-      privacy_sanitize_sanitizeOnShutdown: Services.prefs.getBoolPref(
-        "privacy.sanitize.sanitizeOnShutdown"
-      ),
-      privacy_clearOnShutdown_cookies: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown.cookies"
-      ),
-      privacy_clearOnShutdown_history: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown.history"
-      ),
-      privacy_clearOnShutdown_formdata: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown.formdata"
-      ),
-      privacy_clearOnShutdown_downloads: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown.downloads"
-      ),
-      privacy_clearOnShutdown_cache: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown.cache"
-      ),
-      privacy_clearOnShutdown_sessions: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown.sessions"
-      ),
-      privacy_clearOnShutdown_offlineApps: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown.offlineApps"
-      ),
-      privacy_clearOnShutdown_siteSettings: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown.siteSettings"
-      ),
-      privacy_clearOnShutdown_openWindows: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown.openWindows"
-      ),
-    };
-  } else {
-    // Perform a migration if this is the first time sanitizeOnShutdown is
-    // running for the user with the new dialog
-    Sanitizer.maybeMigratePrefs("clearOnShutdown");
+  // Perform a migration if this is the first time sanitizeOnShutdown is
+  // running for the user with the new dialog
+  Sanitizer.maybeMigratePrefs("clearOnShutdown");
 
-    progress.sanitizationPrefs = {
-      privacy_sanitize_sanitizeOnShutdown: Services.prefs.getBoolPref(
-        "privacy.sanitize.sanitizeOnShutdown"
+  progress.sanitizationPrefs = {
+    privacy_sanitize_sanitizeOnShutdown: Services.prefs.getBoolPref(
+      "privacy.sanitize.sanitizeOnShutdown"
+    ),
+    privacy_clearOnShutdown_v2_cookiesAndStorage: Services.prefs.getBoolPref(
+      "privacy.clearOnShutdown_v2.cookiesAndStorage"
+    ),
+    privacy_clearOnShutdown_v2_browsingHistoryAndDownloads:
+      Services.prefs.getBoolPref(
+        "privacy.clearOnShutdown_v2.browsingHistoryAndDownloads"
       ),
-      privacy_clearOnShutdown_v2_cookiesAndStorage: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown_v2.cookiesAndStorage"
-      ),
-      privacy_clearOnShutdown_v2_browsingHistoryAndDownloads:
-        Services.prefs.getBoolPref(
-          "privacy.clearOnShutdown_v2.browsingHistoryAndDownloads"
-        ),
-      privacy_clearOnShutdown_v2_cache: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown_v2.cache"
-      ),
-      privacy_clearOnShutdown_v2_formdata: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown_v2.formdata"
-      ),
-      privacy_clearOnShutdown_v2_siteSettings: Services.prefs.getBoolPref(
-        "privacy.clearOnShutdown_v2.siteSettings"
-      ),
-    };
-  }
+    privacy_clearOnShutdown_v2_cache: Services.prefs.getBoolPref(
+      "privacy.clearOnShutdown_v2.cache"
+    ),
+    privacy_clearOnShutdown_v2_formdata: Services.prefs.getBoolPref(
+      "privacy.clearOnShutdown_v2.formdata"
+    ),
+    privacy_clearOnShutdown_v2_siteSettings: Services.prefs.getBoolPref(
+      "privacy.clearOnShutdown_v2.siteSettings"
+    ),
+  };
 
   let needsSyncSavePrefs = false;
   if (Sanitizer.shouldSanitizeOnShutdown) {
@@ -1172,9 +1123,11 @@ function extractMatchingPrincipals(principals, matchHost) {
   });
 }
 
-/**  This method receives a list of principals and it checks if some of them or
+/**
+ * This method receives a list of principals and it checks if some of them or
  * some of their sub-domain need to be sanitize.
- * @param {Object} progress - Object to keep track of the sanitization progress, prefs and mode
+ *
+ * @param {object} progress - Object to keep track of the sanitization progress, prefs and mode
  * @param {nsIPrincipal[]} principals - The principals generated by the PrincipalsCollector
  * @param {int} flags - The cleaning categories that need to be cleaned for the principals.
  * @returns {Promise} - Resolves once the clearing of the principals to be cleared is done
@@ -1247,6 +1200,7 @@ function cookiesAllowedForDomainOrSubDomain(principal, permissions) {
 
 /**
  * Checks if a cookie permission is set for a given principal
+ *
  * @returns {boolean} - true: cookie permission "ACCESS_ALLOW", false: cookie permission "ACCESS_DENY"/"ACCESS_SESSION"
  * @returns {null} - No cookie permission is set for this principal
  */
@@ -1301,6 +1255,7 @@ function sanitizeNewTabSegregation() {
 
 /**
  * Gets an array of items to clear from the given pref branch.
+ *
  * @param branch The pref branch to fetch.
  * @return Array of items to clear
  */
@@ -1318,6 +1273,7 @@ function getItemsToClearFromPrefBranch(branch) {
 /**
  * These functions are used to track pending sanitization on the next startup
  * in case of a crash before a sanitization could happen.
+ *
  * @param id A unique id identifying the sanitization
  * @param itemsToClear The items to clear
  * @param options The Sanitize options

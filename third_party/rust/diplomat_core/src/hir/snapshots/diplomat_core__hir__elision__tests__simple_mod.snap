@@ -37,6 +37,32 @@ TypeContext {
                             ),
                         },
                     ),
+                    attrs: Attrs {
+                        disable: false,
+                        deprecated: None,
+                        namespace: None,
+                        rename: RenameAttr {
+                            pattern: None,
+                        },
+                        abi_rename: RenameAttr {
+                            pattern: None,
+                        },
+                        special_method: None,
+                        custom_errors: false,
+                        default: false,
+                        demo_attrs: DemoInfo {
+                            generate: false,
+                            default_constructor: false,
+                            external: false,
+                            custom_func: None,
+                            input_cfg: DemoInputCFG {
+                                label: "",
+                                default_value: "",
+                            },
+                        },
+                        generate_mocking_interface: false,
+                        abi_compatible: false,
+                    },
                 },
             ],
             methods: [
@@ -46,6 +72,7 @@ TypeContext {
                         [],
                     ),
                     name: "new",
+                    abi_name: "OutStruct_new",
                     lifetime_env: LifetimeEnv {
                         nodes: [
                             BoundedLifetime {
@@ -72,6 +99,32 @@ TypeContext {
                                     UnvalidatedUtf8,
                                 ),
                             ),
+                            attrs: Attrs {
+                                disable: false,
+                                deprecated: None,
+                                namespace: None,
+                                rename: RenameAttr {
+                                    pattern: None,
+                                },
+                                abi_rename: RenameAttr {
+                                    pattern: None,
+                                },
+                                special_method: None,
+                                custom_errors: false,
+                                default: false,
+                                demo_attrs: DemoInfo {
+                                    generate: false,
+                                    default_constructor: false,
+                                    external: false,
+                                    custom_func: None,
+                                    input_cfg: DemoInputCFG {
+                                        label: "",
+                                        default_value: "",
+                                    },
+                                },
+                                generate_mocking_interface: false,
+                                abi_compatible: false,
+                            },
                         },
                     ],
                     output: Infallible(
@@ -91,6 +144,7 @@ TypeContext {
                                         tcx_id: OutStructId(
                                             0,
                                         ),
+                                        owner: Own,
                                     },
                                 ),
                             ),
@@ -98,6 +152,7 @@ TypeContext {
                     ),
                     attrs: Attrs {
                         disable: false,
+                        deprecated: None,
                         namespace: None,
                         rename: RenameAttr {
                             pattern: None,
@@ -106,11 +161,26 @@ TypeContext {
                             pattern: None,
                         },
                         special_method: None,
+                        custom_errors: false,
+                        default: false,
+                        demo_attrs: DemoInfo {
+                            generate: false,
+                            default_constructor: false,
+                            external: false,
+                            custom_func: None,
+                            input_cfg: DemoInputCFG {
+                                label: "",
+                                default_value: "",
+                            },
+                        },
+                        generate_mocking_interface: false,
+                        abi_compatible: false,
                     },
                 },
             ],
             attrs: Attrs {
                 disable: false,
+                deprecated: None,
                 namespace: None,
                 rename: RenameAttr {
                     pattern: None,
@@ -119,6 +189,20 @@ TypeContext {
                     pattern: None,
                 },
                 special_method: None,
+                custom_errors: false,
+                default: false,
+                demo_attrs: DemoInfo {
+                    generate: false,
+                    default_constructor: false,
+                    external: false,
+                    custom_func: None,
+                    input_cfg: DemoInputCFG {
+                        label: "",
+                        default_value: "",
+                    },
+                },
+                generate_mocking_interface: false,
+                abi_compatible: false,
             },
             lifetimes: LifetimeEnv {
                 nodes: [
@@ -163,6 +247,32 @@ TypeContext {
                             UnvalidatedUtf8,
                         ),
                     ),
+                    attrs: Attrs {
+                        disable: false,
+                        deprecated: None,
+                        namespace: None,
+                        rename: RenameAttr {
+                            pattern: None,
+                        },
+                        abi_rename: RenameAttr {
+                            pattern: None,
+                        },
+                        special_method: None,
+                        custom_errors: false,
+                        default: false,
+                        demo_attrs: DemoInfo {
+                            generate: false,
+                            default_constructor: false,
+                            external: false,
+                            custom_func: None,
+                            input_cfg: DemoInputCFG {
+                                label: "",
+                                default_value: "",
+                            },
+                        },
+                        generate_mocking_interface: false,
+                        abi_compatible: false,
+                    },
                 },
             ],
             methods: [
@@ -172,6 +282,7 @@ TypeContext {
                         [],
                     ),
                     name: "rustc_elision",
+                    abi_name: "Struct_rustc_elision",
                     lifetime_env: LifetimeEnv {
                         nodes: [
                             BoundedLifetime {
@@ -198,8 +309,35 @@ TypeContext {
                                     tcx_id: StructId(
                                         0,
                                     ),
+                                    owner: Own,
                                 },
                             ),
+                            attrs: Attrs {
+                                disable: false,
+                                deprecated: None,
+                                namespace: None,
+                                rename: RenameAttr {
+                                    pattern: None,
+                                },
+                                abi_rename: RenameAttr {
+                                    pattern: None,
+                                },
+                                special_method: None,
+                                custom_errors: false,
+                                default: false,
+                                demo_attrs: DemoInfo {
+                                    generate: false,
+                                    default_constructor: false,
+                                    external: false,
+                                    custom_func: None,
+                                    input_cfg: DemoInputCFG {
+                                        label: "",
+                                        default_value: "",
+                                    },
+                                },
+                                generate_mocking_interface: false,
+                                abi_compatible: false,
+                            },
                         },
                     ),
                     params: [
@@ -217,6 +355,32 @@ TypeContext {
                                     UnvalidatedUtf8,
                                 ),
                             ),
+                            attrs: Attrs {
+                                disable: false,
+                                deprecated: None,
+                                namespace: None,
+                                rename: RenameAttr {
+                                    pattern: None,
+                                },
+                                abi_rename: RenameAttr {
+                                    pattern: None,
+                                },
+                                special_method: None,
+                                custom_errors: false,
+                                default: false,
+                                demo_attrs: DemoInfo {
+                                    generate: false,
+                                    default_constructor: false,
+                                    external: false,
+                                    custom_func: None,
+                                    input_cfg: DemoInputCFG {
+                                        label: "",
+                                        default_value: "",
+                                    },
+                                },
+                                generate_mocking_interface: false,
+                                abi_compatible: false,
+                            },
                         },
                     ],
                     output: Infallible(
@@ -237,6 +401,7 @@ TypeContext {
                     ),
                     attrs: Attrs {
                         disable: false,
+                        deprecated: None,
                         namespace: None,
                         rename: RenameAttr {
                             pattern: None,
@@ -245,11 +410,26 @@ TypeContext {
                             pattern: None,
                         },
                         special_method: None,
+                        custom_errors: false,
+                        default: false,
+                        demo_attrs: DemoInfo {
+                            generate: false,
+                            default_constructor: false,
+                            external: false,
+                            custom_func: None,
+                            input_cfg: DemoInputCFG {
+                                label: "",
+                                default_value: "",
+                            },
+                        },
+                        generate_mocking_interface: false,
+                        abi_compatible: false,
                     },
                 },
             ],
             attrs: Attrs {
                 disable: false,
+                deprecated: None,
                 namespace: None,
                 rename: RenameAttr {
                     pattern: None,
@@ -258,6 +438,20 @@ TypeContext {
                     pattern: None,
                 },
                 special_method: None,
+                custom_errors: false,
+                default: false,
+                demo_attrs: DemoInfo {
+                    generate: false,
+                    default_constructor: false,
+                    external: false,
+                    custom_func: None,
+                    input_cfg: DemoInputCFG {
+                        label: "",
+                        default_value: "",
+                    },
+                },
+                generate_mocking_interface: false,
+                abi_compatible: false,
             },
             lifetimes: LifetimeEnv {
                 nodes: [
@@ -286,6 +480,7 @@ TypeContext {
             methods: [],
             attrs: Attrs {
                 disable: false,
+                deprecated: None,
                 namespace: None,
                 rename: RenameAttr {
                     pattern: None,
@@ -294,6 +489,20 @@ TypeContext {
                     pattern: None,
                 },
                 special_method: None,
+                custom_errors: false,
+                default: false,
+                demo_attrs: DemoInfo {
+                    generate: false,
+                    default_constructor: false,
+                    external: false,
+                    custom_func: None,
+                    input_cfg: DemoInputCFG {
+                        label: "",
+                        default_value: "",
+                    },
+                },
+                generate_mocking_interface: false,
+                abi_compatible: false,
             },
             lifetimes: LifetimeEnv {
                 nodes: [
@@ -310,7 +519,10 @@ TypeContext {
                 iterator: None,
                 iterable: None,
             },
+            dtor_abi_name: "Opaque_destroy",
         },
     ],
     enums: [],
+    traits: [],
+    functions: [],
 }

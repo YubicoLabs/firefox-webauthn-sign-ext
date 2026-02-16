@@ -144,16 +144,6 @@ places-manage-bookmarks =
   .label = Manage Bookmarks
   .accesskey = M
 
-places-forget-about-this-site-confirmation-title =
-  Forgetting about this site
-
-# Variables:
-# $hostOrBaseDomain (string) - The base domain (or host in case there is no base domain) for which data is being removed
-places-forget-about-this-site-confirmation-msg =
-  This action will remove data related to { $hostOrBaseDomain } including history, cookies, cache and content preferences. Related bookmarks and passwords will not be removed. Are you sure you want to proceed?
-
-places-forget-about-this-site-forget = Forget
-
 places-library3 =
   .title = Library
 
@@ -161,10 +151,6 @@ places-organize-button =
   .label = Organize
   .tooltiptext = Organize your bookmarks
   .accesskey = O
-
-places-organize-button-mac =
-  .label = Organize
-  .tooltiptext = Organize your bookmarks
 
 places-file-close =
   .label = Close
@@ -177,10 +163,6 @@ places-view-button =
   .label = Views
   .tooltiptext = Change your view
   .accesskey = V
-
-places-view-button-mac =
-  .label = Views
-  .tooltiptext = Change your view
 
 places-view-menu-columns =
   .label = Show Columns
@@ -206,10 +188,6 @@ places-maintenance-button =
   .label = Import and Backup
   .tooltiptext = Import and backup your bookmarks
   .accesskey = I
-
-places-maintenance-button-mac =
-  .label = Import and Backup
-  .tooltiptext = Import and backup your bookmarks
 
 places-cmd-backup =
   .label = Backup…

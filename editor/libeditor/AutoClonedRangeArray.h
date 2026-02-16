@@ -77,6 +77,25 @@ class MOZ_STACK_CLASS AutoClonedRangeArray {
    */
   void EnsureOnlyEditableRanges(const dom::Element& aEditingHost);
 
+  enum class RangeInReplacedOrVoidElement : bool {
+    // Each range in a replaced or a void element should be collapsed before the
+    // element.
+    Collapse,
+    // Each range in a replaced or a void element should be deleted.
+    Delete,
+  };
+
+  /**
+   * Adjust ranges if each boundary is in a replaced element or a void element.
+   * If the adjusted range is not at proper position to edit, this will remove
+   * the range.
+   *
+   * @return true if some ranges are modified.
+   */
+  bool AdjustRangesNotInReplacedNorVoidElements(
+      RangeInReplacedOrVoidElement aRangeInReplacedOrVoidElement,
+      const dom::Element& aEditingHost);
+
   /**
    * EnsureRangesInTextNode() is designed for TextEditor to guarantee that
    * all ranges are in its text node which is first child of the anonymous <div>
@@ -407,6 +426,16 @@ class MOZ_STACK_CLASS AutoClonedRangeArray {
 
   [[nodiscard]] virtual bool HasSavedRanges() const { return false; }
 
+  /**
+   * Extend all ranges to contain surrounding invisible white-spaces if there
+   * are.
+   *
+   * @param aStripWrappers      nsIEditor::eStrip if the caller wants to delete
+   *                            inline ancestors too.
+   */
+  void ExtendRangeToContainSurroundingInvisibleWhiteSpaces(
+      nsIEditor::EStripWrappers aStripWrappers);
+
  protected:
   AutoClonedRangeArray() = default;
 
@@ -523,11 +552,11 @@ class MOZ_STACK_CLASS AutoClonedSelectionRangeArray final
   }
 
   /**
-   * Equivalent to nsFrameSelection::GetLimiter().
+   * Equivalent to nsFrameSelection::GetIndependentSelectionRootElement().
    * NOTE: This should be called only when IsForSelection() returns true.
    */
-  [[nodiscard]] dom::Element* GetLimiter() const {
-    return mLimitersAndCaretData.mLimiter;
+  [[nodiscard]] dom::Element* GetIndependentSelectionRootElement() const {
+    return mLimitersAndCaretData.mIndependentSelectionRootElement;
   }
   /**
    * Equivalent to nsFrameSelection::GetAncestorLimiter()

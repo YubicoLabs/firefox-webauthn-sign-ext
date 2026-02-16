@@ -6,14 +6,21 @@
 #include "nsISupports.idl"
 #include "nsICookie.idl"
 #include "nsIThirdPartyCookieBlockingExceptionListService.idl"
+#include "nsIURI.idl"
 
 %{ C++
+#include <functional>
 namespace mozilla {
 class OriginAttributes;
+namespace net {
+class CookieStruct;
+} // namespace net
 } // mozilla namespace
 %}
 
 [ptr] native OriginAttributesPtr(mozilla::OriginAttributes);
+
+interface nsICookieValidation;
 
 /**
  * An optional interface for accessing or removing the cookies
@@ -82,7 +89,8 @@ interface nsICookieManager : nsISupports
                         in ACString      aName,
                         in AUTF8String   aPath,
                         in OriginAttributesPtr aOriginAttributes,
-                        in nsIDPtr     aOperationID);
+                        in boolean       aFromHttp,
+                        in nsIDPtr       aOperationID);
 
   /**
    * Add a cookie. nsICookieService is the normal way to do this. This
@@ -112,7 +120,7 @@ interface nsICookieManager : nsISupports
    *        true if the cookie should exist for the current session only.
    *        see aExpiry.
    * @param aExpiry
-   *        expiration date, in seconds since midnight (00:00:00), January 1,
+   *        expiration date, in mseconds since midnight (00:00:00), January 1,
    *        1970 UTC. note that expiry time will also be honored for session cookies;
    *        in this way, the more restrictive of the two will take effect.
    * @param aOriginAttributes
@@ -125,21 +133,27 @@ interface nsICookieManager : nsISupports
    *        true if the cookie should be stored with the Partitioned attribute.
    */
   [implicit_jscontext]
-  void add(in AUTF8String aHost,
-           in AUTF8String aPath,
-           in ACString    aName,
-           in AUTF8String aValue,
-           in boolean     aIsSecure,
-           in boolean     aIsHttpOnly,
-           in boolean     aIsSession,
-           in int64_t     aExpiry,
-           in jsval aOriginAttributes,
-           in int32_t aSameSite,
-           in nsICookie_schemeType aSchemeMap,
-           [optional] in boolean aIsPartitioned);
+  nsICookieValidation add(in AUTF8String aHost,
+                          in AUTF8String aPath,
+                          in ACString    aName,
+                          in AUTF8String aValue,
+                          in boolean     aIsSecure,
+                          in boolean     aIsHttpOnly,
+                          in boolean     aIsSession,
+                          in int64_t     aExpiry,
+                          in jsval aOriginAttributes,
+                          in int32_t aSameSite,
+                          in nsICookie_schemeType aSchemeMap,
+                          [optional] in boolean aIsPartitioned);
 
+  /**
+   * This method is the non-xpcom version of add(). In case of an invalid
+   * cookie, it returns a nsICookieValidation object and NS_ERROR_ILLEGAL_VALUE
+   * as error code.
+   */
   [notxpcom]
-  nsresult addNative(in AUTF8String aHost,
+  nsresult addNative(in nsIURI aCookieURI,
+                     in AUTF8String aHost,
                      in AUTF8String aPath,
                      in ACString    aName,
                      in AUTF8String aValue,
@@ -151,7 +165,9 @@ interface nsICookieManager : nsISupports
                      in int32_t aSameSite,
                      in nsICookie_schemeType aSchemeMap,
                      in boolean     aIsPartitioned,
-                     in nsIDPtr     aOperationID);
+                     in boolean     aFromHttp,
+                     in nsIDPtr     aOperationID,
+                     out nsICookieValidation aValidation);
 
   /**
    * Find whether a given cookie already exists.
@@ -314,4 +330,13 @@ interface nsICookieManager : nsISupports
 
   // Test getter to inspect remote exception list state.
   Array<ACString> testGet3PCBExceptions();
+
+  /**
+   * Helper to cap an expiry time using the network.cookie.maxageCap pref.
+   *
+   * @param aExpiry expiry time in milliseconds since the UNIX epoch.
+   * @return the minimum between aExpiry and the current time plus
+   *         StaticPrefs::network_cookie_maxageCap() seconds.
+   */
+  int64_t maybeCapExpiry(in int64_t aExpiryInMSec);
 };

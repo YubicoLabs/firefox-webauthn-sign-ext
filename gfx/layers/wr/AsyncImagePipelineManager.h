@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "CompositableHost.h"
-#include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/gfx/Point.h"
 #include "mozilla/layers/RemoteTextureMap.h"
 #include "mozilla/layers/TextureHost.h"
@@ -32,6 +31,7 @@ namespace layers {
 
 class CompositableHost;
 class CompositorVsyncScheduler;
+class Fence;
 class WebRenderImageHost;
 class WebRenderTextureHost;
 
@@ -71,7 +71,7 @@ class AsyncImagePipelineManager final {
   void NotifyPipelinesUpdated(RefPtr<const wr::WebRenderPipelineInfo> aInfo,
                               wr::RenderedFrameId aLatestFrameId,
                               wr::RenderedFrameId aLastCompletedFrameId,
-                              UniqueFileHandle&& aFenceFd);
+                              RefPtr<Fence>&& aFence);
 
   // This is run on the compositor thread to process mRenderSubmittedUpdates. We
   // make this public because we need to invoke it from other places.
@@ -260,6 +260,7 @@ class AsyncImagePipelineManager final {
 #ifdef XP_WIN
   bool mUseWebRenderDCompVideoHwOverlayWin;
   bool mUseWebRenderDCompVideoSwOverlayWin;
+  bool mUseWebRenderDCompositionTextureOverlayWin;
 #endif
 
   // Render time for the current composition.
@@ -277,11 +278,11 @@ class AsyncImagePipelineManager final {
 
   struct WebRenderPipelineInfoHolder {
     WebRenderPipelineInfoHolder(RefPtr<const wr::WebRenderPipelineInfo>&& aInfo,
-                                UniqueFileHandle&& aFenceFd);
+                                RefPtr<Fence>&& aFence);
     ~WebRenderPipelineInfoHolder();
     WebRenderPipelineInfoHolder(WebRenderPipelineInfoHolder&&) = default;
     RefPtr<const wr::WebRenderPipelineInfo> mInfo;
-    UniqueFileHandle mFenceFd;
+    RefPtr<Fence> mFence;
   };
 
   std::vector<std::pair<wr::RenderedFrameId, WebRenderPipelineInfoHolder>>
@@ -292,7 +293,7 @@ class AsyncImagePipelineManager final {
   std::vector<std::pair<wr::RenderedFrameId,
                         std::vector<UniquePtr<ForwardingTextureHost>>>>
       mTexturesInUseByGPU;
-  UniqueFileHandle mReleaseFenceFd;
+  RefPtr<Fence> mReadFence;
 };
 
 }  // namespace layers

@@ -5,6 +5,7 @@
 const path = require("path");
 const webpack = require("webpack");
 const { ResourceUriPlugin } = require("../../tools/resourceUriPlugin");
+const { MozSrcUriPlugin } = require("../../tools/mozsrcUriPlugin");
 
 const PATHS = {
   // Where is the entry point for the unit tests?
@@ -155,19 +156,46 @@ module.exports = function (config) {
             /**
              * WallpaperFeed.sys.mjs is tested via an xpcshell test
              */
-            "lib/WallpaperFeed.sys.mjs": {
+            "lib/Wallpapers/WallpaperFeed.sys.mjs": {
               statements: 0,
               lines: 0,
               functions: 0,
               branches: 0,
             },
+            "content-src/components/DiscoveryStreamComponents/PersonalizedCard/PersonalizedCard.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
             "content-src/components/Base/Base.jsx": {
               statements: 0,
               lines: 0,
               functions: 0,
               branches: 0,
             },
-            "content-src/components/DiscoveryStreamComponents/FeatureHighlight/WallpaperFeatureHighlight.jsx":
+            "content-src/components/DiscoveryStreamComponents/FeatureHighlight/FollowSectionButtonHighlight.jsx":
+              {
+                statements: 88,
+                lines: 88,
+                functions: 80,
+              },
+            "content-src/components/DiscoveryStreamComponents/FeatureHighlight/FeatureHighlight.jsx":
+              {
+                statements: 88,
+                lines: 88,
+                functions: 80,
+              },
+            // for all other components in FeatureHighlight that dont have bespoke functionality
+            "content-src/components/DiscoveryStreamComponents/FeatureHighlight/!(FeatureHighlight).jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            "content-src/components/DiscoveryStreamComponents/ReportContent/ReportContent.jsx":
               {
                 statements: 0,
                 lines: 0,
@@ -196,17 +224,17 @@ module.exports = function (config) {
               },
             "content-src/components/DiscoveryStreamComponents/DSCard/DSCard.jsx":
               {
-                statements: 96.69,
-                lines: 96.62,
-                functions: 95.45,
-                branches: 72.95,
+                statements: 94.94,
+                lines: 94.84,
+                functions: 9.91,
+                branches: 70.72,
               },
             "content-src/components/DiscoveryStreamComponents/CardSections/CardSections.jsx":
               {
-                statements: 90.82,
-                lines: 90.53,
-                functions: 87.5,
-                branches: 60,
+                statements: 83.11,
+                lines: 82.52,
+                functions: 79.31,
+                branches: 52.8,
               },
             "content-src/components/DiscoveryStreamComponents/SectionContextMenu/SectionContextMenu.jsx":
               {
@@ -217,23 +245,50 @@ module.exports = function (config) {
               },
             "content-src/components/DiscoveryStreamComponents/AdBanner/AdBanner.jsx":
               {
-                branches: 62.5,
+                statements: 94.12,
+                lines: 94.12,
+                functions: 75,
+                branches: 60,
+              },
+            "content-src/components/DiscoveryStreamComponents/AdBannerContextMenu/AdBannerContextMenu.jsx":
+              {
+                statements: 84,
+                lines: 84,
+                functions: 83,
+              },
+            "content-src/components/DiscoveryStreamComponents/BriefingCard/BriefingCard.jsx":
+              {
+                statements: 92.31,
+                branches: 66.67,
+                functions: 90,
+                lines: 94.59,
+              },
+            /**
+             * PromoCard currently has no functionality and is a placeholder component
+             */
+            "content-src/components/DiscoveryStreamComponents/PromoCard/PromoCard.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
               },
             "content-src/components/DiscoveryStreamComponents/**/*.jsx": {
-              statements: 90.48,
-              lines: 90.48,
-              functions: 85.71,
-              branches: 68.75,
+              statements: 80.95,
+              lines: 80.95,
+              functions: 71.43,
+              branches: 70.9,
             },
             /**
-             * WallpaperSection.jsx is tested via an xpcshell test
+             * WallpaperCategories.jsx is tested via an xpcshell test
              */
-            "content-src/components/WallpapersSection/*.jsx": {
-              statements: 0,
-              lines: 0,
-              functions: 0,
-              branches: 0,
-            },
+            "content-src/components/WallpaperCategories/WallpaperCategories.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
             /**
              * Notifications.jsx is tested via an xpcshell test
              */
@@ -243,10 +298,20 @@ module.exports = function (config) {
               functions: 0,
               branches: 0,
             },
-            /**
-             * Weather.jsx is tested via an xpcshell test
-             */
-            "content-src/components/Weather/*.jsx": {
+            "content-src/components/Weather/Weather.jsx": {
+              statements: 48,
+              lines: 49,
+              functions: 31.2,
+              branches: 31.2,
+            },
+            "content-src/components/Widgets/WeatherForecast/WeatherForecast.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            "content-src/components/Weather/LocationSearch.jsx": {
               statements: 0,
               lines: 0,
               functions: 0,
@@ -258,17 +323,32 @@ module.exports = function (config) {
               functions: 0,
               branches: 0,
             },
-            "content-src/components/CustomizeMenu/**/*.jsx": {
+            /**
+             * TODO: Bug 1985362 - Write SectionsMgmtPanel Unit Tests
+             */
+            "content-src/components/CustomizeMenu/SectionsMgmtPanel/*.jsx": {
               statements: 0,
               lines: 0,
               functions: 0,
               branches: 0,
             },
+            "content-src/components/CustomizeMenu/ContentSection/*.jsx": {
+              statements: 65,
+              lines: 65,
+              functions: 99,
+              branches: 56,
+            },
+            "content-src/components/CustomizeMenu/**/*.jsx": {
+              statements: 68,
+              lines: 66,
+              functions: 80,
+              branches: 16,
+            },
             "content-src/components/CustomizeMenu/*.jsx": {
-              statements: 0,
-              lines: 0,
-              functions: 0,
-              branches: 0,
+              statements: 98,
+              lines: 98,
+              functions: 98,
+              branches: 98,
             },
             "content-src/lib/link-menu-options.js": {
               statements: 96,
@@ -278,6 +358,21 @@ module.exports = function (config) {
             },
             "content-src/lib/utils.jsx": {
               branches: 60,
+              statements: 95.56,
+              lines: 95.4,
+              functions: 92.86,
+            },
+            "content-src/components/MessageWrapper/MessageWrapper.jsx": {
+              lines: 50,
+              statements: 51.1,
+              functions: 31.2,
+              branches: 31.2,
+            },
+            "content-src/components/Search/Search.jsx": {
+              statements: 38,
+              lines: 39,
+              functions: 28,
+              branches: 25,
             },
             "content-src/components/**/*.jsx": {
               statements: 51.1,
@@ -314,7 +409,9 @@ module.exports = function (config) {
               path.join(__dirname, "../../components/topsites/"),
             ],
             [
-              new RegExp("^resource://gre/modules/SearchShortcuts.sys.mjs"),
+              new RegExp(
+                "^moz-src:///toolkit/components/search/SearchShortcuts.sys.mjs"
+              ),
               path.join(
                 __dirname,
                 "../../../toolkit/components/search/SearchShortcuts.sys.mjs"
@@ -326,6 +423,10 @@ module.exports = function (config) {
             ],
           ],
         }),
+        new MozSrcUriPlugin({
+          baseDir: path.join(__dirname, "..", "..", ".."),
+        }),
+
         new webpack.DefinePlugin({
           "process.env.NODE_ENV": JSON.stringify("development"),
         }),

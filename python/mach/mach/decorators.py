@@ -45,6 +45,8 @@ class _MachCommand:
         "decl_order",
         # Whether to disable automatic logging to last_log.json for the command.
         "no_auto_log",
+        # Whether to hide this command from help.
+        "hidden",
     )
 
     def __init__(
@@ -59,6 +61,7 @@ class _MachCommand:
         virtualenv_name=None,
         ok_if_tests_disabled=False,
         no_auto_log=False,
+        hidden=False,
     ):
         self.name = name
         self.subcommand = subcommand
@@ -70,9 +73,10 @@ class _MachCommand:
         self.argument_group_names = []
         self.virtualenv_name = virtualenv_name
         self.order = order
+        self.hidden = hidden
         if ok_if_tests_disabled and category != "testing":
             raise ValueError(
-                "ok_if_tests_disabled should only be set for " "`testing` mach commands"
+                "ok_if_tests_disabled should only be set for `testing` mach commands"
             )
         self.ok_if_tests_disabled = ok_if_tests_disabled
 
@@ -179,7 +183,7 @@ class Command:
 
     .. code-block:: python
 
-        @Command('foo', category='misc', description='Run the foo action')
+        @Command("foo", category="misc", description="Run the foo action")
         def foo(self, command_context):
             pass
     """
@@ -259,9 +263,10 @@ class CommandArgument:
 
     .. code-block:: python
 
-        @Command('foo', help='Run the foo action')
-        @CommandArgument('-b', '--bar', action='store_true', default=False,
-            help='Enable bar mode.')
+        @Command("foo", help="Run the foo action")
+        @CommandArgument(
+            "-b", "--bar", action="store_true", default=False, help="Enable bar mode."
+        )
         def foo(self, command_context):
             pass
     """

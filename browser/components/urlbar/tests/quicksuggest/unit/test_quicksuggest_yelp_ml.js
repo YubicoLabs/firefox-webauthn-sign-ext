@@ -7,7 +7,7 @@
 "use strict";
 
 ChromeUtils.defineESModuleGetters(this, {
-  MLSuggest: "resource:///modules/urlbar/private/MLSuggest.sys.mjs",
+  MLSuggest: "moz-src:///browser/components/urlbar/private/MLSuggest.sys.mjs",
 });
 
 const REMOTE_SETTINGS_RECORDS = [
@@ -19,16 +19,14 @@ const REMOTE_SETTINGS_RECORDS = [
       subjects: ["coffee"],
       preModifiers: [],
       postModifiers: [],
-      locationSigns: [
-        { keyword: "in", needLocation: true },
-        { keyword: "nearby", needLocation: false },
-      ],
+      locationSigns: ["in", "nearby"],
       yelpModifiers: [],
       icon: "1234",
       score: 0.5,
     },
   },
-  QuickSuggestTestUtils.geonamesRecord(),
+  ...QuickSuggestTestUtils.geonamesRecords(),
+  ...QuickSuggestTestUtils.geonamesAlternatesRecords(),
 ];
 
 const WATERLOO_RESULT = {
@@ -56,9 +54,10 @@ add_setup(async function init() {
     prefs: [
       ["browser.ml.enable", true],
       ["quicksuggest.mlEnabled", true],
-      ["suggest.quicksuggest.nonsponsored", true],
+      ["suggest.quicksuggest.all", true],
       ["suggest.quicksuggest.sponsored", true],
       ["yelp.mlEnabled", true],
+      ["yelp.serviceResultDistinction", false],
     ],
     remoteSettingsRecords: REMOTE_SETTINGS_RECORDS,
   });
@@ -88,28 +87,28 @@ add_task(async function yelpDisabled() {
     {
       prefs: {
         "suggest.quicksuggest.sponsored": true,
-        "suggest.quicksuggest.nonsponsored": true,
+        "suggest.quicksuggest.all": true,
       },
       expected: true,
     },
     {
       prefs: {
         "suggest.quicksuggest.sponsored": true,
-        "suggest.quicksuggest.nonsponsored": false,
-      },
-      expected: true,
-    },
-    {
-      prefs: {
-        "suggest.quicksuggest.sponsored": false,
-        "suggest.quicksuggest.nonsponsored": true,
+        "suggest.quicksuggest.all": false,
       },
       expected: false,
     },
     {
       prefs: {
         "suggest.quicksuggest.sponsored": false,
-        "suggest.quicksuggest.nonsponsored": false,
+        "suggest.quicksuggest.all": true,
+      },
+      expected: false,
+    },
+    {
+      prefs: {
+        "suggest.quicksuggest.sponsored": false,
+        "suggest.quicksuggest.all": false,
       },
       expected: false,
     },
@@ -385,7 +384,8 @@ add_task(async function cache_fromRust() {
 // Rust suggestion is not present in remote settings.
 add_task(async function cache_defaultValues() {
   await QuickSuggestTestUtils.setRemoteSettingsRecords([
-    QuickSuggestTestUtils.geonamesRecord(),
+    ...QuickSuggestTestUtils.geonamesRecords(),
+    ...QuickSuggestTestUtils.geonamesAlternatesRecords(),
   ]);
   await doCacheTest({
     // This value is hardcoded in `YelpSuggestions` as the default.
@@ -478,6 +478,9 @@ add_task(async function notRelevant() {
     matches: [result],
   });
 
+  let dismissalPromise = TestUtils.topicObserved(
+    "quicksuggest-dismissals-changed"
+  );
   triggerCommand({
     result,
     command: "not_relevant",
@@ -486,14 +489,14 @@ add_task(async function notRelevant() {
       removeResult: 1,
     },
   });
-  await QuickSuggest.blockedSuggestions._test_readyPromise;
+  await dismissalPromise;
 
   Assert.ok(
-    await QuickSuggest.blockedSuggestions.isResultBlocked(result),
-    "The result's URL should be blocked"
+    await QuickSuggest.isResultDismissed(result),
+    "The result should be dismissed"
   );
 
-  info("Doing search for blocked suggestion");
+  info("Doing search for dismissed suggestion");
   await check_results({
     context: createContext("burgers", {
       providers: [UrlbarProviderQuickSuggest.name],
@@ -502,8 +505,8 @@ add_task(async function notRelevant() {
     matches: [],
   });
 
-  // Yelp suggestions are blocked by URL excluding location, so all
-  // "ramen in <valid location>" results should be blocked.
+  // Yelp suggestions are dismissed by URL excluding location, so all
+  // "ramen in <valid location>" results should be dismissed.
   gMakeSuggestionsStub.returns(waterlooIntent);
   await check_results({
     context: createContext("burgers in waterloo", {
@@ -513,7 +516,7 @@ add_task(async function notRelevant() {
     matches: [],
   });
 
-  info("Doing search for a suggestion that wasn't blocked");
+  info("Doing search for a suggestion that wasn't dismissed");
   gMakeSuggestionsStub.returns({ intent: "yelp_intent", subject: "ramen" });
   await check_results({
     context: createContext("ramen", {
@@ -528,10 +531,10 @@ add_task(async function notRelevant() {
     ],
   });
 
-  info("Clearing blocked suggestions");
-  await QuickSuggest.blockedSuggestions.clear();
+  info("Clearing dismissed suggestions");
+  await QuickSuggest.clearDismissedSuggestions();
 
-  info("Doing search for unblocked suggestion");
+  info("Doing search for un-dismissed suggestion");
   gMakeSuggestionsStub.returns(burgersIntent);
   await check_results({
     context: createContext("burgers", {
@@ -556,39 +559,16 @@ function makeExpectedResult({
   source = "ml",
   provider = "yelp_intent",
   originalUrl = undefined,
-  displayUrl = undefined,
+  // Expect index -1 for amp results because we test
+  // without the search suggestions provider.
+  suggestedIndex = -1,
 }) {
-  const utmParameters = "&utm_medium=partner&utm_source=mozilla";
-
-  originalUrl ??= url;
-  originalUrl = new URL(originalUrl);
-  originalUrl.searchParams.delete("find_loc");
-  originalUrl = originalUrl.toString();
-
-  displayUrl =
-    (displayUrl ??
-      url
-        .replace(/^https:\/\/www[.]/, "")
-        .replace("%20", " ")
-        .replace("%2C", ",")) + utmParameters;
-
-  url += utmParameters;
-
-  return {
-    type: UrlbarUtils.RESULT_TYPE.URL,
-    source: UrlbarUtils.RESULT_SOURCE.SEARCH,
-    heuristic: false,
-    payload: {
-      source,
-      provider,
-      telemetryType: "yelp",
-      bottomTextL10n: { id: "firefox-suggest-yelp-bottom-text" },
-      url,
-      originalUrl,
-      title,
-      displayUrl,
-      icon: null,
-      isSponsored: true,
-    },
-  };
+  return QuickSuggestTestUtils.yelpResult({
+    url,
+    title,
+    source,
+    provider,
+    originalUrl,
+    suggestedIndex,
+  });
 }

@@ -8,34 +8,36 @@
 
 #include <algorithm>
 
-#include "nsCOMPtr.h"
-#include "nsICookieJarSettings.h"
-#include "nsIHttpChannel.h"
-#include "nsIHttpChannelInternal.h"
-#include "nsINamed.h"
-#include "nsINetworkInterceptController.h"
-#include "nsIMutableArray.h"
-#include "nsIPrincipal.h"
-#include "nsITimer.h"
-#include "nsIUploadChannel2.h"
-#include "nsServiceManagerUtils.h"
-#include "nsDebug.h"
-#include "nsIPermissionManager.h"
-#include "nsIPushService.h"
-#include "nsXULAppAPI.h"
-
+#include "ServiceWorker.h"
+#include "ServiceWorkerContainer.h"
+#include "ServiceWorkerEvents.h"
+#include "ServiceWorkerInfo.h"
+#include "ServiceWorkerJobQueue.h"
+#include "ServiceWorkerManagerChild.h"
+#include "ServiceWorkerPrivate.h"
+#include "ServiceWorkerQuotaUtils.h"
+#include "ServiceWorkerRegisterJob.h"
+#include "ServiceWorkerRegistrar.h"
+#include "ServiceWorkerRegistration.h"
+#include "ServiceWorkerScriptCache.h"
+#include "ServiceWorkerShutdownBlocker.h"
+#include "ServiceWorkerUnregisterJob.h"
+#include "ServiceWorkerUpdateJob.h"
+#include "ServiceWorkerUtils.h"
 #include "jsapi.h"
-
 #include "mozilla/AppShutdown.h"
 #include "mozilla/BasePrincipal.h"
-#include "mozilla/ContentBlockingAllowList.h"
 #include "mozilla/ClearOnShutdown.h"
+#include "mozilla/ContentBlockingAllowList.h"
 #include "mozilla/ErrorNames.h"
 #include "mozilla/LoadContext.h"
 #include "mozilla/MozPromise.h"
+#include "mozilla/PermissionManager.h"
 #include "mozilla/Result.h"
-#include "mozilla/ResultExtensions.h"
-#include "mozilla/glean/DomServiceworkersMetrics.h"
+#include "mozilla/ScopeExit.h"
+#include "mozilla/StaticPrefs_extensions.h"
+#include "mozilla/StaticPrefs_privacy.h"
+#include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/ClientHandle.h"
 #include "mozilla/dom/ClientManager.h"
@@ -51,48 +53,39 @@
 #include "mozilla/dom/PromiseNativeHandler.h"
 #include "mozilla/dom/Request.h"
 #include "mozilla/dom/RootedDictionary.h"
-#include "mozilla/dom/TypedArray.h"
+#include "mozilla/dom/ScriptLoader.h"
 #include "mozilla/dom/SharedWorker.h"
+#include "mozilla/dom/TypedArray.h"
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/dom/WorkerScope.h"
 #include "mozilla/extensions/WebExtensionPolicy.h"
+#include "mozilla/glean/DomServiceworkersMetrics.h"
 #include "mozilla/ipc/BackgroundChild.h"
 #include "mozilla/ipc/PBackgroundChild.h"
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
-#include "mozilla/dom/ScriptLoader.h"
-#include "mozilla/PermissionManager.h"
-#include "mozilla/ScopeExit.h"
-#include "mozilla/StaticPrefs_extensions.h"
-#include "mozilla/StaticPrefs_privacy.h"
-#include "mozilla/StoragePrincipalHelper.h"
-#include "mozilla/Unused.h"
-#include "mozilla/EnumSet.h"
-
+#include "nsCOMPtr.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentUtils.h"
+#include "nsDebug.h"
+#include "nsICookieJarSettings.h"
 #include "nsIDUtils.h"
+#include "nsIHttpChannel.h"
+#include "nsIHttpChannelInternal.h"
+#include "nsIMutableArray.h"
+#include "nsINamed.h"
+#include "nsINetworkInterceptController.h"
+#include "nsIPermissionManager.h"
+#include "nsIPrincipal.h"
+#include "nsIPushService.h"
+#include "nsITimer.h"
+#include "nsIUploadChannel2.h"
 #include "nsNetUtil.h"
 #include "nsProxyRelease.h"
 #include "nsQueryObject.h"
+#include "nsServiceManagerUtils.h"
 #include "nsTArray.h"
-
-#include "ServiceWorker.h"
-#include "ServiceWorkerContainer.h"
-#include "ServiceWorkerInfo.h"
-#include "ServiceWorkerJobQueue.h"
-#include "ServiceWorkerManagerChild.h"
-#include "ServiceWorkerPrivate.h"
-#include "ServiceWorkerRegisterJob.h"
-#include "ServiceWorkerRegistrar.h"
-#include "ServiceWorkerRegistration.h"
-#include "ServiceWorkerScriptCache.h"
-#include "ServiceWorkerShutdownBlocker.h"
-#include "ServiceWorkerEvents.h"
-#include "ServiceWorkerUnregisterJob.h"
-#include "ServiceWorkerUpdateJob.h"
-#include "ServiceWorkerUtils.h"
-#include "ServiceWorkerQuotaUtils.h"
+#include "nsXULAppAPI.h"
 
 #ifdef PostMessage
 #  undef PostMessage
@@ -189,6 +182,7 @@ nsresult PopulateRegistrationData(
   }
 
   aData.scope() = aRegistration->Scope();
+  aData.type() = aRegistration->Type();
 
   // TODO: When bug 1426401 is implemented we will need to handle more
   //       than just the active worker here.
@@ -211,6 +205,13 @@ nsresult PopulateRegistrationData(
   aData.lastUpdateTime() = aRegistration->GetLastUpdateTime();
 
   aData.navigationPreloadState() = aRegistration->GetNavigationPreloadState();
+
+  aData.numberOfAttemptedActivations() =
+      aRegistration->GetNumberOfAttemptedActivations();
+
+  aData.isBroken() = aRegistration->IsBroken();
+
+  aData.cacheAPIId() = aRegistration->GetCacheAPIId();
 
   MOZ_ASSERT(ServiceWorkerRegistrationDataIsValid(aData));
 
@@ -238,6 +239,10 @@ class TeardownRunnable final : public Runnable {
 };
 
 constexpr char kFinishShutdownTopic[] = "profile-before-change-qm";
+constexpr char kPrivateBrowsingExited[] = "last-pb-context-exited";
+
+constexpr auto kPrivateBrowsingOriginPattern =
+    u"{ \"privateBrowsingId\": 1 }"_ns;
 
 already_AddRefed<nsIAsyncShutdownClient> GetAsyncShutdownBarrier() {
   AssertIsOnMainThread();
@@ -463,6 +468,16 @@ void ServiceWorkerManager::Init(ServiceWorkerRegistrar* aRegistrar) {
     MOZ_ASSERT(mShutdownBlocker);
   }
 
+  // This observer notification will be removed by
+  // ServiceWorkerManager::MaybeFinishShutdown which currently is triggered by
+  // receiving a "profile-before-change-qm" observer notification.  That
+  // observer is added by our shutdown blocker which currently fires during the
+  // "profile-change-teardown" phase.
+  nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
+  if (obs) {
+    obs->AddObserver(this, kPrivateBrowsingExited, false);
+  }
+
   MOZ_DIAGNOSTIC_ASSERT(aRegistrar);
 
   PBackgroundChild* actorChild = BackgroundChild::GetOrCreateForCurrentThread();
@@ -684,6 +699,7 @@ void ServiceWorkerManager::MaybeFinishShutdown() {
   nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
   if (obs) {
     obs->RemoveObserver(this, kFinishShutdownTopic);
+    obs->RemoveObserver(this, kPrivateBrowsingExited);
   }
 
   if (!mActor) {
@@ -694,7 +710,7 @@ void ServiceWorkerManager::MaybeFinishShutdown() {
 
   RefPtr<TeardownRunnable> runnable = new TeardownRunnable(mActor);
   nsresult rv = NS_DispatchToMainThread(runnable);
-  Unused << NS_WARN_IF(NS_FAILED(rv));
+  (void)NS_WARN_IF(NS_FAILED(rv));
   mActor = nullptr;
   mETPPermissionObserver = nullptr;
 
@@ -800,8 +816,10 @@ ServiceWorkerManager::RegisterForTest(nsIPrincipal* aPrincipal,
   auto scope = NS_ConvertUTF16toUTF8(aScopeURL);
   auto scriptURL = NS_ConvertUTF16toUTF8(aScriptURL);
 
-  auto regPromise = Register(clientInfo.ref(), scope, scriptURL,
-                             dom::ServiceWorkerUpdateViaCache::Imports);
+  auto regPromise =
+      Register(clientInfo.ref(), scope, WorkerType::Classic, scriptURL,
+               dom::ServiceWorkerUpdateViaCache::Imports);
+
   const RefPtr<ServiceWorkerManager> self(this);
   const nsCOMPtr<nsIPrincipal> principal(aPrincipal);
   regPromise->Then(
@@ -829,7 +847,8 @@ ServiceWorkerManager::RegisterForTest(nsIPrincipal* aPrincipal,
 
 RefPtr<ServiceWorkerRegistrationPromise> ServiceWorkerManager::Register(
     const ClientInfo& aClientInfo, const nsACString& aScopeURL,
-    const nsACString& aScriptURL, ServiceWorkerUpdateViaCache aUpdateViaCache) {
+    const WorkerType& aType, const nsACString& aScriptURL,
+    ServiceWorkerUpdateViaCache aUpdateViaCache) {
   AUTO_PROFILER_MARKER_UNTYPED("SWM Register", DOM, {});
 
   nsCOMPtr<nsIURI> scopeURI;
@@ -882,7 +901,7 @@ RefPtr<ServiceWorkerRegistrationPromise> ServiceWorkerManager::Register(
   auto lifetime = DetermineLifetimeForClient(aClientInfo);
 
   RefPtr<ServiceWorkerRegisterJob> job = new ServiceWorkerRegisterJob(
-      principal, aScopeURL, aScriptURL,
+      principal, aScopeURL, aType, aScriptURL,
       static_cast<ServiceWorkerUpdateViaCache>(aUpdateViaCache), lifetime);
 
   job->AppendResultCallback(cb);
@@ -1081,6 +1100,29 @@ ServiceWorkerManager::SendPushEvent(const nsACString& aOriginAttributes,
   return SendPushEvent(aOriginAttributes, aScope, u""_ns, Nothing());
 }
 
+nsresult ServiceWorkerManager::SendCookieChangeEvent(
+    const OriginAttributes& aOriginAttributes, const nsACString& aScope,
+    const net::CookieStruct& aCookie, bool aCookieDeleted) {
+  nsCOMPtr<nsIPrincipal> principal =
+      MOZ_TRY(ScopeToPrincipal(aScope, aOriginAttributes));
+
+  RefPtr<ServiceWorkerRegistrationInfo> registration =
+      GetRegistration(principal, aScope);
+  if (NS_WARN_IF(!registration)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  MOZ_DIAGNOSTIC_ASSERT(registration->Scope().Equals(aScope));
+
+  ServiceWorkerInfo* serviceWorker = registration->GetActive();
+  if (NS_WARN_IF(!serviceWorker)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  return serviceWorker->WorkerPrivate()->SendCookieChangeEvent(
+      aCookie, aCookieDeleted, registration);
+}
+
 nsresult ServiceWorkerManager::SendPushEvent(
     const nsACString& aOriginAttributes, const nsACString& aScope,
     const nsAString& aMessageId, const Maybe<nsTArray<uint8_t>>& aData) {
@@ -1089,8 +1131,7 @@ nsresult ServiceWorkerManager::SendPushEvent(
     return NS_ERROR_INVALID_ARG;
   }
 
-  nsCOMPtr<nsIPrincipal> principal;
-  MOZ_TRY_VAR(principal, ScopeToPrincipal(aScope, attrs));
+  nsCOMPtr<nsIPrincipal> principal = MOZ_TRY(ScopeToPrincipal(aScope, attrs));
 
   // The registration handling a push notification must have an exact scope
   // match. This will try to find an exact match, unlike how fetch may find the
@@ -1129,9 +1170,10 @@ ServiceWorkerManager::SendPushSubscriptionChangeEvent(
       aOldSubscription);
 }
 
-nsresult ServiceWorkerManager::SendNotificationEvent(
-    const nsAString& aEventName, const nsACString& aOriginSuffix,
-    const nsAString& aScope, const IPCNotification& aNotification) {
+NS_IMETHODIMP
+ServiceWorkerManager::SendNotificationClickEvent(
+    const nsACString& aOriginSuffix, const nsAString& aScope,
+    const IPCNotification& aNotification, const nsAString& aAction) {
   OriginAttributes attrs;
   if (!attrs.PopulateFromSuffix(aOriginSuffix)) {
     return NS_ERROR_INVALID_ARG;
@@ -1145,24 +1187,27 @@ nsresult ServiceWorkerManager::SendNotificationEvent(
 
   ServiceWorkerPrivate* workerPrivate = info->WorkerPrivate();
 
-  return workerPrivate->SendNotificationEvent(aEventName, aScope,
-                                              aNotification);
-}
-
-NS_IMETHODIMP
-ServiceWorkerManager::SendNotificationClickEvent(
-    const nsACString& aOriginSuffix, const nsAString& aScope,
-    const IPCNotification& aIPCNotification) {
-  return SendNotificationEvent(nsLiteralString(NOTIFICATION_CLICK_EVENT_NAME),
-                               aOriginSuffix, aScope, aIPCNotification);
+  return workerPrivate->SendNotificationClickEvent(aNotification, aAction);
 }
 
 NS_IMETHODIMP
 ServiceWorkerManager::SendNotificationCloseEvent(
     const nsACString& aOriginSuffix, const nsAString& aScope,
-    const IPCNotification& aIPCNotification) {
-  return SendNotificationEvent(nsLiteralString(NOTIFICATION_CLOSE_EVENT_NAME),
-                               aOriginSuffix, aScope, aIPCNotification);
+    const IPCNotification& aNotification) {
+  OriginAttributes attrs;
+  if (!attrs.PopulateFromSuffix(aOriginSuffix)) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  ServiceWorkerInfo* info =
+      GetActiveWorkerInfoForScope(attrs, NS_ConvertUTF16toUTF8(aScope));
+  if (!info) {
+    return NS_ERROR_FAILURE;
+  }
+
+  ServiceWorkerPrivate* workerPrivate = info->WorkerPrivate();
+
+  return workerPrivate->SendNotificationCloseEvent(aNotification);
 }
 
 RefPtr<ServiceWorkerRegistrationPromise> ServiceWorkerManager::WhenReady(
@@ -1599,11 +1644,11 @@ void ServiceWorkerManager::LoadRegistration(
   RefPtr<ServiceWorkerRegistrationInfo> registration =
       GetRegistration(principal, aRegistration.scope());
   if (!registration) {
-    registration =
-        CreateNewRegistration(aRegistration.scope(), principal,
-                              static_cast<ServiceWorkerUpdateViaCache>(
-                                  aRegistration.updateViaCache()),
-                              aRegistration.navigationPreloadState());
+    registration = CreateNewRegistration(
+        aRegistration.scope(), aRegistration.type(), principal,
+        static_cast<ServiceWorkerUpdateViaCache>(
+            aRegistration.updateViaCache()),
+        aRegistration.navigationPreloadState());
   } else {
     // If active worker script matches our expectations for a "current worker",
     // then we are done. Since scripts with the same URL might have different
@@ -1628,9 +1673,9 @@ void ServiceWorkerManager::LoadRegistration(
   const nsCString& currentWorkerURL = aRegistration.currentWorkerURL();
   if (!currentWorkerURL.IsEmpty()) {
     registration->SetActive(new ServiceWorkerInfo(
-        registration->Principal(), registration->Scope(), registration->Id(),
-        registration->Version(), currentWorkerURL, aRegistration.cacheName(),
-        importsLoadFlags));
+        registration->Principal(), registration->Scope(), registration->Type(),
+        registration->Id(), registration->Version(), currentWorkerURL,
+        aRegistration.cacheName(), importsLoadFlags));
     registration->GetActive()->SetHandlesFetch(
         aRegistration.currentWorkerHandlesFetch());
     registration->GetActive()->SetInstalledTime(
@@ -1654,6 +1699,14 @@ void ServiceWorkerManager::StoreRegistration(
   MOZ_ASSERT(aRegistration);
 
   if (mShuttingDown) {
+    return;
+  }
+
+  // Do not store private browsing registrations to disk; our in-memory state
+  // suffices.
+  if (aPrincipal->GetIsInPrivateBrowsing()) {
+    // If we are seeing a PBM principal, PBM support must be enabled.
+    MOZ_ASSERT(StaticPrefs::dom_serviceWorkers_privateBrowsing_enabled());
     return;
   }
 
@@ -2347,7 +2400,7 @@ bool ServiceWorkerManager::IsAvailable(nsIPrincipal* aPrincipal, nsIURI* aURI,
     auto storageAccess = StorageAllowedForChannel(aChannel);
     nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
 
-    if (storageAccess != StorageAccess::eAllow) {
+    if (storageAccess <= StorageAccess::eDeny) {
       if (!StaticPrefs::privacy_partition_serviceWorkers()) {
         return false;
       }
@@ -2886,9 +2939,10 @@ ServiceWorkerManager::RegisterForAddonPrincipal(nsIPrincipal* aPrincipal,
     return NS_OK;
   }
 
-  auto regPromise =
-      Register(clientInfo.ref(), scope, NS_ConvertUTF16toUTF8(scriptURL),
-               dom::ServiceWorkerUpdateViaCache::Imports);
+  auto regPromise = Register(clientInfo.ref(), scope, WorkerType::Classic,
+                             NS_ConvertUTF16toUTF8(scriptURL),
+                             dom::ServiceWorkerUpdateViaCache::Imports);
+
   const RefPtr<ServiceWorkerManager> self(this);
   const nsCOMPtr<nsIPrincipal> principal(aPrincipal);
   regPromise->Then(
@@ -2981,8 +3035,7 @@ ServiceWorkerManager::WakeForExtensionAPIEvent(
     return NS_OK;
   }
 
-  nsCOMPtr<nsIPrincipal> principal;
-  MOZ_TRY_VAR(principal, ScopeToPrincipal(scopeURI, {}));
+  nsCOMPtr<nsIPrincipal> principal = MOZ_TRY(ScopeToPrincipal(scopeURI, {}));
 
   auto* addonPolicy = BasePrincipal::Cast(principal)->AddonPolicy();
   if (NS_WARN_IF(!addonPolicy)) {
@@ -3062,7 +3115,7 @@ ServiceWorkerManager::GetRegistration(const nsACString& aScopeKey,
 
 already_AddRefed<ServiceWorkerRegistrationInfo>
 ServiceWorkerManager::CreateNewRegistration(
-    const nsCString& aScope, nsIPrincipal* aPrincipal,
+    const nsCString& aScope, const WorkerType& aType, nsIPrincipal* aPrincipal,
     ServiceWorkerUpdateViaCache aUpdateViaCache,
     IPCNavigationPreloadState aNavigationPreloadState) {
 #ifdef DEBUG
@@ -3077,7 +3130,8 @@ ServiceWorkerManager::CreateNewRegistration(
 #endif
 
   RefPtr<ServiceWorkerRegistrationInfo> registration =
-      new ServiceWorkerRegistrationInfo(aScope, aPrincipal, aUpdateViaCache,
+      new ServiceWorkerRegistrationInfo(aScope, aType, aPrincipal,
+                                        aUpdateViaCache,
                                         std::move(aNavigationPreloadState));
 
   // From now on ownership of registration is with
@@ -3219,6 +3273,11 @@ ServiceWorkerManager::Observe(nsISupports* aSubject, const char* aTopic,
                               const char16_t* aData) {
   if (strcmp(aTopic, kFinishShutdownTopic) == 0) {
     MaybeFinishShutdown();
+    return NS_OK;
+  }
+
+  if (strcmp(aTopic, kPrivateBrowsingExited) == 0) {
+    RemoveRegistrationsByOriginAttributes(kPrivateBrowsingOriginPattern);
     return NS_OK;
   }
 
@@ -3430,8 +3489,7 @@ void ServiceWorkerManager::MaybeSendUnregister(nsIPrincipal* aPrincipal,
     return;
   }
 
-  Unused << mActor->SendUnregister(principalInfo,
-                                   NS_ConvertUTF8toUTF16(aScope));
+  (void)mActor->SendUnregister(principalInfo, NS_ConvertUTF8toUTF16(aScope));
 }
 
 void ServiceWorkerManager::AddOrphanedRegistration(

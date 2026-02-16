@@ -5,7 +5,12 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 DevToolsModules(
-    "recording-utils.js",
+    "errors.sys.mjs",
+    "prefs-presets.sys.mjs",
+    "profiler_get_symbols.js",
+    "recording-utils.sys.mjs",
+    "symbolication.sys.mjs",
+    "symbolication.worker.js",
 )
 
 with Files("**"):

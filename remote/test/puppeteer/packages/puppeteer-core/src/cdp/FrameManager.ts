@@ -19,9 +19,9 @@ import {isErrorLike} from '../util/ErrorLike.js';
 
 import type {Binding} from './Binding.js';
 import {CdpPreloadScript} from './CdpPreloadScript.js';
-import {CdpCDPSession} from './CDPSession.js';
+import type {CdpCDPSession} from './CdpSession.js';
 import {isTargetClosedError} from './Connection.js';
-import {DeviceRequestPromptManager} from './DeviceRequestPrompt.js';
+import {CdpDeviceRequestPromptManager} from './DeviceRequestPrompt.js';
 import {ExecutionContext} from './ExecutionContext.js';
 import {CdpFrame} from './Frame.js';
 import type {FrameManagerEvents} from './FrameManagerEvents.js';
@@ -45,7 +45,7 @@ export class FrameManager extends EventEmitter<FrameManagerEvents> {
   #networkManager: NetworkManager;
   #timeoutSettings: TimeoutSettings;
   #isolatedWorlds = new Set<string>();
-  #client: CDPSession;
+  #client: CdpCDPSession;
   #scriptsToEvaluateOnNewDocument = new Map<string, CdpPreloadScript>();
   #bindings = new Set<Binding>();
 
@@ -60,7 +60,7 @@ export class FrameManager extends EventEmitter<FrameManagerEvents> {
 
   #deviceRequestPromptManagerMap = new WeakMap<
     CDPSession,
-    DeviceRequestPromptManager
+    CdpDeviceRequestPromptManager
   >();
 
   #frameTreeHandled?: Deferred<void>;
@@ -73,19 +73,22 @@ export class FrameManager extends EventEmitter<FrameManagerEvents> {
     return this.#networkManager;
   }
 
-  get client(): CDPSession {
+  get client(): CdpCDPSession {
     return this.#client;
   }
 
   constructor(
-    client: CDPSession,
+    client: CdpCDPSession,
     page: CdpPage,
     timeoutSettings: TimeoutSettings,
   ) {
     super();
     this.#client = client;
     this.#page = page;
-    this.#networkManager = new NetworkManager(this);
+    this.#networkManager = new NetworkManager(
+      this,
+      page.browser().isNetworkEnabled(),
+    );
     this.#timeoutSettings = timeoutSettings;
     this.setupEventListeners(this.#client);
     client.once(CDPSessionEvent.Disconnected, () => {
@@ -103,6 +106,14 @@ export class FrameManager extends EventEmitter<FrameManagerEvents> {
     if (!mainFrame) {
       return;
     }
+
+    if (!this.#page.browser().connected) {
+      // If the browser is not connected we know
+      // that activation will not happen
+      this.#removeFramesRecursively(mainFrame);
+      return;
+    }
+
     for (const child of mainFrame.childFrames()) {
       this.#removeFramesRecursively(child);
     }
@@ -125,17 +136,13 @@ export class FrameManager extends EventEmitter<FrameManagerEvents> {
    * we maintain the main frame object identity while updating
    * its frame tree and ID.
    */
-  async swapFrameTree(client: CDPSession): Promise<void> {
+  async swapFrameTree(client: CdpCDPSession): Promise<void> {
     this.#client = client;
-    assert(
-      this.#client instanceof CdpCDPSession,
-      'CDPSession is not an instance of CDPSessionImpl.',
-    );
     const frame = this._frameTree.getMainFrame();
     if (frame) {
-      this.#frameNavigatedReceived.add(this.#client._target()._targetId);
+      this.#frameNavigatedReceived.add(this.#client.target()._targetId);
       this._frameTree.removeFrame(frame);
-      frame.updateId(this.#client._target()._targetId);
+      frame.updateId(this.#client.target()._targetId);
       this._frameTree.addFrame(frame);
       frame.updateClient(client);
     }
@@ -201,7 +208,7 @@ export class FrameManager extends EventEmitter<FrameManagerEvents> {
       this.#frameTreeHandled?.resolve();
       this.#frameTreeHandled = Deferred.create();
       // We need to schedule all these commands while the target is paused,
-      // therefore, it needs to happen synchroniously. At the same time we
+      // therefore, it needs to happen synchronously. At the same time we
       // should not start processing execution context and frame events before
       // we received the initial information about the frame tree.
       await Promise.all([
@@ -337,10 +344,15 @@ export class FrameManager extends EventEmitter<FrameManagerEvents> {
     void this.initialize(target._session()!, frame);
   }
 
-  _deviceRequestPromptManager(client: CDPSession): DeviceRequestPromptManager {
+  _deviceRequestPromptManager(
+    client: CDPSession,
+  ): CdpDeviceRequestPromptManager {
     let manager = this.#deviceRequestPromptManagerMap.get(client);
     if (manager === undefined) {
-      manager = new DeviceRequestPromptManager(client, this.#timeoutSettings);
+      manager = new CdpDeviceRequestPromptManager(
+        client,
+        this.#timeoutSettings,
+      );
       this.#deviceRequestPromptManagerMap.set(client, manager);
     }
     return manager;

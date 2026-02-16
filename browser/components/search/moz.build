@@ -15,7 +15,6 @@ MOZ_SRC_FILES += [
 
 BROWSER_CHROME_MANIFESTS += [
     "test/browser/browser.toml",
-    "test/browser/google_codes/browser.toml",
     "test/browser/telemetry/browser.toml",
 ]
 
@@ -25,6 +24,10 @@ MARIONETTE_MANIFESTS += [
 ]
 
 XPCSHELL_TESTS_MANIFESTS += ["test/unit/xpcshell.toml"]
+
+TESTING_JS_MODULES += [
+    "test/SearchUITestUtils.sys.mjs",
+]
 
 JAR_MANIFESTS += ["jar.mn"]
 

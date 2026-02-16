@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">Historiku i shfletimit u spastrua</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">Historiku i shfletimit në skedë u fshi.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">Kërko për %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Ndajeni me të tjerët…</string>
@@ -52,7 +62,7 @@
   <string name="menu_settings">Rregullime</string>
   <string name="menu_about">Rreth</string>
   <string name="menu_help">Ndihmë</string>
-  <string name="menu_rights">Të drejtat Tuaja</string>
+  <string name="menu_terms_of_use">Kushte Përdorimi</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -143,19 +153,12 @@
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Kërkojeni me Focus Nightly</string>
   <!--
-    Content of about focus. Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
-    Argument 2 is the url for the learn-more link.
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
   -->
-  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote">&lt;p&gt;%1$s ju vë juve në kontroll.&lt;/p&gt;
-&lt;p&gt;Përdoreni si një shfletues privat:
-  &lt;ul&gt;
-    &lt;li&gt;Kërkoni dhe shfletoni drejt e nga aplikacioni&lt;/li&gt;
-    &lt;li&gt;Bllokoni gjurmues (ose përditësoni rregullimet për lejim gjurmuesish)&lt;/li&gt;
-    &lt;li&gt;Fshini cookie-t dhe historik kërkimesh dhe shfletimesh&lt;/li&gt;
-  &lt;/ul&gt;
-&lt;/p&gt;
-&lt;p&gt;%1$s prodhohet nga Mozilla. Misioni ynë është të nxisim një Internet të shëndetshëm, të hapët.&lt;br/&gt;
-&lt;a href="%2$s"&gt;Mësoni më tepër&lt;/a&gt;&lt;/p&gt;</string>
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s ju vë juve në kontroll.</p>\n<p>Përdoreni si një shfletues privat:\n<ul>\n<li>Kërkoni dhe shfletoni drejt e nga aplikacioni</li>\n<li>Bllokoni gjurmues (ose përditësoni rregullimet për lejim gjurmuesish)</li>\n<li>Fshini cookie-t dhe historik kërkimesh dhe shfletimesh</li>\n</ul> </p>\n<p>%1$s prodhohet nga Mozilla. Misioni ynë është të nxisim një Internet të shëndetshëm, të hapët.<br/>\n<a href=\"%2$s\">Mësoni më tepër</a></p>]]></string>
+  <!-- A link to SUMO at the bottom of About Focus screen. -->
+  <string name="about_screen_learn_more">Mësoni më tepër</string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">Privatësi &amp; Siguri</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -207,14 +210,14 @@
   <string name="preference_switch_autocomplete_topsites">Për sajtet Kryesues</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">Aktivizojeni, që %së vetëplotësojë te shtylla e adresave mbi 450 URL popullore.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">Për Sajte Që Shtoni</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">Aktivizojeni, që %s të vetëplotësojë URL-të tuaja të parapëlqyera.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -289,8 +292,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">Shkyçeni duke përdorur shenjat tuaja të gishtave, nëse keni shtuar Shkurtore, ose kur një sajt është i hapur tashmë në %s.</string>
   <!--
@@ -338,9 +341,9 @@
   <string name="preference_libraries_we_use">Biblioteka që përdorim</string>
   <!-- Link to Focus Crash reports list. -->
   <string name="preference_crashes">Vithisje</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s | Biblioteka OSS</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">Mbi %1$s-un</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">Motorë të instaluar</string>
@@ -364,7 +367,7 @@
   <string name="search_add_manually_name_hint">Emër motori kërkimesh</string>
   <string name="search_add_manually_string">Varg kërkimi për t’u përdorur</string>
   <string name="search_add_manually_save">Ruaje</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">Shembull: example.com/search/?q=%s</string>
   <string name="search_add_confirmation">Motori i ri i kërkimeve u shtua.</string>
   <string name="search_add_error_empty_name">Jepni emër motori kërkimesh</string>
@@ -436,19 +439,19 @@
   <string name="external_app_prompt_title">Hape lidhjen me një aplikacion tjetër</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">Mund të lini %1$s-un ta hapë këtë lidhje me %2$s.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">Gjeni një aplikacion që mund të hapë lidhjen</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">Asnjë nga aplikacionet në pajisjen tuaj s’është në gjendje të hapë këtë lidhje. Mund të lini %1$s-un të kërkojë në %2$s për një aplikacion që mundet.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">Të dilet nga Shfletimi Privat?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s përfundoi</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">Hape</string>
@@ -458,13 +461,35 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">Mirë se vini te %1$s</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
   <string name="onboarding_first_screen_subtitle">I shpejtë. Privat. Pa shpërqendrime.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_terms_of_use_link as text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_text_2" tools:ignore="UnusedResources">Duke vazhduar, pajtoheni me %1$s.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use link'
+
+    Text for the link used in onboarding_first_screen_terms_of_use_text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_link_2" tools:ignore="BrandUsage">Terma Përdorimi Firefox-i</string>
+  <!--
+    New Onboarding flow first screen 'privacy notice' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_privacy_notice_link as text
+  -->
+  <string name="onboarding_first_screen_privacy_notice_text_2" tools:ignore="BrandUsage">Firefox-i kujdeset për privatësinë tuaj. Mësoni më tepër te %1$s i yni.</string>
+  <!-- Text for the link used in onboarding_first_screen_privacy_notice_text -->
+  <string name="onboarding_first_screen_privacy_notice_link_2">Shënim Mbi Privatësinë</string>
   <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">Fillojani</string>
+  <string name="onboarding_first_screen_button_agree_and_continue_2">Vazhdo</string>
+  <!-- In the first screen of new onboarding flow, additional accessibility description for content that contain urls. -->
+  <string name="a11y_link_available">Ka lidhje</string>
   <!--
     Onboarding second screen: Title
 
@@ -542,36 +567,6 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">Shkarkoni Firefox-in</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">%1$s është &lt;em&gt;software&lt;/em&gt; i lirë dhe me burim të hapët, i krijuar nga Mozilla dhe kontribues të tjerë.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s ju jepet sipas kushteve të &lt;a href="%2$s"&gt;Mozilla Public License&lt;/a&gt; dhe licencash të tjera burimi të hapët.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">Nuk ju jepet ndonjë e drejtë apo licenca mbi shenjat tregtare të Mozilla Foundation-it apo cilësdo palë tjetër, përfshi emrat apo stemat e Mozilla-s, Firefox-it apo %1$s. Hollësi shtesë mund të gjeni &lt;a href="%2$s"&gt;këtu&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">Më tepër kod burim për %1$s ka sipas &lt;a href="%2$s"&gt;licencash&lt;/a&gt; të tjera të ndryshme programesh të lira dhe me burim të hapët.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s përdor gjithashtu një listë ndalimesh të furnizuar nga Disconnect, Inc., si vepra më vete dhe të pavarura, nën &lt;a href="%2$s"&gt;GNU General Public License v3&lt;/a&gt; dhe të passhme prej &lt;a href="%3$s"&gt;këtu&lt;/a&gt;.</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">Emër përdoruesi</string>
   <string name="gv_prompt_password_hint">Fjalëkalim</string>
@@ -593,13 +588,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">Gje në faqe</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">%1$d nga %2$d</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -646,13 +643,13 @@
   <string name="cookie_banner_exception_panel_switch_state_off">OFF për këtë sajt</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">ON për këtë sajt</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">Të aktivizohet Reduktim Banderolash Cookie-sh për %1$s?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">Të çaktivizohet Reduktim Banderolash Cookie-sh për %1$s?</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">%1$s do të spastrojë cookie-t për këtë sajt dhe do të rifreskojë faqen. Spastrimi i krejt cookie-ve mund të sjellë nxjerrjen tuaj nga llogaria, ose zbrazje shportash blerjesh.</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">%1$s mund të provojë vetvetiu të hedhë poshtë kërkesa depozitimi cookie-sh.</string>
   <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_description_site_is_not_supported">Aktualisht ky sajt nuk mbulohet nga Reduktim Banderolash Cookie-sh. Do të donit që ekipi ynë ta shqyrtojë këtë sajt dhe të shtojcë mbulim për të në të ardhmen?</string>
@@ -679,11 +676,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Shkoni te Android Settings</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. Prekni &lt;b&gt;Permissions&lt;/b&gt;</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. Prekni <b>Permissions</b>]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">Kaloni te Rregullimet</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. Kalojeni &lt;b&gt;%1$s&lt;/b&gt; si ON</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. Kalojeni <b>%1$s</b> si ON]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">Kamerë</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -710,20 +707,6 @@
   <string name="preference_block_autoplay_audio_only_summary">E këshilluar</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">Blloko audio dhe video</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">Studime</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Firefox-i mund të instalojë dhe zhvillojë studime herë pas here.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">Mësoni më tepër</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">Aplikacioni do të mbyllet, që të vihen në fuqi ndryshimet</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">Hiqe</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">Aktiv</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">I plotësuar</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">Diagnostikim i largët përmes USB/Wi-Fi</string>
   <!-- Text Button for show biometric prompt -->
@@ -770,35 +753,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">Sajt që sillet çuditshëm?\n
-    Provoni çaktivizimin e Mbrojtjes Nga Gjurmimi</string>
+  <string name="tip_disable_tracking_protection">Sajt që sillet çuditshëm?\nProvoni çaktivizimin e Mbrojtjes Nga Gjurmimi</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">Kini hyrje me-një-prekje për sajtet që përdorni më shpesh%1$s Menu &gt; Shtoje te skena Kreu</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">Hape çdo lidhje në %1$s\n
-        Caktojeni %1$s si shfletuesin parazgjedhje
-    </string>
+  <string name="tip_set_default_browser">Hape çdo lidhje në %1$s\nCaktojeni %1$s si shfletuesin parazgjedhje</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">Vetëplotësim URL-sh për sajtet që përdorni më shpesh\n
-        Shtypni paksa çfarëdo URL-je te shtylla e adresave
-    </string>
+  <string name="tip_autocomplete_url">Vetëplotësim URL-sh për sajtet që përdorni më shpesh\nShtypni paksa çfarëdo URL-je te shtylla e adresave</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">Hapni një lidhje në një skedë të re\n
-        Shtypni paksa çfarëdo lidhje në një faqe
-    </string>
+  <string name="tip_open_in_new_tab">Hapni një lidhje në një skedë të re\nShtypni paksa çfarëdo lidhje në një faqe</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">Mbylli ndihmëzat te skena e nisjes</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -839,29 +815,29 @@
   <string name="crash_report_send_crash_label">Dërgoni raport vithisje te Mozilla</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">Gjurmues të bllokuar që prej %s</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">Lëndë</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">Reklamim</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">Shoqërore</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">Analiza</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">Mbrojtje e Thelluar Nga Gjurmimi</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">Për këtë sajt, mbrojtjet janë OFF</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">Për këtë sajt, mbrojtjet janë ON</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">Lidhja është e siguruar</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">Lidhja s’është e siguruar</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">Gjurmues dhe Programthe për t’u Bllokuar</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">Kthehu mbrapsht</string>
   <!--
     Top Sites
@@ -879,7 +855,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">Figurat e ruajtura dhe ato të ndara me të tjerët &lt;b&gt;s’do të fshihen&lt;/b&gt;, kur të fshini historikun e %1$s-ut</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[Figurat e ruajtura dhe ato të ndara me të tjerët <b>s’do të fshihen</b>, kur të fshini historikun e %1$s-ut]]></string>
   <!--
     Theme Preferences
 
@@ -897,25 +873,16 @@
   <!-- The title of the error page for websites that do not support HTTPS when HTTPS-Only is turned on -->
   <string name="errorpage_httpsonly_title2">Ky sajt nuk mbulon HTTPS</string>
   <!--
-    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s will get replaced with the name of the app (e.g. "Firefox Focus").
-    Contains a button that will redirect the user to Privacy & Security Screen
+    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"),
+    %2$s is a URL to a support article. Contains a button that will redirect the user to Privacy & Security Screen.
   -->
-  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote">%1$s provon të përdorë një lidhje HTTPS, kurdo që është e mundur, për më tepër siguri.
-     &lt;a href="%2$s"&gt;Mësoni më tepër&lt;/a&gt; &lt;br/&gt;&lt;br/&gt;
-     Ndryshojeni këtë rregullim te Rregullime &gt; Privatësi &amp;amp; Siguri &gt; Siguri.</string>
+  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[%1$s provon të përdorë një lidhje HTTPS, kurdo që është e mundur, për më tepër siguri. <a href=\"%2$s\">Mësoni më tepër</a> <br/><br/> Ndryshojeni këtë rregullim te Rregullime > Privatësi &amp; Siguri > Siguri.]]></string>
   <!-- The document title and heading of the error page shown when a website has an invalid or expired SSL certificate. -->
   <string name="mozac_browser_errorpages_security_bad_cert_title">Lidhje jo e siguruar</string>
   <!-- The error message shown when a website has an invalid or expired SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_message">
-    Ky mund të jetë problem me formësimin e shërbyesit, ose dikush mund të jetë duke u hequr si shërbyesi. &lt;br/&gt;&lt;br/&gt;
-    Nëse në të kaluarën jeni lidhur me sukses në këtë shërbyes, gabimi mund të jetë i përkohshëm.
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_message"><![CDATA[Ky mund të jetë problem me formësimin e shërbyesit, ose dikush mund të jetë duke u hequr si shërbyesi. <br/><br/> Nëse në të kaluarën jeni lidhur me sukses në këtë shërbyes, gabimi mund të jetë i përkohshëm.]]></string>
   <!-- The advanced certificate information shown when a website has an invalid SSL certificate. The %1$s will be replaced by the app name and %2$s will be replaced by website URL. It's only shown when a website has an invalid SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_techInfo">
-        &lt;label&gt;Dikush mund të jetë duke u rrekur të hiqet si sajti dhe vazhdimi mund të jetë me rrezik.&lt;/label&gt;
-        &lt;br&gt;&lt;br&gt;
-        &lt;label&gt;%1$s nuk i zë besë &lt;b&gt;%2$s&lt;/b&gt;m ngaqë lëshuesi i dëshmisë së tij është i panjohur, dëshmia është e vetënënshkruar, ose shërbyesi s’po dërgon dëshminë e saktë ndërmjetëse.&lt;/label&gt;
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_techInfo"><![CDATA[<label>Dikush mund të jetë duke u rrekur të hiqet si sajti dhe vazhdimi mund të jetë me rrezik.</label> <br><br>\n<label>%1$s nuk i zë besë <b>%2$s</b>m ngaqë lëshuesi i dëshmisë së tij është i panjohur, dëshmia është e vetënënshkruar, ose shërbyesi s’po dërgon dëshminë e saktë ndërmjetëse.</label>]]></string>
   <!--
     Sessions List
 
@@ -978,13 +945,13 @@
 
     Message shown to explain how to exit fullscreen mode when gesture navigation is enabled.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_gesture_short">Që të dilet, tërhiqni që nga sipër &amp; përdorni gjestin për mbrapsht</string>
   <!--
     Message shown to explain how to exit fullscreen mode when using back button navigation.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_back_button_short">Që të dilet, tërhiqni që nga sipër &amp; shtypni për mbrapsht</string>
 </resources>

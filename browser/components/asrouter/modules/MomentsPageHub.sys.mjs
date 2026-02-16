@@ -70,6 +70,7 @@ export class _MomentsPageHub {
    * it depends on user dependent parameters. Since the message matched
    * targeting we calculate `expire` based on the current timestamp and the
    * `expireDelta` which defines for how long it should be available.
+   *
    * @param expireDelta {number} - Offset in milliseconds from the current date
    */
   getExpirationDate(expireDelta) {
@@ -79,7 +80,7 @@ export class _MomentsPageHub {
   executeAction(message) {
     const { id, data } = message.content.action;
     switch (id) {
-      case "moments-wnp":
+      case "moments-wnp": {
         const { url, expireDelta } = data;
         let { expire } = data;
         if (!expire) {
@@ -96,6 +97,7 @@ export class _MomentsPageHub {
         this._addImpression(message);
         this._blockMessageById(message.id);
         break;
+      }
     }
   }
 
@@ -107,14 +109,13 @@ export class _MomentsPageHub {
   }
 
   async messageRequest({ triggerId, template }) {
-    const telemetryObject = { triggerId };
-    TelemetryStopwatch.start("MS_MESSAGE_REQUEST_TIME_MS", telemetryObject);
+    const timerId = Glean.messagingSystem.messageRequestTime.start();
     const messages = await this._handleMessageRequest({
       triggerId,
       template,
       returnAll: true,
     });
-    TelemetryStopwatch.finish("MS_MESSAGE_REQUEST_TIME_MS", telemetryObject);
+    Glean.messagingSystem.messageRequestTime.stopAndAccumulate(timerId);
 
     // Record the "reach" event for all the messages with `forReachEvent`,
     // only execute action for the first message without forReachEvent.

@@ -11,8 +11,6 @@ const IFRAME_PATH = `${FILE_FOLDER}/test-console-evaluation-context-selector-chi
 requestLongerTimeout(2);
 
 add_task(async function () {
-  await pushPref("devtools.webconsole.input.context", true);
-
   // Force instantiating worker target in order to show them in the context selector
   await pushPref("dom.worker.console.dispatch_events_to_main_thread", false);
 
@@ -24,15 +22,6 @@ add_task(async function () {
   const evaluationContextSelectorButton = hud.ui.outputNode.querySelector(
     ".webconsole-evaluation-selector-button"
   );
-
-  if (!isFissionEnabled() && !isEveryFrameTargetEnabled()) {
-    is(
-      evaluationContextSelectorButton,
-      null,
-      "context selector is only displayed when Fission or EFT is enabled"
-    );
-    return;
-  }
 
   ok(
     evaluationContextSelectorButton,

@@ -6,11 +6,10 @@ Transform the beetmover task into an actual task description.
 """
 
 import logging
-from typing import List
 
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.dependencies import get_dependencies, get_primary_dependency
-from taskgraph.util.schema import Schema
+from taskgraph.util.schema import LegacySchema
 from taskgraph.util.taskcluster import get_artifact_prefix
 from taskgraph.util.treeherder import inherit_treeherder_from_dep, replace_group
 from voluptuous import Optional, Required
@@ -37,22 +36,21 @@ from gecko_taskgraph.util.scriptworker import (
 logger = logging.getLogger(__name__)
 
 
-beetmover_description_schema = Schema(
-    {
-        # unique label to describe this beetmover task, defaults to {dep.label}-beetmover
-        Required("label"): str,
-        Required("dependencies"): task_description_schema["dependencies"],
-        # treeherder is allowed here to override any defaults we use for beetmover.  See
-        # taskcluster/gecko_taskgraph/transforms/task.py for the schema details, and the
-        # below transforms for defaults of various values.
-        Optional("treeherder"): task_description_schema["treeherder"],
-        Optional("attributes"): task_description_schema["attributes"],
-        # locale is passed only for l10n beetmoving
-        Optional("locale"): str,
-        Required("shipping-phase"): task_description_schema["shipping-phase"],
-        Optional("task-from"): task_description_schema["task-from"],
-    }
-)
+beetmover_description_schema = LegacySchema({
+    # unique label to describe this beetmover task, defaults to {dep.label}-beetmover
+    Required("label"): str,
+    Required("dependencies"): task_description_schema["dependencies"],
+    # treeherder is allowed here to override any defaults we use for beetmover.  See
+    # taskcluster/gecko_taskgraph/transforms/task.py for the schema details, and the
+    # below transforms for defaults of various values.
+    Optional("treeherder"): task_description_schema["treeherder"],
+    Optional("attributes"): task_description_schema["attributes"],
+    # locale is passed only for l10n beetmoving
+    Optional("locale"): str,
+    Required("shipping-phase"): task_description_schema["shipping-phase"],
+    Optional("task-from"): task_description_schema["task-from"],
+    Optional("run-on-repo-type"): task_description_schema["run-on-repo-type"],
+})
 
 transforms = TransformSequence()
 
@@ -68,13 +66,13 @@ def remove_name(config, jobs):
 transforms.add_validate(beetmover_description_schema)
 
 
-def get_label_by_suffix(labels: List, suffix: str):
+def get_label_by_suffix(labels: list, suffix: str):
     """
     Given list of labels, returns the label with provided suffix
     Raises exception if more than one label is found.
 
     Args:
-        labels (List): List of labels
+        labels (list): List of labels
         suffix (str): Suffix for the desired label
 
     Returns
@@ -162,10 +160,12 @@ def make_task_description(config, jobs):
 
         dependencies = {
             "build": upstream_deps[build_name],
-            "repackage": upstream_deps[repackage_name],
             "signing": upstream_deps[signing_name],
-            "mar-signing": upstream_deps[mar_signing_name],
         }
+        if repackage_name in upstream_deps:
+            dependencies["repackage"] = upstream_deps[repackage_name]
+        if mar_signing_name in upstream_deps:
+            dependencies["mar-signing"] = upstream_deps[mar_signing_name]
         if "partials-signing" in upstream_deps:
             dependencies["partials-signing"] = upstream_deps["partials-signing"]
         if msi_signing_name in upstream_deps:
@@ -198,6 +198,7 @@ def make_task_description(config, jobs):
             "dependencies": dependencies,
             "attributes": attributes,
             "run-on-projects": dep_job.attributes.get("run_on_projects"),
+            "run-on-repo-type": job.get("run-on-repo-type", ["git", "hg"]),
             "treeherder": treeherder,
             "shipping-phase": job["shipping-phase"],
             "shipping-product": job.get("shipping-product"),
@@ -279,9 +280,9 @@ def strip_unwanted_langpacks_from_worker(config, jobs):
                 job["worker"]["artifact-map"].remove(map)
 
         for artifact in job["worker"].get("upstream-artifacts", []):
-            if not any(
-                [path.endswith("target.langpack.xpi") for path in artifact["paths"]]
-            ):
+            if not any([
+                path.endswith("target.langpack.xpi") for path in artifact["paths"]
+            ]):
                 continue
             if artifact["locale"] == "ja-JP-mac":
                 # This locale should only exist on mac

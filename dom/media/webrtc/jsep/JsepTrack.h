@@ -2,36 +2,34 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef _JSEPTRACK_H_
-#define _JSEPTRACK_H_
-
-#include <functional>
-#include <algorithm>
-#include <string>
-#include <map>
-#include <set>
-#include <vector>
+#ifndef JSEPTRACK_H_
+#define JSEPTRACK_H_
 
 #include <mozilla/UniquePtr.h>
-#include "mozilla/Preferences.h"
-#include "nsError.h"
+
+#include <algorithm>
+#include <functional>
+#include <map>
+#include <string>
+#include <vector>
 
 #include "jsep/JsepTrackEncoding.h"
 #include "jsep/SsrcGenerator.h"
+#include "libwebrtcglue/RtpRtcpConfig.h"
+#include "mozilla/Preferences.h"
+#include "nsError.h"
 #include "sdp/Sdp.h"
 #include "sdp/SdpAttribute.h"
 #include "sdp/SdpMediaSection.h"
-#include "libwebrtcglue/RtpRtcpConfig.h"
 namespace mozilla {
 
 class JsepTrackNegotiatedDetails {
  public:
   JsepTrackNegotiatedDetails()
-      : mTias(0), mRtpRtcpConf(webrtc::RtcpMode::kCompound) {}
+      : mTias(0), mRtpRtcpConf(webrtc::RtcpMode::kCompound, true) {}
 
   JsepTrackNegotiatedDetails(const JsepTrackNegotiatedDetails& orig)
       : mExtmap(orig.mExtmap),
-        mUniqueReceivePayloadTypes(orig.mUniqueReceivePayloadTypes),
         mTias(orig.mTias),
         mRtpRtcpConf(orig.mRtpRtcpConf) {
     for (const auto& encoding : orig.mEncodings) {
@@ -66,13 +64,9 @@ class JsepTrackNegotiatedDetails {
   void ForEachRTPHeaderExtension(
       const std::function<void(const SdpExtmapAttributeList::Extmap& extmap)>&
           fn) const {
-    for (auto entry : mExtmap) {
+    for (const auto& entry : mExtmap) {
       fn(entry.second);
     }
-  }
-
-  std::vector<uint8_t> GetUniqueReceivePayloadTypes() const {
-    return mUniqueReceivePayloadTypes;
   }
 
   uint32_t GetTias() const { return mTias; }
@@ -83,7 +77,6 @@ class JsepTrackNegotiatedDetails {
   friend class JsepTrack;
 
   std::map<std::string, SdpExtmapAttributeList::Extmap> mExtmap;
-  std::vector<uint8_t> mUniqueReceivePayloadTypes;
   std::vector<UniquePtr<JsepTrackEncoding>> mEncodings;
   uint32_t mTias;  // bits per second
   RtpRtcpConfig mRtpRtcpConf;
@@ -140,6 +133,9 @@ class JsepTrack {
       mFecCodec = rhs.mFecCodec;
       mAudioPreferredCodec = rhs.mAudioPreferredCodec;
       mVideoPreferredCodec = rhs.mVideoPreferredCodec;
+      mUniqueReceivePayloadTypes = rhs.mUniqueReceivePayloadTypes;
+      mReceivePayloadTypes = rhs.mReceivePayloadTypes;
+      mOtherReceivePayloadTypes = rhs.mOtherReceivePayloadTypes;
 
       mPrototypeCodecs.clear();
       for (const auto& codec : rhs.mPrototypeCodecs) {
@@ -169,20 +165,7 @@ class JsepTrack {
 
   virtual const std::vector<uint32_t>& GetSsrcs() const { return mSsrcs; }
 
-  virtual std::vector<uint32_t> GetRtxSsrcs() const {
-    std::vector<uint32_t> result;
-    if (mRtxIsAllowed &&
-        Preferences::GetBool("media.peerconnection.video.use_rtx", false) &&
-        !mSsrcToRtxSsrc.empty()) {
-      MOZ_ASSERT(mSsrcToRtxSsrc.size() == mSsrcs.size());
-      for (const auto ssrc : mSsrcs) {
-        auto it = mSsrcToRtxSsrc.find(ssrc);
-        MOZ_ASSERT(it != mSsrcToRtxSsrc.end());
-        result.push_back(it->second);
-      }
-    }
-    return result;
-  }
+  virtual std::vector<uint32_t> GetRtxSsrcs() const;
 
   virtual void EnsureSsrcs(SsrcGenerator& ssrcGenerator, size_t aNumber);
 
@@ -220,7 +203,8 @@ class JsepTrack {
   virtual nsresult Negotiate(const SdpMediaSection& answer,
                              const SdpMediaSection& remote,
                              const SdpMediaSection& local);
-  static void SetUniqueReceivePayloadTypes(std::vector<JsepTrack*>& tracks);
+  static void SetReceivePayloadTypes(std::vector<JsepTrack*>& tracks,
+                                     bool localOffer = false);
   virtual void GetNegotiatedPayloadTypes(
       std::vector<uint16_t>* payloadTypes) const;
 
@@ -261,6 +245,19 @@ class JsepTrack {
   }
   const std::string& GetVideoPreferredCodec() const {
     return mVideoPreferredCodec;
+  }
+
+  void ResetReceivePayloadTypes() {
+    mUniqueReceivePayloadTypes.clear();
+    mOtherReceivePayloadTypes.clear();
+  }
+
+  const std::vector<uint8_t>& GetUniqueReceivePayloadTypes() const {
+    return mUniqueReceivePayloadTypes;
+  }
+
+  const std::vector<uint8_t>& GetOtherReceivePayloadTypes() const {
+    return mOtherReceivePayloadTypes;
   }
 
  private:
@@ -305,6 +302,7 @@ class JsepTrack {
   // negotiated rids.
   std::vector<std::string> mRids;
   UniquePtr<JsepTrackNegotiatedDetails> mNegotiatedDetails;
+  // Storage of mSsrcs and mSsrcToRtxSsrc could be improved, see Bug 1990364
   std::vector<uint32_t> mSsrcs;
   std::map<uint32_t, uint32_t> mSsrcToRtxSsrc;
   bool mActive;
@@ -330,6 +328,13 @@ class JsepTrack {
   std::string mFecCodec;
   std::string mAudioPreferredCodec;
   std::string mVideoPreferredCodec;
+
+  // Only the unique PTs we are willing to receive, not necessarily all PTs.
+  // Used for matching SSRC to PT as only unique PTs support for this.
+  std::vector<uint8_t> mUniqueReceivePayloadTypes;
+  std::vector<uint16_t> mReceivePayloadTypes;
+  // Payload types that are registered to some track but not us.
+  std::vector<uint8_t> mOtherReceivePayloadTypes;
 };
 
 }  // namespace mozilla

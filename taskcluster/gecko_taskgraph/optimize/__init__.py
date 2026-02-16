@@ -39,6 +39,11 @@ def split_bugbug_arg(arg, substrategies):
 
 # Register composite strategies.
 register_strategy("build", args=("skip-unless-schedules",))(Alias)
+register_strategy(
+    "docs",
+    args=("skip-unless-schedules", "skip-unless-sphinx-js"),
+    kwargs={"split_args": lambda *args: (["docs"], None)},
+)(All)
 register_strategy("test", args=("skip-unless-schedules",))(Alias)
 register_strategy("test-inclusive", args=("skip-unless-schedules",))(Alias)
 register_strategy("test-verify", args=("skip-unless-schedules",))(Alias)
@@ -268,11 +273,11 @@ class ExperimentalOverride:
 
     def __getattr__(self, name):
         val = getattr(self.base, name).copy()
-        for name, strategy in self.overrides.items():
+        for override_name, strategy in self.overrides.items():
             if isinstance(strategy, str) and strategy.startswith("base:"):
                 strategy = val[strategy[len("base:") :]]
 
-            val[name] = strategy
+            val[override_name] = strategy
         return val
 
 

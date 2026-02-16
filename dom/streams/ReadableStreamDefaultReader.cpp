@@ -6,14 +6,14 @@
 
 #include "mozilla/dom/ReadableStreamDefaultReader.h"
 
-#include "mozilla/dom/AutoEntryScript.h"
-#include "mozilla/dom/ReadableStream.h"
-#include "mozilla/dom/RootedDictionary.h"
 #include "js/PropertyAndElement.h"
 #include "js/TypeDecls.h"
 #include "js/Value.h"
 #include "jsapi.h"
+#include "mozilla/dom/AutoEntryScript.h"
+#include "mozilla/dom/ReadableStream.h"
 #include "mozilla/dom/ReadableStreamDefaultReaderBinding.h"
+#include "mozilla/dom/RootedDictionary.h"
 #include "mozilla/dom/UnderlyingSourceBinding.h"
 #include "nsCOMPtr.h"
 #include "nsCycleCollectionParticipant.h"
@@ -230,7 +230,7 @@ void ReadableStreamDefaultReaderRead(JSContext* aCx,
     }
 
     case ReadableStream::ReaderState::Readable: {
-      RefPtr<ReadableStreamController> controller(stream->Controller());
+      RefPtr<ReadableStreamControllerBase> controller(stream->Controller());
       MOZ_ASSERT(controller);
       controller->PullSteps(aCx, aRequest, aRv);
       return;

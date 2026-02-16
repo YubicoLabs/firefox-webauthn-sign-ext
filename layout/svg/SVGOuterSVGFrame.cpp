@@ -9,17 +9,17 @@
 
 // Keep others in (case-insensitive) order:
 #include "gfxContext.h"
-#include "nsDisplayList.h"
-#include "nsIInterfaceRequestorUtils.h"
-#include "nsLayoutUtils.h"
-#include "nsObjectLoadingContent.h"
-#include "nsSubDocumentFrame.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/SVGUtils.h"
 #include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/SVGSVGElement.h"
+#include "nsDisplayList.h"
+#include "nsIInterfaceRequestorUtils.h"
+#include "nsLayoutUtils.h"
+#include "nsObjectLoadingContent.h"
+#include "nsSubDocumentFrame.h"
 
 using namespace mozilla::dom;
 using namespace mozilla::gfx;
@@ -71,6 +71,26 @@ float SVGOuterSVGFrame::ComputeFullZoom() const {
   return 1.0f;
 }
 
+class AsyncSendIntrinsicSizeAndRatioToEmbedder final : public Runnable {
+ public:
+  explicit AsyncSendIntrinsicSizeAndRatioToEmbedder(SVGOuterSVGFrame* aFrame)
+      : Runnable("AsyncSendIntrinsicSizeAndRatioToEmbedder") {
+    mElement = aFrame->GetContent()->AsElement();
+  }
+  NS_IMETHOD Run() override {
+    AUTO_PROFILER_LABEL("AsyncSendIntrinsicSizeAndRatioToEmbedder::Run", OTHER);
+    // Check we're still an outer svg frame. We could have been
+    // moved inside another svg element and now be an SVGInnerSVGFrame.
+    if (SVGOuterSVGFrame* frame = do_QueryFrame(mElement->GetPrimaryFrame())) {
+      frame->MaybeSendIntrinsicSizeAndRatioToEmbedder();
+    }
+    return NS_OK;
+  }
+
+ private:
+  RefPtr<Element> mElement;
+};
+
 void SVGOuterSVGFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
                             nsIFrame* aPrevInFlow) {
   NS_ASSERTION(aContent->IsSVGElement(nsGkAtoms::svg),
@@ -108,7 +128,10 @@ void SVGOuterSVGFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
     }
   }
 
-  MaybeSendIntrinsicSizeAndRatioToEmbedder();
+  // We need to do this async in order to get the right ordering with
+  // respect to `Destroy()` when reframed.
+  nsContentUtils::AddScriptRunner(
+      new AsyncSendIntrinsicSizeAndRatioToEmbedder(this));
 }
 
 //----------------------------------------------------------------------
@@ -144,7 +167,10 @@ nscoord SVGOuterSVGFrame::IntrinsicISize(const IntrinsicSizeInput& aInput,
     // is treated as 100%). The following if-condition, deciding to return
     // either the fallback intrinsic size or zero, is made to match blink and
     // webkit's behavior for webcompat.
-    if (isize.IsExplicitlySet() || StylePosition()->ISize(wm).HasPercent() ||
+    if (isize.IsExplicitlySet() ||
+        StylePosition()
+            ->ISize(wm, AnchorPosResolutionParams::From(this))
+            ->HasPercent() ||
         !GetAspectRatio()) {
       result = wm.IsVertical() ? kFallbackIntrinsicSize.height
                                : kFallbackIntrinsicSize.width;
@@ -239,7 +265,7 @@ AspectRatio SVGOuterSVGFrame::GetIntrinsicRatio() const {
 
 /* virtual */
 nsIFrame::SizeComputationResult SVGOuterSVGFrame::ComputeSize(
-    gfxContext* aRenderingContext, WritingMode aWritingMode,
+    const SizeComputationInput& aSizingInput, WritingMode aWritingMode,
     const LogicalSize& aCBSize, nscoord aAvailableISize,
     const LogicalSize& aMargin, const LogicalSize& aBorderPadding,
     const StyleSizeOverrides& aSizeOverrides, ComputeSizeFlags aFlags) {
@@ -306,8 +332,9 @@ nsIFrame::SizeComputationResult SVGOuterSVGFrame::ComputeSize(
   }
 
   return {ComputeSizeWithIntrinsicDimensions(
-              aRenderingContext, aWritingMode, intrinsicSize, GetAspectRatio(),
-              cbSize, aMargin, aBorderPadding, aSizeOverrides, aFlags),
+              aSizingInput.mRenderingContext, aWritingMode, intrinsicSize,
+              GetAspectRatio(), cbSize, aMargin, aBorderPadding, aSizeOverrides,
+              aFlags),
           AspectRatioUsage::None};
 }
 
@@ -347,7 +374,7 @@ void SVGOuterSVGFrame::Reflow(nsPresContext* aPresContext,
       nsPresContext::AppUnitsToFloatCSSPixels(aReflowInput.ComputedWidth()),
       nsPresContext::AppUnitsToFloatCSSPixels(aReflowInput.ComputedHeight()));
 
-  uint32_t changeBits = 0;
+  ChangeFlags changeBits;
   if (newViewportSize != svgElem->GetViewportSize()) {
     // When our viewport size changes, we may need to update the overflow rects
     // of our child frames. This is the case if:
@@ -376,17 +403,17 @@ void SVGOuterSVGFrame::Reflow(nsPresContext* aPresContext,
         child->MarkSubtreeDirty();
       }
     }
-    changeBits |= COORD_CONTEXT_CHANGED;
+    changeBits += ChangeFlag::CoordContextChanged;
     svgElem->SetViewportSize(newViewportSize);
   }
   if (mIsRootContent && !mIsInIframe) {
     const auto oldZoom = mFullZoom;
     mFullZoom = ComputeFullZoom();
     if (oldZoom != mFullZoom) {
-      changeBits |= FULL_ZOOM_CHANGED;
+      changeBits += ChangeFlag::FullZoomChanged;
     }
   }
-  if (changeBits && !HasAnyStateBits(NS_FRAME_FIRST_REFLOW)) {
+  if (!changeBits.isEmpty() && !HasAnyStateBits(NS_FRAME_FIRST_REFLOW)) {
     NotifyViewportOrTransformChanged(changeBits);
   }
 
@@ -475,8 +502,7 @@ void SVGOuterSVGFrame::UnionChildOverflow(OverflowAreas& aOverflowAreas,
 // container methods
 
 nsresult SVGOuterSVGFrame::AttributeChanged(int32_t aNameSpaceID,
-                                            nsAtom* aAttribute,
-                                            int32_t aModType) {
+                                            nsAtom* aAttribute, AttrModType) {
   if (aNameSpaceID == kNameSpaceID_None &&
       !HasAnyStateBits(NS_FRAME_FIRST_REFLOW | NS_FRAME_IS_NONDISPLAY)) {
     if (aAttribute == nsGkAtoms::viewBox ||
@@ -487,8 +513,9 @@ nsresult SVGOuterSVGFrame::AttributeChanged(int32_t aNameSpaceID,
       SVGUtils::NotifyChildrenOfSVGChange(
           PrincipalChildList().FirstChild(),
           aAttribute == nsGkAtoms::viewBox
-              ? TRANSFORM_CHANGED | COORD_CONTEXT_CHANGED
-              : TRANSFORM_CHANGED);
+              ? ChangeFlags(ChangeFlag::TransformChanged,
+                            ChangeFlag::CoordContextChanged)
+              : ChangeFlag::TransformChanged);
 
       if (aAttribute != nsGkAtoms::transform) {
         static_cast<SVGSVGElement*>(GetContent())
@@ -551,48 +578,48 @@ void SVGOuterSVGFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
 //----------------------------------------------------------------------
 // ISVGSVGFrame methods:
 
-void SVGOuterSVGFrame::NotifyViewportOrTransformChanged(uint32_t aFlags) {
-  MOZ_ASSERT(aFlags && !(aFlags & ~(COORD_CONTEXT_CHANGED | TRANSFORM_CHANGED |
-                                    FULL_ZOOM_CHANGED)),
-             "Unexpected aFlags value");
-
+void SVGOuterSVGFrame::NotifyViewportOrTransformChanged(ChangeFlags aFlags) {
   auto* content = static_cast<SVGSVGElement*>(GetContent());
-  if (aFlags & COORD_CONTEXT_CHANGED) {
+  if (aFlags.contains(ChangeFlag::CoordContextChanged)) {
     if (content->HasViewBox()) {
       // Percentage lengths on children resolve against the viewBox rect so we
       // don't need to notify them of the viewport change, but the viewBox
       // transform will have changed, so we need to notify them of that instead.
-      aFlags = TRANSFORM_CHANGED;
+      aFlags = ChangeFlag::TransformChanged;
     } else if (content->ShouldSynthesizeViewBox()) {
       // In the case of a synthesized viewBox, the synthetic viewBox's rect
       // changes as the viewport changes. As a result we need to maintain the
       // COORD_CONTEXT_CHANGED flag.
-      aFlags |= TRANSFORM_CHANGED;
+      aFlags += ChangeFlag::TransformChanged;
     } else if (mCanvasTM && mCanvasTM->IsSingular()) {
       // A width/height of zero will result in us having a singular mCanvasTM
       // even when we don't have a viewBox. So we also want to recompute our
       // mCanvasTM for this width/height change even though we don't have a
       // viewBox.
-      aFlags |= TRANSFORM_CHANGED;
+      aFlags += ChangeFlag::TransformChanged;
     }
   }
 
-  bool haveNonFulLZoomTransformChange = (aFlags & TRANSFORM_CHANGED);
+  bool haveNonFullZoomTransformChange =
+      aFlags.contains(ChangeFlag::TransformChanged);
 
-  if (aFlags & FULL_ZOOM_CHANGED) {
-    // Convert FULL_ZOOM_CHANGED to TRANSFORM_CHANGED:
-    aFlags = (aFlags & ~FULL_ZOOM_CHANGED) | TRANSFORM_CHANGED;
+  if (aFlags.contains(ChangeFlag::FullZoomChanged)) {
+    // Convert FullZoomChanged to TransformChanged.
+    aFlags -= ChangeFlag::FullZoomChanged;
+    aFlags += ChangeFlag::TransformChanged;
   }
 
-  if (aFlags & TRANSFORM_CHANGED) {
+  if (aFlags.contains(ChangeFlag::TransformChanged)) {
     // Make sure our canvas transform matrix gets (lazily) recalculated:
     mCanvasTM = nullptr;
 
-    if (haveNonFulLZoomTransformChange &&
+    if (haveNonFullZoomTransformChange &&
         !HasAnyStateBits(NS_FRAME_IS_NONDISPLAY)) {
-      uint32_t flags = HasAnyStateBits(NS_FRAME_IN_REFLOW)
-                           ? SVGSVGElement::eDuringReflow
-                           : 0;
+      SVGViewportElement::ChildrenOnlyTransformChangedFlags flags;
+      if (HasAnyStateBits(NS_FRAME_IN_REFLOW)) {
+        flags +=
+            SVGViewportElement::ChildrenOnlyTransformChangedFlag::DuringReflow;
+      }
       content->ChildrenOnlyTransformChanged(flags);
     }
   }
@@ -640,7 +667,7 @@ gfxMatrix SVGOuterSVGFrame::GetCanvasTM() {
 
     gfxMatrix tm = content->ChildToUserSpaceTransform().PostScale(
         devPxPerCSSPx, devPxPerCSSPx);
-    mCanvasTM = MakeUnique<gfxMatrix>(tm);
+    mCanvasTM = std::make_unique<gfxMatrix>(tm);
   }
   return *mCanvasTM;
 }
@@ -706,8 +733,8 @@ void SVGOuterSVGFrame::MaybeSendIntrinsicSizeAndRatioToEmbedder(
   }
 
   if (BrowserChild* browserChild = BrowserChild::GetFrom(docShell)) {
-    Unused << browserChild->SendIntrinsicSizeOrRatioChanged(aIntrinsicSize,
-                                                            aIntrinsicRatio);
+    (void)browserChild->SendIntrinsicSizeOrRatioChanged(aIntrinsicSize,
+                                                        aIntrinsicRatio);
   }
 }
 

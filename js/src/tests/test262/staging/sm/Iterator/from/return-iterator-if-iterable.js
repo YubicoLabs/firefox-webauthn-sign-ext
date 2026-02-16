@@ -1,4 +1,3 @@
-// |reftest| shell-option(--enable-iterator-helpers) skip-if(!this.hasOwnProperty('Iterator')||!xulRuntime.shell) -- iterator-helpers is not enabled unconditionally, requires shell-options
 // Copyright (C) 2024 Mozilla Corporation. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
@@ -7,11 +6,8 @@ info: |
   Iterator.from returns O if it is iterable, an iterator, and an instance of Iterator.
 
   Iterator is not enabled unconditionally
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
 features:
-- iterator-helpers
+  - iterator-helpers
 description: |
   pending
 esid: pending

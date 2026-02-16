@@ -6,9 +6,9 @@
 
 const {
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const { openContentLink } = require("resource://devtools/client/shared/link");
 
 const {
@@ -37,8 +37,8 @@ class FontMetadata extends PureComponent {
    * If the string is larger than MAX_STRING_LENGTH, the string gets truncated
    * and we display a twisty button to reveal the full text.
    *
-   * @param {String} fontProperty: The font property to render
-   * @returns {String|Array<ReactElement>}
+   * @param {string} fontProperty: The font property to render
+   * @returns {string | Array<ReactElement>}
    */
   renderExpandableString(fontProperty) {
     const str = this.props.font[fontProperty];

@@ -19,6 +19,7 @@ ChromeUtils.defineLazyGetter(this, "gPingsArchivePath", function () {
 
 /**
  * Fakes the archive storage quota.
+ *
  * @param {Integer} aArchiveQuota The new quota, in bytes.
  */
 function fakeStorageQuota(aArchiveQuota) {
@@ -31,7 +32,7 @@ function fakeStorageQuota(aArchiveQuota) {
 /**
  * Lists all the valid archived pings and their metadata, sorted by creation date.
  *
- * @return {Object[]} A list of objects with the extracted data in the form:
+ * @return {object[]} A list of objects with the extracted data in the form:
  *                  { timestamp: <number>,
  *                    id: <string>,
  *                    type: <string>,
@@ -668,14 +669,12 @@ add_task(async function test_currentPingData() {
   await TelemetryController.testSetup();
 
   // Setup test data.
-  let h = Telemetry.getHistogramById("TELEMETRY_TEST_RELEASE_OPTOUT");
+  let h = Telemetry.getHistogramById("TELEMETRY_TEST_COUNT");
   h.clear();
-  h.add(1);
-  let k = Telemetry.getKeyedHistogramById(
-    "TELEMETRY_TEST_KEYED_RELEASE_OPTOUT"
-  );
+  Glean.testOnlyIpc.aCounterForHgram.add();
+  let k = Telemetry.getKeyedHistogramById("TELEMETRY_TEST_KEYED_COUNT");
   k.clear();
-  k.add("a", 1);
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.a.add(1);
 
   // Get current ping data objects and check that their data is sane.
   for (let subsession of [true, false]) {
@@ -692,7 +691,7 @@ add_task(async function test_currentPingData() {
       "Ping should have the correct reason."
     );
 
-    let id = "TELEMETRY_TEST_RELEASE_OPTOUT";
+    let id = "TELEMETRY_TEST_COUNT";
     Assert.ok(
       id in ping.payload.histograms,
       "Payload should have test count histogram."
@@ -702,7 +701,7 @@ add_task(async function test_currentPingData() {
       1,
       "Test count value should match."
     );
-    id = "TELEMETRY_TEST_KEYED_RELEASE_OPTOUT";
+    id = "TELEMETRY_TEST_KEYED_COUNT";
     Assert.ok(
       id in ping.payload.keyedHistograms,
       "Payload should have keyed test histogram."

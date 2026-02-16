@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_ipc_backgroundparentimpl_h__
-#define mozilla_ipc_backgroundparentimpl_h__
+#ifndef mozilla_ipc_backgroundparentimpl_h_
+#define mozilla_ipc_backgroundparentimpl_h_
 
 #include "mozilla/ipc/PBackgroundParent.h"
 
@@ -123,6 +123,7 @@ class BackgroundParentImpl : public PBackgroundParent {
 
   mozilla::ipc::IPCResult RecvCreateWebTransportParent(
       const nsAString& aURL, nsIPrincipal* aPrincipal,
+      const uint64_t& aBrowsingContextID,
       const mozilla::Maybe<IPCClientInfo>& aClientInfo, const bool& aDedicated,
       const bool& aRequireUnreliable, const uint32_t& aCongestionControl,
       nsTArray<WebTransportHash>&& aServerCertHashes,
@@ -281,6 +282,11 @@ class BackgroundParentImpl : public PBackgroundParent {
   mozilla::ipc::IPCResult RecvPClientManagerConstructor(
       PClientManagerParent* aActor) override;
 
+  mozilla::ipc::IPCResult RecvCreateBoundStorageKeyParent(
+      Endpoint<::mozilla::dom::cache::PBoundStorageKeyParent>&& aEndpoint,
+      const Namespace& aNamespace,
+      const PrincipalInfo& aPrincipalInfo) override;
+
   mozilla::ipc::IPCResult RecvCreateMIDIPort(
       Endpoint<PMIDIPortParent>&& aEndpoint, const MIDIPortInfo& aPortInfo,
       const bool& aSysexEnabled) override;
@@ -336,7 +342,7 @@ class BackgroundParentImpl : public PBackgroundParent {
       EnsureRDDProcessAndCreateBridgeResolver&& aResolver) override;
 
   mozilla::ipc::IPCResult RecvEnsureUtilityProcessAndCreateBridge(
-      const RemoteDecodeIn& aLocation,
+      const RemoteMediaIn& aLocation,
       EnsureUtilityProcessAndCreateBridgeResolver&& aResolver) override;
 
   mozilla::ipc::IPCResult RecvRequestCameraAccess(
@@ -362,4 +368,4 @@ class BackgroundParentImpl : public PBackgroundParent {
 
 }  // namespace mozilla::ipc
 
-#endif  // mozilla_ipc_backgroundparentimpl_h__
+#endif  // mozilla_ipc_backgroundparentimpl_h_

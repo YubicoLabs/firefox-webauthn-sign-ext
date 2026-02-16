@@ -133,7 +133,7 @@ open class ObserverRegistry<T> : Observable<T> {
 
     @Synchronized
     override fun notifyObservers(block: T.() -> Unit) {
-        observers.forEach {
+        observers.toList().forEach {
             if (!pausedObservers.contains(it)) {
                 it.block()
             }
@@ -220,6 +220,10 @@ open class ObserverRegistry<T> : Observable<T> {
 
         override fun onPause(owner: LifecycleOwner) {
             registry.pauseObserver(observer)
+        }
+
+        override fun onDestroy(owner: LifecycleOwner) {
+            registry.unregister(observer)
         }
     }
 

@@ -11,6 +11,7 @@ import android.util.AttributeSet
 import android.widget.RadioButton
 import android.widget.TextView
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.content.edit
 import androidx.core.content.res.TypedArrayUtils.getAttr
 import androidx.core.content.withStyledAttributes
 import androidx.core.text.HtmlCompat
@@ -21,6 +22,7 @@ import androidx.preference.PreferenceViewHolder
 import mozilla.components.support.ktx.android.content.res.resolveAttribute
 import mozilla.components.support.ktx.android.view.putCompoundDrawablesRelative
 import org.mozilla.focus.R
+import androidx.preference.R as preferenceR
 
 interface GroupableRadioButton {
     fun updateRadioValue(isChecked: Boolean)
@@ -71,7 +73,7 @@ open class RadioButtonPreference @JvmOverloads constructor(
             R.styleable.RadioButtonPreference,
             getAttr(
                 context,
-                androidx.preference.R.attr.preferenceStyle,
+                preferenceR.attr.preferenceStyle,
                 android.R.attr.preferenceStyle,
             ),
             0,
@@ -96,12 +98,12 @@ open class RadioButtonPreference @JvmOverloads constructor(
 
     override fun setEnabled(enabled: Boolean) {
         super.setEnabled(enabled)
-        if (!enabled) {
-            summaryView?.alpha = HALF_ALPHA
-            titleView?.alpha = HALF_ALPHA
-        } else {
+        if (enabled) {
             summaryView?.alpha = FULL_ALPHA
             titleView?.alpha = FULL_ALPHA
+        } else {
+            summaryView?.alpha = HALF_ALPHA
+            titleView?.alpha = HALF_ALPHA
         }
     }
 
@@ -126,8 +128,9 @@ open class RadioButtonPreference @JvmOverloads constructor(
     override fun updateRadioValue(isChecked: Boolean) {
         persistBoolean(isChecked)
         radioButton?.isChecked = isChecked
-        preferences.edit().putBoolean(key, isChecked)
-            .apply()
+        preferences.edit {
+            putBoolean(key, isChecked)
+        }
         onPreferenceChangeListener?.onPreferenceChange(this, isChecked)
     }
 
@@ -147,8 +150,8 @@ open class RadioButtonPreference @JvmOverloads constructor(
         titleView = holder.findViewById(R.id.title) as TextView
         titleView?.alpha = if (isEnabled) FULL_ALPHA else HALF_ALPHA
 
-        if (!title.isNullOrEmpty()) {
-            titleView?.text = title
+        title?.takeIf { it.isNotEmpty() }?.let {
+            titleView?.text = it
         }
     }
 
@@ -157,7 +160,9 @@ open class RadioButtonPreference @JvmOverloads constructor(
 
         summaryView?.alpha = if (isEnabled) FULL_ALPHA else HALF_ALPHA
         summaryView?.let {
-            if (!summary.isNullOrEmpty()) {
+            if (summary.isNullOrEmpty()) {
+                it.isVisible = false
+            } else {
                 it.text = if (shouldSummaryBeParsedAsHtmlContent) {
                     HtmlCompat.fromHtml(summary.toString(), HtmlCompat.FROM_HTML_MODE_COMPACT)
                 } else {
@@ -165,8 +170,6 @@ open class RadioButtonPreference @JvmOverloads constructor(
                 }
 
                 it.isVisible = true
-            } else {
-                it.isVisible = false
             }
         }
     }

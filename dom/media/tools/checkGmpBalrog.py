@@ -47,15 +47,13 @@ def fetch_balrog_xml(
     for channel in channels:
         results[channel] = {}
         for target in targets:
-            balrog_url = url.format_map(
-                {
-                    "url_base": url_base,
-                    "buildid": buildid,
-                    "channel": channel,
-                    "version": version,
-                    "target": target,
-                }
-            )
+            balrog_url = url.format_map({
+                "url_base": url_base,
+                "buildid": buildid,
+                "channel": channel,
+                "version": version,
+                "target": target,
+            })
 
             response = requests.get(balrog_url)
             response.raise_for_status()
@@ -96,9 +94,9 @@ def fetch_balrog_xml(
     for channel in results:
         print(", ".join(matching_channels[channel]))
         for target in targets:
-            print("\t{}".format(target))
+            print(f"\t{target}")
             for url in results[channel][target]:
-                print("\t\t{}".format(url))
+                print(f"\t\t{url}")
 
 
 def main():

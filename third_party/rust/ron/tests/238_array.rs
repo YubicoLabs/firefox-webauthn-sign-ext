@@ -1,5 +1,5 @@
 use ron::{
-    error::{Error, Position, SpannedError},
+    error::{Error, Position, Span, SpannedError},
     value::{Number, Value},
 };
 
@@ -17,9 +17,9 @@ fn test_array() {
     assert_eq!(
         value,
         Value::Seq(vec![
-            Value::Number(Number::from(1)),
-            Value::Number(Number::from(2)),
-            Value::Number(Number::from(3)),
+            Value::Number(Number::U8(1)),
+            Value::Number(Number::U8(2)),
+            Value::Number(Number::U8(3)),
         ])
     );
 
@@ -35,7 +35,10 @@ fn test_array() {
         de,
         SpannedError {
             code: Error::ExpectedStructLike,
-            position: Position { line: 1, col: 1 },
+            span: Span {
+                start: Position { line: 1, col: 1 },
+                end: Position { line: 1, col: 1 },
+            }
         }
     );
 
@@ -43,9 +46,9 @@ fn test_array() {
     assert_eq!(
         value,
         Value::Seq(vec![
-            Value::Number(Number::from(1)),
-            Value::Number(Number::from(2)),
-            Value::Number(Number::from(3)),
+            Value::Number(Number::U8(1)),
+            Value::Number(Number::U8(2)),
+            Value::Number(Number::U8(3)),
         ])
     );
 }

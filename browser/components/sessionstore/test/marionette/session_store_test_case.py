@@ -10,28 +10,26 @@ from marionette_harness import MarionetteTestCase, WindowManagerMixin
 
 
 def inline(doc):
-    return "data:text/html;charset=utf-8,{}".format(quote(doc))
+    return f"data:text/html;charset=utf-8,{quote(doc)}"
 
 
 # Each list element represents a window of tabs loaded at
 # some testing URL
-DEFAULT_WINDOWS = set(
-    [
-        # Window 1. Note the comma after the inline call -
-        # this is Python's way of declaring a 1 item tuple.
-        (inline("""<div">Lorem</div>"""),),
-        # Window 2
-        (
-            inline("""<div">ipsum</div>"""),
-            inline("""<div">dolor</div>"""),
-        ),
-        # Window 3
-        (
-            inline("""<div">sit</div>"""),
-            inline("""<div">amet</div>"""),
-        ),
-    ]
-)
+DEFAULT_WINDOWS = set([
+    # Window 1. Note the comma after the inline call -
+    # this is Python's way of declaring a 1 item tuple.
+    (inline("""<div">Lorem</div>"""),),
+    # Window 2
+    (
+        inline("""<div">ipsum</div>"""),
+        inline("""<div">dolor</div>"""),
+    ),
+    # Window 3
+    (
+        inline("""<div">sit</div>"""),
+        inline("""<div">amet</div>"""),
+    ),
+])
 
 
 class SessionStoreTestCase(WindowManagerMixin, MarionetteTestCase):
@@ -43,8 +41,9 @@ class SessionStoreTestCase(WindowManagerMixin, MarionetteTestCase):
         no_auto_updates=True,
         win_register_restart=False,
         test_windows=DEFAULT_WINDOWS,
+        taskbartabs_enable=False,
     ):
-        super(SessionStoreTestCase, self).setUp()
+        super().setUp()
         self.marionette.set_context("chrome")
 
         platform = self.marionette.session_capabilities["platformName"]
@@ -52,35 +51,33 @@ class SessionStoreTestCase(WindowManagerMixin, MarionetteTestCase):
 
         self.test_windows = test_windows
 
-        self.private_windows = set(
-            [
-                (
-                    inline("""<div">consectetur</div>"""),
-                    inline("""<div">ipsum</div>"""),
-                ),
-                (
-                    inline("""<div">adipiscing</div>"""),
-                    inline("""<div">consectetur</div>"""),
-                ),
-            ]
-        )
+        self.private_windows = set([
+            (
+                inline("""<div">consectetur</div>"""),
+                inline("""<div">ipsum</div>"""),
+            ),
+            (
+                inline("""<div">adipiscing</div>"""),
+                inline("""<div">consectetur</div>"""),
+            ),
+        ])
 
-        self.marionette.enforce_gecko_prefs(
-            {
-                # Set browser restore previous session pref,
-                # depending on what the test requires.
-                "browser.startup.page": startup_page,
-                # Make the content load right away instead of waiting for
-                # the user to click on the background tabs
-                "browser.sessionstore.restore_on_demand": restore_on_demand,
-                # Avoid race conditions by having the content process never
-                # send us session updates unless the parent has explicitly asked
-                # for them via the TabStateFlusher.
-                "browser.sessionstore.debug.no_auto_updates": no_auto_updates,
-                # Whether to enable the register application restart mechanism.
-                "toolkit.winRegisterApplicationRestart": win_register_restart,
-            }
-        )
+        self.marionette.enforce_gecko_prefs({
+            # Set browser restore previous session pref,
+            # depending on what the test requires.
+            "browser.startup.page": startup_page,
+            # Make the content load right away instead of waiting for
+            # the user to click on the background tabs
+            "browser.sessionstore.restore_on_demand": restore_on_demand,
+            # Avoid race conditions by having the content process never
+            # send us session updates unless the parent has explicitly asked
+            # for them via the TabStateFlusher.
+            "browser.sessionstore.debug.no_auto_updates": no_auto_updates,
+            # Whether to enable the register application restart mechanism.
+            "toolkit.winRegisterApplicationRestart": win_register_restart,
+            # Whether to enable taskbar tabs for this test
+            "browser.taskbarTabs.enabled": taskbartabs_enable,
+        })
 
         self.all_windows = self.test_windows.copy()
         self.open_windows(self.test_windows)
@@ -94,7 +91,7 @@ class SessionStoreTestCase(WindowManagerMixin, MarionetteTestCase):
             # Create a fresh profile for subsequent tests.
             self.marionette.restart(in_app=False, clean=True)
         finally:
-            super(SessionStoreTestCase, self).tearDown()
+            super().tearDown()
 
     def open_windows(self, window_sets, is_private=False):
         """Open a set of windows with tabs pointing at some URLs.
@@ -137,6 +134,47 @@ class SessionStoreTestCase(WindowManagerMixin, MarionetteTestCase):
                 win = self.open_window(private=is_private)
                 self.marionette.switch_to_window(win)
             self.open_tabs(win, urls)
+
+    # Open a Firefox web app (taskbar tab) window
+    def open_taskbartab_window(self):
+        self.marionette.execute_async_script(
+            """
+            let [resolve] = arguments;
+            (async () => {
+                    let extraOptions = Cc["@mozilla.org/hash-property-bag;1"].createInstance(
+                        Ci.nsIWritablePropertyBag2
+                    );
+                    extraOptions.setPropertyAsBool("taskbartab", true);
+
+                    let args = Cc["@mozilla.org/array;1"].createInstance(Ci.nsIMutableArray);
+                    args.appendElement(null);
+                    args.appendElement(extraOptions);
+                    args.appendElement(null);
+
+                    // Simulate opening a taskbar tab window
+                    let win = Services.ww.openWindow(
+                        null,
+                        AppConstants.BROWSER_CHROME_URL,
+                        "_blank",
+                        "chrome,dialog=no,titlebar,close,toolbar,location,personalbar=no,status,menubar=no,resizable,minimizable,scrollbars",
+                        args
+                    );
+                    await new Promise(resolve => {
+                        win.addEventListener("load", resolve, { once: true });
+                    });
+                    await win.delayedStartupPromise;
+            })().then(resolve);
+        """
+        )
+
+    # Helper function for taskbar tabs tests, opens a taskbar tab window,
+    # closes the regular window, and reopens another regular window.
+    # Firefox will then be in a "ready to restore" state
+    def setup_taskbartab_restore_scenario(self):
+        self.open_taskbartab_window()
+        taskbar_tab_window_handle = self.marionette.close_chrome_window()[0]
+        self.marionette.switch_to_window(taskbar_tab_window_handle)
+        self.marionette.open(type="window")
 
     def open_tabs(self, win, urls):
         """Open a set of URLs inside a window in new tabs.
@@ -209,14 +247,19 @@ class SessionStoreTestCase(WindowManagerMixin, MarionetteTestCase):
 
         return opened_windows
 
-    def _close_last_tab(self):
-        # "self.marionette.close" cannot be used because it doesn't
-        # allow closing the very last tab.
+    def _close_window(self):
+        """Use as a callback to `marionette.quit` in order to close the
+        browser window.
+
+        `marionette.close`/`marionette.close_chrome_window` cannot
+        be used alone because they don't allow closing the last window.
+        """
+
         self.marionette.execute_script("window.close()")
 
     def close_all_tabs_and_restart(self):
         self.close_all_tabs()
-        self.marionette.quit(callback=self._close_last_tab)
+        self.marionette.quit(callback=self._close_window)
         self.marionette.start_session()
 
     def simulate_os_shutdown(self):
@@ -397,9 +440,7 @@ class SessionStoreTestCase(WindowManagerMixin, MarionetteTestCase):
         self.assertEqual(
             current_windows_set,
             self.all_windows,
-            msg="Not all requested windows have been opened. Expected {}, got {}.".format(
-                self.all_windows, current_windows_set
-            ),
+            msg=f"Not all requested windows have been opened. Expected {self.all_windows}, got {current_windows_set}.",
         )
 
         self.marionette.quit(callback=lambda: self.simulate_os_shutdown())

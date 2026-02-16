@@ -1,4 +1,3 @@
-// |reftest| shell-option(--enable-iterator-helpers) skip-if(!this.hasOwnProperty('Iterator')||!xulRuntime.shell) -- iterator-helpers is not enabled unconditionally, requires shell-options
 // Copyright (C) 2023 Michael Ficarra. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 /*---
@@ -12,14 +11,14 @@ features: [iterator-helpers]
 flags: []
 ---*/
 let nonCallable = {};
-let iterator = (function* () {
+function* gen() {
   yield 1;
-})();
+}
 
 assert.throws(TypeError, function () {
-  iterator.reduce(nonCallable);
+  gen().reduce(nonCallable);
 });
 
-iterator.reduce(() => {});
+gen().reduce(() => {});
 
 reportCompare(0, 0);

@@ -8,6 +8,7 @@
 #include "mozilla/Sprintf.h"
 
 #include <stdarg.h>
+#include "fmt/format.h"
 
 MOZ_BEGIN_EXTERN_C
 
@@ -45,7 +46,7 @@ MFBT_API MOZ_COLD MOZ_NEVER_INLINE MOZ_FORMAT_PRINTF(1, 2) const
 
 MOZ_END_EXTERN_C
 
-MFBT_API MOZ_NORETURN MOZ_COLD void mozilla::detail::InvalidArrayIndex_CRASH(
+[[noreturn]] MFBT_API MOZ_COLD void mozilla::detail::InvalidArrayIndex_CRASH(
     size_t aIndex, size_t aLength) {
   MOZ_CRASH_UNSAFE_PRINTF("ElementAt(aIndex = %zu, aLength = %zu)", aIndex,
                           aLength);

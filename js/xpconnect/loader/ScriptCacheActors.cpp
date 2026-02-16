@@ -15,10 +15,11 @@ namespace loader {
 
 void ScriptCacheChild::Init(const Maybe<FileDescriptor>& cacheFile,
                             bool wantCacheData) {
+  AssertIsOnMainThread();
   mWantCacheData = wantCacheData;
 
   auto& cache = ScriptPreloader::GetChildSingleton();
-  Unused << cache.InitCache(cacheFile, this);
+  (void)cache.InitCache(cacheFile, this);
 
   if (!wantCacheData) {
     // If the parent process isn't expecting any cache data from us, we're
@@ -33,13 +34,16 @@ void ScriptCacheChild::SendScriptsAndFinalize(
     ScriptPreloader::ScriptHash& scripts) {
   MOZ_ASSERT(mWantCacheData);
 
-  AutoSafeJSAPI jsapi;
-
   auto matcher = ScriptPreloader::Match<ScriptPreloader::ScriptStatus::Saved>();
+
+  JS::FrontendContext* fc = JS::NewFrontendContext();
+  if (!fc) {
+    return;
+  }
 
   nsTArray<ScriptData> dataArray;
   for (auto& script : IterHash(scripts, matcher)) {
-    if (!script->mSize && !script->XDREncode(jsapi.cx())) {
+    if (!script->mSize && !script->XDREncode(fc)) {
       continue;
     }
 
@@ -55,6 +59,8 @@ void ScriptCacheChild::SendScriptsAndFinalize(
       script->FreeData();
     }
   }
+
+  JS::DestroyFrontendContext(fc);
 
   Send__delete__(this, dataArray);
 }
@@ -82,6 +88,7 @@ IPCResult ScriptCacheParent::Recv__delete__(nsTArray<ScriptData>&& scripts) {
     cache.NoteStencil(script.url(), script.cachePath(), processType,
                       std::move(script.xdrData()), script.loadTime());
   }
+  cache.NoteReceivedAllChildStencilsForProcess(processType);
 
   return IPC_OK();
 }

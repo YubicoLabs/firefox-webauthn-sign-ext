@@ -8,14 +8,14 @@
 #define mozilla_dom_workers_WorkerLoadInfo_h
 
 #include "mozilla/OriginAttributes.h"
-#include "mozilla/StorageAccess.h"
 #include "mozilla/OriginTrials.h"
+#include "mozilla/StorageAccess.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/ChannelInfo.h"
-#include "mozilla/net/NeckoChannelParams.h"
 #include "mozilla/dom/ServiceWorkerRegistrationDescriptor.h"
+#include "mozilla/dom/WorkerCSPContext.h"
 #include "mozilla/dom/WorkerCommon.h"
-
+#include "mozilla/net/NeckoChannelParams.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsILoadContext.h"
 #include "nsIRequest.h"
@@ -40,7 +40,6 @@ namespace mozilla {
 
 namespace ipc {
 class PrincipalInfo;
-class CSPInfo;
 }  // namespace ipc
 
 namespace dom {
@@ -71,12 +70,7 @@ struct WorkerLoadInfoData {
   nsCOMPtr<nsIScriptContext> mScriptContext;
   nsCOMPtr<nsPIDOMWindowInner> mWindow;
   nsCOMPtr<nsIContentSecurityPolicy> mCSP;
-  // Thread boundaries require us to not only store a CSP object, but also a
-  // serialized version of the CSP. Reason being: Serializing a CSP to a CSPInfo
-  // needs to happen on the main thread, but storing the CSPInfo needs to happen
-  // on the worker thread. We move the CSPInfo into the Client within
-  // ScriptLoader::PreRun().
-  UniquePtr<mozilla::ipc::CSPInfo> mCSPInfo;
+  UniquePtr<WorkerCSPContext> mCSPContext;
 
   nsCOMPtr<nsIChannel> mChannel;
   nsCOMPtr<nsILoadGroup> mLoadGroup;
@@ -135,10 +129,6 @@ struct WorkerLoadInfoData {
   nsCOMPtr<nsIReferrerInfo> mReferrerInfo;
   OriginTrials mTrials;
   bool mFromWindow;
-  bool mEvalAllowed;
-  bool mReportEvalCSPViolations;
-  bool mWasmEvalAllowed;
-  bool mReportWasmEvalCSPViolations;
   bool mXHRParamsAllowed;
   bool mWatchedByDevTools;
   StorageAccess mStorageAccess;

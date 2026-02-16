@@ -7,9 +7,6 @@
 with Files("**"):
     BUG_COMPONENT = ("Firefox Build System", "General")
 
-if CONFIG["MOZ_BUILD_APP"] == "mobile/android":
-    DEFINES["MOZ_FENNEC"] = True
-
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
     DEFINES["MOZ_GTK"] = True
 
@@ -24,7 +21,3 @@ LOCALIZED_GENERATED_FILES += ["default.locale"]
 default_locale = LOCALIZED_GENERATED_FILES["default.locale"]
 default_locale.script = "generate_default_locale.py"
 LOCALIZED_FILES += ["!default.locale"]
-
-LOCALIZED_GENERATED_FILES += ["locale.ini"]
-LOCALIZED_GENERATED_FILES["locale.ini"].script = "generate_locale_ini.py"
-LOCALIZED_FILES += ["!locale.ini"]

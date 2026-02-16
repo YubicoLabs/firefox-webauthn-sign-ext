@@ -75,7 +75,7 @@ CppUnitTests(
 if CONFIG["OS_ARCH"] != "WASI":
     CppUnitTests(
         [
-            "TestMPSCQueue",
+            "TestBoundedMPSCQueue",
             "TestSPSCQueue",
             "TestThreadSafeWeakPtr",
         ]
@@ -85,6 +85,13 @@ if CONFIG["OS_ARCH"] == "WINNT":
     CppUnitTests(
         [
             "TestWinArchDefs",
+        ]
+    )
+
+if CONFIG["OS_ARCH"] == "Linux":
+    CppUnitTests(
+        [
+            "TestMozCrash",
         ]
     )
 

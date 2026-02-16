@@ -11,7 +11,7 @@
                      wrap="true"
                      hidden="true"/>
 
-      <toolbaritem id="appMenu-fxa-menu-message"
+      <toolbaritem id="appMenu-menu-message"
                    closemenu="none">
       </toolbaritem>
       <toolbaritem id="appMenu-fxa-status2"
@@ -49,6 +49,14 @@
                      data-l10n-id="appmenuitem-new-window"
                      key="key_newNavigator"
                      command="cmd_newNavigator"/>
+      <toolbarbutton id="appMenu-new-ai-window-button"
+                     class="subviewbutton"
+                     data-l10n-id="appmenuitem-new-ai-window"
+                     command="Tools:AIWindow"/>
+      <toolbarbutton id="appMenu-new-classic-window-button"
+                     class="subviewbutton"
+                     data-l10n-id="appmenuitem-new-classic-window"
+                     command="Tools:ClassicWindow"/>
       <toolbarbutton id="appMenu-new-private-window-button2"
                      class="subviewbutton"
                      data-l10n-id="appmenuitem-new-private-window"
@@ -65,6 +73,10 @@
                      data-l10n-id="appmenuitem-history"
                      closemenu="none"
                      />
+      <toolbarbutton id="appMenu-chats-history-button"
+                     class="subviewbutton"
+                     data-l10n-id="menu-history-chats"
+                     command="Tools:ChatsHistory"/>
       <toolbarbutton id="appMenu-downloads-button"
                      class="subviewbutton"
                      data-l10n-id="appmenuitem-downloads"
@@ -76,9 +88,15 @@
                      />
       <toolbarbutton id="appMenu-extensions-themes-button"
                      class="subviewbutton"
-                     data-l10n-id="appmenuitem-addons-and-themes"
+                     data-l10n-id="appmenuitem-extensions-and-themes"
                      key="key_openAddons"
                      command="Tools:Addons"
+                     />
+      <toolbarbutton id="appMenu-unified-extensions-button"
+                     class="subviewbutton"
+                     data-l10n-id="appmenuitem-extensions"
+                     command="cmd_openUnifiedExtensionsPanel"
+                     hidden="true"
                      />
       <toolbarseparator/>
       <toolbarbutton id="appMenu-print-button2"
@@ -142,7 +160,7 @@
                      class="subviewbutton subviewbutton-nav"
                      data-l10n-id="appmenuitem-report-broken-site"
                      closemenu="none"
-                     hidden="true"
+                     disabled="true"
                      command="cmd_reportBrokenSite"/>
       <toolbarbutton id="appMenu-help-button2"
                      class="subviewbutton subviewbutton-nav"
@@ -201,13 +219,16 @@
     <toolbarbutton id="PanelUI-historyMore"
                    class="subviewbutton panel-subview-footer-button"
                    data-l10n-id="appmenu-manage-history"
+                   key="showAllHistoryKb"
+                   command="Browser:ShowAllHistory"
                    />
   </panelview>
 
   <panelview id="PanelUI-profiles"
              flex="1"
              has-custom-header="true">
-    <box id="PanelUI-profiles-header" class="panel-header">
+    <box id="PanelUI-profiles-header"
+         class="panel-header panel-header-with-additional-element">
       <toolbarbutton class="subviewbutton subviewbutton-iconic subviewbutton-back"
                      id="profiles-appmenu-back-button"
                      tabindex="0"
@@ -217,7 +238,7 @@
         <html:span id="profiles-header-content"></html:span>
       </html:h1>
       <toolbarbutton id="profiles-edit-this-profile-button"
-                     class="subviewbutton subviewbutton-iconic toolbarbutton-1"
+                     class="subviewbutton subviewbutton-iconic"
                      data-l10n-id="appmenu-edit-profile"
                      />
     </box>
@@ -230,15 +251,6 @@
                class="subview-subheader"
                data-l10n-id="appmenu-other-profiles" />
       <vbox id="profiles-list"></vbox>
-      <toolbarbutton id="profiles-create-profile-button"
-                     class="subviewbutton subviewbutton-iconic"
-                     data-l10n-id="appmenu-create-profile"
-                     />
-      <toolbarseparator/>
-      <toolbarbutton id="profiles-manage-profiles-button"
-                     class="subviewbutton"
-                     data-l10n-id="appmenu-manage-profiles"
-                     />
     </vbox>
   </panelview>
 
@@ -442,15 +454,6 @@
     </vbox>
   </panelview>
 
-  <panelview id="PanelUI-savetopocket"
-             class="PanelUI-subView"
-             remote="true"
-             neverhidden="true"
-             closemenu="none">
-    <vbox class="PanelUI-savetopocket-container">
-    </vbox>
-  </panelview>
-
   <panelview id="PanelUI-remotetabs" class="PanelUI-subView">
     <vbox class="panel-subview-body">
       <!-- this widget has 3 boxes in the body, but only 1 is ever visible -->
@@ -613,47 +616,43 @@
         </hbox>
       </toolbarbutton>
       <vbox id="PanelUI-signedin-panel" hidden="true">
-      <toolbarbutton id="PanelUI-fxa-menu-setup-sync-button"
-                      class="subviewbutton"
-                      data-l10n-id="appmenu-fxa-setup-sync"
-                      hidden="true"
-                      />
+        <vbox id="PanelUI-fxa-menu-setup-sync-container" hidden="true">
+          <vbox class="PanelUI-fxa-menu-setup-sync" flex="1">
+            <hbox class="sync-status-container" align="center">
+              <image class="sync-status-indicator" role="presentation"/>
+              <image class="sync-setup-icon" alt="Sync Status Icon" />
+              <label id="sync-status-text"
+                    class="sync-setup-title"
+                    data-l10n-id="appmenuitem-fxa-sync-off-title"
+                    crop="end" />
+            </hbox>
+            <label id="sync-description-text"
+                  class="sync-setup-description"
+                  data-l10n-id="appmenuitem-fxa-sync-off-description"
+                  crop="end"/>
+            <toolbarbutton id="PanelUI-fxa-menu-setup-sync-button"
+                    class="subviewbutton"
+                    data-l10n-id="appmenu-fxa-setup-sync-new"/>
+          </vbox>
+          <toolbarseparator id="PanelUI-set-up-sync-separator" />
+      </vbox>
       <!-- The `Connect Another Device` button is disabled by default until the user logs into Sync. -->
       <toolbarbutton id="PanelUI-fxa-menu-connect-device-button"
                       class="subviewbutton"
                       data-l10n-id="fxa-menu-connect-another-device"
                       disabled="true"
                       />
-      <vbox id="PanelUI-fxa-menu-setup-sync-container" hidden="true">
-        <toolbarseparator id="PanelUI-set-up-sync-separator" />
-        <vbox class="PanelUI-fxa-menu-setup-sync" flex="1">
-          <hbox class="sync-status-container" align="center">
-            <image class="sync-status-indicator" role="presentation"/>
-            <image class="sync-setup-icon" alt="Sync Status Icon" />
-            <label id="sync-status-text"
-                  class="sync-setup-title"
-                  data-l10n-id="appmenuitem-fxa-sync-off-title"
-                  crop="end" />
-          </hbox>
-          <label id="sync-description-text"
-                class="sync-setup-description"
-                data-l10n-id="appmenuitem-fxa-sync-off-description"
-                crop="end"/>
-          <toolbarbutton id="PanelUI-fxa-menu-setup-sync-button-new"
-                  class="subviewbutton"
-                  data-l10n-id="appmenu-fxa-setup-sync-new"/>
-        </vbox>
-    </vbox>
-      <toolbarbutton id="PanelUI-fxa-menu-sendtab-button"
-                      class="subviewbutton subviewbutton-nav"
-                      data-l10n-id="fxa-menu-send-tab-to-device"
-                      data-l10n-args='{"tabCount":1}'
-                      closemenu="none"
-                      />
       <toolbarbutton id="PanelUI-fxa-menu-sync-prefs-button"
                       class="subviewbutton"
                       data-l10n-id="fxa-menu-sync-settings"
                       hidden="true"
+                      />
+      <toolbarseparator id="PanelUI-fxa-menu-sendtab-separator" />
+      <toolbarbutton id="PanelUI-fxa-menu-sendtab-button"
+                      class="subviewbutton subviewbutton-nav"
+                      data-l10n-id="fxa-menu-send-to-device"
+                      data-l10n-args='{"tabCount":1}'
+                      closemenu="none"
                       />
       <toolbarseparator id="PanelUI-sign-out-separator" />
       <toolbarbutton id="PanelUI-fxa-menu-account-signout-button"
@@ -691,7 +690,7 @@
       <!-- updateCTAPanel will control if we show this panel -->
       <vbox id="PanelUI-fxa-cta-menu" hidden="true">
         <toolbarseparator id="PanelUI-products-separator" />
-        <label id="fxa-menu-other-protection-tools-header" crop="end" class="PanelUI-fxa-menu-section-title" data-l10n-id="appmenu-other-protection-header" />
+        <label id="fxa-menu-other-protection-tools-header" crop="end" class="PanelUI-fxa-menu-section-title" data-l10n-id="appmenu-other-protection-header2" />
         <toolbarbutton id="PanelUI-fxa-menu-monitor-button" class="fxa-cta-button subviewbutton subviewbutton-iconic">
           <vbox flex="1">
             <hbox align="center">
@@ -716,7 +715,7 @@
               <image class="PanelUI-fxa-menu-vpn-button ctaMenuLogo" role="presentation" />
               <label id="fxa-menu-header-title" crop="end" data-l10n-id="appmenuitem-vpn-title" />
             </hbox>
-            <label id="cta-menu-header-description" crop="end" data-l10n-id="appmenuitem-vpn-description" />
+            <label id="cta-menu-header-description" crop="end" data-l10n-id="appmenuitem-vpn-description-2" />
           </vbox>
         </toolbarbutton>
       </vbox>
@@ -828,6 +827,38 @@
                 class="learnMore"
                 support-page="data-loss-prevention"/>
       </description>
+    </vbox>
+  </panelview>
+
+  <panelview id="PanelUI-ipprotection"
+             class="PanelUI-subView"
+             mainview-with-header="true"
+             has-custom-header="true">
+    <hbox id="PanelUI-ipprotection-header"
+         class="panel-header panel-header-with-info-button">
+        <html:h1>
+          <html:span id="ipprotection-header-content"
+                     data-l10n-id="ipprotection-title"></html:span>
+          <html:moz-badge
+            id="ipprotection-experiment-badge"
+            data-l10n-id="ipprotection-experiment-badge"
+          ></html:moz-badge>
+        </html:h1>
+    </hbox>
+    <toolbarseparator/>
+    <vbox id="PanelUI-ipprotection-content" class="panel-subview-body"/>
+  </panelview>
+
+  <panelview id="ai-window-toggle-view" class="PanelUI-subView">
+    <vbox class="panel-subview-body">
+      <toolbarbutton id="ai-window-switch-classic"
+                    class="subviewbutton"
+                    data-l10n-id="ai-window-toggleview-switch-classic"
+                    hidden="true"/>
+      <toolbarbutton id="ai-window-switch-ai"
+                    class="subviewbutton"
+                    data-l10n-id="ai-window-toggleview-switch-ai"
+                    hidden="true"/>
     </vbox>
   </panelview>
 

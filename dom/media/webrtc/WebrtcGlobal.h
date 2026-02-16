@@ -2,17 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef _WEBRTC_GLOBAL_H_
-#define _WEBRTC_GLOBAL_H_
+#ifndef WEBRTC_GLOBAL_H_
+#define WEBRTC_GLOBAL_H_
 
 #include "WebrtcIPCTraits.h"
 #include "ipc/EnumSerializer.h"
 #include "ipc/IPCMessageUtilsSpecializations.h"
-#include "mozilla/dom/BindingIPCUtils.h"
+#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/BindingIPCUtils.h"
 #include "mozilla/dom/RTCDataChannelBinding.h"
 #include "mozilla/dom/RTCStatsReportBinding.h"
-#include "mozilla/UniquePtr.h"
 
 typedef mozilla::dom::RTCStatsReportInternal StatsReport;
 typedef nsTArray<mozilla::UniquePtr<StatsReport>> RTCReports;
@@ -123,7 +123,8 @@ DEFINE_IPC_SERIALIZER_WITH_SUPER_CLASS_AND_FIELDS(
     mozilla::dom::RTCIceCandidatePairStats, mozilla::dom::RTCStats,
     mTransportId, mLocalCandidateId, mPriority, mNominated, mWritable,
     mReadable, mRemoteCandidateId, mSelected, mComponentId, mState, mBytesSent,
-    mBytesReceived, mLastPacketSentTimestamp, mLastPacketReceivedTimestamp);
+    mBytesReceived, mLastPacketSentTimestamp, mLastPacketReceivedTimestamp,
+    mTotalRoundTripTime, mResponsesReceived, mCurrentRoundTripTime);
 
 DEFINE_IPC_SERIALIZER_WITH_SUPER_CLASS_AND_FIELDS(
     mozilla::dom::RTCIceCandidateStats, mozilla::dom::RTCStats, mCandidateType,
@@ -138,18 +139,19 @@ DEFINE_IPC_SERIALIZER_WITH_SUPER_CLASS_AND_FIELDS(
 DEFINE_IPC_SERIALIZER_WITH_SUPER_CLASS_AND_FIELDS(
     mozilla::dom::RTCInboundRtpStreamStats,
     mozilla::dom::RTCReceivedRtpStreamStats, mTrackIdentifier, mRemoteId,
-    mFramesDecoded, mFramesDropped, mFrameWidth, mFrameHeight, mFramesPerSecond,
-    mQpSum, mTotalDecodeTime, mTotalInterFrameDelay,
-    mTotalSquaredInterFrameDelay, mLastPacketReceivedTimestamp,
-    mHeaderBytesReceived, mFecPacketsReceived, mFecPacketsDiscarded,
-    mBytesReceived, mNackCount, mFirCount, mPliCount, mTotalProcessingDelay,
-    // Always missing from libwebrtc stats
-    // mEstimatedPlayoutTimestamp,
-    mFramesReceived, mJitterBufferDelay, mJitterBufferEmittedCount,
-    mTotalSamplesReceived, mConcealedSamples, mSilentConcealedSamples,
-    mConcealmentEvents, mInsertedSamplesForDeceleration,
-    mRemovedSamplesForAcceleration, mAudioLevel, mTotalAudioEnergy,
-    mTotalSamplesDuration);
+    mFramesDecoded, mKeyFramesDecoded, mFramesDropped, mFrameWidth,
+    mFrameHeight, mFramesPerSecond, mQpSum, mTotalDecodeTime,
+    mTotalInterFrameDelay, mTotalSquaredInterFrameDelay, mPauseCount,
+    mTotalPausesDuration, mFreezeCount, mTotalFreezesDuration,
+    mLastPacketReceivedTimestamp, mHeaderBytesReceived, mFecPacketsReceived,
+    mFecPacketsDiscarded, mBytesReceived, mNackCount, mFirCount, mPliCount,
+    mTotalProcessingDelay, mEstimatedPlayoutTimestamp, mFramesReceived,
+    mJitterBufferDelay, mJitterBufferEmittedCount, mJitterBufferTargetDelay,
+    mJitterBufferMinimumDelay, mTotalSamplesReceived, mConcealedSamples,
+    mSilentConcealedSamples, mConcealmentEvents,
+    mInsertedSamplesForDeceleration, mRemovedSamplesForAcceleration,
+    mAudioLevel, mTotalAudioEnergy, mTotalSamplesDuration,
+    mFramesAssembledFromMultiplePackets, mTotalAssemblyTime);
 
 DEFINE_IPC_SERIALIZER_WITH_SUPER_CLASS_AND_FIELDS(
     mozilla::dom::RTCRtpStreamStats, mozilla::dom::RTCStats, mSsrc, mKind,
@@ -224,4 +226,4 @@ struct ParamTraits<mozilla::dom::RTCCodecType>
     : public mozilla::dom::WebIDLEnumSerializer<mozilla::dom::RTCCodecType> {};
 }  // namespace IPC
 
-#endif  // _WEBRTC_GLOBAL_H_
+#endif  // WEBRTC_GLOBAL_H_

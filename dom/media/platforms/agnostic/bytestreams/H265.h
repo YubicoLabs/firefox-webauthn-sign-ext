@@ -263,10 +263,12 @@ struct H265SPS final {
   Maybe<H265VUIParameters> vui_parameters;
 
   // Calculated fields
-  uint32_t subWidthC = {};       // From Table 6-1.
-  uint32_t subHeightC = {};      // From Table 6-1.
-  CheckedUint32 mDisplayWidth;   // Per (E-68) + (E-69)
-  CheckedUint32 mDisplayHeight;  // Per (E-70) + (E-71)
+  uint32_t subWidthC = {};         // From Table 6-1.
+  uint32_t subHeightC = {};        // From Table 6-1.
+  Maybe<uint32_t> mCroppedWidth;   // Calculated by conformance_window_flag
+  Maybe<uint32_t> mCroppedHeight;  // Calculated by conformance_window_flag
+  CheckedUint32 mDisplayWidth;     // Per (E-68) + (E-69)
+  CheckedUint32 mDisplayHeight;    // Per (E-70) + (E-71)
   uint32_t maxDpbSize = {};
 
   // Often used information
@@ -365,7 +367,10 @@ class SPSIterator final {
     }
   }
 
-  bool IsValid() const { return mCurrentIdx < mConfig.mNALUs.Length(); }
+  bool IsValid() const {
+    return mCurrentIdx < mConfig.mNALUs.Length() &&
+           mConfig.mNALUs[mCurrentIdx].IsSPS();
+  }
 
   size_t mCurrentIdx;
   const HVCCConfig& mConfig;
@@ -400,6 +405,11 @@ class H265 final {
   // given NALUS, which are usually SPS, PPS, VPS and SEI.
   static already_AddRefed<mozilla::MediaByteBuffer> CreateNewExtraData(
       const HVCCConfig& aConfig, const nsTArray<H265NALU>& aNALUs);
+
+  // Return true if the given sample is a keyframe. Return error if we can't
+  // determine the result.
+  static Result<bool, nsresult> IsKeyFrame(
+      const mozilla::MediaRawData* aSample);
 
  private:
   // Return RAW BYTE SEQUENCE PAYLOAD (rbsp) from NAL content.

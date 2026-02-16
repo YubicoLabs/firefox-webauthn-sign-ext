@@ -13,9 +13,7 @@ from session_store_test_case import SessionStoreTestCase
 
 
 def inline(title):
-    return "data:text/html;charset=utf-8,<html><head><title>{}</title></head><body></body></html>".format(
-        title
-    )
+    return f"data:text/html;charset=utf-8,<html><head><title>{title}</title></head><body></body></html>"
 
 
 class TestSessionRestoreClosedTabs(SessionStoreTestCase):
@@ -31,19 +29,17 @@ class TestSessionRestoreClosedTabs(SessionStoreTestCase):
     """
 
     def setUp(self):
-        super(TestSessionRestoreClosedTabs, self).setUp(
+        super().setUp(
             startup_page=1,
             include_private=False,
             restore_on_demand=True,
-            test_windows=set(
-                [
-                    # Window 1
-                    (
-                        inline("lorem ipsom"),
-                        inline("dolor"),
-                    ),
-                ]
-            ),
+            test_windows=set([
+                # Window 1
+                (
+                    inline("lorem ipsom"),
+                    inline("dolor"),
+                ),
+            ]),
         )
 
     def test_restore(self):

@@ -8,7 +8,7 @@ use crate::map::MutableKeys;
 /// These methods expose `&mut T`, mutable references to the value as it is stored
 /// in the set.
 /// You are allowed to modify the values in the set **if the modification
-/// does not change the value’s hash and equality**.
+/// does not change the value's hash and equality**.
 ///
 /// If values are modified erroneously, you can no longer look them up.
 /// This is sound (memory safe) but a logical error hazard (just like
@@ -29,7 +29,7 @@ pub trait MutableValues: private::Sealed {
 
     /// Return mutable reference to the value at an index.
     ///
-    /// Valid indices are *0 <= index < self.len()*
+    /// Valid indices are `0 <= index < self.len()`.
     ///
     /// Computes in **O(1)** time.
     fn get_index_mut2(&mut self, index: usize) -> Option<&mut Self::Value>;

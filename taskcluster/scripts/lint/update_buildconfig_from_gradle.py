@@ -35,9 +35,9 @@ def _get_upstream_deps_per_gradle_project(gradle_root, existing_build_config):
     # command line too long. If that happens, we'll need to split this list up and
     # run gradle more than once.
     cmd = list(_DEFAULT_GRADLE_COMMAND)
-    cmd.extend(
-        [f"{gradle_project}:dependencies" for gradle_project in sorted(gradle_projects)]
-    )
+    cmd.extend([
+        f"{gradle_project}:dependencies" for gradle_project in sorted(gradle_projects)
+    ])
 
     # Parsing output like this is not ideal but bhearsum couldn't find a way
     # to get the dependencies printed in a better format. If we could convince
@@ -54,17 +54,13 @@ def _get_upstream_deps_per_gradle_project(gradle_root, existing_build_config):
         # If we find the start of a new component section, update our tracking
         # variable
         if line.startswith("Project"):
-            current_project_name = line.split(":")[1].strip("'")
+            current_project_name = line.split(":", 1)[1].strip("'")
 
         # If we find a new local dependency, add it.
         local_dep_match = _LOCAL_DEPENDENCY_PATTERN.search(line)
         if local_dep_match:
             local_dependency_name = local_dep_match.group("local_dependency_name")
-            if (
-                local_dependency_name != current_project_name
-                # These lint rules are not part of android-components
-                and local_dependency_name != "mozilla-lint-rules"
-            ):
+            if local_dependency_name != current_project_name:
                 project_dependencies[current_project_name].add(local_dependency_name)
 
     return {

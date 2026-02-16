@@ -26,8 +26,11 @@ const fxaDevices = [
 ];
 
 add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
   await promiseSyncReady();
-  await Services.search.init();
+  await SearchService.init();
   // gSync.init() is called in a requestIdleCallback. Force its initialization.
   gSync.init();
   sinon
@@ -73,9 +76,12 @@ add_task(async function test_link_contextmenu() {
     .expects("sendTabToDevice")
     .once()
     .withExactArgs(
-      "https://www.example.org/",
-      [fxaDevices[1]],
-      "Click on me!!"
+      {
+        url: "https://www.example.org/",
+        title: "Click on me!!",
+        private: false,
+      },
+      [fxaDevices[1]]
     );
 
   // Add a link to the page
@@ -117,16 +123,18 @@ add_task(async function test_link_contextmenu() {
       : []),
     "context-openlink",
     "context-openlinkprivate",
+    "context-previewlink",
     "context-sep-open",
     "context-bookmarklink",
     "context-savelink",
-    "context-savelinktopocket",
     "context-copylink",
     ...(expectStripOnShareLink ? ["context-stripOnShareLink"] : []),
+    "context-sep-copylink",
     "context-sendlinktodevice",
     "context-sep-sendlinktodevice",
     "context-searchselect",
     ...(expectTranslateSelection ? ["context-translate-selection"] : []),
+    "context-ask-chat",
     "frame-sep",
     ...(expectInspectAccessibility ? ["context-inspect-a11y"] : []),
     "context-inspect",

@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "DocumentOrShadowRoot.h"
+
 #include "mozilla/AnimationComparator.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/PointerLockManager.h"
@@ -15,12 +16,12 @@
 #include "mozilla/dom/HTMLInputElement.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "mozilla/dom/StyleSheetList.h"
-#include "nsTHashtable.h"
 #include "nsContentUtils.h"
 #include "nsFocusManager.h"
 #include "nsIFormControl.h"
 #include "nsLayoutUtils.h"
 #include "nsNameSpaceManager.h"
+#include "nsTHashtable.h"
 #include "nsWindowSizes.h"
 
 namespace mozilla::dom {
@@ -585,8 +586,8 @@ void DocumentOrShadowRoot::RemoveIDTargetObserver(nsAtom* aID,
   entry->RemoveContentChangeCallback(aObserver, aData, aForImage);
 }
 
-Element* DocumentOrShadowRoot::LookupImageElement(const nsAString& aId) {
-  if (aId.IsEmpty()) {
+Element* DocumentOrShadowRoot::LookupImageElement(nsAtom* aId) {
+  if (aId->IsEmpty()) {
     return nullptr;
   }
 
@@ -605,7 +606,8 @@ void DocumentOrShadowRoot::GetAnimations(
   // structure while iterating over the children below.
   if (Document* doc = AsNode().GetComposedDoc()) {
     doc->FlushPendingNotifications(
-        ChangesToFlush(FlushType::Style, false /* flush animations */));
+        ChangesToFlush(FlushType::Style, /* aFlushAnimations = */ false,
+                       /* aUpdateRelevancy = */ false));
   }
 
   GetAnimationsOptions options;
@@ -625,6 +627,7 @@ void DocumentOrShadowRoot::GetAnimations(
 
 struct SheetTreeOrderComparator {
   nsINode* mNode = nullptr;
+  mutable nsContentUtils::NodeIndexCache mCache;
 
   int operator()(StyleSheet* aSheet) const {
     auto* sheetNode = aSheet->GetOwnerNode();
@@ -634,7 +637,7 @@ struct SheetTreeOrderComparator {
       return 1;
     }
     return nsContentUtils::CompareTreePosition<TreeKind::DOM>(mNode, sheetNode,
-                                                              nullptr);
+                                                              nullptr, &mCache);
   }
 };
 

@@ -6,17 +6,15 @@
 
 /*---
 flags:
-- onlyStrict
-includes: [sm/non262-shell.js, sm/non262.js]
+  - onlyStrict
 description: |
   pending
 esid: pending
 ---*/
-"use strict";
-assertThrowsInstanceOf(
-    () => eval("(function() { eval(); function eval() {} })"),
-    SyntaxError
-)
 
+assert.throws(
+    SyntaxError,
+    () => eval("(function() { eval(); function eval() {} })")
+)
 
 reportCompare(0, 0);

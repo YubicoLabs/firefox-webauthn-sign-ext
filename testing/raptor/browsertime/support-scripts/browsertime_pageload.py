@@ -107,7 +107,7 @@ class PageloadSupport(BasePythonSupport):
                 val = _get_raptor_val(cycle["timings"], raptor)
                 if not val:
                     raise MissingResultsError(
-                        "Browsertime cycle missing {} measurement".format(raptor)
+                        f"Browsertime cycle missing {raptor} measurement"
                     )
                 bt_result["measurements"][bt].append(val)
 
@@ -147,9 +147,9 @@ class PageloadSupport(BasePythonSupport):
 
         power_vals = raw_result.get("android").get("power", {})
         if power_vals:
-            bt_result["measurements"].setdefault("powerUsage", []).extend(
-                [round(vals["powerUsage"] * (1 * 10**-6), 2) for vals in power_vals]
-            )
+            bt_result["measurements"].setdefault("powerUsage", []).extend([
+                round(vals["powerUsage"] * (1 * 10**-6), 2) for vals in power_vals
+            ])
 
     def _process_measurements(self, suite, test, measurement_name, replicates):
         subtest = {}

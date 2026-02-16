@@ -5,14 +5,19 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "PerformanceMainThread.h"
+
+#include "LargestContentfulPaint.h"
+#include "PerformanceEventTiming.h"
+#include "PerformanceInteractionMetrics.h"
 #include "PerformanceNavigation.h"
 #include "PerformancePaintTiming.h"
-#include "jsapi.h"
 #include "js/GCAPI.h"
 #include "js/PropertyAndElement.h"  // JS_DefineProperty
+#include "jsapi.h"
 #include "mozilla/HoldDropJSObjects.h"
-#include "PerformanceEventTiming.h"
-#include "LargestContentfulPaint.h"
+#include "mozilla/PresShell.h"
+#include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/TextEvents.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Event.h"
 #include "mozilla/dom/EventCounts.h"
@@ -21,13 +26,12 @@
 #include "mozilla/dom/PerformanceNavigationTiming.h"
 #include "mozilla/dom/PerformanceResourceTiming.h"
 #include "mozilla/dom/PerformanceTiming.h"
-#include "mozilla/StaticPrefs_dom.h"
-#include "mozilla/PresShell.h"
-#include "nsIChannel.h"
-#include "nsIHttpChannel.h"
-#include "nsIDocShell.h"
-#include "nsGlobalWindowInner.h"
 #include "nsContainerFrame.h"
+#include "nsGkAtoms.h"
+#include "nsGlobalWindowInner.h"
+#include "nsIChannel.h"
+#include "nsIDocShell.h"
+#include "nsIHttpChannel.h"
 
 namespace mozilla::dom {
 
@@ -67,7 +71,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(PerformanceMainThread,
   NS_IMPL_CYCLE_COLLECTION_UNLINK(
       mTiming, mNavigation, mDocEntry, mFCPTiming, mEventTimingEntries,
       mLargestContentfulPaintEntries, mFirstInputEvent, mPendingPointerDown,
-      mPendingEventTimingEntries, mEventCounts)
+      mPendingEventTimingEntries, mEventCounts, mInteractionMetrics)
   tmp->mTextFrameUnions.Clear();
   mozilla::DropJSObjects(tmp);
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
@@ -77,7 +81,8 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(PerformanceMainThread,
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(
       mTiming, mNavigation, mDocEntry, mFCPTiming, mEventTimingEntries,
       mLargestContentfulPaintEntries, mFirstInputEvent, mPendingPointerDown,
-      mPendingEventTimingEntries, mEventCounts, mTextFrameUnions)
+      mPendingEventTimingEntries, mEventCounts, mTextFrameUnions,
+      mInteractionMetrics)
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
@@ -173,7 +178,7 @@ PerformanceTiming* PerformanceMainThread::Timing() {
   return mTiming;
 }
 
-void PerformanceMainThread::DispatchBufferFullEvent() {
+void PerformanceMainThread::DispatchResourceTimingBufferFullEvent() {
   RefPtr<Event> event = NS_NewDOMEvent(this, nullptr, nullptr);
   // it bubbles, and it isn't cancelable
   event->InitEvent(u"resourcetimingbufferfull"_ns, true, false);
@@ -289,47 +294,93 @@ void PerformanceMainThread::BufferLargestContentfulPaintEntryIfNeeded(
 void PerformanceMainThread::DispatchPendingEventTimingEntries() {
   DOMHighResTimeStamp renderingTime = NowUnclamped();
 
-  while (!mPendingEventTimingEntries.isEmpty()) {
-    RefPtr<PerformanceEventTiming> entry =
-        mPendingEventTimingEntries.popFirst();
-
-    entry->SetDuration(renderingTime - entry->RawStartTime());
-    IncEventCount(entry->GetName());
-
-    if (entry->RawDuration() >= kDefaultEventTimingMinDuration) {
-      QueueEntry(entry);
+  auto entriesToBeQueuedEnd = mPendingEventTimingEntries.end();
+  for (auto it = mPendingEventTimingEntries.begin();
+       it != mPendingEventTimingEntries.end(); ++it) {
+    // Set its duration if it's not set already.
+    PerformanceEventTiming* entry = *it;
+    if (entry->RawDuration().isNothing()) {
+      entry->SetDuration(renderingTime - entry->RawStartTime());
     }
 
-    if (!mHasDispatchedInputEvent) {
-      switch (entry->GetMessage()) {
-        case ePointerDown: {
-          mPendingPointerDown = entry->Clone();
-          mPendingPointerDown->SetEntryType(u"first-input"_ns);
-          break;
-        }
-        case ePointerUp: {
-          if (mPendingPointerDown) {
-            MOZ_ASSERT(!mFirstInputEvent);
-            mFirstInputEvent = mPendingPointerDown.forget();
-            QueueEntry(mFirstInputEvent);
-            SetHasDispatchedInputEvent();
-          }
-          break;
-        }
-        case ePointerClick:
-        case eKeyDown:
-        case eMouseDown: {
+    if (!(mPendingEventTimingEntries.end() != entriesToBeQueuedEnd) &&
+        !entry->HasKnownInteractionId()) {
+      entriesToBeQueuedEnd = it;
+    }
+  }
+
+  if (!StaticPrefs::dom_performance_event_timing_enable_interactionid() ||
+      mPendingEventTimingEntries.begin() != entriesToBeQueuedEnd) {
+    while (mPendingEventTimingEntries.begin() != entriesToBeQueuedEnd) {
+      RefPtr<PerformanceEventTiming> entry =
+          mPendingEventTimingEntries.popFirst();
+      if (entry->RawDuration().valueOr(0) >= kDefaultEventTimingMinDuration) {
+        QueueEntry(entry);
+      }
+
+      // Perform the following steps to update the event counts:
+      IncEventCount(entry->GetName());
+
+      // If window’s has dispatched input event is false, run the following
+      // steps:
+      if (StaticPrefs::dom_performance_event_timing_enable_interactionid()) {
+        if (!mHasDispatchedInputEvent && entry->InteractionId() != 0) {
           mFirstInputEvent = entry->Clone();
-          mFirstInputEvent->SetEntryType(u"first-input"_ns);
+          mFirstInputEvent->SetEntryType(nsGkAtoms::firstInput);
           QueueEntry(mFirstInputEvent);
           SetHasDispatchedInputEvent();
-          break;
         }
-        default:
-          break;
+      } else {
+        if (!mHasDispatchedInputEvent) {
+          switch (entry->GetMessage()) {
+            case ePointerDown: {
+              mPendingPointerDown = entry->Clone();
+              mPendingPointerDown->SetEntryType(nsGkAtoms::firstInput);
+              break;
+            }
+            case ePointerUp: {
+              if (mPendingPointerDown) {
+                MOZ_ASSERT(!mFirstInputEvent);
+                mFirstInputEvent = mPendingPointerDown.forget();
+                QueueEntry(mFirstInputEvent);
+                SetHasDispatchedInputEvent();
+              }
+              break;
+            }
+            case ePointerClick:
+            case eKeyDown:
+            case eMouseDown: {
+              mFirstInputEvent = entry->Clone();
+              mFirstInputEvent->SetEntryType(nsGkAtoms::firstInput);
+              QueueEntry(mFirstInputEvent);
+              SetHasDispatchedInputEvent();
+              break;
+            }
+            default:
+              break;
+          }
+        }
       }
     }
   }
+}
+
+PerformanceInteractionMetrics&
+PerformanceMainThread::GetPerformanceInteractionMetrics() {
+  return mInteractionMetrics;
+}
+
+void PerformanceMainThread::SetInteractionId(
+    PerformanceEventTiming* aEventTiming, const WidgetEvent* aEvent) {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (!StaticPrefs::dom_performance_event_timing_enable_interactionid() ||
+      aEvent->mFlags.mOnlyChromeDispatch || !aEvent->IsTrusted()) {
+    aEventTiming->SetInteractionId(0);
+    return;
+  }
+
+  aEventTiming->SetInteractionId(
+      mInteractionMetrics.ComputeInteractionId(aEventTiming, aEvent));
 }
 
 DOMHighResTimeStamp PerformanceMainThread::GetPerformanceTimingFromString(
@@ -503,6 +554,11 @@ void PerformanceMainThread::QueueLargestContentfulPaintEntry(
 EventCounts* PerformanceMainThread::EventCounts() {
   MOZ_ASSERT(StaticPrefs::dom_enable_event_timing());
   return mEventCounts;
+}
+
+uint64_t PerformanceMainThread::InteractionCount() {
+  MOZ_ASSERT(StaticPrefs::dom_performance_event_timing_enable_interactionid());
+  return mInteractionMetrics.InteractionCount();
 }
 
 void PerformanceMainThread::GetEntries(

@@ -131,7 +131,60 @@ const toSource = value => {
 
 this.test = class extends ExtensionAPI {
   getAPI(context) {
+    const CONTEXT_DESTROYED = "Test context destroyed.";
     const { extension } = context;
+    let running = false;
+    let testTasks = [];
+    let lastError = null;
+    let unnamed = 0;
+
+    async function runTasks(tests) {
+      testTasks.push(...tests);
+
+      // If still running tasks from a previous call, queue new ones and bail.
+      if (running) {
+        return;
+      }
+
+      let onClosed = Promise.withResolvers();
+      onClosed.close = () => onClosed.reject(CONTEXT_DESTROYED);
+      context.callOnClose(onClosed);
+
+      try {
+        running = true;
+        while (testTasks.length) {
+          let task = testTasks.shift();
+          let name = task.name || `unnamed_test_${++unnamed}`;
+          let stack = getStack(context.getCaller());
+          extension.emit("test-task-start", name, stack);
+          lastError = null;
+          try {
+            await Promise.race([task(), onClosed.promise]);
+
+            if (!context.active) {
+              assertTrue(false, CONTEXT_DESTROYED);
+              throw new ExtensionUtils.ExtensionError(CONTEXT_DESTROYED);
+            }
+          } catch (e) {
+            lastError = `Exception running ${name}: ${e.message}`;
+            Cu.reportError(lastError);
+          } finally {
+            extension.emit(
+              "test-task-done",
+              testTasks.length,
+              name,
+              !lastError,
+              lastError ?? `${name} PASS`,
+              stack
+            );
+          }
+        }
+      } finally {
+        context.forgetOnClose(onClosed);
+        testTasks.length = 0;
+        running = false;
+      }
+    }
 
     function getStack(savedFrame = null) {
       if (savedFrame) {
@@ -144,12 +197,24 @@ this.test = class extends ExtensionAPI {
     }
 
     function assertTrue(value, msg) {
+      msg = msg ?? `Assertion ${value ? "PASS" : "FAIL"}`;
       extension.emit(
         "test-result",
         Boolean(value),
         String(msg),
         getStack(context.getCaller())
       );
+      if (!value) {
+        lastError = msg;
+      }
+    }
+
+    function assertEq(eq, msg, expected, actual) {
+      let stack = getStack(context.getCaller());
+      extension.emit("test-eq", eq, String(msg), expected, actual, stack);
+      if (!eq) {
+        lastError = `${msg} - Expected: ${expected}, Actual: ${actual}`;
+      }
     }
 
     class TestEventManager extends EventManager {
@@ -268,14 +333,8 @@ this.test = class extends ExtensionAPI {
             ensureStructurallyCloneable(actual);
           }
 
-          extension.emit(
-            "test-eq",
-            deepEquals(actual, expected),
-            String(msg),
-            toSource(expected),
-            toSource(actual),
-            getStack(context.getCaller())
-          );
+          let eq = deepEquals(actual, expected);
+          assertEq(eq, msg, toSource(expected), toSource(actual));
         },
 
         assertEq(expected, actual, msg) {
@@ -287,14 +346,7 @@ this.test = class extends ExtensionAPI {
           if (!equal && expected === actual) {
             actual += " (different)";
           }
-          extension.emit(
-            "test-eq",
-            equal,
-            String(msg),
-            expected,
-            actual,
-            getStack(context.getCaller())
-          );
+          assertEq(equal, msg, expected, actual);
         },
 
         assertRejects(promise, expectedError, msg) {
@@ -327,6 +379,15 @@ this.test = class extends ExtensionAPI {
         },
 
         assertThrows(func, expectedError, msg) {
+          if (!expectedError) {
+            if (ExtensionCommon.isInWPT) {
+              expectedError = /.*/;
+            } else {
+              throw new ExtensionUtils.ExtensionError(
+                "Missing required expectedError"
+              );
+            }
+          }
           try {
             func();
 
@@ -349,6 +410,10 @@ this.test = class extends ExtensionAPI {
               `Function threw, expecting error to match '${expected}', ${message}`
             );
           }
+        },
+
+        runTests(tests) {
+          return runTasks(tests);
         },
 
         onMessage: new TestEventManager({

@@ -7,14 +7,12 @@
 #ifndef mozilla_ipc_CrashReporterClient_h
 #define mozilla_ipc_CrashReporterClient_h
 
-#include "mozilla/Assertions.h"
+#include "CrashReporter/CrashReporterInitArgs.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPtr.h"
-#include "mozilla/Unused.h"
 #include "nsExceptionHandler.h"
 
-namespace mozilla {
-namespace ipc {
+namespace mozilla::ipc {
 
 class CrashReporterClient {
  public:
@@ -26,11 +24,11 @@ class CrashReporterClient {
   template <typename T>
   static void InitSingleton(T* aToplevelProtocol) {
     InitSingleton();
-    Unused << aToplevelProtocol->SendInitCrashReporter(
-        CrashReporter::CurrentThreadId());
+    (void)aToplevelProtocol->SendInitCrashReporter(CreateInitArgs());
   }
 
   static void InitSingleton();
+  static CrashReporter::CrashReporterInitArgs CreateInitArgs();
 
   static void DestroySingleton();
   static RefPtr<CrashReporterClient> GetSingleton();
@@ -39,13 +37,11 @@ class CrashReporterClient {
   explicit CrashReporterClient();
   ~CrashReporterClient();
 
- private:
   static StaticMutex sLock;
   static StaticRefPtr<CrashReporterClient> sClientSingleton
       MOZ_GUARDED_BY(sLock);
 };
 
-}  // namespace ipc
-}  // namespace mozilla
+}  // namespace mozilla::ipc
 
 #endif  // mozilla_ipc_CrashReporterClient_h

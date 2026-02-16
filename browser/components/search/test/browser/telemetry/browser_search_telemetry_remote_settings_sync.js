@@ -17,11 +17,9 @@ ChromeUtils.defineESModuleGetters(this, {
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
   SEARCH_TELEMETRY_SHARED:
     "moz-src:///browser/components/search/SearchSERPTelemetry.sys.mjs",
-  SearchSERPCategorization:
-    "resource:///modules/SearchSERPCategorization.sys.mjs",
   SearchSERPDomainToCategoriesMap:
     "moz-src:///browser/components/search/SearchSERPTelemetry.sys.mjs",
-  SearchUtils: "resource://gre/modules/SearchUtils.sys.mjs",
+  SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
   TELEMETRY_SETTINGS_KEY:
     "moz-src:///browser/components/search/SearchSERPTelemetry.sys.mjs",
 });
@@ -135,14 +133,7 @@ add_task(async function update_telemetry_tab_already_open() {
   assertSERPTelemetry([
     {
       impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
         source: "reload",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       adImpressions: [
         {
@@ -188,16 +179,6 @@ add_task(async function update_telemetry_tab_closed() {
   await waitForPageWithAdImpressions();
   assertSERPTelemetry([
     {
-      impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
-      },
       adImpressions: [
         {
           component: SearchSERPTelemetryUtils.COMPONENTS.AD_LINK,
@@ -244,14 +225,7 @@ add_task(async function update_telemetry_multiple_tabs() {
     assertSERPTelemetry([
       {
         impression: {
-          provider: "example",
-          tagged: "true",
-          partner_code: "ff",
           source: "reload",
-          is_shopping_page: "false",
-          is_private: "false",
-          shopping_tab_displayed: "false",
-          is_signed_in: "false",
         },
         adImpressions: [
           {
@@ -306,14 +280,7 @@ add_task(async function update_telemetry_multiple_processes_and_tabs() {
     assertSERPTelemetry([
       {
         impression: {
-          provider: "example",
-          tagged: "true",
-          partner_code: "ff",
           source: "reload",
-          is_shopping_page: "false",
-          is_private: "false",
-          shopping_tab_displayed: "false",
-          is_signed_in: "false",
         },
         adImpressions: [
           {

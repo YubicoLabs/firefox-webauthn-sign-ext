@@ -8,7 +8,6 @@
 #define mozilla_dom_serviceworkerprivate_h
 
 #include <functional>
-#include <type_traits>
 
 #include "mozilla/Attributes.h"
 #include "mozilla/Maybe.h"
@@ -40,14 +39,18 @@ class Maybe;
 
 class JSObjectHolder;
 
+namespace net {
+class CookieStruct;
+}
+
 namespace dom {
 
 class PostMessageSource;
 class RemoteWorkerControllerChild;
-class ServiceWorkerCloneData;
 class ServiceWorkerInfo;
 class ServiceWorkerPrivate;
 class ServiceWorkerRegistrationInfo;
+struct CookieListItem;
 
 namespace ipc {
 class StructuredCloneData;
@@ -89,7 +92,7 @@ class ServiceWorkerPrivate final : public RemoteWorkerObserver {
   Maybe<ClientInfo> GetClientInfo() { return mClientInfo; }
 
   nsresult SendMessageEvent(
-      RefPtr<ServiceWorkerCloneData>&& aData,
+      ipc::StructuredCloneData* aData,
       const ServiceWorkerLifetimeExtension& aLifetimeExtension,
       const PostMessageSource& aSource);
 
@@ -104,6 +107,10 @@ class ServiceWorkerPrivate final : public RemoteWorkerObserver {
       const ServiceWorkerLifetimeExtension& aLifetimeExtension,
       const RefPtr<LifeCycleEventCallback>& aCallback);
 
+  nsresult SendCookieChangeEvent(
+      const net::CookieStruct& aCookie, bool aCookieDeleted,
+      RefPtr<ServiceWorkerRegistrationInfo> aRegistration);
+
   nsresult SendPushEvent(const nsAString& aMessageId,
                          const Maybe<nsTArray<uint8_t>>& aData,
                          RefPtr<ServiceWorkerRegistrationInfo> aRegistration);
@@ -111,9 +118,10 @@ class ServiceWorkerPrivate final : public RemoteWorkerObserver {
   nsresult SendPushSubscriptionChangeEvent(
       const RefPtr<nsIPushSubscription>& aOldSubscription);
 
-  nsresult SendNotificationEvent(const nsAString& aEventName,
-                                 const nsAString& aScope,
-                                 const IPCNotification& aNotification);
+  nsresult SendNotificationClickEvent(const IPCNotification& aNotification,
+                                      const nsAString& aAction);
+
+  nsresult SendNotificationCloseEvent(const IPCNotification& aNotification);
 
   nsresult SendFetchEvent(nsCOMPtr<nsIInterceptedChannel> aChannel,
                           nsILoadGroup* aLoadGroup, const nsAString& aClientId,
@@ -237,6 +245,10 @@ class ServiceWorkerPrivate final : public RemoteWorkerObserver {
   void RefreshRemoteWorkerData(
       const RefPtr<ServiceWorkerRegistrationInfo>& aRegistration);
 
+  nsresult SendCookieChangeEventInternal(
+      RefPtr<ServiceWorkerRegistrationInfo>&& aRegistration,
+      ServiceWorkerCookieChangeEventOpArgs&& aArgs);
+
   nsresult SendPushEventInternal(
       RefPtr<ServiceWorkerRegistrationInfo>&& aRegistration,
       ServiceWorkerPushEventOpArgs&& aArgs);
@@ -277,6 +289,19 @@ class ServiceWorkerPrivate final : public RemoteWorkerObserver {
    protected:
     ServiceWorkerPrivate* const MOZ_NON_OWNING_REF mOwner;
     RefPtr<ServiceWorkerRegistrationInfo> mRegistration;
+  };
+
+  class PendingCookieChangeEvent final : public PendingFunctionalEvent {
+   public:
+    PendingCookieChangeEvent(
+        ServiceWorkerPrivate* aOwner,
+        RefPtr<ServiceWorkerRegistrationInfo>&& aRegistration,
+        ServiceWorkerCookieChangeEventOpArgs&& aArgs);
+
+    nsresult Send() override;
+
+   private:
+    ServiceWorkerCookieChangeEventOpArgs mArgs;
   };
 
   class PendingPushEvent final : public PendingFunctionalEvent {

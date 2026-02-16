@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
 <resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
@@ -20,7 +27,10 @@
   <string name="teaser">Outomatiese privaat-lees modus.\nLees. Vergeet. Herhaal.</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a browsing session -->
   <string name="feedback_erase">Jou leesrekord is uitgevee.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">Soek vir %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Deel…</string>
@@ -45,7 +55,6 @@
   <string name="menu_settings">Instellings</string>
   <string name="menu_about">Inligting hieroor</string>
   <string name="menu_help">Hulp</string>
-  <string name="menu_rights">Jou regte</string>
   <!--
     This is a small text at the bottom of the menu shown in a "custom tab" for branding purposes.
     See https://github.com/mozilla-mobile/focus-android/issues/2106

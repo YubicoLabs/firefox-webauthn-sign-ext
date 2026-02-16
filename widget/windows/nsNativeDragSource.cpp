@@ -4,14 +4,19 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsNativeDragSource.h"
-#include <stdio.h>
 #include "nsISupportsImpl.h"
 #include "nsString.h"
 #include "nsToolkit.h"
 #include "nsWidgetsCID.h"
 #include "nsIDragService.h"
 #include "nsServiceManagerUtils.h"
+#include "mozilla/Logging.h"  //for mozilla::TrueOrFalse
 #include "mozilla/dom/DataTransfer.h"
+#include "mozilla/widget/WidgetLogging.h"
+
+#define LOGD DRAGSERVICE_LOGD
+#define LOGI DRAGSERVICE_LOGI
+#define LOGE DRAGSERVICE_LOGE
 
 /*
  * class nsNativeDragSource
@@ -19,10 +24,13 @@
 nsNativeDragSource::nsNativeDragSource(
     mozilla::dom::DataTransfer* aDataTransfer)
     : m_cRef(0), m_hCursor(nullptr), mUserCancelled(false) {
+  LOGD("[%p] %s", this, __FUNCTION__);
   mDataTransfer = aDataTransfer;
 }
 
-nsNativeDragSource::~nsNativeDragSource() {}
+nsNativeDragSource::~nsNativeDragSource() {
+  LOGD("[%p] %s", this, __FUNCTION__);
+}
 
 STDMETHODIMP
 nsNativeDragSource::QueryInterface(REFIID riid, void** ppv) {
@@ -57,6 +65,10 @@ nsNativeDragSource::Release(void) {
 
 STDMETHODIMP
 nsNativeDragSource::QueryContinueDrag(BOOL fEsc, DWORD grfKeyState) {
+  LOGD("%s | fEsc: %s | grfKeyState: %lu | grfKeyState has button: %s",
+       __FUNCTION__, mozilla::TrueOrFalse(fEsc), grfKeyState,
+       mozilla::TrueOrFalse((grfKeyState & MK_LBUTTON) ||
+                            (grfKeyState & MK_RBUTTON)));
   nsCOMPtr<nsIDragService> dragService =
       do_GetService("@mozilla.org/widget/dragservice;1");
   if (dragService) {
@@ -92,6 +104,7 @@ nsNativeDragSource::GiveFeedback(DWORD dwEffect) {
     }
   }
 
+  LOGD("%s | next m_hCursor: %p", __FUNCTION__, m_hCursor);
   if (m_hCursor) {
     ::SetCursor(m_hCursor);
     return S_OK;

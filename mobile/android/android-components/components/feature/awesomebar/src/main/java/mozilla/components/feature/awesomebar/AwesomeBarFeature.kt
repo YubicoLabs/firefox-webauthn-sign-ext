@@ -13,6 +13,7 @@ import mozilla.components.browser.icons.BrowserIcons
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.awesomebar.AwesomeBar
+import mozilla.components.concept.awesomebar.AwesomeBar.GroupedSuggestion
 import mozilla.components.concept.engine.Engine
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.concept.fetch.Client
@@ -62,7 +63,13 @@ class AwesomeBarFeature(
         store: BrowserStore,
         selectTabUseCase: TabsUseCases.SelectTabUseCase,
     ): AwesomeBarFeature {
-        val provider = SessionSuggestionProvider(resources, store, selectTabUseCase, icons, indicatorIcon)
+        val provider = SessionSuggestionProvider(
+            store,
+            selectTabUseCase,
+            icons,
+            indicatorIcon,
+            switchToTabDescription = resources.getString(R.string.switch_to_tab_description),
+        )
         awesomeBar.addProviders(provider)
         return this
     }
@@ -108,7 +115,6 @@ class AwesomeBarFeature(
      * this method is preferable over [addSearchProvider], as it will read the search engine from
      * the provided [BrowserStore].
      *
-     * @param context the activity or application context, required to load search engines.
      * @param store The [BrowserStore] to lookup search engines from.
      * @param searchUseCase The use case to invoke for searches.
      * @param fetchClient The HTTP client for requesting suggestions from the search engine.
@@ -119,7 +125,6 @@ class AwesomeBarFeature(
      * @param filterExactMatch If true filters out suggestions that exactly match the entered text.
      */
     fun addSearchProvider(
-        context: Context,
         store: BrowserStore,
         searchUseCase: SearchUseCases.SearchUseCase,
         fetchClient: Client,
@@ -130,7 +135,6 @@ class AwesomeBarFeature(
     ): AwesomeBarFeature {
         awesomeBar.addProviders(
             SearchSuggestionProvider(
-                context,
                 store,
                 searchUseCase,
                 fetchClient,
@@ -211,6 +215,15 @@ class AwesomeBarFeature(
     ): AwesomeBarFeature {
         awesomeBar.addProviders(ClipboardSuggestionProvider(context, loadUrlUseCase, engine = engine))
         return this
+    }
+
+    /**
+     * Add a listener for when the remove button of a search suggestion is clicked.
+     *
+     * @param listener The callback for handling removing the search suggestion.
+     */
+    fun addRemoveButtonListener(listener: (GroupedSuggestion) -> Unit) = apply {
+        awesomeBar.setOnRemoveSuggestionButtonClicked(listener)
     }
 
     private fun showAwesomeBar() {

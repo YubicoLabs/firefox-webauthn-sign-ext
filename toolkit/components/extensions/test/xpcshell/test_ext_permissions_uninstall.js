@@ -4,6 +4,10 @@ const { ExtensionPermissions } = ChromeUtils.importESModule(
   "resource://gre/modules/ExtensionPermissions.sys.mjs"
 );
 
+const { ExtensionTestCommon } = ChromeUtils.importESModule(
+  "resource://testing-common/ExtensionTestCommon.sys.mjs"
+);
+
 const { ExtensionUninstallTracker } = ChromeUtils.importESModule(
   "resource://testing-common/ExtensionTestCommon.sys.mjs"
 );
@@ -108,6 +112,7 @@ add_task(async function test_permissions_removed() {
     {
       permissions: ["idle"],
       origins: [],
+      data_collection: [],
     },
     "Optional permission added to cache"
   );
@@ -116,6 +121,7 @@ add_task(async function test_permissions_removed() {
     {
       permissions: ["idle"],
       origins: [],
+      data_collection: [],
     },
     "Optional permission added to persistent file"
   );
@@ -194,7 +200,7 @@ add_task(async function test_simulate_slow_storage() {
   // granted via _setupStartupPermissions in Extension.sys.mjs).
   Assert.deepEqual(
     await getCachedPermissions(id),
-    { permissions: [], origins: [] },
+    { permissions: [], origins: [], data_collection: [] },
     "Cached permissions should be present despite simulated slow storage"
   );
   Assert.deepEqual(
@@ -267,6 +273,7 @@ add_task(async function test_simulate_slow_storage() {
         permissions: {
           permissions: [],
           origins: ["*://slow.example.com/*"],
+          data_collection: [],
         },
       },
     ],
@@ -280,4 +287,30 @@ add_task(async function test_simulate_slow_storage() {
   info("Unrelated extension unloaded, waiting for cleanup");
   await uninstallTracker2.waitForUninstallCleanupDone();
   info("Unrelated extension managed to uninstall and cleanup");
+});
+
+// Regression test for https://bugzilla.mozilla.org/show_bug.cgi?id=1974419
+// When an extension package is parsed with ExtensionData, e.g. via
+// loadManifestFromWebManifest as part of extension installation prompt,
+// no data should be written anywhere.
+add_task(async function test_ExtensionData_does_not_write_permissions() {
+  const ID = "extension-id@that-is-never-installed";
+  let generatedExt = ExtensionTestCommon.generate({
+    manifest: {
+      host_permissions: ["*://example.com/*"],
+      permissions: ["tabs", "webNavigation", "unlimitedStorage"],
+      browser_specific_settings: { gecko: { id: ID } },
+    },
+  });
+
+  const extensionData = new ExtensionData(generatedExt.rootURI);
+  await extensionData.loadManifest();
+
+  equal(
+    await getCachedPermissions(ID),
+    null,
+    "ExtensionData should not write any permissions to StartupCache"
+  );
+
+  await generatedExt.cleanupGeneratedFile();
 });

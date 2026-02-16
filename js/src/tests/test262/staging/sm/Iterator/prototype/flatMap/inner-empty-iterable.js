@@ -1,4 +1,3 @@
-// |reftest| shell-option(--enable-iterator-helpers) skip-if(!this.hasOwnProperty('Iterator')||!xulRuntime.shell) -- iterator-helpers is not enabled unconditionally, requires shell-options
 // Copyright (C) 2024 Mozilla Corporation. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
@@ -15,10 +14,7 @@ info: |
       ...
       v. If innerComplete is true, set innerAlive to false.
 features:
-- iterator-helpers
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
+  - iterator-helpers
 ---*/
 let iter = [0, 1, 2, 3].values().flatMap(x => x % 2 ? [] : [x]);
 

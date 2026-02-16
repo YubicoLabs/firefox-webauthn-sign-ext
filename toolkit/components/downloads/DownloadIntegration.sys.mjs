@@ -18,9 +18,12 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   AsyncShutdown: "resource://gre/modules/AsyncShutdown.sys.mjs",
   DeferredTask: "resource://gre/modules/DeferredTask.sys.mjs",
-  DownloadSpamProtection: "resource:///modules/DownloadSpamProtection.sys.mjs",
+  DownloadSpamProtection:
+    "moz-src:///browser/components/downloads/DownloadSpamProtection.sys.mjs",
   DownloadStore: "resource://gre/modules/DownloadStore.sys.mjs",
   DownloadUIHelper: "resource://gre/modules/DownloadUIHelper.sys.mjs",
+  DownloadsCommon:
+    "moz-src:///browser/components/downloads/DownloadsCommon.sys.mjs",
   FileUtils: "resource://gre/modules/FileUtils.sys.mjs",
   NetUtil: "resource://gre/modules/NetUtil.sys.mjs",
 });
@@ -29,24 +32,24 @@ XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "gDownloadPlatform",
   "@mozilla.org/toolkit/download-platform;1",
-  "mozIDownloadPlatform"
+  Ci.mozIDownloadPlatform
 );
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "gMIMEService",
   "@mozilla.org/mime;1",
-  "nsIMIMEService"
+  Ci.nsIMIMEService
 );
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "gExternalProtocolService",
   "@mozilla.org/uriloader/external-protocol-service;1",
-  "nsIExternalProtocolService"
+  Ci.nsIExternalProtocolService
 );
 
 ChromeUtils.defineLazyGetter(lazy, "gParentalControlsService", function () {
   if ("@mozilla.org/parental-controls-service;1" in Cc) {
-    return Cc["@mozilla.org/parental-controls-service;1"].createInstance(
+    return Cc["@mozilla.org/parental-controls-service;1"].getService(
       Ci.nsIParentalControlsService
     );
   }
@@ -75,6 +78,13 @@ ChromeUtils.defineLazyGetter(lazy, "stringBundle", () =>
   )
 );
 
+XPCOMUtils.defineLazyServiceGetter(
+  lazy,
+  "gExternalAppLauncher",
+  "@mozilla.org/uriloader/external-helper-app-service;1",
+  Ci.nsPIExternalAppLauncher
+);
+
 const Timer = Components.Constructor(
   "@mozilla.org/timer;1",
   "nsITimer",
@@ -96,6 +106,7 @@ const kSaveDelayMs = 1500;
  */
 const kObserverTopics = [
   "quit-application-requested",
+  "quit-application-granted",
   "offline-requested",
   "last-pb-context-exiting",
   "last-pb-context-exited",
@@ -108,20 +119,6 @@ const kObserverTopics = [
   "xpcom-will-shutdown",
   "blocked-automatic-download",
 ];
-
-/**
- * Maps nsIApplicationReputationService verdicts with the DownloadError ones.
- */
-const kVerdictMap = {
-  [Ci.nsIApplicationReputationService.VERDICT_DANGEROUS]:
-    Downloads.Error.BLOCK_VERDICT_MALWARE,
-  [Ci.nsIApplicationReputationService.VERDICT_UNCOMMON]:
-    Downloads.Error.BLOCK_VERDICT_UNCOMMON,
-  [Ci.nsIApplicationReputationService.VERDICT_POTENTIALLY_UNWANTED]:
-    Downloads.Error.BLOCK_VERDICT_POTENTIALLY_UNWANTED,
-  [Ci.nsIApplicationReputationService.VERDICT_DANGEROUS_HOST]:
-    Downloads.Error.BLOCK_VERDICT_MALWARE,
-};
 
 /**
  * Provides functions to integrate with the host application, handling for
@@ -164,8 +161,8 @@ export var DownloadIntegration = {
    * @param list
    *        DownloadList object to be initialized.
    *
-   * @return {Promise}
-   * @resolves When the list has been initialized.
+   * @returns {Promise<void>}
+   *   Resolves when the list has been initialized.
    * @rejects JavaScript exception.
    */
   async initializePublicDownloadList(list) {
@@ -193,8 +190,8 @@ export var DownloadIntegration = {
    *        serialized from the previous session.  This list will be persisted
    *        to disk during the session lifetime.
    *
-   * @return {Promise}
-   * @resolves When the list has been populated.
+   * @returns {Promise<void>}
+   *   Resolves when the list has been populated.
    * @rejects JavaScript exception.
    */
   async loadPublicDownloadListFromStore(list) {
@@ -219,7 +216,7 @@ export var DownloadIntegration = {
     // even if the load operation failed. We wait for a complete initialization
     // so other callers cannot modify the list without being detected. The
     // DownloadAutoSaveView is kept alive by the underlying DownloadList.
-    await new DownloadAutoSaveView(list, this._store).initialize();
+    new DownloadAutoSaveView(list, this._store).initialize();
   },
 
   /**
@@ -257,8 +254,8 @@ export var DownloadIntegration = {
   /**
    * Returns the system downloads directory asynchronously.
    *
-   * @return {Promise}
-   * @resolves The downloads directory string path.
+   * @returns {Promise<string>}
+   *   Resolves to the downloads directory path.
    */
   async getSystemDownloadsDirectory() {
     if (this._downloadsDirectory) {
@@ -288,14 +285,41 @@ export var DownloadIntegration = {
   _downloadsDirectory: null,
 
   /**
+   * Get the path of the directory from the provided preference.
+   * If the preference is not set or the directory does not exist,
+   * return the path of the downloads directory.
+   *
+   * @param {string} pref
+   *        The preference which contains the directory
+   *
+   * @returns {Promise<string>}
+   *   Resolves to the directory path.
+   */
+  async _getCustomDirectoryOrDownloads(pref) {
+    let directoryPath = null;
+    try {
+      let directory = Services.prefs.getComplexValue(pref, Ci.nsIFile);
+      directoryPath = directory.path;
+      await IOUtils.makeDirectory(directoryPath, {
+        createAncestors: false,
+      });
+    } catch (ex) {
+      console.error(ex);
+      // Either the preference isn't set or the directory cannot be created.
+      directoryPath = await this.getSystemDownloadsDirectory();
+    }
+    return directoryPath;
+  },
+
+  /**
    * Returns the user downloads directory asynchronously.
    *
    * On platforms where external helper apps use the downloads directory, the
    * behavior should match that of the synchronous function of the same name
    * exposed by nsIExternalHelperAppService.
    *
-   * @return {Promise}
-   * @resolves The downloads directory string path.
+   * @returns {Promise<string>}
+   *   Resolves to the downloads directory path.
    */
   async getPreferredDownloadsDirectory() {
     let directoryPath = null;
@@ -309,20 +333,50 @@ export var DownloadIntegration = {
         directoryPath = await this.getSystemDownloadsDirectory();
         break;
       case 2: // Custom
+        directoryPath = await this._getCustomDirectoryOrDownloads(
+          "browser.download.dir"
+        );
+        break;
+      default:
+        directoryPath = await this.getSystemDownloadsDirectory();
+    }
+    return directoryPath;
+  },
+
+  /**
+   * Returns the user screenshots directory asynchronously.
+   *
+   * @returns {Promise<string>}
+   *   Resolves to the screenshots directory path.
+   */
+  async getPreferredScreenshotsDirectory() {
+    let directoryPath = null;
+    let prefValue = Services.prefs.getIntPref(
+      "browser.screenshots.folderList",
+      4
+    );
+
+    switch (prefValue) {
+      case 0: // Desktop
+        directoryPath = this._getDirectory("Desk");
+        break;
+      case 1: // Downloads
+        directoryPath = await this.getSystemDownloadsDirectory();
+        break;
+      case 2: // Custom
+        directoryPath = await this._getCustomDirectoryOrDownloads(
+          "browser.screenshots.dir"
+        );
+        break;
+      case 3: // Default OS screenshots directory
         try {
-          let directory = Services.prefs.getComplexValue(
-            "browser.download.dir",
-            Ci.nsIFile
-          );
-          directoryPath = directory.path;
-          await IOUtils.makeDirectory(directoryPath, {
-            createAncestors: false,
-          });
-        } catch (ex) {
-          console.error(ex);
-          // Either the preference isn't set or the directory cannot be created.
+          directoryPath = this._getDirectory("Scrnshts");
+        } catch {
           directoryPath = await this.getSystemDownloadsDirectory();
         }
+        break;
+      case 4: // Fallback to preferred downloads
+        directoryPath = this.getPreferredDownloadsDirectory();
         break;
       default:
         directoryPath = await this.getSystemDownloadsDirectory();
@@ -333,8 +387,8 @@ export var DownloadIntegration = {
   /**
    * Returns the temporary downloads directory asynchronously.
    *
-   * @return {Promise}
-   * @resolves The downloads directory string path.
+   * @returns {Promise<string>}
+   *   Resolves to the temporary downloads directory path.
    */
   async getTemporaryDownloadsDirectory() {
     let directoryPath = null;
@@ -354,8 +408,8 @@ export var DownloadIntegration = {
    * aParam aDownload
    *        The download object.
    *
-   * @return {Promise}
-   * @resolves The boolean indicates to block downloads or not.
+   * @returns {Promise<boolean>}
+   *   Resolves to a boolean which indicates to block downloads or not.
    */
   shouldBlockForParentalControls(aDownload) {
     let isEnabled =
@@ -384,14 +438,14 @@ export var DownloadIntegration = {
    * aParam aDownload
    *        The download object.
    *
-   * @return {Promise}
-   * @resolves Object with the following properties:
-   *           {
-   *             shouldBlock: Whether the download should be blocked.
-   *             verdict: Detailed reason for the block, according to the
-   *                      "Downloads.Error.BLOCK_VERDICT_" constants, or empty
-   *                      string if the reason is unknown.
-   *           }
+   * @returns {Promise}
+   *   Resolves to an object with the following properties:
+   *   {
+   *     shouldBlock: Whether the download should be blocked.
+   *     verdict: Detailed reason for the block, according to the
+   *              "Downloads.Error.BLOCK_VERDICT_" constants, or empty
+   *              string if the reason is unknown.
+   *   }
    */
   shouldBlockForReputationCheck(aDownload) {
     let hash;
@@ -405,13 +459,13 @@ export var DownloadIntegration = {
       // Bail if DownloadSaver doesn't have a hash or signature info.
       return Promise.resolve({
         shouldBlock: false,
-        verdict: "",
+        verdict: Ci.nsIApplicationReputationService.VERDICT_SAFE,
       });
     }
     if (!hash || !sigInfo) {
       return Promise.resolve({
         shouldBlock: false,
-        verdict: "",
+        verdict: Ci.nsIApplicationReputationService.VERDICT_SAFE,
       });
     }
     return new Promise(resolve => {
@@ -428,11 +482,180 @@ export var DownloadIntegration = {
         function onComplete(aShouldBlock, aRv, aVerdict) {
           resolve({
             shouldBlock: aShouldBlock,
-            verdict: (aShouldBlock && kVerdictMap[aVerdict]) || "",
+            verdict: aShouldBlock
+              ? aVerdict
+              : Ci.nsIApplicationReputationService.VERDICT_SAFE,
           });
         }
       );
     });
+  },
+
+  getContentAnalysisService() {
+    // Do not use a lazy service getter for this, because tests set up different mocks,
+    // so if multiple tests run that call into this we can end up calling into an old mock.
+    return Cc["@mozilla.org/contentanalysis;1"].getService(
+      Ci.nsIContentAnalysis
+    );
+  },
+
+  async shouldBlockForContentAnalysis(download) {
+    const contentAnalysis = this.getContentAnalysisService();
+
+    if (!contentAnalysis.isActive) {
+      return {
+        verdict: Ci.nsIApplicationReputationService.VERDICT_SAFE,
+        shouldBlock: false,
+      };
+    }
+
+    // For PDF files loaded in pdf.js the originalUrl is the original URL
+    // where the PDF was loaded from, and the url is the URL of the pdf.js
+    // resource.
+    let downloadUrl = download.source.originalUrl ?? download.source.url;
+    let resources = [
+      {
+        url: downloadUrl,
+        type: Ci.nsIClientDownloadResource.DOWNLOAD_URL,
+      },
+    ];
+
+    let redirects = download.saver.getRedirects();
+    if (redirects) {
+      for (let redirect of redirects.enumerate()) {
+        resources.push({
+          url: redirect.referrerURI,
+          type: Ci.nsIClientDownloadResource.DOWNLOAD_REDIRECT,
+        });
+      }
+    }
+
+    // source.referrerInfo is a string or nsIReferrerInfo that
+    // represents the download referrer.  May be null.
+    if (download.source.referrerInfo) {
+      const url =
+        download.source.referrerInfo instanceof Ci.nsIReferrerInfo
+          ? download.source.referrerInfo.originalReferrer?.spec
+          : download.source.referrerInfo;
+      if (url) {
+        resources.push({
+          url,
+          type: Ci.nsIClientDownloadResource.TAB_URL,
+        });
+      }
+    }
+
+    let url = lazy.NetUtil.newURI(downloadUrl);
+    let fileNameForDisplay = download.target.path;
+    try {
+      // Try to get a prettier name
+      let file = new lazy.FileUtils.File(download.target.path);
+      fileNameForDisplay = file.displayName;
+    } catch (ex) {
+      // oh well
+    }
+    const requestToken = Services.uuid.generateUUID().toString();
+    const userActionId = Services.uuid.generateUUID().toString();
+    let warnResponseObserver = undefined;
+    // Set up a separate promise to wait specifically for a WARN
+    // response (if it comes) while we also wait for a final response.
+    // This is necessary because if the agent sends a WARN response,
+    // it doesn't count as a real response, and the Content Analysis code
+    // won't respond to the callback until respondToWarnDialog() is called.
+    const warnResultPromise = new Promise(resolve => {
+      warnResponseObserver = function (subject, topic, _data) {
+        if (topic == "dlp-response") {
+          /** @type nsIContentAnalysisResponse */
+          let response = subject;
+          if (
+            response.requestToken === requestToken &&
+            response.action === Ci.nsIContentAnalysisResponse.eWarn
+          ) {
+            resolve({
+              isContentAnalysisWarn: true,
+              verdict:
+                Ci.nsIApplicationReputationService.VERDICT_POTENTIALLY_UNWANTED,
+              contentAnalysisWarnRequestToken: requestToken,
+              shouldBlock: true,
+            });
+          }
+        }
+      };
+      Services.obs.addObserver(warnResponseObserver, "dlp-response");
+    });
+    let cancelPromiseWithResolvers = Promise.withResolvers();
+    DownloadObserver._contentAnalysisInProgressDownloads.set(
+      download,
+      cancelPromiseWithResolvers
+    );
+    let finalResultPromise = contentAnalysis
+      .analyzeContentRequests(
+        [
+          {
+            analysisType: Ci.nsIContentAnalysisRequest.eFileDownloaded,
+            operationTypeForDisplay: Ci.nsIContentAnalysisRequest.eDownload,
+            fileNameForDisplay,
+            // "Save As" downloads do not have a browsing context
+            reason:
+              download.source.browsingContextId === 0
+                ? Ci.nsIContentAnalysisRequest.eSaveAsDownload
+                : Ci.nsIContentAnalysisRequest.eNormalDownload,
+            resources,
+            requestToken,
+            url,
+            userActionId,
+            filePath: download.target.path,
+            // When doing a download analysis, the Content Analysis code won't
+            // display dialogs in the window, but the code still wants a
+            // content window and will get the topChromeWindow to show
+            // a notification.
+            windowGlobalParent: BrowsingContext.get(
+              download.source.browsingContextId
+            )?.topWindowContext,
+            sha256Digest: download.saver.getSha256Hash(),
+          },
+        ],
+        /* autoAcknowledge*/ true
+      )
+      .then(response => {
+        let cancelError;
+        if (response?.action === Ci.nsIContentAnalysisResponse.eCanceled) {
+          cancelError = response.cancelError;
+        }
+        return {
+          verdict: response.shouldAllowContent
+            ? Ci.nsIApplicationReputationService.VERDICT_SAFE
+            : Ci.nsIApplicationReputationService.VERDICT_DANGEROUS,
+          shouldBlock: !response.shouldAllowContent,
+          contentAnalysisCancelError: cancelError,
+          contentAnalysisWarnRequestToken: undefined,
+        };
+      });
+    try {
+      let finalOrWarnResult = await Promise.race([
+        finalResultPromise,
+        warnResultPromise,
+        cancelPromiseWithResolvers.promise,
+      ]);
+      if (finalOrWarnResult.canceled) {
+        contentAnalysis.cancelRequestsByUserAction(userActionId);
+        // The cancel will override this, so just return something
+        return {
+          verdict: Ci.nsIApplicationReputationService.VERDICT_SAFE,
+          shouldBlock: false,
+        };
+      }
+      return finalOrWarnResult;
+    } catch (e) {
+      console.error(e);
+      return {
+        verdict: Ci.nsIApplicationReputationService.VERDICT_DANGEROUS,
+        shouldBlock: true,
+      };
+    } finally {
+      Services.obs.removeObserver(warnResponseObserver, "dlp-response");
+      DownloadObserver._contentAnalysisInProgressDownloads.delete(download);
+    }
   },
 
   /**
@@ -503,8 +726,8 @@ export var DownloadIntegration = {
    * aParam aDownload
    *        The Download object.
    *
-   * @return {Promise}
-   * @resolves When all the operations completed successfully.
+   * @returns {Promise<void>}
+   *   Resolves when all the operations completed successfully.
    * @rejects JavaScript exception if any of the operations failed.
    */
   async downloadDone(aDownload) {
@@ -580,9 +803,15 @@ export var DownloadIntegration = {
       }
     }
 
+    // If the download has a referrer, we pass the computed referrer spec to
+    // the platform to update any file meta-data. The computedReferrerSpec is
+    // the referrer URL after all referrer sanitization and policy checks have
+    // been applied.
     let aReferrer = null;
-    if (aDownload.source.referrerInfo) {
-      aReferrer = aDownload.source.referrerInfo.originalReferrer;
+    if (aDownload.source.referrerInfo?.computedReferrerSpec) {
+      aReferrer = lazy.NetUtil.newURI(
+        aDownload.source.referrerInfo.computedReferrerSpec
+      );
     }
 
     await lazy.gDownloadPlatform.downloadDone(
@@ -627,13 +856,12 @@ export var DownloadIntegration = {
    *                              Optional value indicating how to handle launching this download,
    *                              this time only. Will override the associated mimeInfo.preferredAction
    *
-   * @return {Promise}
-   * @resolves When the instruction to launch the file has been
-   *           successfully given to the operating system. Note that
-   *           the OS might still take a while until the file is actually
-   *           launched.
-   * @rejects  JavaScript exception if there was an error trying to launch
-   *           the file.
+   * @returns {Promise<void>}
+   *   Resolves when the instruction to launch the file has been successfully
+   *   given to the operating system. Note that the OS might still take a while
+   *   until the file is actually launched.
+   * @rejects JavaScript exception if there was an error trying to launch
+   *          the file.
    */
   async launchDownload(aDownload, { openWhere, useSystemDefault = null }) {
     let file = new lazy.FileUtils.File(aDownload.target.path);
@@ -812,7 +1040,8 @@ export var DownloadIntegration = {
 
   /**
    * Launches the specified file, unless overridden by regression tests.
-   * @note Always use launchDownload() from the outside of this module, it is
+   *
+   * Note: Always use launchDownload() from the outside of this module, it is
    *       both more powerful and safer.
    */
   launchFile(file, mimeInfo) {
@@ -829,13 +1058,12 @@ export var DownloadIntegration = {
    * @param aFilePath
    *        The path to the file.
    *
-   * @return {Promise}
-   * @resolves When the instruction to open the containing folder has been
-   *           successfully given to the operating system. Note that
-   *           the OS might still take a while until the folder is actually
-   *           opened.
-   * @rejects  JavaScript exception if there was an error trying to open
-   *           the containing folder.
+   * @returns {Promise<void>}
+   *   Resolves when the instruction to open the containing folder has been
+   *   successfully given to the operating system. Note that the OS might
+   *   still take a while until the folder is actually opened.
+   * @rejects JavaScript exception if there was an error trying to open
+   *          the containing folder.
    */
   async showContainingDirectory(aFilePath) {
     let file = new lazy.FileUtils.File(aFilePath);
@@ -873,8 +1101,8 @@ export var DownloadIntegration = {
    * Calls the directory service, create a downloads directory and returns an
    * nsIFile for the downloads directory.
    *
-   * @return {Promise}
-   * @resolves The directory string path.
+   * @returns {Promise<string>}
+   *   Resolves to the directory path.
    */
   _createDownloadsDirectory(aName) {
     // We read the name of the directory from the list of translated strings
@@ -918,8 +1146,8 @@ export var DownloadIntegration = {
    * @param aIsPrivate
    *        True if the list is private, false otherwise.
    *
-   * @return {Promise}
-   * @resolves When the views and observers are added.
+   * @returns {Promise<void>}
+   *   Reolves when the views and observers are added.
    */
   addListObservers(aList, aIsPrivate) {
     DownloadObserver.registerView(aList, aIsPrivate);
@@ -929,6 +1157,19 @@ export var DownloadIntegration = {
         Services.obs.addObserver(DownloadObserver, topic);
       }
     }
+
+    Services.prefs.addObserver(
+      "browser.download.deletePrivate",
+      async function () {
+        let privateDownloadsList = await Downloads.getList(Downloads.PRIVATE);
+        let privateDownloads = await privateDownloadsList.getAll();
+        for (let download of privateDownloads) {
+          lazy.gExternalAppLauncher.deletePrivateFileWhenPossible(
+            new lazy.FileUtils.File(download.target.path)
+          );
+        }
+      }
+    );
     return Promise.resolve();
   },
 
@@ -936,8 +1177,8 @@ export var DownloadIntegration = {
    * Force a save on _store if it exists. Used to ensure downloads do not
    * persist after being sanitized on Android.
    *
-   * @return {Promise}
-   * @resolves When _store.save() completes.
+   * @returns {Promise<void>}
+   *   Resolves when _store.save() completes.
    */
   forceSave() {
     if (this._store) {
@@ -974,6 +1215,16 @@ var DownloadObserver = {
   _privateInProgressDownloads: new Set(),
 
   /**
+   * Set of downloads that have finished but have gotten a content analysis
+   * WARN response. These downloads need to be canceled when quitting, because
+   * the next time we start Firefox the content analysis agent may not have
+   * the same context as the one that was running when it analyzed the
+   * download.
+   */
+  _contentAnalysisWarnInProgressDownloads: new Set(),
+  _contentAnalysisInProgressDownloads: new Map(),
+
+  /**
    * Set that contains the downloads that have been canceled when going offline
    * or to sleep. These are started again when returning online or waking. This
    * list is not persisted so when exiting and restarting, the downloads will not
@@ -1002,7 +1253,20 @@ var DownloadObserver = {
         }
       },
       onDownloadChanged: aDownload => {
+        if (aDownload.canceled) {
+          let deferred =
+            this._contentAnalysisInProgressDownloads.get(aDownload);
+          if (deferred) {
+            deferred.resolve({ canceled: true });
+          }
+        }
         if (aDownload.stopped) {
+          if (aDownload.error?.contentAnalysisWarnRequestToken) {
+            this._contentAnalysisWarnInProgressDownloads.add(aDownload);
+          } else {
+            this._contentAnalysisWarnInProgressDownloads.delete(aDownload);
+            this._contentAnalysisInProgressDownloads.delete(aDownload);
+          }
           downloadsSet.delete(aDownload);
         } else {
           downloadsSet.add(aDownload);
@@ -1010,13 +1274,15 @@ var DownloadObserver = {
       },
       onDownloadRemoved: aDownload => {
         downloadsSet.delete(aDownload);
+        this._contentAnalysisWarnInProgressDownloads.delete(aDownload);
+        this._contentAnalysisInProgressDownloads.delete(aDownload);
         // The download must also be removed from the canceled when offline set.
         this._canceledOfflineDownloads.delete(aDownload);
       },
     };
 
-    // We register the view asynchronously.
-    aList.addView(downloadsView).catch(console.error);
+    // Register the view asynchronously.
+    aList.addView(downloadsView);
   },
 
   /**
@@ -1077,12 +1343,45 @@ var DownloadObserver = {
   observe: function DO_observe(aSubject, aTopic, aData) {
     let downloadsCount;
     switch (aTopic) {
-      case "quit-application-requested":
+      case "quit-application-requested": {
         downloadsCount =
           this._publicInProgressDownloads.size +
-          this._privateInProgressDownloads.size;
+          this._privateInProgressDownloads.size +
+          this._contentAnalysisWarnInProgressDownloads.size;
         this._confirmCancelDownloads(aSubject, downloadsCount, "ON_QUIT");
         break;
+      }
+      case "quit-application-granted": {
+        let blockPromises = [];
+        for (let download of this._contentAnalysisWarnInProgressDownloads) {
+          blockPromises.push(
+            (async () => {
+              // Since the user is blocking this download and we're about to
+              // quit, delete the download from the list. (this will also
+              // delete the file on disk and report to the DLP agent that
+              // we have blocked it)
+              await lazy.DownloadsCommon.deleteDownload(download);
+            })()
+          );
+        }
+        if (blockPromises.length) {
+          // Wait for all the downloads to be blocked (and the files deleted)
+          // before proceeding with the quit.
+          let promiseDone = false;
+          Promise.all(blockPromises).finally(() => {
+            promiseDone = true;
+          });
+          Services.tm.spinEventLoopUntil(
+            "DownloadIntegration.sys.mjs:DI_observe_quit-application-granted",
+            () => {
+              return promiseDone;
+            }
+          );
+        }
+        this._contentAnalysisWarnInProgressDownloads.clear();
+        this._contentAnalysisInProgressDownloads.clear();
+        break;
+      }
       case "offline-requested":
         downloadsCount =
           this._publicInProgressDownloads.size +
@@ -1097,7 +1396,7 @@ var DownloadObserver = {
           "ON_LEAVE_PRIVATE_BROWSING"
         );
         break;
-      case "last-pb-context-exited":
+      case "last-pb-context-exited": {
         let promise = (async function () {
           let list = await Downloads.getList(Downloads.PRIVATE);
           let downloads = await list.getAll();
@@ -1117,6 +1416,7 @@ var DownloadObserver = {
           promise.catch(ex => console.error(ex));
         }
         break;
+      }
       case "sleep_notification":
       case "suspend_process_notification":
       case "network:offline-about-to-go-offline":
@@ -1139,7 +1439,7 @@ var DownloadObserver = {
         }
         break;
       case "wake_notification":
-      case "resume_process_notification":
+      case "resume_process_notification": {
         let wakeDelay = Services.prefs.getIntPref(
           "browser.download.manager.resumeOnWakeDelay",
           10000
@@ -1153,6 +1453,7 @@ var DownloadObserver = {
           );
         }
         break;
+      }
       case "network:offline-status-changed":
         if (aData == "online") {
           this._resumeOfflineDownloads();
@@ -1275,15 +1576,12 @@ DownloadAutoSaveView.prototype = {
 
   /**
    * Registers the view and loads the current state from disk.
-   *
-   * @return {Promise}
-   * @resolves When the view has been registered.
-   * @rejects JavaScript exception.
    */
   initialize() {
     // We set _initialized to true after adding the view, so that
     // onDownloadAdded doesn't cause a save to occur.
-    return this._list.addView(this).then(() => (this._initialized = true));
+    this._list.addView(this);
+    this._initialized = true;
   },
 
   /**

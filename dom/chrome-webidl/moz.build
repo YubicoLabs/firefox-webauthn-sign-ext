@@ -29,10 +29,10 @@ with Files("WebExtension*.webidl"):
     BUG_COMPONENT = ("WebExtensions", "General")
 
 with Files("IOUtils.webidl"):
-    BUG_COMPONENT = ("Toolkit", "IOUtils and PathUtils")
+    BUG_COMPONENT = ("Core", "XPCOM")
 
 with Files("PathUtils.webidl"):
-    BUG_COMPONENT = ("Toolkit", "IOUtils and PathUtils")
+    BUG_COMPONENT = ("Core", "XPCOM")
 
 with Files("WidevineCDMManifest.webidl"):
     BUG_COMPONENT = ("Core", "Audio/Video: Playback")
@@ -49,7 +49,6 @@ WEBIDL_FILES = [
     "ChildSHistory.webidl",
     "ChromeNodeList.webidl",
     "ClonedErrorHolder.webidl",
-    "CommandEvent.webidl",
     "ConsoleInstance.webidl",
     "CSSCustomPropertyRegisteredEvent.webidl",
     "DebuggerNotification.webidl",
@@ -67,6 +66,7 @@ WEBIDL_FILES = [
     "InspectorUtils.webidl",
     "IteratorResult.webidl",
     "JSActor.webidl",
+    "JSActorTypeUtils.webidl",
     "JSProcessActor.webidl",
     "JSWindowActor.webidl",
     "L10nOverlays.webidl",
@@ -82,6 +82,7 @@ WEBIDL_FILES = [
     "MozStorageStatementParams.webidl",
     "MozStorageStatementRow.webidl",
     "NetDashboard.webidl",
+    "OriginAttributes.webidl",
     "PathUtils.webidl",
     "PermissionSetParameters.webidl",
     "PrecompiledScript.webidl",
@@ -91,12 +92,12 @@ WEBIDL_FILES = [
     "StructuredCloneHolder.webidl",
     "StyleSheetApplicableStateChangeEvent.webidl",
     "StyleSheetRemovedEvent.webidl",
-    "TelemetryStopwatch.webidl",
     "TreeColumn.webidl",
     "TreeColumns.webidl",
     "TreeContentView.webidl",
     "TreeView.webidl",
     "UserInteraction.webidl",
+    "WebCompat.webidl",
     "WebExtensionContentScript.webidl",
     "WebExtensionPolicy.webidl",
     "WidevineCDMManifest.webidl",
@@ -116,6 +117,7 @@ GENERATED_EVENTS_WEBIDL_FILES = [
     "CSSCustomPropertyRegisteredEvent.webidl",
     "PluginCrashedEvent.webidl",
     "PopupPositionedEvent.webidl",
+    "RedirectBlockedEvent.webidl",
     "StyleSheetApplicableStateChangeEvent.webidl",
     "StyleSheetRemovedEvent.webidl",
 ]

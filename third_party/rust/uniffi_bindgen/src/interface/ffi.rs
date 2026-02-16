@@ -18,7 +18,7 @@
 /// For the types that involve memory allocation, we make a distinction between
 /// "owned" types (the recipient must free it, or pass it to someone else) and
 /// "borrowed" types (the sender must keep it alive for the duration of the call).
-use uniffi_meta::{ExternalKind, Type};
+use uniffi_meta::Type;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FfiType {
@@ -33,11 +33,6 @@ pub enum FfiType {
     Int64,
     Float32,
     Float64,
-    /// A `*const c_void` pointer to a rust-owned `Arc<T>`.
-    /// If you've got one of these, you must call the appropriate rust function to free it.
-    /// The templates will generate a unique `free` function for each T.
-    /// The inner string references the name of the `T` type.
-    RustArcPtr(String),
     /// A byte buffer allocated by rust, and owned by whoever currently holds it.
     /// If you've got one of these, you must either call the appropriate rust function to free it
     /// or pass it to someone that will.
@@ -58,8 +53,10 @@ pub enum FfiType {
     /// These are used to pass objects across the FFI.
     Handle,
     RustCallStatus,
-    /// Pointer to an FfiType.
+    /// Const pointer to an FfiType.
     Reference(Box<FfiType>),
+    /// Mutable pointer to an FfiType.
+    MutReference(Box<FfiType>),
     /// Opaque pointer
     VoidPointer,
 }
@@ -67,6 +64,10 @@ pub enum FfiType {
 impl FfiType {
     pub fn reference(self) -> FfiType {
         FfiType::Reference(Box::new(self))
+    }
+
+    pub fn mut_reference(self) -> FfiType {
+        FfiType::MutReference(Box::new(self))
     }
 
     /// Unique name for an FFI return type
@@ -83,7 +84,7 @@ impl FfiType {
                 FfiType::Int64 => "i64".to_owned(),
                 FfiType::Float32 => "f32".to_owned(),
                 FfiType::Float64 => "f64".to_owned(),
-                FfiType::RustArcPtr(_) => "pointer".to_owned(),
+                FfiType::Handle => "u64".to_owned(),
                 FfiType::RustBuffer(_) => "rust_buffer".to_owned(),
                 _ => unimplemented!("FFI return type: {t:?}"),
             },
@@ -120,39 +121,39 @@ impl From<&Type> for FfiType {
             // We might add a separate type for borrowed byte strings in future as well.
             Type::Bytes => FfiType::RustBuffer(None),
             // Objects are pointers to an Arc<>
-            Type::Object { name, .. } => FfiType::RustArcPtr(name.to_owned()),
+            Type::Object { .. } => FfiType::Handle,
             // Callback interfaces are passed as opaque integer handles.
             Type::CallbackInterface { .. } => FfiType::UInt64,
             // Other types are serialized into a bytebuffer and deserialized on the other side.
-            Type::Enum { .. }
-            | Type::Record { .. }
-            | Type::Optional { .. }
+            Type::Enum { name, module_path } | Type::Record { name, module_path } => {
+                FfiType::RustBuffer(Some(ExternalFfiMetadata {
+                    name: name.clone(),
+                    module_path: module_path.clone(),
+                }))
+            }
+            Type::Optional { .. }
             | Type::Sequence { .. }
             | Type::Map { .. }
             | Type::Timestamp
             | Type::Duration => FfiType::RustBuffer(None),
-            Type::External {
+            Type::Custom {
+                builtin,
                 name,
-                kind: ExternalKind::Interface,
-                ..
-            }
-            | Type::External {
-                name,
-                kind: ExternalKind::Trait,
-                ..
-            } => FfiType::RustArcPtr(name.clone()),
-            Type::External {
-                name,
-                kind: ExternalKind::DataClass,
                 module_path,
-                namespace,
                 ..
-            } => FfiType::RustBuffer(Some(ExternalFfiMetadata {
-                name: name.clone(),
-                module_path: module_path.clone(),
-                namespace: namespace.clone(),
-            })),
-            Type::Custom { builtin, .. } => FfiType::from(builtin.as_ref()),
+            } => {
+                // We need ffitype of the builtin.
+                match FfiType::from(builtin.as_ref()) {
+                    // and if that builtin was a "local" RustBuffer, we need to
+                    // let emit enough metadata so the bindings can call the rustbuffer impl
+                    // if necessary.
+                    FfiType::RustBuffer(None) => FfiType::RustBuffer(Some(ExternalFfiMetadata {
+                        name: name.clone(),
+                        module_path: module_path.clone(),
+                    })),
+                    t => t,
+                }
+            }
         }
     }
 }
@@ -161,7 +162,12 @@ impl From<&Type> for FfiType {
 pub struct ExternalFfiMetadata {
     pub name: String,
     pub module_path: String,
-    pub namespace: String,
+}
+
+impl ExternalFfiMetadata {
+    pub fn crate_name(&self) -> &str {
+        self.module_path.split("::").next().unwrap()
+    }
 }
 
 // Needed for rust scaffolding askama template

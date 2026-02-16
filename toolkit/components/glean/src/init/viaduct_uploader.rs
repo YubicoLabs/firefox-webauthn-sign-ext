@@ -2,11 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use glean::net::{PingUploadRequest, PingUploader, UploadResult};
+use glean::net::{CapablePingUploadRequest, PingUploadRequest, PingUploader, UploadResult};
 use once_cell::sync::OnceCell;
 use std::sync::Once;
 use url::Url;
-use viaduct::{Error::*, Request};
+use viaduct::{Request, ViaductError::*};
 
 extern "C" {
     fn FOG_TooLateToSend() -> bool;
@@ -22,7 +22,15 @@ impl PingUploader for ViaductUploader {
     /// # Arguments
     ///
     /// * `upload_request` - the ping and its metadata to upload.
-    fn upload(&self, upload_request: PingUploadRequest) -> UploadResult {
+    fn upload(&self, upload_request: CapablePingUploadRequest) -> UploadResult {
+        let mut requires_ohttp = false;
+        let upload_request = match upload_request.capable(|capabilities| {
+            requires_ohttp = capabilities == ["ohttp"];
+            capabilities.is_empty() || requires_ohttp
+        }) {
+            Some(req) => req,
+            None => return UploadResult::incapable(),
+        };
         log::trace!("FOG Ping Uploader uploading to {}", upload_request.url);
 
         // SAFETY NOTE: Safe because it returns a primitive by value.
@@ -45,11 +53,12 @@ impl PingUploader for ViaductUploader {
 
         // Localhost-destined pings are sent without OHTTP,
         // even if configured to use OHTTP.
-        let result = if localhost_port == 0 && should_ohttp_upload(&upload_request) {
-            ohttp_upload(upload_request)
-        } else {
-            viaduct_upload(upload_request)
-        };
+        let result =
+            if localhost_port == 0 && requires_ohttp && should_ohttp_upload(&upload_request) {
+                ohttp_upload(upload_request)
+            } else {
+                viaduct_upload(upload_request)
+            };
 
         log::trace!(
             "FOG Ping Uploader completed uploading (Result {:?})",
@@ -59,12 +68,19 @@ impl PingUploader for ViaductUploader {
         match result {
             Ok(result) => result,
             Err(ViaductUploaderError::Viaduct(ve)) => match ve {
-                NonTlsUrl | UrlError(_) => UploadResult::unrecoverable_failure(),
+                NonTlsUrl
+                | UrlError(_)
+                | BackendAlreadyInitialized
+                | OhttpNotSupported
+                | OhttpChannelNotConfigured(_) => UploadResult::unrecoverable_failure(),
                 RequestHeaderError(_)
                 | BackendError(_)
                 | NetworkError(_)
                 | BackendNotInitialized
-                | SetBackendError => UploadResult::recoverable_failure(),
+                | SetBackendError
+                | OhttpConfigFetchFailed(_)
+                | OhttpRequestError(_)
+                | OhttpResponseError(_) => UploadResult::recoverable_failure(),
             },
             Err(
                 ViaductUploaderError::Bhttp(_)
@@ -91,8 +107,7 @@ fn viaduct_upload(upload_request: PingUploadRequest) -> Result<UploadResult, Via
 }
 
 fn should_ohttp_upload(upload_request: &PingUploadRequest) -> bool {
-    crate::ohttp_pings::uses_ohttp(&upload_request.ping_name)
-        && !upload_request.body_has_info_sections
+    !upload_request.body_has_info_sections
 }
 
 fn ohttp_upload(upload_request: PingUploadRequest) -> Result<UploadResult, ViaductUploaderError> {
@@ -132,7 +147,7 @@ fn ohttp_upload(upload_request: PingUploadRequest) -> Result<UploadResult, Viadu
             .control()
             .status()
             .ok_or(ViaductUploaderError::Fatal)?;
-        Ok(UploadResult::http_status(res as i32))
+        Ok(UploadResult::http_status(res.code() as i32))
     } else {
         Ok(UploadResult::http_status(res.status as i32))
     }
@@ -182,8 +197,8 @@ enum ViaductUploaderError {
     #[error("ohttp::Error {0}")]
     Ohttp(#[from] ohttp::Error),
 
-    #[error("viaduct::Error {0}")]
-    Viaduct(#[from] viaduct::Error),
+    #[error("viaduct::ViaductError {0}")]
+    Viaduct(#[from] viaduct::ViaductError),
 
     #[error("Fatal upload error")]
     Fatal,
@@ -191,6 +206,6 @@ enum ViaductUploaderError {
 
 impl From<url::ParseError> for ViaductUploaderError {
     fn from(e: url::ParseError) -> Self {
-        ViaductUploaderError::Viaduct(viaduct::Error::from(e))
+        ViaductUploaderError::Viaduct(viaduct::ViaductError::from(e))
     }
 }

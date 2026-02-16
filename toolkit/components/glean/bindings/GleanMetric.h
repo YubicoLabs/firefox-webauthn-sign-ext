@@ -7,11 +7,12 @@
 #ifndef mozilla_glean_GleanMetric_h
 #define mozilla_glean_GleanMetric_h
 
-#include "js/TypeDecls.h"
-#include "nsIGlobalObject.h"
+#include "mozilla/glean/bindings/CommonStandalone.h"
+// The following include provides GleanWebidlEnabled(), used by generated
+// GleanMetricsBinding.cpp
+#include "mozilla/glean/bindings/GleanWebIDL.h"
 #include "nsWrapperCache.h"
 #include "nsClassHashtable.h"
-#include "nsGlobalWindowInner.h"
 #include "nsTHashMap.h"
 #include "mozilla/DataMutex.h"
 
@@ -21,8 +22,6 @@ enum HistogramID : uint32_t;
 }  // namespace mozilla::Telemetry
 
 namespace mozilla::glean {
-
-typedef uint64_t TimerId;
 
 class GleanMetric : public nsISupports, public nsWrapperCache {
  public:
@@ -54,6 +53,16 @@ typedef StaticDataMutex<UniquePtr<SubmetricToLabeledDistributionMirrorMapType>>
 
 Maybe<SubmetricToDistributionMirrorMutex::AutoLock>
 GetLabeledDistributionMirrorLock();
+
+typedef nsTHashMap<SubmetricIdHashKey,
+                   std::tuple<Telemetry::HistogramID, nsCString, nsCString>>
+    SubmetricToDualLabeledDistributionMirrorMapType;
+typedef StaticDataMutex<
+    UniquePtr<SubmetricToDualLabeledDistributionMirrorMapType>>
+    SubmetricToDualLabeledDistributionMirrorMutex;
+
+Maybe<SubmetricToDualLabeledDistributionMirrorMutex::AutoLock>
+GetDualLabeledDistributionMirrorLock();
 
 }  // namespace mozilla::glean
 

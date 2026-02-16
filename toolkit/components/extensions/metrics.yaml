@@ -11,6 +11,49 @@ $tags:
   - 'WebExtensions :: General'
 
 extensions:
+  allow_execute_script_in_moz_extension:
+    type: boolean
+    expires: never
+    lifetime: application
+    description: >
+      Corresponds to the value of `extensions.webextensions.allow_executeScript_in_moz_extension` pref.
+    notification_emails:
+      - addons-dev-internal@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/2011234/
+    data_reviews:
+      - https://bugzilla.mozilla.org/2011234/
+    data_sensitivity:
+      - technical
+
+  match_moz_extension_document:
+    type: event
+    expires: never
+    description: >
+      Telemetry event reporting add-ons ids of the add-ons that have
+      been matching extension pages (and either hit the restriction
+      or being allowed to match the extension page based on the value
+      of the related pref).
+    notification_emails:
+      - addons-dev-internal@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/2011234/
+    data_reviews:
+      - https://bugzilla.mozilla.org/2011234/
+    data_sensitivity:
+      - technical
+      - interaction
+    extra_keys:
+      addon_id:
+        description: The add-on ID matching an extension page.
+        type: string
+      is_top_level_frame:
+        description: Set to true if the extension page was a top-level frame.
+        type: boolean
+      restricted:
+        description: Set to true if the matching was restricted.
+        type: boolean
+
   use_remote_pref:
     type: boolean
     expires: never
@@ -133,7 +176,7 @@ extensions.apis.dnr:
   startup_cache_read_size:
     type: memory_distribution
     memory_unit: byte
-    expires: 145
+    expires: 155
     description: |
       Amount of data read from the DNR startup cache file.
     notification_emails:
@@ -143,6 +186,7 @@ extensions.apis.dnr:
       - https://bugzilla.mozilla.org/1850890/
       - https://bugzilla.mozilla.org/1881399/
       - https://bugzilla.mozilla.org/1946282/
+      - https://bugzilla.mozilla.org/1984252/
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1803363#c11
     data_sensitivity:
@@ -152,7 +196,7 @@ extensions.apis.dnr:
   startup_cache_read_time:
     type: timing_distribution
     time_unit: millisecond
-    expires: 145
+    expires: 155
     description: |
       Amount of time it takes to read data into the DNR startup cache file.
     notification_emails:
@@ -162,6 +206,7 @@ extensions.apis.dnr:
       - https://bugzilla.mozilla.org/1850890/
       - https://bugzilla.mozilla.org/1881399/
       - https://bugzilla.mozilla.org/1946282/
+      - https://bugzilla.mozilla.org/1984252/
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1803363#c11
     data_sensitivity:
@@ -171,7 +216,7 @@ extensions.apis.dnr:
   startup_cache_write_size:
     type: memory_distribution
     memory_unit: byte
-    expires: 145
+    expires: 155
     description: |
       Amount of data written to the DNR startup cache file.
     notification_emails:
@@ -181,6 +226,7 @@ extensions.apis.dnr:
       - https://bugzilla.mozilla.org/1850890/
       - https://bugzilla.mozilla.org/1881399/
       - https://bugzilla.mozilla.org/1946282/
+      - https://bugzilla.mozilla.org/1984252/
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1803363#c11
     data_sensitivity:
@@ -190,7 +236,7 @@ extensions.apis.dnr:
   startup_cache_write_time:
     type: timing_distribution
     time_unit: millisecond
-    expires: 145
+    expires: 155
     description: |
       Amount of time it takes to write data into the DNR startup cache file.
     notification_emails:
@@ -200,6 +246,7 @@ extensions.apis.dnr:
       - https://bugzilla.mozilla.org/1850890/
       - https://bugzilla.mozilla.org/1881399/
       - https://bugzilla.mozilla.org/1946282/
+      - https://bugzilla.mozilla.org/1984252/
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1803363#c11
     data_sensitivity:
@@ -208,7 +255,7 @@ extensions.apis.dnr:
 
   startup_cache_entries:
     type: labeled_counter
-    expires: 145
+    expires: 155
     description: |
       Counters for startup cache data hits or misses on initializating
       DNR rules for extensions loaded on application startup.
@@ -220,6 +267,7 @@ extensions.apis.dnr:
       - https://bugzilla.mozilla.org/1850890/
       - https://bugzilla.mozilla.org/1881399/
       - https://bugzilla.mozilla.org/1946282/
+      - https://bugzilla.mozilla.org/1984252/
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1803363#c11
     data_sensitivity:
@@ -234,7 +282,7 @@ extensions.apis.dnr:
   validate_rules_time:
     type: timing_distribution
     time_unit: millisecond
-    expires: 145
+    expires: 155
     description: |
       Amount of time it takes to validate DNR rules of individual ruleset
       when dynamic or static rulesets have been loaded from disk.
@@ -245,6 +293,7 @@ extensions.apis.dnr:
       - https://bugzilla.mozilla.org/1850890/
       - https://bugzilla.mozilla.org/1881399/
       - https://bugzilla.mozilla.org/1946282/
+      - https://bugzilla.mozilla.org/1984252/
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1803363#c11
     data_sensitivity:
@@ -254,7 +303,7 @@ extensions.apis.dnr:
   evaluate_rules_time:
     type: timing_distribution
     time_unit: millisecond
-    expires: 145
+    expires: 155
     description: |
       Amount of time it takes to evaluate DNR rules for one network request.
     notification_emails:
@@ -264,6 +313,7 @@ extensions.apis.dnr:
       - https://bugzilla.mozilla.org/1850890/
       - https://bugzilla.mozilla.org/1881399/
       - https://bugzilla.mozilla.org/1946282/
+      - https://bugzilla.mozilla.org/1984252/
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1803363#c11
     data_sensitivity:
@@ -273,7 +323,7 @@ extensions.apis.dnr:
   evaluate_rules_count_max:
     type: quantity
     unit: rules
-    expires: 145
+    expires: 155
     description: |
       Max amount of DNR rules being evaluated.
     lifetime: ping
@@ -284,6 +334,7 @@ extensions.apis.dnr:
       - https://bugzilla.mozilla.org/1850890/
       - https://bugzilla.mozilla.org/1881399/
       - https://bugzilla.mozilla.org/1946282/
+      - https://bugzilla.mozilla.org/1984252/
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1803363#c11
     data_sensitivity:
@@ -309,6 +360,8 @@ extensions.data:
       - https://bugzilla.mozilla.org/1817100
       - https://bugzilla.mozilla.org/1861295
       - https://bugzilla.mozilla.org/1912166
+      - https://bugzilla.mozilla.org/1958151
+      - https://bugzilla.mozilla.org/1994595
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1470213#c15
     data_sensitivity:
@@ -338,7 +391,7 @@ extensions.data:
       has_olddata:
         description: Extension had some data stored in JSONFile ("y" / "n").
         type: string
-    expires: 140
+    expires: 154
 
   storage_local_error:
     type: event
@@ -355,6 +408,8 @@ extensions.data:
       - https://bugzilla.mozilla.org/1811148
       - https://bugzilla.mozilla.org/1861297
       - https://bugzilla.mozilla.org/1912166
+      - https://bugzilla.mozilla.org/1958151
+      - https://bugzilla.mozilla.org/1994595
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1606903#c3
     data_sensitivity:
@@ -372,7 +427,50 @@ extensions.data:
         description: |
           A DOMException error name if any ("OtherError" for unknown errors).
         type: string
-    expires: 140
+    expires: 154
+
+  storage_local_corrupted_reset:
+    type: event
+    description: |
+      These events are collected when the underlying IndexedDB backend is detected
+      as corrupted and Firefox is resetting it to allow it to be recreated from
+      scratch.
+    bugs:
+      - https://bugzilla.mozilla.org/1979997
+    data_reviews:
+      - https://bugzilla.mozilla.org/1979997
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - addons-dev-internal@mozilla.com
+    extra_keys:
+      addon_id:
+        description: Id of the addon.
+        type: string
+      reason:
+        description: |
+          A string that identifies the reason for resetting the storage.local IndexedDB
+          database. e.g.
+          - "ObjectStoreNotFound": (The IndexedDB instance is missing the expected
+            ObjectStorage name).
+          - "RejectedClear:ERROR_NAME": (The storage.local.clear method has hit an unexpected
+            error while iterating over the database keys, ERROR_NAME is either a DOMException
+            error name or "OtherError" in case of non-DOMException errors).
+        type: string
+      after_reset:
+        description: |
+          Set to true if the storage.local IndexedDB was still corrupted
+          right after being completely reset.
+        type: boolean
+      reset_disabled:
+        description: |
+          Whether automatically reset corrupted databases is disabled.
+        type: boolean
+      reset_error_name:
+        description: |
+          The name of the error hit by the DB reset logic (if any).
+        type: string
+    expires: 152
 
   sync_usage_quotas:
     type: event
@@ -381,6 +479,8 @@ extensions.data:
       first time an extension uses the sync storage API during a session.
     bugs:
       - https://bugzilla.mozilla.org/1915183
+      - https://bugzilla.mozilla.org/1958156
+      - https://bugzilla.mozilla.org/1994599
     data_reviews:
       - https://phabricator.services.mozilla.com/D222442
     data_sensitivity:
@@ -403,7 +503,50 @@ extensions.data:
       backend:
         description: Backend engine used, currently either "kinto" or "rust"
         type: string
-    expires: 140
+    expires: 154
+
+  migrate_result_count:
+    type: labeled_counter
+    description: >
+      The number of times a storage.local backend data migration has been
+      completed and results in one of the categories.
+
+      This metric was generated to correspond to the Legacy Telemetry
+      categorical histogram WEBEXT_STORAGE_LOCAL_IDB_MIGRATE_RESULT_COUNT.
+    labels:
+      - success
+      - failure
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1465129
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1958154
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1465129
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+    notification_emails:
+      - addons-dev-internal@mozilla.com
+      - lgreco@mozilla.com
+    expires: 154
+    telemetry_mirror: h#WEBEXT_STORAGE_LOCAL_IDB_MIGRATE_RESULT_COUNT
 
 extensions.counters:
 
@@ -437,6 +580,62 @@ extensions.counters:
         - https://bugzilla.mozilla.org/show_bug.cgi?id=1820158#c8
       data_sensitivity:
         - technical
+      telemetry_mirror: h#WEBEXT_BROWSERACTION_POPUP_PRELOAD_RESULT_COUNT
+      no_lint:
+        - GIFFT_NON_PING_LIFETIME
+
+    browser_action_preload_result_by_addonid:
+      type: dual_labeled_counter
+      description: >
+        The number of times a browserAction popup is preloaded and results in one
+        of the categories, keyed by addon id.
+
+        This metric was generated to correspond to the Legacy Telemetry
+        categorical histogram
+        WEBEXT_BROWSERACTION_POPUP_PRELOAD_RESULT_COUNT_BY_ADDONID.
+      dual_labels:
+        key:
+          description: addon id.
+        category:
+          labels:
+            - popupShown
+            - clearAfterHover
+            - clearAfterMousedown
+          description: Labels of the keyed categorical legacy telemetry histogram
+            WEBEXT_BROWSERACTION_POPUP_PRELOAD_RESULT_COUNT_BY_ADDONID.
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958168
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1960567
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958168
+      notification_emails:
+        - addons-dev-internal@mozilla.com
+        - lgreco@mozilla.com
+      expires: 154
+      telemetry_mirror: WEBEXT_BROWSERACTION_POPUP_PRELOAD_RESULT_COUNT_BY_ADDONID
 
     event_page_idle_result:
       type: labeled_counter
@@ -455,6 +654,7 @@ extensions.counters:
         - reset_parentapicall
         - permissions_request
         - launchWebAuthFlow
+        - downloads_saveAs
       lifetime: application
       notification_emails:
         - addons-dev-internal@mozilla.com
@@ -467,6 +667,54 @@ extensions.counters:
         - https://bugzilla.mozilla.org/show_bug.cgi?id=1820158#c8
       data_sensitivity:
         - technical
+      telemetry_mirror: h#WEBEXT_EVENTPAGE_IDLE_RESULT_COUNT
+      no_lint:
+        - GIFFT_NON_PING_LIFETIME
+
+    event_page_idle_result_by_addonid:
+      type: dual_labeled_counter
+      description: >
+        The number of times an event page hit the idle timeout and results in one
+        of the categories, keyed by addon id.
+
+        This metric was generated to correspond to the Legacy Telemetry
+        categorical histogram WEBEXT_EVENTPAGE_IDLE_RESULT_COUNT_BY_ADDONID.
+      dual_labels:
+        key:
+          description: addon id.
+        category:
+          labels:
+            - suspend
+            - reset_other
+            - reset_event
+            - reset_listeners
+            - reset_nativeapp
+            - reset_streamfilter
+            - reset_parentapicall
+            - permissions_request
+            - launchWebAuthFlow
+            - downloads_saveAs
+          description: Labels of the keyed categorical legacy telemetry histogram
+            WEBEXT_EVENTPAGE_IDLE_RESULT_COUNT_BY_ADDONID.
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1787940
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1817103
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958168
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1960567
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1787940
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1817103
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958168
+      notification_emails:
+        - addons-dev-internal@mozilla.com
+        - lgreco@mozilla.com
+      expires: 154
+      telemetry_mirror: WEBEXT_EVENTPAGE_IDLE_RESULT_COUNT_BY_ADDONID
 
 extensions.timing:
 
@@ -487,6 +735,49 @@ extensions.timing:
         - https://bugzilla.mozilla.org/show_bug.cgi?id=1820158#c8
       data_sensitivity:
         - technical
+      telemetry_mirror: WEBEXT_BACKGROUND_PAGE_LOAD_MS
+
+    background_page_load_by_addonid:
+      type: labeled_timing_distribution
+      description: >
+        The amount of time it takes to load a WebExtensions background page, from
+        when the build function is called to when the page has finished processing
+        the onload event, keyed by addon id.
+
+        This metric was generated to correspond to the Legacy Telemetry
+        exponential histogram WEBEXT_BACKGROUND_PAGE_LOAD_MS_BY_ADDONID.
+      time_unit: millisecond
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958154
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+      notification_emails:
+        - addons-dev-internal@mozilla.com
+        - lgreco@mozilla.com
+      expires: 154
+      telemetry_mirror: WEBEXT_BACKGROUND_PAGE_LOAD_MS_BY_ADDONID
 
     browser_action_popup_open:
       type: timing_distribution
@@ -512,6 +803,48 @@ extensions.timing:
         - https://bugzilla.mozilla.org/show_bug.cgi?id=1820158#c8
       data_sensitivity:
         - technical
+      telemetry_mirror: WEBEXT_BROWSERACTION_POPUP_OPEN_MS
+
+    browser_action_popup_open_by_addonid:
+      type: labeled_timing_distribution
+      description: >
+        The amount of time it takes for a BrowserAction popup to open, keyed by
+        addon id.
+
+        This metric was generated to correspond to the Legacy Telemetry
+        exponential histogram WEBEXT_BROWSERACTION_POPUP_OPEN_MS_BY_ADDONID.
+      time_unit: millisecond
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958154
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+      notification_emails:
+        - addons-dev-internal@mozilla.com
+        - lgreco@mozilla.com
+      expires: 154
+      telemetry_mirror: WEBEXT_BROWSERACTION_POPUP_OPEN_MS_BY_ADDONID
 
     content_script_injection:
       type: timing_distribution
@@ -529,6 +862,48 @@ extensions.timing:
         - https://bugzilla.mozilla.org/show_bug.cgi?id=1820158#c8
       data_sensitivity:
         - technical
+      telemetry_mirror: WEBEXT_CONTENT_SCRIPT_INJECTION_MS
+
+    content_script_injection_by_addonid:
+      type: labeled_timing_distribution
+      description: >
+        The amount of time it takes for content scripts from a WebExtension to be
+        injected into a window, keyed by addon id.
+
+        This metric was generated to correspond to the Legacy Telemetry
+        exponential histogram WEBEXT_CONTENT_SCRIPT_INJECTION_MS_BY_ADDONID.
+      time_unit: millisecond
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958154
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+      notification_emails:
+        - addons-dev-internal@mozilla.com
+        - lgreco@mozilla.com
+      expires: 154
+      telemetry_mirror: WEBEXT_CONTENT_SCRIPT_INJECTION_MS_BY_ADDONID
 
     event_page_running_time:
       type: custom_distribution
@@ -550,6 +925,34 @@ extensions.timing:
         - https://bugzilla.mozilla.org/show_bug.cgi?id=1820158#c8
       data_sensitivity:
         - technical
+      telemetry_mirror: WEBEXT_EVENTPAGE_RUNNING_TIME_MS
+
+    event_page_running_time_by_addonid:
+      type: labeled_timing_distribution
+      description: >
+        The amount of time (keyed by addon id) that an event page has been running
+        before being suspended, or the entire addon shutdown.
+
+        This metric was generated to correspond to the Legacy Telemetry
+        exponential histogram WEBEXT_EVENTPAGE_RUNNING_TIME_MS_BY_ADDONID.
+      time_unit: millisecond
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1787940
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1817103
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958154
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1787940
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1817103
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+      notification_emails:
+        - addons-dev-internal@mozilla.com
+        - lgreco@mozilla.com
+      expires: 154
+      telemetry_mirror: WEBEXT_EVENTPAGE_RUNNING_TIME_MS_BY_ADDONID
 
     extension_startup:
       type: timing_distribution
@@ -568,6 +971,49 @@ extensions.timing:
         - https://bugzilla.mozilla.org/show_bug.cgi?id=1820158#c8
       data_sensitivity:
         - technical
+      telemetry_mirror: WEBEXT_EXTENSION_STARTUP_MS
+
+    extension_startup_by_addonid:
+      type: labeled_timing_distribution
+      description: >
+        The amount of time it takes for a WebExtension to start up, from when the
+        startup function is called to when the startup promise resolves, keyed by
+        addon id.
+
+        This metric was generated to correspond to the Legacy Telemetry
+        exponential histogram WEBEXT_EXTENSION_STARTUP_MS_BY_ADDONID.
+      time_unit: millisecond
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958154
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+      notification_emails:
+        - addons-dev-internal@mozilla.com
+        - lgreco@mozilla.com
+      expires: 154
+      telemetry_mirror: WEBEXT_EXTENSION_STARTUP_MS_BY_ADDONID
 
     page_action_popup_open:
       type: timing_distribution
@@ -593,6 +1039,48 @@ extensions.timing:
         - https://bugzilla.mozilla.org/show_bug.cgi?id=1820158#c8
       data_sensitivity:
         - technical
+      telemetry_mirror: WEBEXT_PAGEACTION_POPUP_OPEN_MS
+
+    page_action_popup_open_by_addonid:
+      type: labeled_timing_distribution
+      description: >
+        The amount of time it takes for a PageAction popup to open, keyed by addon
+        id.
+
+        This metric was generated to correspond to the Legacy Telemetry
+        exponential histogram WEBEXT_PAGEACTION_POPUP_OPEN_MS_BY_ADDONID.
+      time_unit: millisecond
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958154
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+      notification_emails:
+        - addons-dev-internal@mozilla.com
+        - lgreco@mozilla.com
+      expires: 154
+      telemetry_mirror: WEBEXT_PAGEACTION_POPUP_OPEN_MS_BY_ADDONID
 
     storage_local_get_idb:
       type: timing_distribution
@@ -618,6 +1106,48 @@ extensions.timing:
         - https://bugzilla.mozilla.org/show_bug.cgi?id=1820158#c8
       data_sensitivity:
         - technical
+      telemetry_mirror: WEBEXT_STORAGE_LOCAL_IDB_GET_MS
+
+    storage_local_get_idb_by_addonid:
+      type: labeled_timing_distribution
+      description: >
+        The amount of time it takes to perform a get via storage.local using the
+        IndexedDB backend, keyed by addon id.
+
+        This metric was generated to correspond to the Legacy Telemetry
+        exponential histogram WEBEXT_STORAGE_LOCAL_IDB_GET_MS_BY_ADDONID.
+      time_unit: millisecond
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958154
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+      notification_emails:
+        - addons-dev-internal@mozilla.com
+        - lgreco@mozilla.com
+      expires: 154
+      telemetry_mirror: WEBEXT_STORAGE_LOCAL_IDB_GET_MS_BY_ADDONID
 
     storage_local_set_idb:
       type: timing_distribution
@@ -643,3 +1173,45 @@ extensions.timing:
         - https://bugzilla.mozilla.org/show_bug.cgi?id=1820158#c8
       data_sensitivity:
         - technical
+      telemetry_mirror: WEBEXT_STORAGE_LOCAL_IDB_SET_MS
+
+    storage_local_set_idb_by_addonid:
+      type: labeled_timing_distribution
+      description: >
+        The amount of time it takes to perform a set via storage.local using the
+        IndexedDB backend, keyed by addon id.
+
+        This metric was generated to correspond to the Legacy Telemetry
+        exponential histogram WEBEXT_STORAGE_LOCAL_IDB_SET_MS_BY_ADDONID.
+      time_unit: millisecond
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1958154
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1994599
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1483002
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1513556
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1578225
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1623315
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1666980
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1706839
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1745271
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1777402
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1811155
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1861303
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1912170
+      notification_emails:
+        - addons-dev-internal@mozilla.com
+        - lgreco@mozilla.com
+      expires: 154
+      telemetry_mirror: WEBEXT_STORAGE_LOCAL_IDB_SET_MS_BY_ADDONID

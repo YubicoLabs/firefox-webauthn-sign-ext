@@ -38,11 +38,10 @@
  * }
  */
 
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 import { ExtensionParent } from "resource://gre/modules/ExtensionParent.sys.mjs";
 
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
   JSONFile: "resource://gre/modules/JSONFile.sys.mjs",
 });
@@ -545,11 +544,11 @@ export var ExtensionSettingsStore = {
    *
    * @param {string} type The type of setting to be returned.
    * @param {string} key A string that uniquely identifies the setting.
-   * @param {string} id
+   * @param {string} [id]
    *        The id of the extension for which the setting is being retrieved.
    *        Defaults to undefined, in which case the top setting is returned.
    *
-   * @returns {object} An object with properties for key, value and id.
+   * @returns {{ id: string, key: string, value: string}} An object with properties for key, value and id.
    */
   getSetting(type, key, id) {
     return getItem(type, key, id);

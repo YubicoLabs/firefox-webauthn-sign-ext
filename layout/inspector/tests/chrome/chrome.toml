@@ -1,6 +1,16 @@
 [DEFAULT]
-skip-if = ["os == 'android'"]
+prefs = [
+  "layout.css.at-scope.enabled=true",
+]
 support-files = ["GentiumPlus-R.woff"]
+
+["test_CSSStyleDeclaration_hasLonghandProperty.html"]
+
+["test_CSSStyleRule_getScopeRootFor.html"]
+
+["test_CSSStyleRule_querySelectorAll.html"]
+
+["test_CSSStyleRule_querySelectorAll_scope.html"]
 
 ["test_bug467669.xhtml"]
 support-files = ["test_bug467669.css"]
@@ -13,8 +23,6 @@ support-files = ["test_bug708874.css"]
 
 ["test_bug727834.xhtml"]
 support-files = ["test_bug727834.css"]
-
-["test_CSSStyleRule_querySelectorAll.html"]
 
 ["test_fontFaceGeneric.xhtml"]
 
@@ -30,10 +38,6 @@ support-files = [
 ]
 
 ["test_fontVariationsAPI.xhtml"]
-skip-if = [
-  "win11_2009 && bits == 32",
-  "apple_catalina", # bug 1456856
-]
 support-files = ["test_fontVariationsAPI.css"]
 
 ["test_getBlockLineCounts.html"]

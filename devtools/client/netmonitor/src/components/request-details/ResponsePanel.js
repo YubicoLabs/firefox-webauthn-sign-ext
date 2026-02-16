@@ -6,9 +6,9 @@
 const {
   Component,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   L10N,
 } = require("resource://devtools/client/netmonitor/src/utils/l10n.js");
@@ -113,6 +113,7 @@ class ResponsePanel extends Component {
     const { request, connector } = this.props;
     fetchNetworkUpdatePacket(connector.requestData, request, [
       "responseContent",
+      "responseHeaders",
     ]);
   }
 
@@ -121,6 +122,7 @@ class ResponsePanel extends Component {
     const { request, connector } = nextProps;
     fetchNetworkUpdatePacket(connector.requestData, request, [
       "responseContent",
+      "responseHeaders",
     ]);
 
     // If the response contains XSSI stripped chars default to raw view
@@ -259,7 +261,7 @@ class ResponsePanel extends Component {
    * Pick correct component, componentprops, and other needed data to render
    * the given response
    *
-   * @returns {Object} shape:
+   * @returns {object} shape:
    *  {component}: React component used to render response
    *  {Object} componetProps: Props passed to component
    *  {Error} error: JSON parsing error
@@ -272,7 +274,7 @@ class ResponsePanel extends Component {
    */
   renderJsonHtmlAndSource() {
     const { request, targetSearchResult } = this.props;
-    const { responseContent } = request;
+    const { responseContent, responseHeaders, url } = request;
     let { encoding, mimeType, text } = responseContent.content;
     const { filterText, rawResponsePayloadDisplayed } = this.state;
 
@@ -317,21 +319,23 @@ class ResponsePanel extends Component {
         defaultSelectFirstNode: false,
         mode: MODE.LONG,
         useBaseTreeViewExpand: true,
+        url,
       };
       hasFormattedDisplay = true;
     } else if (Filters.html(this.props.request)) {
       // Display HTML
       responsePayloadLabel = HTML_RESPONSE;
       component = HtmlPreview;
-      componentProps = { responseContent };
+      componentProps = { responseContent, responseHeaders, url };
       hasFormattedDisplay = true;
     }
     if (!hasFormattedDisplay || rawResponsePayloadDisplayed) {
       component = SourcePreview;
       componentProps = {
         text,
-        mode: json ? "application/json" : mimeType.replace(/;.+/, ""),
+        mimeType: json ? "application/json" : mimeType.replace(/;.+/, ""),
         targetSearchResult,
+        url,
       };
     }
     return {
@@ -342,6 +346,7 @@ class ResponsePanel extends Component {
       json,
       responsePayloadLabel,
       xssiStrippedCharsInfoBox,
+      url,
     };
   }
 
@@ -476,7 +481,7 @@ class ResponsePanel extends Component {
             type: "filter",
             onChange: filter => this.setState({ filterText: filter }),
             placeholder: JSON_FILTER_TEXT,
-            value: filterText,
+            initialValue: filterText,
           })
         ),
       div({ tabIndex: "0" }, CORSBlockedReasonDetails),

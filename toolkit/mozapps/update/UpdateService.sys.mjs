@@ -32,31 +32,31 @@ XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "AUS",
   "@mozilla.org/updates/update-service;1",
-  "nsIApplicationUpdateService"
+  Ci.nsIApplicationUpdateService
 );
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "UM",
   "@mozilla.org/updates/update-manager;1",
-  "nsIUpdateManager"
+  Ci.nsIUpdateManager
 );
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "CheckSvc",
   "@mozilla.org/updates/update-checker;1",
-  "nsIUpdateChecker"
+  Ci.nsIUpdateChecker
 );
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "UpdateServiceStub",
   "@mozilla.org/updates/update-service-stub;1",
-  "nsIApplicationUpdateServiceStub"
+  Ci.nsIApplicationUpdateServiceStub
 );
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "UpdateMutex",
   "@mozilla.org/updates/update-mutex;1",
-  "nsIUpdateMutex"
+  Ci.nsIUpdateMutex
 );
 
 const UPDATESERVICE_CID = Components.ID(
@@ -74,16 +74,21 @@ const PREF_APP_UPDATE_CANCELATIONS_OSX = "app.update.cancelations.osx";
 const PREF_APP_UPDATE_CANCELATIONS_OSX_MAX = "app.update.cancelations.osx.max";
 const PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_ENABLED =
   "app.update.checkOnlyInstance.enabled";
+const PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_INTERVAL =
+  "app.update.checkOnlyInstance.interval";
+const PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_TIMEOUT =
+  "app.update.checkOnlyInstance.timeout";
 const PREF_APP_UPDATE_DOWNLOAD_ATTEMPTS = "app.update.download.attempts";
 const PREF_APP_UPDATE_DOWNLOAD_MAXATTEMPTS = "app.update.download.maxAttempts";
 const PREF_APP_UPDATE_ELEVATE_NEVER = "app.update.elevate.never";
 const PREF_APP_UPDATE_ELEVATE_VERSION = "app.update.elevate.version";
 const PREF_APP_UPDATE_ELEVATE_ATTEMPTS = "app.update.elevate.attempts";
 const PREF_APP_UPDATE_ELEVATE_MAXATTEMPTS = "app.update.elevate.maxAttempts";
-const PREF_APP_UPDATE_INSTALL_LOCKOUT_ENABLED =
-  "app.update.multiSessionInstallLockout.enabled";
-const PREF_APP_UPDATE_INSTALL_LOCKOUT_TIMEOUT_MS =
-  "app.update.multiSessionInstallLockout.timeoutMs";
+const PREF_APP_UPDATE_LOCKEDOUT_COUNT = "app.update.lockedOut.count";
+const PREF_APP_UPDATE_LOCKEDOUT_DEBOUNCETIME =
+  "app.update.lockedOut.debounceTimeMs";
+const PREF_APP_UPDATE_LOCKEDOUT_MAXCOUNT = "app.update.lockedOut.maxCount";
+const PREF_APP_UPDATE_LOCKEDOUT_MAXAGE = "app.update.lockedOut.maxAgeMs";
 const PREF_APP_UPDATE_LANGPACK_ENABLED = "app.update.langpack.enabled";
 const PREF_APP_UPDATE_LANGPACK_TIMEOUT = "app.update.langpack.timeout";
 const PREF_APP_UPDATE_NOTIFYDURINGDOWNLOAD = "app.update.notifyDuringDownload";
@@ -126,7 +131,6 @@ const FILE_UPDATE_MAR = "update.mar";
 const FILE_UPDATE_STATUS = "update.status";
 const FILE_UPDATE_TEST = "update.test";
 const FILE_UPDATE_VERSION = "update.version";
-const FILE_UPDATE_TIMESTAMP = "update.timestamp";
 
 const STATE_NONE = "null";
 const STATE_DOWNLOADING = "downloading";
@@ -248,6 +252,11 @@ const HTTP_ERROR_OFFSET = 1000;
 // attempting to access a job created by a different user.
 const HRESULT_E_ACCESSDENIED = -2147024891;
 
+// HRESULT for HTTP 406 defined in bitsmsg.rs as:
+// pub const BG_E_HTTP_ERROR_406: DWORD = 0x80190196;
+// Represented in JavaScript as signed 32-bit integer
+const BG_E_HTTP_ERROR_406 = -2145844842;
+
 const DOWNLOAD_CHUNK_SIZE = 300000; // bytes
 
 // The number of consecutive failures when updating using the service before
@@ -272,17 +281,24 @@ const XML_SAVER_INTERVAL_MS = 200;
 // update before proceeding anyway.
 const LANGPACK_UPDATE_DEFAULT_TIMEOUT = 300000;
 
+// Interval between rechecks for other instances after the initial check finds
+// at least one other instance.
+const ONLY_INSTANCE_CHECK_DEFAULT_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Wait this long after detecting that another instance is running (having been
+// polling that entire time) before giving up and applying the update anyway.
+const ONLY_INSTANCE_CHECK_DEFAULT_TIMEOUT_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+// The other instance check timeout can be overridden via a pref, but we limit
+// that value to this so that the pref can't effectively disable the feature.
+const ONLY_INSTANCE_CHECK_MAX_TIMEOUT_MS = 2 * 24 * 60 * 60 * 1000; // 2 days
+
 // Values to use when polling for staging. See `pollForStagingEnd` for more
 // details.
 const STAGING_POLLING_MIN_INTERVAL_MS = 15 * 1000; // 15 seconds
 const STAGING_POLLING_MAX_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const STAGING_POLLING_ATTEMPTS_PER_INTERVAL = 5;
 const STAGING_POLLING_MAX_DURATION_MS = 1 * 60 * 60 * 1000; // 1 hour
-
-// Timestamps further than this many milliseconds in the future will be
-// considered invalid.
-const MAX_UPDATE_INSTALL_LOCKOUT_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
-const DEFAULT_UPDATE_INSTALL_LOCKOUT_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 1 day
 
 // This value will be set to true if it appears that BITS is being used by
 // another user to download updates. We don't really want two users using BITS
@@ -299,6 +315,8 @@ var gBITSInUseByAnotherUser = false;
 let gOnlyDownloadUpdatesThisSession = false;
 // This will be the backing for `nsIApplicationUpdateService.currentState`
 var gUpdateState = Ci.nsIApplicationUpdateService.STATE_IDLE;
+
+let gLastLockoutDebouncedAt = 0;
 
 /**
  * Simple container and constructor for a Promise and its resolve function.
@@ -407,6 +425,15 @@ function unwrap(obj) {
 const LangPackUpdates = new WeakMap();
 
 /**
+ * When we're polling to see if other running instances of the application have
+ * exited, there's no need to ever start polling again in parallel. To prevent
+ * doing that, we keep track of the promise that resolves when polling completes
+ * and return that if a second simultaneous poll is requested, so that the
+ * multiple callers end up waiting for the same promise to resolve.
+ */
+let gOtherInstancePollPromise;
+
+/**
  * Query the update sync manager to see if another instance of this same
  * installation of this application is currently running, under the context of
  * any operating system user (not just the current one).
@@ -434,6 +461,83 @@ function isOtherInstanceRunning() {
     LOG(`isOtherInstanceRunning - sync manager failed with exception: ${ex}`);
     return false;
   }
+}
+
+/**
+ * Query the update sync manager to see if another instance of this same
+ * installation of this application is currently running, under the context of
+ * any operating system user (not just the one running this instance).
+ * This function polls for the status of other instances continually
+ * (asynchronously) until either none exist or a timeout expires.
+ *
+ * @return a Promise that resolves with false if at any point during polling no
+ *         other instances can be found, or resolves with true if the timeout
+ *         expires when other instances are still running
+ */
+function waitForOtherInstances() {
+  // If we're already in the middle of a poll, reuse it rather than start again.
+  if (gOtherInstancePollPromise) {
+    return gOtherInstancePollPromise;
+  }
+
+  let timeout = Services.prefs.getIntPref(
+    PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_TIMEOUT,
+    ONLY_INSTANCE_CHECK_DEFAULT_TIMEOUT_MS
+  );
+
+  // return immediately if timeout value is invalid.
+  if (timeout <= 0) {
+    return Promise.resolve(isOtherInstanceRunning());
+  }
+
+  // Don't allow the pref to set a super high timeout and break this feature.
+  if (timeout > ONLY_INSTANCE_CHECK_MAX_TIMEOUT_MS) {
+    timeout = ONLY_INSTANCE_CHECK_MAX_TIMEOUT_MS;
+  }
+
+  let interval = Services.prefs.getIntPref(
+    PREF_APP_UPDATE_CHECK_ONLY_INSTANCE_INTERVAL,
+    ONLY_INSTANCE_CHECK_DEFAULT_POLL_INTERVAL_MS
+  );
+
+  if (interval <= 0) {
+    interval = ONLY_INSTANCE_CHECK_DEFAULT_POLL_INTERVAL_MS;
+  }
+
+  // Don't allow an interval longer than the timeout.
+  interval = Math.min(interval, timeout);
+
+  let iterations = 0;
+  const maxIterations = Math.ceil(timeout / interval);
+
+  gOtherInstancePollPromise = new Promise(function (resolve) {
+    let poll = function () {
+      iterations++;
+      if (!isOtherInstanceRunning()) {
+        LOG("waitForOtherInstances - no other instances found, exiting");
+        resolve(false);
+        gOtherInstancePollPromise = undefined;
+      } else if (iterations >= maxIterations) {
+        LOG(
+          "waitForOtherInstances - timeout expired while other instances " +
+            "are still running"
+        );
+        resolve(true);
+        gOtherInstancePollPromise = undefined;
+      } else if (iterations + 1 == maxIterations && timeout % interval != 0) {
+        // In case timeout isn't a multiple of interval, set the next timeout
+        // for the remainder of the time rather than for the usual interval.
+        lazy.setTimeout(poll, timeout % interval);
+      } else {
+        lazy.setTimeout(poll, interval);
+      }
+    };
+
+    LOG("waitForOtherInstances - beginning polling");
+    poll();
+  });
+
+  return gOtherInstancePollPromise;
 }
 
 /**
@@ -727,7 +831,7 @@ function getCanStageUpdates(transient = true) {
   return lazy.gCanStageUpdatesSession;
 }
 
-/*
+/**
  * Whether or not the application can use BITS to download updates.
  *
  * @param {boolean} [transient] Whether transient factors such as the update
@@ -782,6 +886,7 @@ function getCanUseBits(transient = true) {
 /**
  * Logs a string to the error console. If enabled, also logs to the update
  * messages file.
+ *
  * @param   string
  *          The string to write to the error console.
  */
@@ -792,6 +897,7 @@ function LOG(string) {
 /**
  * Gets the specified directory at the specified hierarchy under the
  * update root directory and creates it if it doesn't exist.
+ *
  * @param   pathArray
  *          An array of path components to locate beneath the directory
  *          specified by |key|
@@ -864,6 +970,7 @@ function getInstallDirRoot() {
 
 /**
  * Gets the file at the specified hierarchy under the update root directory.
+ *
  * @param   pathArray
  *          An array of path components to locate beneath the directory
  *          specified by |key|. The last item in this array must be the
@@ -899,6 +1006,7 @@ function maybeMapErrorCode(code) {
 /**
  * Returns human readable status text from the updates.properties bundle
  * based on an error code
+ *
  * @param   code
  *          The error code to look up human readable status text for
  * @param   defaultCode
@@ -934,6 +1042,7 @@ function getStatusTextFromCode(code, defaultCode) {
  * Get the Ready Update directory. This is the directory that an update
  * should reside in after download has completed but before it has been
  * installed and cleaned up.
+ *
  * @return The ready updates directory, as a nsIFile object
  */
 function getReadyUpdateDir() {
@@ -944,6 +1053,7 @@ function getReadyUpdateDir() {
  * Get the Downloading Update directory. This is the directory that an update
  * should reside in during download. Once download is completed, it will be
  * moved to the Ready Update directory.
+ *
  * @return The downloading update directory, as a nsIFile object
  */
 function getDownloadingUpdateDir() {
@@ -951,8 +1061,95 @@ function getDownloadingUpdateDir() {
 }
 
 /**
+ * If there is a problem with accessing the status file, it may be a transient
+ * issue, such as another process checking for updates holding a lock,
+ * or it may be a persistent problem that needs attention.
+ * This function tries to determine if we should prompt the user to fix the
+ * issue.
+ *
+ * @param   file
+ *          An nsIFile object for the file with the issue
+ * @param   ex
+ *          The Exception object that was thrown when attempting to access the
+ *          file.
+ */
+function onStateAccessFailure(file, ex) {
+  LOG("onStateAccessFailure. Ex: " + ex);
+  if (
+    ex.result == Cr.NS_ERROR_FILE_ACCESS_DENIED ||
+    ex.result == Cr.NS_ERROR_FILE_IS_LOCKED
+  ) {
+    // Looks like we can't access the file. If it hasn't changed in
+    // a long time, notify the user that we are persistently unable to update.
+    const oneMinMs = 60 * 1000;
+    const oneDayMs = 24 * 60 * oneMinMs;
+    const now = Date.now();
+
+    // A single update check can attempt to read and write the update state
+    // multiple times. We want `lockoutCount` to count the number of times that
+    // an update check fails, not the number of times that we fail to access the
+    // state. To deal with this, we will implement a debouncing period after
+    // each failure.
+    let debounceTimeMs = Services.prefs.getIntPref(
+      PREF_APP_UPDATE_LOCKEDOUT_DEBOUNCETIME,
+      5 * oneMinMs
+    );
+    debounceTimeMs = Math.min(debounceTimeMs, oneDayMs);
+    const debounceEnd = gLastLockoutDebouncedAt + debounceTimeMs;
+    if (now < debounceEnd) {
+      LOG(`onStateAccessFailure: debounced! (${debounceEnd - now}ms left)`);
+      return;
+    }
+    gLastLockoutDebouncedAt = now;
+
+    // Not really the age, just the interval since last modified.
+    const fileAgeMs = now - file.lastModifiedTime;
+
+    let lockoutCount = Services.prefs.getIntPref(
+      PREF_APP_UPDATE_LOCKEDOUT_COUNT,
+      0
+    );
+    lockoutCount += 1;
+    Services.prefs.setIntPref(PREF_APP_UPDATE_LOCKEDOUT_COUNT, lockoutCount);
+
+    let maxLockoutCount = Services.prefs.getIntPref(
+      PREF_APP_UPDATE_LOCKEDOUT_MAXCOUNT,
+      4
+    );
+    maxLockoutCount = Math.min(maxLockoutCount, 20);
+    LOG(
+      `onStateAccessFailure: lockoutCount is ${lockoutCount}, maxLockoutCount is ${maxLockoutCount}`
+    );
+
+    let maxFileAgeMs = Services.prefs.getIntPref(
+      PREF_APP_UPDATE_LOCKEDOUT_MAXAGE,
+      oneDayMs * 2
+    );
+    maxFileAgeMs = Math.min(maxFileAgeMs, oneDayMs * 14);
+    LOG(
+      `onStateAccessFailure: fileAgeMs = ${fileAgeMs} maxFileAgeMs = ${maxFileAgeMs}`
+    );
+
+    if (lockoutCount >= maxLockoutCount && fileAgeMs >= maxFileAgeMs) {
+      Glean.update.stateWriteFailure.add();
+      // Create an empty Update object for messaging.
+      let update = new Update(null);
+      LOG("onStateAccessFailure: reporting permission issue");
+      Services.obs.notifyObservers(update, "update-error", "bad-perms");
+      Services.prefs.setIntPref(PREF_APP_UPDATE_LOCKEDOUT_COUNT, 0);
+    }
+  }
+}
+
+function onStateAccessSuccess() {
+  LOG("onStateAccessSuccess");
+  Services.prefs.setIntPref(PREF_APP_UPDATE_LOCKEDOUT_COUNT, 0);
+}
+
+/**
  * Reads the update state from the update.status file in the specified
  * directory.
+ *
  * @param   dir
  *          The dir to look for an update.status file in
  * @return  The status value of the update.
@@ -969,16 +1166,31 @@ function readStatusFile(dir) {
  * Writes the current update operation/state to a file in the patch
  * directory, indicating to the patching system that operations need
  * to be performed.
+ *
+ * This function does not throw on errors. It just returns the error.
+ *
  * @param   dir
  *          The patch directory where the update.status file should be
  *          written.
  * @param   state
  *          The state value to write.
+ * @returns `null` on success or a JS exception on failure.
  */
 function writeStatusFile(dir, state) {
   let statusFile = dir.clone();
   statusFile.append(FILE_UPDATE_STATUS);
-  writeStringToFile(statusFile, state);
+  try {
+    writeStringToFile(statusFile, state);
+    LOG("writeStatusFile - status: " + state + ", path: " + statusFile.path);
+    try {
+      onStateAccessSuccess();
+    } catch {}
+  } catch (ex) {
+    LOG("writeStatusFile failed: " + ex);
+    onStateAccessFailure(statusFile, ex);
+    return ex;
+  }
+  return null;
 }
 
 /**
@@ -989,6 +1201,9 @@ function writeStatusFile(dir, state) {
  * the update should be applied. Note that this won't provide protection from
  * downgrade of the application for the nightly user case where the application
  * version doesn't change.
+ *
+ * This function fails silently.
+ *
  * @param   dir
  *          The patch directory where the update.version file should be
  *          written.
@@ -999,7 +1214,11 @@ function writeStatusFile(dir, state) {
 function writeVersionFile(dir, version) {
   let versionFile = dir.clone();
   versionFile.append(FILE_UPDATE_VERSION);
-  writeStringToFile(versionFile, version);
+  try {
+    writeStringToFile(versionFile, version);
+  } catch (ex) {
+    LOG("writeVersionFile failed: " + ex);
+  }
 }
 
 /**
@@ -1282,14 +1501,15 @@ async function cleanupDownloadingUpdate() {
   // Now trash the update download directory, since we're done with it
   cleanUpDownloadingUpdateDir();
 
-  // If the update status file says we are downloading, we should remove that
+  // If the update state says we are downloading, we should change that
   // too, since we aren't doing that anymore.
-  let readyUpdateDir = getReadyUpdateDir();
-  let status = readStatusFile(readyUpdateDir);
-  if (status == STATE_DOWNLOADING) {
-    let statusFile = readyUpdateDir.clone();
+  if (
+    lazy.AUS.currentState == Ci.nsIApplicationUpdateService.STATE_DOWNLOADING
+  ) {
+    let statusFile = getReadyUpdateDir().clone();
     statusFile.append(FILE_UPDATE_STATUS);
     statusFile.remove(false);
+    transitionState(Ci.nsIApplicationUpdateService.STATE_IDLE);
   }
 }
 
@@ -1330,21 +1550,23 @@ async function cleanupActiveUpdates() {
 /**
  * Writes a string of text to a file.  A newline will be appended to the data
  * written to the file.  This function only works with ASCII text.
+ *
  * @param file An nsIFile indicating what file to write to.
  * @param text A string containing the text to write to the file.
- * @return true on success, false on failure.
+ * @throws Errors from file stream will be propagated.
  */
 function writeStringToFile(file, text) {
+  let fos = FileUtils.openSafeFileOutputStream(file);
+  text += "\n";
+  fos.write(text, text.length);
+  // Don't use `FileUtils.closeSafeFileOutputStream` because it swallows errors,
+  // which we don't want to do here.
   try {
-    let fos = FileUtils.openSafeFileOutputStream(file);
-    text += "\n";
-    fos.write(text, text.length);
-    FileUtils.closeSafeFileOutputStream(fos);
-  } catch (e) {
-    LOG(`writeStringToFile - Failed to write to file: "${file}". Error: ${e}"`);
-    return false;
+    fos.QueryInterface(Ci.nsISafeOutputStream);
+    fos.finish();
+  } finally {
+    fos.close();
   }
-  return true;
 }
 
 function readStringFromInputStream(inputStream) {
@@ -1570,6 +1792,7 @@ function handleUpdateFailure(update) {
 
 /**
  * Return the first UpdatePatch with the given type.
+ *
  * @param   update
  *          A nsIUpdate object to search through for a patch of the desired
  *          type.
@@ -1893,7 +2116,7 @@ class UpdatePatch {
    * @param   patch
    *          A <patch> element to initialize this object with
    * @throws if patch has a size of 0
-   * @constructor
+   * @class
    */
   constructor(patch) {
     this._properties = {};
@@ -2102,10 +2325,11 @@ class Update {
 
   /**
    * Implements nsIUpdate
+   *
    * @param   update
    *          An <update> element to initialize this object with
    * @throws if the update contains no patches
-   * @constructor
+   * @class
    */
   constructor(update) {
     this._patches = [];
@@ -2149,10 +2373,7 @@ class Update {
     // Set the installDate value with the current time. If the update has an
     // installDate attribute this will be replaced with that value if it doesn't
     // equal 0.
-    this._installDate = new Date().getTime();
-    // The `installDate` set above isn't especially legitimate. In some cases,
-    // we need to be able to tell when we have the real install date.
-    this.usingDefaultInstallDate = true;
+    this.installDate = new Date().getTime();
     this.patchCount = this._patches.length;
 
     for (let i = 0; i < update.attributes.length; ++i) {
@@ -2444,15 +2665,6 @@ class Update {
     return null;
   }
 
-  get installDate() {
-    return this._installDate;
-  }
-
-  set installDate(date) {
-    this._installDate = date;
-    this.usingDefaultInstallDate = false;
-  }
-
   QueryInterface = ChromeUtils.generateQI([
     Ci.nsIUpdate,
     Ci.nsIPropertyBag,
@@ -2493,7 +2705,8 @@ export class UpdateService {
   /**
    * UpdateService
    * A Service for managing the discovery and installation of software updates.
-   * @constructor
+   *
+   * @class
    */
   constructor() {
     LOG("Creating UpdateService");
@@ -2515,12 +2728,6 @@ export class UpdateService {
         Ci.nsIApplicationUpdateServiceInternal,
       ]),
     };
-
-    Services.prefs.addObserver(PREF_APP_UPDATE_INSTALL_LOCKOUT_ENABLED, this);
-    Services.prefs.addObserver(
-      PREF_APP_UPDATE_INSTALL_LOCKOUT_TIMEOUT_MS,
-      this
-    );
   }
 
   /**
@@ -2547,6 +2754,7 @@ export class UpdateService {
 
   /**
    * Handle Observer Service notifications
+   *
    * @param   subject
    *          The subject of the notification
    * @param   topic
@@ -2561,14 +2769,6 @@ export class UpdateService {
         break;
       case "quit-application":
         Services.obs.removeObserver(this, topic);
-        Services.prefs.removeObserver(
-          PREF_APP_UPDATE_INSTALL_LOCKOUT_ENABLED,
-          this
-        );
-        Services.prefs.removeObserver(
-          PREF_APP_UPDATE_INSTALL_LOCKOUT_TIMEOUT_MS,
-          this
-        );
 
         if (lazy.UpdateMutex.isLocked()) {
           // If we hold the update mutex, let it go!
@@ -2605,14 +2805,6 @@ export class UpdateService {
             LOG("UpdateService:observe - releasing update mutex for testing");
             lazy.UpdateMutex.unlock();
           }
-        }
-        break;
-      case "nsPref:changed":
-        if (
-          data == PREF_APP_UPDATE_INSTALL_LOCKOUT_ENABLED ||
-          data == PREF_APP_UPDATE_INSTALL_LOCKOUT_TIMEOUT_MS
-        ) {
-          await this.writeTimestampFile();
         }
         break;
     }
@@ -3088,7 +3280,22 @@ export class UpdateService {
           let uri = "chrome://mozapps/content/update/updateElevation.xhtml";
           let features =
             "chrome,centerscreen,resizable=no,titlebar,toolbar=no,dialog=no";
-          Services.ww.openWindow(null, uri, "Update:Elevation", features, null);
+
+          // The following timeout is intended to make the elevation dialog
+          // appear on top of any browser windows after startup. In the past,
+          // this dialog would frequently be displayed first, then getting
+          // obscured by browser windows. The timeout period is arbitrary and
+          // may be adjusted, but this seemed to work well during initial
+          // testing. See bug 1273536 for more info.
+          lazy.setTimeout(() => {
+            Services.ww.openWindow(
+              null,
+              uri,
+              "Update:Elevation",
+              features,
+              null
+            );
+          }, 2000);
         }
       }
     } else if (
@@ -3111,7 +3318,6 @@ export class UpdateService {
         LOG("UpdateService:#asyncInit - Cleaning up missing pending update.");
         cleanupReadyUpdate();
       }
-      await this.writeTimestampFile();
     } else {
       // If there was an I/O error it is assumed that the patch is not invalid
       // and it is set to pending so an attempt to apply it again will happen
@@ -3307,6 +3513,7 @@ export class UpdateService {
 
   /**
    * Notified when a timer fires
+   *
    * @param   _timer
    *          The timer that fired
    */
@@ -3335,6 +3542,7 @@ export class UpdateService {
 
   /**
    * Checks for updates in the background.
+   *
    * @param   isNotify
    *          Whether or not a background update check was initiated by the
    *          application update timer notification.
@@ -3524,6 +3732,8 @@ export class UpdateService {
         );
       } else if (!hasUpdateMutex()) {
         AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_NO_MUTEX);
+      } else if (isOtherInstanceRunning()) {
+        AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_OTHER_INSTANCE);
       } else if (!this.canCheckForUpdates) {
         AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_UNABLE_TO_CHECK);
       }
@@ -3539,6 +3749,7 @@ export class UpdateService {
    * Determine the update from the specified updates that should be offered.
    * If both valid major and minor updates are available the minor update will
    * be offered.
+   *
    * @param   updates
    *          An array of available nsIUpdate items
    * @return  The nsIUpdate to offer.
@@ -3717,6 +3928,7 @@ export class UpdateService {
   /**
    * Determine which of the specified updates should be installed and begin the
    * download/installation process or notify the user about the update.
+   *
    * @param   updates
    *          An array of available updates
    */
@@ -3883,6 +4095,15 @@ export class UpdateService {
       return false;
     }
 
+    if (isOtherInstanceRunning()) {
+      // This doesn't block update checks, but we will have to wait until either
+      // the other instance is gone or we time out waiting for it.
+      LOG(
+        "UpdateService.canCheckForUpdates - another instance is holding the " +
+          "lock, will need to wait for it prior to checking for updates"
+      );
+    }
+
     LOG("UpdateService.canCheckForUpdates - able to check for updates");
     return true;
   }
@@ -3905,7 +4126,11 @@ export class UpdateService {
    * See nsIUpdateService.idl
    */
   get canApplyUpdates() {
-    return this.canUsuallyApplyUpdates && hasUpdateMutex();
+    return (
+      this.canUsuallyApplyUpdates &&
+      hasUpdateMutex() &&
+      !isOtherInstanceRunning()
+    );
   }
 
   /**
@@ -4369,88 +4594,6 @@ export class UpdateService {
     );
   }
 
-  /**
-   * Writes a timestamp for the end of the install lockout timeout to
-   * 'update.timestamp'. Before this timestamp, Firefox will only install
-   * updates at startup if there are no other instances running. After this
-   * timestamp, Firefox will install updates at startup even if there are other
-   * instances running.
-   *
-   * Unless this is the initial write of this file, this function only writes to
-   * the file when we are reasonably sure we know when the timer ought to have
-   * started (i.e. when the update download finished). We want to make sure that
-   * we aren't writing a timestamp based on the current time to this file.
-   *
-   * If the update timeout feature is not enabled, this instead removes the
-   * timeout file, if present.
-   *
-   * @param  options
-   *         An optional object containing any of these keys:
-   *           dir
-   *             The patch directory where the update.timestamp file should be
-   *             written. Defaults to using `getReadyUpdateDir()`.
-   *           update
-   *             The nsIUpdate to write the timestamp for. Defaults to the
-   *             current `readyUpdate`.
-   *           isInitialWrite
-   *             Should be `true` if this is the first write of the timestamp
-   *             file for this update. If this is `true`, `update` must have a
-   *             valid `installDate` set (`usingDefaultInstallDate == false`).
-   */
-  async writeTimestampFile({ dir, update, isInitialWrite = false } = {}) {
-    if (!update) {
-      update = lazy.UM.internal.readyUpdate;
-    }
-    if (!update) {
-      LOG(
-        "UpdateService:writeTimestampFile - Not writing timestamp file. No update."
-      );
-      return;
-    }
-
-    const timeoutsEnabled = Services.prefs.getBoolPref(
-      PREF_APP_UPDATE_INSTALL_LOCKOUT_ENABLED,
-      true
-    );
-    if (timeoutsEnabled && update.usingDefaultInstallDate && !isInitialWrite) {
-      LOG(
-        "UpdateService:writeTimestampFile - Skipping timestamp update. Lack of valid data."
-      );
-      return;
-    }
-
-    const timestampFile = dir ? dir.clone() : getReadyUpdateDir();
-    timestampFile.append(FILE_UPDATE_TIMESTAMP);
-
-    const timeoutMs = Services.prefs.getIntPref(
-      PREF_APP_UPDATE_INSTALL_LOCKOUT_TIMEOUT_MS,
-      DEFAULT_UPDATE_INSTALL_LOCKOUT_TIMEOUT_MS
-    );
-
-    if (timeoutsEnabled && timeoutMs > 0) {
-      const timestampMs = Math.min(
-        update.installDate + timeoutMs,
-        Date.now() + MAX_UPDATE_INSTALL_LOCKOUT_TIMEOUT_MS
-      );
-      LOG(
-        `UpdateService:writeTimestampFile - Writing ${new Date(
-          timestampMs
-        )} (${timestampMs})`
-      );
-      writeStringToFile(timestampFile, timestampMs);
-    } else {
-      LOG(
-        `UpdateService:writeTimestampFile - Removing file. Feature ` +
-          `Enabled=${timeoutsEnabled}, Timeout=${timeoutMs}ms`
-      );
-      try {
-        await IOUtils.remove(timestampFile.path, { ignoreAbsent: true });
-      } catch (ex) {
-        LOG("UpdateService:writeTimestampFile - Failed to remove file: " + ex);
-      }
-    }
-  }
-
   classID = UPDATESERVICE_CID;
 
   QueryInterface = ChromeUtils.generateQI([
@@ -4484,7 +4627,8 @@ export class UpdateManager {
 
   /**
    * A service to manage active and past updates.
-   * @constructor
+   *
+   * @class
    */
   constructor() {
     this.internal = {
@@ -4605,6 +4749,7 @@ export class UpdateManager {
 
   /**
    * Loads an updates.xml formatted file into an array of nsIUpdate items.
+   *
    * @param   fileName
    *          The file name in the updates directory to load.
    * @return  The array of nsIUpdate items held in the file.
@@ -4777,6 +4922,7 @@ export class UpdateManager {
   /**
    * Serializes an array of updates to an XML file or removes the file if the
    * array length is 0.
+   *
    * @param   updates
    *          An array of nsIUpdate objects
    * @param   fileName
@@ -5446,6 +5592,8 @@ export class CheckerService {
       await lazy.AUS.init();
     }
 
+    await waitForOtherInstances();
+
     let url;
     try {
       url = await this.getUpdateURL(checkType);
@@ -5824,12 +5972,13 @@ class Downloader {
 
   /**
    * Manages the download of updates
+   *
    * @param   background
    *          Whether or not this downloader is operating in background
    *          update mode.
    * @param   updateService
    *          The update service that created this downloader.
-   * @constructor
+   * @class
    */
   constructor(updateService) {
     LOG("Creating Downloader");
@@ -5928,6 +6077,7 @@ class Downloader {
   /**
    * Select the patch to use given the current state of updateDir and the given
    * set of update patches.
+   *
    * @param   update
    *          A nsIUpdate object to select a patch from
    * @return  A nsIUpdatePatch object to download
@@ -6124,10 +6274,10 @@ class Downloader {
         );
       })
       .finally(() => {
+        let timerId = this._langPackTimeout.gleanTimerId;
         this._langPackTimeout = null;
-
-        if (TelemetryStopwatch.running("UPDATE_LANGPACK_OVERTIME", update)) {
-          TelemetryStopwatch.finish("UPDATE_LANGPACK_OVERTIME", update);
+        if (timerId) {
+          Glean.update.langpackOvertime.stopAndAccumulate(timerId);
         }
       });
 
@@ -6196,6 +6346,7 @@ class Downloader {
 
   /**
    * Download and stage the given update.
+   *
    * @param   update
    *          A nsIUpdate object to download a patch for. Cannot be null.
    */
@@ -6407,8 +6558,14 @@ class Downloader {
     }
 
     if (!lazy.UM.internal.readyUpdate) {
-      LOG("Downloader:downloadUpdate - Setting status to downloading");
-      writeStatusFile(getReadyUpdateDir(), STATE_DOWNLOADING);
+      const error = writeStatusFile(getReadyUpdateDir(), STATE_DOWNLOADING);
+      if (error) {
+        LOG("Downloader:downloadUpdate - Failed to set status to downloading");
+        await cleanupActiveUpdates();
+        return Ci.nsIApplicationUpdateService
+          .DOWNLOAD_FAILURE_CANNOT_WRITE_STATE;
+      }
+      LOG("Downloader:downloadUpdate - Set status to downloading");
     }
     if (this._patch.state != STATE_DOWNLOADING) {
       LOG("Downloader:downloadUpdate - Setting state to downloading");
@@ -6539,6 +6696,7 @@ class Downloader {
 
   /**
    * When the async request begins
+   *
    * @param   request
    *          The nsIRequest object for the transfer
    */
@@ -6566,6 +6724,7 @@ class Downloader {
 
   /**
    * When new data has been downloaded
+   *
    * @param   request
    *          The nsIRequest object for the transfer
    * @param   progress
@@ -6619,6 +6778,7 @@ class Downloader {
 
   /**
    * When we have new status text
+   *
    * @param   request
    *          The nsIRequest object for the transfer
    * @param   status
@@ -6640,6 +6800,7 @@ class Downloader {
 
   /**
    * When data transfer ceases
+   *
    * @param   request
    *          The nsIRequest object for the transfer
    * @param   status
@@ -6782,16 +6943,11 @@ class Downloader {
             `Downloader:onStopRequest - Ready to apply. Setting state to ` +
               `"${state}".`
           );
-          this._update.installDate = Date.now();
+          writeStatusFile(getReadyUpdateDir(), state);
+          writeVersionFile(getReadyUpdateDir(), this._update.appVersion);
+          this._update.installDate = new Date().getTime();
           this._update.statusText =
             lazy.gUpdateBundle.GetStringFromName("installPending");
-          writeStatusFile(readyDir, state);
-          writeVersionFile(readyDir, this._update.appVersion);
-          await this.updateService.writeTimestampFile({
-            dir: readyDir,
-            update: this._update,
-            isInitialWrite: true,
-          });
           Services.prefs.setIntPref(PREF_APP_UPDATE_DOWNLOAD_ATTEMPTS, 0);
         } else {
           LOG(
@@ -6933,6 +7089,11 @@ class Downloader {
           error = request.transferError;
           if (!error) {
             error = new BitsUnknownError();
+          } else if (
+            error.codeType == Ci.nsIBits.ERROR_CODE_TYPE_HRESULT &&
+            error.code == BG_E_HTTP_ERROR_406
+          ) {
+            Glean.update.blocked.add();
           }
         }
         AUSTLMY.pingBitsError(this.isCompleteUpdate, error);
@@ -7130,11 +7291,8 @@ class Downloader {
     if (this._langPackTimeout) {
       // Start a timer to measure how much longer it takes for the language
       // packs to stage.
-      TelemetryStopwatch.start(
-        "UPDATE_LANGPACK_OVERTIME",
-        unwrap(this._update),
-        { inSeconds: true }
-      );
+      this._langPackTimeout.gleanTimerId =
+        Glean.update.langpackOvertime.start();
 
       lazy.setTimeout(
         this._langPackTimeout,

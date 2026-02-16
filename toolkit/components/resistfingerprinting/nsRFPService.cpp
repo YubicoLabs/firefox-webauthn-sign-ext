@@ -13,8 +13,8 @@
 #include <cstring>
 #include <ctime>
 #include <new>
-#include <type_traits>
 #include <utility>
+#include <mutex>
 
 #include "MainThreadUtils.h"
 #include "ScopedNSSTypes.h"
@@ -23,16 +23,14 @@
 #include "mozilla/ArrayIterator.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Atomics.h"
-#include "mozilla/Casting.h"
 #include "mozilla/Components.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/ContentBlockingNotifier.h"
 #include "mozilla/glean/ResistfingerprintingMetrics.h"
 #include "mozilla/HashFunctions.h"
-#include "mozilla/HelperMacros.h"
 #include "mozilla/Likely.h"
 #include "mozilla/Logging.h"
-#include "mozilla/MacroForEach.h"
+#include "mozilla/LookAndFeel.h"
 #include "mozilla/OriginAttributes.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/ProfilerMarkers.h"
@@ -42,16 +40,21 @@
 #include "mozilla/StaticPrefs_javascript.h"
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StaticPtr.h"
+#include "mozilla/SSE.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/CanvasRenderingContextHelper.h"
+#include "mozilla/dom/CanvasRenderingContext2D.h"
+#include "mozilla/dom/CanvasUtils.h"
 #include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/KeyboardEventBinding.h"
 #include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/dom/MediaDeviceInfoBinding.h"
-#include "mozilla/fallible.h"
+#include "mozilla/dom/quota/QuotaManager.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/intl/LocaleService.h"
 #include "mozilla/XorShift128PlusRNG.h"
 
 #include "nsAboutProtocolUtils.h"
@@ -106,18 +109,23 @@ static mozilla::LazyLogModule gFingerprinterDetection("FingerprinterDetection");
 
 static mozilla::LazyLogModule gTimestamps("Timestamps");
 
+#define RESIST_FINGERPRINTINGPROTECTION_OVERRIDE_BASE_PREF \
+  "privacy.baselineFingerprintingProtection.overrides"
 #define RESIST_FINGERPRINTINGPROTECTION_OVERRIDE_PREF \
   "privacy.fingerprintingProtection.overrides"
 #define GLEAN_DATA_SUBMISSION_PREF "datareporting.healthreport.uploadEnabled"
 #define USER_CHARACTERISTICS_UUID_PREF \
   "toolkit.telemetry.user_characteristics_ping.uuid"
+#define INTL_ACCEPT_LANGUAGES_PREF "intl.accept_languages"
 
 #define RFP_TIMER_UNCONDITIONAL_VALUE 20
 #define LAST_PB_SESSION_EXITED_TOPIC "last-pb-context-exited"
 #define IDLE_TOPIC "browser-idle-startup-tasks-finished"
 #define COMPOSITOR_CREATED "compositor:created"
+#define FONT_LIST_INITIALIZED "font-list-initialized"
 #define USER_CHARACTERISTICS_TEST_REQUEST \
   "user-characteristics-testing-please-populate-data"
+#define MOBILE_TELEMETRY_PREF_CHANGE_TOPIC "mobile-telemetry-pref-changed"
 
 static constexpr uint32_t kVideoFramesPerSec = 30;
 static constexpr uint32_t kVideoDroppedRatio = 1;
@@ -138,6 +146,10 @@ static constexpr uint32_t kVideoDroppedRatio = 1;
 #  define DESKTOP_DEFAULT(name) RFPTarget::name,
 #endif
 
+constinit const RFPTargetSet kDefaultFingerprintingProtectionsBase = {
+#include "RFPTargetsDefaultBaseline.inc"
+};
+
 MOZ_RUNINIT const RFPTargetSet kDefaultFingerprintingProtections = {
 #include "RFPTargetsDefault.inc"
 };
@@ -145,8 +157,6 @@ MOZ_RUNINIT const RFPTargetSet kDefaultFingerprintingProtections = {
 #undef ANDROID_DEFAULT
 #undef DESKTOP_DEFAULT
 // NOLINTEND(bugprone-macro-parentheses)
-
-static constexpr uint32_t kSuspiciousFingerprintingActivityThreshold = 1;
 
 // ============================================================================
 // ============================================================================
@@ -157,10 +167,13 @@ NS_IMPL_ISUPPORTS(nsRFPService, nsIObserver, nsIRFPService)
 
 static StaticRefPtr<nsRFPService> sRFPService;
 static bool sInitialized = false;
+static inline StaticAutoPtr<nsTArray<nsCString>> sAllowedFonts;
 
 // Actually enabled fingerprinting protections.
 static StaticMutex sEnabledFingerprintingProtectionsMutex;
-MOZ_CONSTINIT static RFPTargetSet sEnabledFingerprintingProtections
+constinit static RFPTargetSet sEnabledFingerprintingProtectionsBase
+    MOZ_GUARDED_BY(sEnabledFingerprintingProtectionsMutex);
+constinit static RFPTargetSet sEnabledFingerprintingProtections
     MOZ_GUARDED_BY(sEnabledFingerprintingProtectionsMutex);
 
 /* static */
@@ -182,6 +195,7 @@ already_AddRefed<nsRFPService> nsRFPService::GetOrCreate() {
 }
 
 static const char* gCallbackPrefs[] = {
+    RESIST_FINGERPRINTINGPROTECTION_OVERRIDE_BASE_PREF,
     RESIST_FINGERPRINTINGPROTECTION_OVERRIDE_PREF,
     GLEAN_DATA_SUBMISSION_PREF,
     nullptr,
@@ -211,7 +225,13 @@ nsresult nsRFPService::Init() {
     rv = obs->AddObserver(this, COMPOSITOR_CREATED, false);
     NS_ENSURE_SUCCESS(rv, rv);
 
+    rv = obs->AddObserver(this, FONT_LIST_INITIALIZED, false);
+    NS_ENSURE_SUCCESS(rv, rv);
+
     rv = obs->AddObserver(this, USER_CHARACTERISTICS_TEST_REQUEST, false);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    rv = obs->AddObserver(this, MOBILE_TELEMETRY_PREF_CHANGE_TOPIC, false);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
@@ -228,14 +248,82 @@ nsresult nsRFPService::Init() {
   return rv;
 }
 
+// Very simple helper functions to improve readability.
+
 /* static */
 bool nsRFPService::IsRFPPrefEnabled(bool aIsPrivateMode) {
-  if (StaticPrefs::privacy_resistFingerprinting_DoNotUseDirectly() ||
-      (aIsPrivateMode &&
-       StaticPrefs::privacy_resistFingerprinting_pbmode_DoNotUseDirectly())) {
-    return true;
+  return StaticPrefs::privacy_resistFingerprinting_DoNotUseDirectly() ||
+         (aIsPrivateMode &&
+          StaticPrefs::privacy_resistFingerprinting_pbmode_DoNotUseDirectly());
+}
+
+/* static */
+bool IsBaselineFPPEnabled() {
+  return StaticPrefs::
+      privacy_baselineFingerprintingProtection_DoNotUseDirectly();
+}
+
+/* static */
+bool IsFPPEnabled(bool aIsPrivateMode) {
+  return StaticPrefs::privacy_fingerprintingProtection_DoNotUseDirectly() ||
+         (aIsPrivateMode &&
+          StaticPrefs::
+              privacy_fingerprintingProtection_pbmode_DoNotUseDirectly());
+}
+
+nsRFPService::FingerprintingProtectionType
+nsRFPService::GetFingerprintingProtectionType(bool aIsPrivateMode) {
+  if (nsRFPService::IsRFPPrefEnabled(aIsPrivateMode)) {
+    return FingerprintingProtectionType::RFP;
   }
-  return false;
+
+  if (IsFPPEnabled(aIsPrivateMode)) {
+    return FingerprintingProtectionType::FPP;
+  }
+
+  if (IsBaselineFPPEnabled()) {
+    return FingerprintingProtectionType::Baseline;
+  }
+
+  return FingerprintingProtectionType::None;
+}
+
+Maybe<bool> nsRFPService::HandleExceptionalRFPTargets(
+    RFPTarget aTarget, bool aIsPrivateMode,
+    FingerprintingProtectionType aMode) {
+  MOZ_ASSERT(GetFingerprintingProtectionType(aIsPrivateMode) !=
+             FingerprintingProtectionType::None);
+
+  // IsAlwaysEnabledForPrecompute is used to enable fingerprinting protections.
+  // It isn't included in the RFPTargetSet.
+  if (aTarget == RFPTarget::IsAlwaysEnabledForPrecompute) {
+    return Some(true);
+  }
+
+  // We only spoof language if the user has explicitly agreed to the
+  // prompt we show when privacy.spoof_english is set to 0.
+  if (aTarget == RFPTarget::JSLocale) {
+    return Some(IsTargetActiveForMode(aTarget, aMode) &&
+                StaticPrefs::privacy_spoof_english_DoNotUseDirectly() == 2);
+  }
+
+  return Nothing();
+}
+
+bool nsRFPService::IsTargetActiveForMode(RFPTarget aTarget,
+                                         FingerprintingProtectionType aMode) {
+  StaticMutexAutoLock lock(sEnabledFingerprintingProtectionsMutex);
+  switch (aMode) {
+    case FingerprintingProtectionType::FPP:
+      return sEnabledFingerprintingProtections.contains(aTarget);
+    case FingerprintingProtectionType::Baseline:
+      return sEnabledFingerprintingProtectionsBase.contains(aTarget);
+    case FingerprintingProtectionType::RFP:
+      return true;
+    default:
+      MOZ_CRASH("Unexpected FingerprintingProtectionType");
+      return false;
+  }
 }
 
 /* static */
@@ -244,55 +332,49 @@ bool nsRFPService::IsRFPEnabledFor(
     const Maybe<RFPTargetSet>& aOverriddenFingerprintingSettings) {
   MOZ_ASSERT(aTarget != RFPTarget::AllTargets);
 
-#if SPOOFED_MAX_TOUCH_POINTS > 0
-  if (aTarget == RFPTarget::PointerId) {
+  FingerprintingProtectionType mode =
+      GetFingerprintingProtectionType(aIsPrivateMode);
+  if (mode == FingerprintingProtectionType::None) {
     return false;
   }
-#endif
 
-  if (StaticPrefs::privacy_resistFingerprinting_DoNotUseDirectly() ||
-      (aIsPrivateMode &&
-       StaticPrefs::privacy_resistFingerprinting_pbmode_DoNotUseDirectly())) {
-    if (aTarget == RFPTarget::JSLocale) {
-      return StaticPrefs::privacy_spoof_english() == 2;
-    }
+  if (Maybe<bool> result =
+          HandleExceptionalRFPTargets(aTarget, aIsPrivateMode, mode)) {
+    return *result;
+  }
+
+  if (mode == FingerprintingProtectionType::RFP) {
     return true;
   }
 
-  if (StaticPrefs::privacy_fingerprintingProtection_DoNotUseDirectly() ||
-      (aIsPrivateMode &&
-       StaticPrefs::
-           privacy_fingerprintingProtection_pbmode_DoNotUseDirectly())) {
-    if (aTarget == RFPTarget::IsAlwaysEnabledForPrecompute) {
-      return true;
-    }
-
-    if (aOverriddenFingerprintingSettings) {
-      return aOverriddenFingerprintingSettings.ref().contains(aTarget);
-    }
-
-    StaticMutexAutoLock lock(sEnabledFingerprintingProtectionsMutex);
-    return sEnabledFingerprintingProtections.contains(aTarget);
+  if (aOverriddenFingerprintingSettings) {
+    return aOverriddenFingerprintingSettings.ref().contains(aTarget);
   }
 
-  return false;
+  return IsTargetActiveForMode(aTarget, mode);
 }
 
 void nsRFPService::UpdateFPPOverrideList() {
-  nsAutoString targetOverrides;
-  nsresult rv = Preferences::GetString(
-      RESIST_FINGERPRINTINGPROTECTION_OVERRIDE_PREF, targetOverrides);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    MOZ_LOG(gResistFingerprintingLog, LogLevel::Warning,
-            ("Could not get fingerprinting override pref value"));
-    return;
-  }
-
-  RFPTargetSet enabled = CreateOverridesFromText(
-      targetOverrides, kDefaultFingerprintingProtections);
-
   StaticMutexAutoLock lock(sEnabledFingerprintingProtectionsMutex);
-  sEnabledFingerprintingProtections = enabled;
+  std::tuple<const char*, RFPTargetSet&, const RFPTargetSet&> prefs[] = {
+      {RESIST_FINGERPRINTINGPROTECTION_OVERRIDE_PREF,
+       sEnabledFingerprintingProtections, kDefaultFingerprintingProtections},
+      {RESIST_FINGERPRINTINGPROTECTION_OVERRIDE_BASE_PREF,
+       sEnabledFingerprintingProtectionsBase,
+       kDefaultFingerprintingProtectionsBase},
+  };
+
+  for (const auto& [pref, targetSet, defaultSet] : prefs) {
+    nsAutoString targetOverrides;
+    nsresult rv = Preferences::GetString(pref, targetOverrides);
+    if (NS_FAILED(rv)) {
+      MOZ_LOG(gResistFingerprintingLog, LogLevel::Warning,
+              ("Could not get fingerprinting override pref (%s) value", pref));
+      continue;
+    }
+
+    targetSet = CreateOverridesFromText(targetOverrides, defaultSet);
+  }
 }
 
 /* static */
@@ -320,7 +402,9 @@ void nsRFPService::StartShutdown() {
       obs->RemoveObserver(this, OBSERVER_TOPIC_IDLE_DAILY);
       obs->RemoveObserver(this, IDLE_TOPIC);
       obs->RemoveObserver(this, COMPOSITOR_CREATED);
+      obs->RemoveObserver(this, FONT_LIST_INITIALIZED);
       obs->RemoveObserver(this, USER_CHARACTERISTICS_TEST_REQUEST);
+      obs->RemoveObserver(this, MOBILE_TELEMETRY_PREF_CHANGE_TOPIC);
     }
   }
 
@@ -342,7 +426,8 @@ void nsRFPService::PrefChanged(const char* aPref) {
           ("Pref Changed: %s", aPref));
   nsDependentCString pref(aPref);
 
-  if (pref.EqualsLiteral(RESIST_FINGERPRINTINGPROTECTION_OVERRIDE_PREF)) {
+  if (pref.EqualsLiteral(RESIST_FINGERPRINTINGPROTECTION_OVERRIDE_PREF) ||
+      pref.EqualsLiteral(RESIST_FINGERPRINTINGPROTECTION_OVERRIDE_BASE_PREF)) {
     UpdateFPPOverrideList();
   } else if (pref.EqualsLiteral(GLEAN_DATA_SUBMISSION_PREF)) {
     if (XRE_IsParentProcess() &&
@@ -359,8 +444,7 @@ void nsRFPService::PrefChanged(const char* aPref) {
 NS_IMETHODIMP
 nsRFPService::Observe(nsISupports* aObject, const char* aTopic,
                       const char16_t* aMessage) {
-  const int kNumTopicsForUserCharacteristics = 2;
-  static int seenTopicsForUserCharacteristics = 0;
+  static uint8_t bitsetForUserCharacteristics = 0;
 
   if (strcmp(NS_XPCOM_SHUTDOWN_OBSERVER_ID, aTopic) == 0) {
     StartShutdown();
@@ -374,12 +458,19 @@ nsRFPService::Observe(nsISupports* aObject, const char* aTopic,
     ClearBrowsingSessionKey(pattern);
   }
 
-  if (!strcmp(IDLE_TOPIC, aTopic) || !strcmp(COMPOSITOR_CREATED, aTopic)) {
-    seenTopicsForUserCharacteristics++;
+  if (!strcmp(IDLE_TOPIC, aTopic)) {
+    bitsetForUserCharacteristics |= 1 << 0;
+  } else if (!strcmp(COMPOSITOR_CREATED, aTopic)) {
+    bitsetForUserCharacteristics |= 1 << 1;
+  } else if (!strcmp(FONT_LIST_INITIALIZED, aTopic)) {
+    bitsetForUserCharacteristics |= 1 << 2;
+  }
 
-    if (seenTopicsForUserCharacteristics == kNumTopicsForUserCharacteristics) {
-      nsUserCharacteristics::MaybeSubmitPing();
-    }
+  if (bitsetForUserCharacteristics == 0b111) {
+    nsUserCharacteristics::MaybeSubmitPing();
+    // Set 4th bit to 1 to make sure bitset is never 0b111 again.
+    // This is to ensure that we only submit the ping once.
+    bitsetForUserCharacteristics |= 1 << 3;
   }
 
   if (!strcmp(USER_CHARACTERISTICS_TEST_REQUEST, aTopic) &&
@@ -416,6 +507,14 @@ nsRFPService::Observe(nsISupports* aObject, const char* aTopic,
 
     rv = mWebCompatService->Init();
     NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  if (!strcmp(MOBILE_TELEMETRY_PREF_CHANGE_TOPIC, aTopic) &&
+      nsDependentString(aMessage).EqualsLiteral(u"disabled")) {
+    // If the user has unset the telemetry pref, wipe out the UUID pref value
+    // (The data will also be erased server-side via the "deletion-request"
+    // ping)
+    Preferences::SetCString(USER_CHARACTERISTICS_UUID_PREF, ""_ns);
   }
 
   return NS_OK;
@@ -784,7 +883,7 @@ TimerPrecisionType nsRFPService::GetTimerPrecisionType(
   }
 
   if (aRTPCallerType == RTPCallerType::ResistFingerprinting) {
-    return RFP;
+    return TimerPrecisionType::RFP;
   }
 
   if (StaticPrefs::privacy_reduceTimerPrecision() &&
@@ -807,7 +906,7 @@ TimerPrecisionType nsRFPService::GetTimerPrecisionType(
 TimerPrecisionType nsRFPService::GetTimerPrecisionTypeRFPOnly(
     RTPCallerType aRTPCallerType) {
   if (aRTPCallerType == RTPCallerType::ResistFingerprinting) {
-    return RFP;
+    return TimerPrecisionType::RFP;
   }
 
   if (StaticPrefs::privacy_reduceTimerPrecision_unconditional() &&
@@ -909,13 +1008,14 @@ uint32_t nsRFPService::GetSpoofedPresentedFrames(double aTime, uint32_t aWidth,
 // User-Agent/Version Stuff
 
 /* static */
-void nsRFPService::GetSpoofedUserAgent(nsACString& userAgent) {
+void nsRFPService::GetSpoofedUserAgent(nsACString& userAgent,
+                                       bool aAndroidDesktopMode /* = false */) {
   // This function generates the spoofed value of User Agent.
   // We spoof the values of the platform and Firefox version, which could be
   // used as fingerprinting sources to identify individuals.
   // Reference of the format of User Agent:
   // https://developer.mozilla.org/en-US/docs/Web/API/NavigatorID/userAgent
-  // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/User-Agent
+  // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/User-Agent
 
   // These magic numbers are the lengths of the UA string literals below.
   // Assume three-digit Firefox version numbers so we have room to grow.
@@ -925,10 +1025,18 @@ void nsRFPService::GetSpoofedUserAgent(nsACString& userAgent) {
 
   // "Mozilla/5.0 (%s; rv:%d.0) Gecko/%d Firefox/%d.0"
   userAgent.AssignLiteral("Mozilla/5.0 (");
-  userAgent.AppendLiteral(SPOOFED_UA_OS);
+  if (aAndroidDesktopMode) {
+    userAgent.AppendLiteral(SPOOFED_UA_OS_OTHER);
+  } else {
+    userAgent.AppendLiteral(SPOOFED_UA_OS);
+  }
   userAgent.AppendLiteral("; rv:" MOZILLA_UAVERSION ") Gecko/");
 #if defined(ANDROID)
-  userAgent.AppendLiteral(MOZILLA_UAVERSION);
+  if (aAndroidDesktopMode) {
+    userAgent.AppendLiteral(LEGACY_UA_GECKO_TRAIL);
+  } else {
+    userAgent.AppendLiteral(MOZILLA_UAVERSION);
+  }
 #else
   userAgent.AppendLiteral(LEGACY_UA_GECKO_TRAIL);
 #endif
@@ -937,8 +1045,19 @@ void nsRFPService::GetSpoofedUserAgent(nsACString& userAgent) {
   MOZ_ASSERT(userAgent.Length() <= preallocatedLength);
 }
 
+NS_IMETHODIMP nsRFPService::GetSpoofedUserAgentService(bool aDesktopMode,
+                                                       nsACString& aUserAgent) {
+  nsRFPService::GetSpoofedUserAgent(aUserAgent, aDesktopMode);
+  return NS_OK;
+}
+
 /* static */
 nsCString nsRFPService::GetSpoofedJSLocale() { return "en-US"_ns; }
+
+/* static */
+nsCString nsRFPService::GetSpoofedJSTimeZone() {
+  return "Atlantic/Reykjavik"_ns;
+}
 
 // ============================================================================
 // ============================================================================
@@ -1021,7 +1140,7 @@ void nsRFPService::MaybeCreateSpoofingKeyCodesForEnUS() {
   {u""_ns,                                           \
    KEY_NAME_INDEX_##keyNameIdx_,                     \
    {CODE_NAME_INDEX_##_codeNameIdx, _keyCode, MODIFIER_NONE}},
-#include "KeyCodeConsensus_En_US.h"
+#include "KeyCodeConsensus_En_US.inc"
 #undef CONTROL
 #undef KEY
   };
@@ -1213,7 +1332,13 @@ nsresult nsRFPService::GetBrowsingSessionKey(
   // Note that there is only canvas randomization protection currently.
   if (!nsContentUtils::ShouldResistFingerprinting(
           "Checking the target activation globally without local context",
-          RFPTarget::CanvasRandomization)) {
+          RFPTarget::CanvasRandomization) &&
+      !nsContentUtils::ShouldResistFingerprinting(
+          "Checking the target activation globally without local context",
+          RFPTarget::WebGLRandomization) &&
+      !nsContentUtils::ShouldResistFingerprinting(
+          "Checking the target activation globally without local context",
+          RFPTarget::EfficientCanvasRandomization)) {
     return NS_ERROR_NOT_AVAILABLE;
   }
 
@@ -1245,7 +1370,7 @@ void nsRFPService::ClearBrowsingSessionKey(
   for (auto iter = mBrowsingSessionKeys.Iter(); !iter.Done(); iter.Next()) {
     nsAutoCString key(iter.Key());
     OriginAttributes attrs;
-    Unused << attrs.PopulateFromSuffix(key);
+    (void)attrs.PopulateFromSuffix(key);
 
     // Remove the entry if the origin attributes pattern matches
     if (aPattern.Matches(attrs)) {
@@ -1278,7 +1403,7 @@ Maybe<nsTArray<uint8_t>> nsRFPService::GenerateKey(nsIChannel* aChannel) {
 #endif
 
   nsCOMPtr<nsIURI> topLevelURI;
-  Unused << aChannel->GetURI(getter_AddRefs(topLevelURI));
+  (void)aChannel->GetURI(getter_AddRefs(topLevelURI));
 
   MOZ_LOG(gResistFingerprintingLog, LogLevel::Debug,
           ("Generating the randomization key for top-level URI: %s\n",
@@ -1313,7 +1438,11 @@ Maybe<nsTArray<uint8_t>> nsRFPService::GenerateKey(nsIChannel* aChannel) {
   // Note that canvas randomization is the only fingerprinting randomization
   // protection currently.
   if (!nsContentUtils::ShouldResistFingerprinting(
-          aChannel, RFPTarget::CanvasRandomization)) {
+          aChannel, RFPTarget::CanvasRandomization) &&
+      !nsContentUtils::ShouldResistFingerprinting(
+          aChannel, RFPTarget::WebGLRandomization) &&
+      !nsContentUtils::ShouldResistFingerprinting(
+          aChannel, RFPTarget::EfficientCanvasRandomization)) {
     return Nothing();
   }
   auto sessionKeyStr = sessionKey.ToString();
@@ -1552,10 +1681,11 @@ nsresult nsRFPService::GenerateCanvasKeyFromImageData(
     return NS_ERROR_FAILURE;
   }
 
-  if (StaticPrefs::
+  if ((aSize < 2500 || !mozilla::supports_sha()) ||
+      StaticPrefs::
           privacy_resistFingerprinting_randomization_canvas_use_siphash()) {
     // Hash the canvas data to generate the image data hash.
-    mozilla::HashNumber imageHashData = mozilla::HashString(aImageData, aSize);
+    mozilla::HashNumber imageHashData = mozilla::HashBytes(aImageData, aSize);
 
     // Then, we use the SipHash seeded by the first half of the random key to
     // generate a hash result using the image hash data. Our sipHash is
@@ -1601,35 +1731,172 @@ nsresult nsRFPService::GenerateCanvasKeyFromImageData(
 }
 
 // static
+void nsRFPService::PotentiallyDumpImage(nsIPrincipal* aPrincipal,
+                                        gfx::DataSourceSurface* aSurface) {
+  // Only dump from the content process to avoid unintended file writes from
+  // privileged or background processes.
+  if (XRE_GetProcessType() != GeckoProcessType_Content) {
+    return;
+  }
+  if (MOZ_LOG_TEST(gFingerprinterDetection, LogLevel::Debug)) {
+    int32_t format = 0;
+    UniquePtr<uint8_t[]> imageBuffer =
+        gfxUtils::GetImageBuffer(aSurface, true, &format);
+    nsRFPService::PotentiallyDumpImage(
+        aPrincipal, imageBuffer.get(), aSurface->GetSize().width,
+        aSurface->GetSize().height,
+        aSurface->GetSize().width * aSurface->GetSize().height * 4);
+  }
+}
+
+void nsRFPService::PotentiallyDumpImage(nsIPrincipal* aPrincipal,
+                                        uint8_t* aData, uint32_t aWidth,
+                                        uint32_t aHeight, uint32_t aSize) {
+  // Only dump from the content process to avoid unintended file writes from
+  // privileged or background processes.
+  if (XRE_GetProcessType() != GeckoProcessType_Content) {
+    return;
+  }
+  nsAutoCString safeSite;
+
+  if (MOZ_LOG_TEST(gFingerprinterDetection, LogLevel::Debug)) {
+    nsAutoCString site;
+    if (aPrincipal) {
+      nsCOMPtr<nsIURI> uri = aPrincipal->GetURI();
+      if (uri) {
+        site.Assign(uri->GetSpecOrDefault());
+      }
+    }
+    if (site.IsEmpty()) {
+      site.AssignLiteral("unknown");
+    }
+
+    safeSite.SetCapacity(site.Length());
+    // Build a sanitized site string from the principal's URI for filename.
+    // Allow alnum, '.', '_', '-', replace others with '_'.
+    for (uint32_t i = 0; i < site.Length() && safeSite.Length() < 80; ++i) {
+      char c = site[i];
+      if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+          (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') {
+        safeSite.Append(c);
+      } else {
+        safeSite.Append('_');
+      }
+    }
+
+    MOZ_LOG(gFingerprinterDetection, LogLevel::Debug,
+            ("Would dump a canvas image from %s width: %i height: %i bytes: %i",
+             site.get(), aWidth, aHeight, aSize));
+  }
+
+  if (MOZ_LOG_TEST(gFingerprinterDetection, LogLevel::Verbose)) {
+    // Requires sandbox level 0
+    // For debugging purposes you can dump the image with this code
+    // then convert it with the image-magick command
+    // convert -size WxH -depth 8 rgba:$i $i.png
+    // Depending on surface format, the alpha and color channels might be mixed
+    // up...
+    static int calls = 0;
+    char filename[256];
+    SprintfLiteral(filename, "rendered_image_%s__%dx%d_%d", safeSite.get(),
+                   aWidth, aHeight, calls);
+
+    const char* logEnv = PR_GetEnv("MOZ_LOG_FILE");
+#ifdef XP_WIN
+    const char sep = '\\';
+#else
+    const char sep = '/';
+#endif
+    const char* dirEnd = nullptr;
+    if (logEnv) {
+      for (const char* it = logEnv; *it; ++it) {
+        if (*it == sep) {
+          dirEnd = it;
+        }
+      }
+    }
+
+    char outPath[512];
+    if (dirEnd) {
+      int dirLen = int(dirEnd - logEnv + 1);
+      SprintfLiteral(outPath, "%.*s%s", dirLen, logEnv, filename);
+    } else {
+      SprintfLiteral(outPath, "%s", filename);
+    }
+
+    FILE* outputFile = fopen(outPath, "wb");
+    if (outputFile) {
+      fwrite(aData, 1, aSize, outputFile);
+      fclose(outputFile);
+      calls++;
+    }
+  }
+}
+
+// static
 nsresult nsRFPService::RandomizePixels(nsICookieJarSettings* aCookieJarSettings,
-                                       uint8_t* aData, uint32_t aWidth,
-                                       uint32_t aHeight, uint32_t aSize,
+                                       nsIPrincipal* aPrincipal, uint8_t* aData,
+                                       uint32_t aWidth, uint32_t aHeight,
+                                       uint32_t aSize,
                                        gfx::SurfaceFormat aSurfaceFormat) {
+  constexpr uint8_t bytesPerChannel = 1;
+  constexpr uint8_t bytesPerPixel = 4 * bytesPerChannel;
+
+  uint8_t offset = 0;
+  switch (aSurfaceFormat) {
+    case gfx::SurfaceFormat::B8G8R8A8:
+      offset = 0;
+      break;
+    case gfx::SurfaceFormat::A8R8G8B8:
+      offset = 1;
+      break;
+    default:
+      MOZ_ASSERT_UNREACHABLE(
+          "Unsupported surface format for pixel randomization");
+      return NS_ERROR_INVALID_ARG;
+  }
+  return RandomizeElements(aCookieJarSettings, aPrincipal, aData, aSize,
+                           bytesPerPixel, bytesPerChannel, offset, true);
+}
+
+// static
+nsresult nsRFPService::RandomizeElements(
+    nsICookieJarSettings* aCookieJarSettings, nsIPrincipal* aPrincipal,
+    uint8_t* aData, uint32_t aSizeInBytes, uint8_t aElementsPerGroup,
+    uint8_t aBytesPerElement, uint8_t aElementOffset, bool aSkipLastElement) {
   NS_ENSURE_ARG_POINTER(aData);
+  MOZ_ASSERT(aElementsPerGroup >= 1);
+  MOZ_ASSERT(aBytesPerElement >= 1);
+  MOZ_ASSERT(aElementOffset < aElementsPerGroup);
 
   if (!aCookieJarSettings) {
     return NS_OK;
   }
 
-  if (aSize <= 4) {
+  uint32_t groupSize = aElementsPerGroup * aBytesPerElement;
+  uint32_t groupCount = aSizeInBytes / groupSize;
+
+  if (groupCount <= 1) {
     return NS_OK;
   }
 
-  // Don't randomize if all pixels are uniform.
-  static constexpr size_t bytesPerPixel = 4;
-  MOZ_ASSERT(aSize == aWidth * aHeight * bytesPerPixel,
-             "Pixels must be tightly-packed");
-  const bool allPixelsMatch = [&]() {
-    auto itr = RangedPtr<const uint8_t>(aData, aSize);
-    const auto itrEnd = itr + aSize;
-    for (; itr != itrEnd; itr += bytesPerPixel) {
-      if (memcmp(itr.get(), aData, bytesPerPixel) != 0) {
+  if (aPrincipal && CanvasUtils::GetCanvasExtractDataPermission(aPrincipal) ==
+                        nsIPermissionManager::ALLOW_ACTION) {
+    return NS_OK;
+  }
+
+  // Don't randomize if all groups are uniform.
+  const bool allGroupsMatch = [&]() {
+    auto itr = RangedPtr<const uint8_t>(aData, aSizeInBytes);
+    const auto itrEnd = itr + (groupCount * groupSize);
+    for (; itr != itrEnd; itr += groupSize) {
+      if (memcmp(itr.get(), aData, groupSize) != 0) {
         return false;
       }
     }
     return true;
   }();
-  if (allPixelsMatch) {
+  if (allGroupsMatch) {
     return NS_OK;
   }
 
@@ -1637,17 +1904,14 @@ nsresult nsRFPService::RandomizePixels(nsICookieJarSettings* aCookieJarSettings,
       glean::fingerprinting_protection::canvas_noise_calculate_time_2.Start();
 
   nsTArray<uint8_t> canvasKey;
-  nsresult rv = GenerateCanvasKeyFromImageData(aCookieJarSettings, aData, aSize,
-                                               canvasKey);
+  nsresult rv = GenerateCanvasKeyFromImageData(aCookieJarSettings, aData,
+                                               aSizeInBytes, canvasKey);
+
   if (NS_FAILED(rv)) {
     glean::fingerprinting_protection::canvas_noise_calculate_time_2.Cancel(
         std::move(timerId));
     return rv;
   }
-
-  // Calculate the number of pixels based on the given data size. One pixel uses
-  // 4 bytes that contains ARGB information.
-  uint32_t pixelCnt = aSize / 4;
 
   // Generate random values that will decide the RGB channel and the pixel
   // position that we are going to introduce the noises. The channel and
@@ -1677,43 +1941,46 @@ nsresult nsRFPService::RandomizePixels(nsICookieJarSettings* aCookieJarSettings,
   // Ensure at least 20 random changes may occur.
   uint8_t numNoises = std::clamp<uint8_t>(rnd3, 20, 255);
 
-#ifdef __clang__
-#  pragma clang diagnostic push
-#  pragma clang diagnostic ignored "-Wunreachable-code"
-#endif
-  if (false) {
-    // For debugging purposes you can dump the image with this code
-    // then convert it with the image-magick command
-    // convert -size WxH -depth 8 rgba:$i $i.png
-    // Depending on surface format, the alpha and color channels might be mixed
-    // up...
-    static int calls = 0;
-    char filename[256];
-    SprintfLiteral(filename, "rendered_image_%dx%d_%d_pre", aWidth, aHeight,
-                   calls);
-    FILE* outputFile = fopen(filename, "wb");  // "wb" for binary write mode
-    fwrite(aData, 1, aSize, outputFile);
-    fclose(outputFile);
-    calls++;
+  // (This is for pixel randomization)
+  // For canvas 2d randomization, we are always dealing with 4 channels.
+  // For WebGL, we are dealing with 1-4 channels. Thankfully, WebGL always
+  // puts the alpha channel at the end, so we can always use the last
+  // element as the alpha channel (if it exists).
+  // To choose which channel to add a noise, we use the modulo operator
+  // to select the channel. We want to avoid the alpha channel
+  // (if it exists). So, in cases where the number of elements per group
+  // is greater than 1, we subtract 1 from the modulo divisor.
+  // This way, we can avoid the alpha channel by skipping it in the
+  // selection process.
+  // We set aSkipLastElement to false for WebGL formats without the alpha
+  // channel.
+  uint8_t moduloDivisor = aElementsPerGroup;
+  if (moduloDivisor > 1 && aSkipLastElement) {
+    moduloDivisor -= 1;
   }
-#ifdef __clang__
-#  pragma clang diagnostic pop
-#endif
 
   while (numNoises--) {
-    // Choose which RGB channel to add a noise. The pixel data is in either
-    // the BGRA or the ARGB format depending on the endianess. To choose the
-    // color channel we need to add the offset according the endianess.
-    uint32_t channel;
-    if (aSurfaceFormat == gfx::SurfaceFormat::B8G8R8A8) {
-      channel = rng1.next() % 3;
-    } else if (aSurfaceFormat == gfx::SurfaceFormat::A8R8G8B8) {
-      channel = rng1.next() % 3 + 1;
-    } else {
-      return NS_ERROR_INVALID_ARG;
-    }
+    // Choose which element to add a noise.
+    // We could have an element that we want to avoid (for ex. alpha channel),
+    // so we use the offset param to skip the elements we don't want to change.
+    uint8_t element = rng1.next() % moduloDivisor + aElementOffset;
+    MOZ_ASSERT(element < aElementsPerGroup,
+               "Element index should be less than elements per group");
 
-    uint32_t idx = 4 * (rng1.next() % pixelCnt) + channel;
+    // When randomizing elements with aBytesPerElement > 1, we end up
+    // randomizing the first byte of each element.
+    // This if actually desired, as it will correspond to the least significant
+    // bits of the entire element.
+    // For floats for example, the first 8 bits are still under the fraction
+    // part of the float representation. For float 32, we are affecting even
+    // smaller fraction part.
+    // This is what we want, as we want to introduce very small
+    // changes to the elements.
+
+    uint32_t idx =
+        groupSize * (rng1.next() % groupCount) + element * aBytesPerElement;
+    MOZ_ASSERT(idx < aSizeInBytes,
+               "Index should be less than the size of the data");
     uint8_t bit = rng2.next();
 
     // 50% chance to XOR a 0x2 or 0x1 into the existing byte
@@ -1727,24 +1994,391 @@ nsresult nsRFPService::RandomizePixels(nsICookieJarSettings* aCookieJarSettings,
 }
 
 static const char* CanvasFingerprinterToString(
-    ContentBlockingNotifier::CanvasFingerprinter aFingerprinter) {
+    CanvasFingerprinterAlias aFingerprinter) {
   switch (aFingerprinter) {
-    case ContentBlockingNotifier::CanvasFingerprinter::eFingerprintJS:
+    case CanvasFingerprinterAlias::eNoneIdentified:
+      return "(None Identified)";
+    case CanvasFingerprinterAlias::eFingerprintJS:
       return "FingerprintJS";
-    case ContentBlockingNotifier::CanvasFingerprinter::eAkamai:
+    case CanvasFingerprinterAlias::eAkamai:
       return "Akamai";
-    case ContentBlockingNotifier::CanvasFingerprinter::eVariant1:
+    case CanvasFingerprinterAlias::eOzoki:
+      return "Ozoki";
+    case CanvasFingerprinterAlias::ePerimeterX:
+      return "PerimeterX";
+    case CanvasFingerprinterAlias::eClientGear:
+      return "ClientGear";
+    case CanvasFingerprinterAlias::eSignifyd:
+      return "Signifyd";
+    case CanvasFingerprinterAlias::eClaydar:
+      return "Claydar";
+    case CanvasFingerprinterAlias::eImperva:
+      return "Imperva";
+    case CanvasFingerprinterAlias::eForter:
+      return "Forter";
+    case CanvasFingerprinterAlias::eVariant1:
       return "Variant1";
-    case ContentBlockingNotifier::CanvasFingerprinter::eVariant2:
+    case CanvasFingerprinterAlias::eVariant2:
       return "Variant2";
-    case ContentBlockingNotifier::CanvasFingerprinter::eVariant3:
+    case CanvasFingerprinterAlias::eVariant3:
       return "Variant3";
-    case ContentBlockingNotifier::CanvasFingerprinter::eVariant4:
+    case CanvasFingerprinterAlias::eVariant4:
       return "Variant4";
-    case ContentBlockingNotifier::CanvasFingerprinter::eMaybe:
-      return "Maybe";
+    case CanvasFingerprinterAlias::eVariant5:
+      return "Variant5";
+    case CanvasFingerprinterAlias::eVariant6:
+      return "Variant6";
+    case CanvasFingerprinterAlias::eVariant7:
+      return "Variant7";
+    case CanvasFingerprinterAlias::eVariant8:
+      return "Variant8";
   }
+  MOZ_ASSERT(false, "Unhandled CanvasFingerprinterAlias enum value");
   return "<error>";
+}
+
+namespace mozilla {
+nsCString CanvasUsageSourceToString(CanvasUsageSource aSource) {
+  if (aSource == CanvasUsageSource::Unknown) {
+    return "None"_ns;
+  }
+
+  nsCString accumulated;
+
+  auto append = [&](const char* name) {
+    if (!accumulated.IsEmpty()) {
+      accumulated.AppendLiteral(", ");
+    }
+    accumulated.Append(name);
+  };
+
+#define APPEND_IF_SET(flag, name)     \
+  if ((aSource & (flag)) == (flag)) { \
+    append(name);                     \
+  }
+
+  APPEND_IF_SET(Impossible, "Impossible");
+
+  APPEND_IF_SET(MainThread_Canvas_ImageBitmap_toDataURL,
+                "MainThread_Canvas_ImageBitmap_toDataURL");
+  APPEND_IF_SET(MainThread_Canvas_ImageBitmap_toBlob,
+                "MainThread_Canvas_ImageBitmap_toBlob");
+  APPEND_IF_SET(MainThread_Canvas_ImageBitmap_getImageData,
+                "MainThread_Canvas_ImageBitmap_getImageData");
+
+  APPEND_IF_SET(MainThread_Canvas_Canvas2D_toDataURL,
+                "MainThread_Canvas_Canvas2D_toDataURL");
+  APPEND_IF_SET(MainThread_Canvas_Canvas2D_toBlob,
+                "MainThread_Canvas_Canvas2D_toBlob");
+  APPEND_IF_SET(MainThread_Canvas_Canvas2D_getImageData,
+                "MainThread_Canvas_Canvas2D_getImageData");
+
+  APPEND_IF_SET(MainThread_Canvas_WebGL_toDataURL,
+                "MainThread_Canvas_WebGL_toDataURL");
+  APPEND_IF_SET(MainThread_Canvas_WebGL_toBlob,
+                "MainThread_Canvas_WebGL_toBlob");
+  APPEND_IF_SET(MainThread_Canvas_WebGL_getImageData,
+                "MainThread_Canvas_WebGL_getImageData");
+  APPEND_IF_SET(MainThread_Canvas_WebGL_readPixels,
+                "MainThread_Canvas_WebGL_readPixels");
+
+  APPEND_IF_SET(MainThread_Canvas_WebGPU_toDataURL,
+                "MainThread_Canvas_WebGPU_toDataURL");
+  APPEND_IF_SET(MainThread_Canvas_WebGPU_toBlob,
+                "MainThread_Canvas_WebGPU_toBlob");
+  APPEND_IF_SET(MainThread_Canvas_WebGPU_getImageData,
+                "MainThread_Canvas_WebGPU_getImageData");
+
+  APPEND_IF_SET(MainThread_OffscreenCanvas_ImageBitmap_toDataURL,
+                "MainThread_OffscreenCanvas_ImageBitmap_toDataURL");
+  APPEND_IF_SET(MainThread_OffscreenCanvas_ImageBitmap_toBlob,
+                "MainThread_OffscreenCanvas_ImageBitmap_toBlob");
+  APPEND_IF_SET(MainThread_OffscreenCanvas_ImageBitmap_getImageData,
+                "MainThread_OffscreenCanvas_ImageBitmap_getImageData");
+
+  APPEND_IF_SET(MainThread_OffscreenCanvas_Canvas2D_toDataURL,
+                "MainThread_OffscreenCanvas_Canvas2D_toDataURL");
+  APPEND_IF_SET(MainThread_OffscreenCanvas_Canvas2D_toBlob,
+                "MainThread_OffscreenCanvas_Canvas2D_toBlob");
+  APPEND_IF_SET(MainThread_OffscreenCanvas_Canvas2D_getImageData,
+                "MainThread_OffscreenCanvas_Canvas2D_getImageData");
+
+  APPEND_IF_SET(Worker_OffscreenCanvas_Canvas2D_toBlob,
+                "Worker_OffscreenCanvas_Canvas2D_toBlob");
+  APPEND_IF_SET(Worker_OffscreenCanvas_Canvas2D_getImageData,
+                "Worker_OffscreenCanvas_Canvas2D_getImageData");
+
+  APPEND_IF_SET(MainThread_OffscreenCanvas_WebGL_toDataURL,
+                "MainThread_OffscreenCanvas_WebGL_toDataURL");
+  APPEND_IF_SET(MainThread_OffscreenCanvas_WebGL_toBlob,
+                "MainThread_OffscreenCanvas_WebGL_toBlob");
+  APPEND_IF_SET(MainThread_OffscreenCanvas_WebGL_getImageData,
+                "MainThread_OffscreenCanvas_WebGL_getImageData");
+  APPEND_IF_SET(MainThread_OffscreenCanvas_WebGL_readPixels,
+                "MainThread_OffscreenCanvas_WebGL_readPixels");
+
+  APPEND_IF_SET(Worker_OffscreenCanvas_ImageBitmap_toBlob,
+                "Worker_OffscreenCanvas_ImageBitmap_toBlob");
+  APPEND_IF_SET(Worker_OffscreenCanvas_ImageBitmap_getImageData,
+                "Worker_OffscreenCanvas_ImageBitmap_getImageData");
+
+  APPEND_IF_SET(Worker_OffscreenCanvas_WebGL_toBlob,
+                "Worker_OffscreenCanvas_WebGL_toBlob");
+  APPEND_IF_SET(Worker_OffscreenCanvas_WebGL_getImageData,
+                "Worker_OffscreenCanvas_WebGL_getImageData");
+  APPEND_IF_SET(Worker_OffscreenCanvas_WebGL_readPixels,
+                "Worker_OffscreenCanvas_WebGL_readPixels");
+
+  APPEND_IF_SET(MainThread_OffscreenCanvas_WebGPU_toDataURL,
+                "MainThread_OffscreenCanvas_WebGPU_toDataURL");
+  APPEND_IF_SET(MainThread_OffscreenCanvas_WebGPU_toBlob,
+                "MainThread_OffscreenCanvas_WebGPU_toBlob");
+  APPEND_IF_SET(MainThread_OffscreenCanvas_WebGPU_getImageData,
+                "MainThread_OffscreenCanvas_WebGPU_getImageData");
+
+  APPEND_IF_SET(Worker_OffscreenCanvas_WebGPU_toBlob,
+                "Worker_OffscreenCanvas_WebGPU_toBlob");
+  APPEND_IF_SET(Worker_OffscreenCanvas_WebGPU_getImageData,
+                "Worker_OffscreenCanvas_WebGPU_getImageData");
+
+  APPEND_IF_SET(Worker_OffscreenCanvasCanvas2D_Canvas2D_getImageData,
+                "Worker_OffscreenCanvasCanvas2D_Canvas2D_getImageData");
+  APPEND_IF_SET(Worker_OffscreenCanvasCanvas2D_Canvas2D_toBlob,
+                "Worker_OffscreenCanvasCanvas2D_Canvas2D_toBlob");
+
+#undef APPEND_IF_SET
+
+  if (accumulated.IsEmpty()) {
+    accumulated.AssignLiteral("<error>");
+  }
+
+  return accumulated;
+}
+}  // namespace mozilla
+
+CanvasUsage CanvasUsage::CreateUsage(
+    bool aIsOffscreen, dom::CanvasContextType aContextType,
+    CanvasExtractionAPI aApi, CSSIntSize aSize,
+    const nsICanvasRenderingContextInternal* aContext) {
+  CanvasFeatureUsage featureUsage = CanvasFeatureUsage::None;
+
+  // Only 2D contexts currently expose feature usage metrics.
+  if (aContext && (aContextType == dom::CanvasContextType::Canvas2D ||
+                   aContextType == dom::CanvasContextType::OffscreenCanvas2D)) {
+    // Downcast is safe because 2D contexts derive from
+    // nsICanvasRenderingContextInternal and we gated on the supplied type. The
+    // header is included so the relationship is known to the compiler.
+    auto* ctx2D = static_cast<const dom::CanvasRenderingContext2D*>(aContext);
+    featureUsage = ctx2D->FeatureUsage();
+  }
+
+  CanvasUsageSource usageSource =
+      CanvasUsage::GetCanvasUsageSource(aIsOffscreen, aContextType, aApi);
+  return CanvasUsage(aSize, aContextType, usageSource, featureUsage);
+}
+CanvasUsageSource CanvasUsage::GetCanvasUsageSource(
+    bool isOffscreen, dom::CanvasContextType contextType,
+    CanvasExtractionAPI api) {
+  const bool isMainThread = NS_IsMainThread();
+
+  auto logImpossible = [&](const char* aComment = "") {
+    MOZ_LOG(gFingerprinterDetection, LogLevel::Error,
+            ("CanvasUsageSource impossible: comment=%s isOffscreen=%d "
+             "contextType=%d api=%d isMainThread=%d",
+             aComment, isOffscreen, static_cast<int>(contextType),
+             static_cast<int>(api), isMainThread));
+  };
+
+  // Non-offscreen (HTMLCanvasElement) path (always main thread).
+  if (!isOffscreen) {
+    if (!isMainThread) {
+      logImpossible("Non-offscreen canvas accessed off main thread");
+      return CanvasUsageSource::Impossible;
+    }
+    switch (contextType) {
+      case dom::CanvasContextType::Canvas2D:
+        switch (api) {
+          case CanvasExtractionAPI::ToDataURL:
+            return MainThread_Canvas_Canvas2D_toDataURL;
+          case CanvasExtractionAPI::ToBlob:
+            return MainThread_Canvas_Canvas2D_toBlob;
+          case CanvasExtractionAPI::GetImageData:
+            return MainThread_Canvas_Canvas2D_getImageData;
+          case CanvasExtractionAPI::ReadPixels:
+            logImpossible("ReadPixels invalid for Canvas2D");
+            return CanvasUsageSource::Impossible;
+          default:
+            logImpossible("Unknown API for Canvas2D");
+            return CanvasUsageSource::Impossible;
+        }
+      case dom::CanvasContextType::OffscreenCanvas2D:
+        // Very confused about how we get an OffscreenCanvas2D context without
+        // an OffscreenCanvas but it does happen in the wild...
+        switch (api) {
+          case CanvasExtractionAPI::GetImageData:
+            return CanvasUsageSource::
+                MainThread_Canvas_OffscreenCanvas2D_getImageData;
+          case CanvasExtractionAPI::ToBlob:
+            return CanvasUsageSource::
+                MainThread_Canvas_OffscreenCanvas2D_toBlob;
+          default:
+            logImpossible("Unsupported API for OffscreenCanvas2D");
+            return CanvasUsageSource::Impossible;
+        }
+      case dom::CanvasContextType::WebGL1:
+      case dom::CanvasContextType::WebGL2:
+        switch (api) {
+          case CanvasExtractionAPI::ToDataURL:
+            return MainThread_Canvas_WebGL_toDataURL;
+          case CanvasExtractionAPI::ToBlob:
+            return MainThread_Canvas_WebGL_toBlob;
+          case CanvasExtractionAPI::GetImageData:
+            return MainThread_Canvas_WebGL_getImageData;
+          case CanvasExtractionAPI::ReadPixels:
+            return MainThread_Canvas_WebGL_readPixels;
+          default:
+            logImpossible("Unknown API for WebGL");
+            return CanvasUsageSource::Impossible;
+        }
+      case dom::CanvasContextType::WebGPU:
+        switch (api) {
+          case CanvasExtractionAPI::ToDataURL:
+            return MainThread_Canvas_WebGPU_toDataURL;
+          case CanvasExtractionAPI::ToBlob:
+            return MainThread_Canvas_WebGPU_toBlob;
+          case CanvasExtractionAPI::GetImageData:
+            return MainThread_Canvas_WebGPU_getImageData;
+          case CanvasExtractionAPI::ReadPixels:
+            logImpossible("ReadPixels invalid for WebGPU");
+            return CanvasUsageSource::Impossible;
+          default:
+            logImpossible("Unknown API for WebGPU");
+            return CanvasUsageSource::Impossible;
+        }
+      case dom::CanvasContextType::ImageBitmap:
+        switch (api) {
+          case CanvasExtractionAPI::ToDataURL:
+            return MainThread_Canvas_ImageBitmap_toDataURL;
+          case CanvasExtractionAPI::ToBlob:
+            return MainThread_Canvas_ImageBitmap_toBlob;
+          case CanvasExtractionAPI::GetImageData:
+            return MainThread_Canvas_ImageBitmap_getImageData;
+          case CanvasExtractionAPI::ReadPixels:
+            logImpossible("ReadPixels invalid for ImageBitmap");
+            return CanvasUsageSource::Impossible;
+          default:
+            logImpossible("Unknown API for ImageBitmap");
+            return CanvasUsageSource::Impossible;
+        }
+      default:
+        logImpossible("Unknown context type (main thread, non-offscreen)");
+        return CanvasUsageSource::Impossible;
+    }
+  }
+
+  // OffscreenCanvas path.
+  switch (contextType) {
+    case dom::CanvasContextType::Canvas2D:
+      switch (api) {
+        case CanvasExtractionAPI::ToDataURL:
+          if (isMainThread) {
+            return MainThread_OffscreenCanvas_Canvas2D_toDataURL;
+          }
+          logImpossible("ToDataURL invalid for Offscreen Canvas2D on worker");
+          return CanvasUsageSource::Impossible;  // not supported
+        case CanvasExtractionAPI::ToBlob:
+          return isMainThread ? MainThread_OffscreenCanvas_Canvas2D_toBlob
+                              : Worker_OffscreenCanvas_Canvas2D_toBlob;
+        case CanvasExtractionAPI::GetImageData:
+          return isMainThread ? MainThread_OffscreenCanvas_Canvas2D_getImageData
+                              : Worker_OffscreenCanvas_Canvas2D_getImageData;
+        case CanvasExtractionAPI::ReadPixels:
+          logImpossible("ReadPixels invalid for Offscreen 2D");
+          return CanvasUsageSource::Impossible;
+        default:
+          logImpossible("Unknown API for Offscreen Canvas2D");
+          return CanvasUsageSource::Impossible;
+      }
+    case dom::CanvasContextType::OffscreenCanvas2D:
+      switch (api) {
+        case CanvasExtractionAPI::GetImageData:
+          return Worker_OffscreenCanvasCanvas2D_Canvas2D_getImageData;
+        case CanvasExtractionAPI::ToBlob:
+          return Worker_OffscreenCanvasCanvas2D_Canvas2D_toBlob;
+        default:
+          logImpossible("Unsupported API for OffscreenCanvas2D");
+          return CanvasUsageSource::Impossible;
+      }
+    case dom::CanvasContextType::WebGL1:
+    case dom::CanvasContextType::WebGL2:
+      switch (api) {
+        case CanvasExtractionAPI::ToDataURL:
+          if (!isMainThread) {
+            logImpossible("ToDataURL invalid for Offscreen WebGL on worker");
+            return CanvasUsageSource::Impossible;  // not supported
+          }
+          return MainThread_OffscreenCanvas_WebGL_toDataURL;
+        case CanvasExtractionAPI::ToBlob:
+          return isMainThread ? MainThread_OffscreenCanvas_WebGL_toBlob
+                              : Worker_OffscreenCanvas_WebGL_toBlob;
+        case CanvasExtractionAPI::GetImageData:
+          return isMainThread ? MainThread_OffscreenCanvas_WebGL_getImageData
+                              : Worker_OffscreenCanvas_WebGL_getImageData;
+        case CanvasExtractionAPI::ReadPixels:
+          return isMainThread ? MainThread_OffscreenCanvas_WebGL_readPixels
+                              : Worker_OffscreenCanvas_WebGL_readPixels;
+        default:
+          logImpossible("Unknown API for Offscreen WebGL");
+          return CanvasUsageSource::Impossible;
+      }
+    case dom::CanvasContextType::WebGPU:
+      switch (api) {
+        case CanvasExtractionAPI::ToDataURL:
+          if (!isMainThread) {
+            logImpossible("ToDataURL invalid for Offscreen WebGPU on worker");
+            return CanvasUsageSource::Impossible;  // not supported
+          }
+          return MainThread_OffscreenCanvas_WebGPU_toDataURL;
+        case CanvasExtractionAPI::ToBlob:
+          return isMainThread ? MainThread_OffscreenCanvas_WebGPU_toBlob
+                              : Worker_OffscreenCanvas_WebGPU_toBlob;
+        case CanvasExtractionAPI::GetImageData:
+          return isMainThread ? MainThread_OffscreenCanvas_WebGPU_getImageData
+                              : Worker_OffscreenCanvas_WebGPU_getImageData;
+        case CanvasExtractionAPI::ReadPixels:
+          logImpossible("ReadPixels invalid for Offscreen WebGPU");
+          return CanvasUsageSource::Impossible;
+        default:
+          logImpossible("Unknown API for Offscreen WebGPU");
+          return CanvasUsageSource::Impossible;
+      }
+    case dom::CanvasContextType::ImageBitmap:
+      switch (api) {
+        case CanvasExtractionAPI::ToDataURL:
+          if (!isMainThread) {
+            logImpossible(
+                "ToDataURL invalid for Offscreen ImageBitmap on worker");
+            return CanvasUsageSource::Impossible;  // not supported worker
+          }
+          return MainThread_OffscreenCanvas_ImageBitmap_toDataURL;
+        case CanvasExtractionAPI::ToBlob:
+          return isMainThread ? MainThread_OffscreenCanvas_ImageBitmap_toBlob
+                              : Worker_OffscreenCanvas_ImageBitmap_toBlob;
+        case CanvasExtractionAPI::GetImageData:
+          return isMainThread
+                     ? MainThread_OffscreenCanvas_ImageBitmap_getImageData
+                     : Worker_OffscreenCanvas_ImageBitmap_getImageData;
+        case CanvasExtractionAPI::ReadPixels:
+          logImpossible("ReadPixels invalid for Offscreen ImageBitmap");
+          return CanvasUsageSource::Impossible;
+        default:
+          logImpossible("Unknown API for Offscreen ImageBitmap");
+          return CanvasUsageSource::Impossible;
+      }
+    default:
+      logImpossible("Unknown context type (offscreen)");
+      return CanvasUsageSource::Impossible;
+  }
 }
 
 static void MaybeCurrentCaller(nsACString& aFilename, uint32_t& aLineNum,
@@ -1767,122 +2401,175 @@ static void MaybeCurrentCaller(nsACString& aFilename, uint32_t& aLineNum,
 }
 
 /* static */ void nsRFPService::MaybeReportCanvasFingerprinter(
-    nsTArray<CanvasUsage>& aUses, nsIChannel* aChannel,
-    nsACString& aOriginNoSuffix) {
+    nsTArray<CanvasUsage>& aUses, nsIChannel* aChannel, nsIURI* aURI,
+    const nsACString& aOriginNoSuffix) {
   if (!aChannel) {
     return;
   }
 
-  uint32_t extractedWebGL = 0;
+  nsAutoCString scheme;
+  (void)aURI->GetScheme(scheme);
+  // We exclude reporting for chrome and resource URIs.
+  if (scheme.EqualsLiteral("chrome") || scheme.EqualsLiteral("resource")) {
+    return;
+  }
+
+  bool extractedWebGL = false;
   bool seenExtractedWebGL_300x150 = false;
+  bool seenExtractedWebGL_2000x200 = false;
 
   uint32_t extracted2D = 0;
-  bool seenExtracted2D_16x16 = false;
   bool seenExtracted2D_122x110 = false;
+  bool seenExtracted2D_220x30 = false;
   bool seenExtracted2D_240x60 = false;
-  bool seenExtracted2D_280x60 = false;
+  bool seenExtracted2D_250x80 = false;
+  bool seenExtracted2D_300x100 = false;
+  bool seenExtracted2D_650x12 = false;
   bool seenExtracted2D_860x6 = false;
-  CanvasFeatureUsage featureUsage = CanvasFeatureUsage::None;
 
-  uint32_t extractedOther = 0;
+  CanvasFeatureUsage accumulatedFeatureUsage = CanvasFeatureUsage::None;
+  CanvasUsageSource accumulatedUsageSource = CanvasUsageSource::Unknown;
+
+  MOZ_LOG(
+      gFingerprinterDetection, LogLevel::Debug,
+      ("MaybeReportCanvasFingerprinter: examining %zu uses", aUses.Length()));
 
   for (const auto& usage : aUses) {
     int32_t width = usage.mSize.width;
     int32_t height = usage.mSize.height;
 
-    if (width > 2000 || height > 1000) {
+    if (width > 2500 || height > 1000) {
       // Canvases used for fingerprinting are usually relatively small.
       continue;
     }
 
-    if (usage.mType == dom::CanvasContextType::Canvas2D) {
-      featureUsage |= usage.mFeatureUsage;
+    accumulatedFeatureUsage |= usage.mFeatureUsage;
+    accumulatedUsageSource |= usage.mUsageSource;
+
+    if (usage.mType == dom::CanvasContextType::Canvas2D ||
+        usage.mType == dom::CanvasContextType::OffscreenCanvas2D) {
+      accumulatedFeatureUsage |= usage.mFeatureUsage;
       extracted2D++;
-      if (width == 16 && height == 16) {
-        seenExtracted2D_16x16 = true;
+      if (width == 122 && height == 110) {
+        seenExtracted2D_122x110 = true;
+      } else if (width == 220 && height == 30) {
+        seenExtracted2D_220x30 = true;
       } else if (width == 240 && height == 60) {
         seenExtracted2D_240x60 = true;
-      } else if (width == 122 && height == 110) {
-        seenExtracted2D_122x110 = true;
-      } else if (width == 280 && height == 60) {
-        seenExtracted2D_280x60 = true;
+      } else if (width == 250 && height == 80) {
+        seenExtracted2D_250x80 = true;
+      } else if (width == 300 && height == 100) {
+        seenExtracted2D_300x100 = true;
+      } else if (width == 650 && height == 12) {
+        seenExtracted2D_650x12 = true;
       } else if (width == 860 && height == 6) {
         seenExtracted2D_860x6 = true;
       }
     } else if (usage.mType == dom::CanvasContextType::WebGL1) {
-      extractedWebGL++;
+      extractedWebGL = true;
       if (width == 300 && height == 150) {
         seenExtractedWebGL_300x150 = true;
+      } else if (width == 2000 && height == 200) {
+        seenExtractedWebGL_2000x200 = true;
       }
-    } else {
-      extractedOther++;
     }
   }
 
-  Maybe<ContentBlockingNotifier::CanvasFingerprinter> fingerprinter;
+  CanvasFingerprinterAlias fingerprinter = eNoneIdentified;
+  uint32_t knownTextBitmask = static_cast<uint32_t>(
+      static_cast<uint64_t>(accumulatedFeatureUsage) & 0xFFFFFFFFu);
+
   if (seenExtractedWebGL_300x150 && seenExtracted2D_240x60 &&
       seenExtracted2D_122x110) {
-    fingerprinter =
-        Some(ContentBlockingNotifier::CanvasFingerprinter::eFingerprintJS);
-  } else if (seenExtractedWebGL_300x150 && seenExtracted2D_280x60 &&
-             seenExtracted2D_16x16) {
-    fingerprinter = Some(ContentBlockingNotifier::CanvasFingerprinter::eAkamai);
+    fingerprinter = CanvasFingerprinterAlias::eFingerprintJS;
+  } else if (seenExtractedWebGL_300x150 &&
+             accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_12 &&
+             accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_13) {
+    fingerprinter = CanvasFingerprinterAlias::eAkamai;
+  } else if (accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_9 &&
+             accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_10 &&
+             accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_11) {
+    fingerprinter = CanvasFingerprinterAlias::eOzoki;
+  } else if (seenExtractedWebGL_2000x200 && knownTextBitmask == 0) {
+    fingerprinter = CanvasFingerprinterAlias::ePerimeterX;
+  } else if (seenExtracted2D_220x30 &&
+             accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_7) {
+    fingerprinter = CanvasFingerprinterAlias::eSignifyd;
+  } else if (seenExtracted2D_300x100 &&
+             accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_8) {
+    fingerprinter = CanvasFingerprinterAlias::eSignifyd;
+  } else if (seenExtracted2D_240x60 &&
+             accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_4) {
+    fingerprinter = CanvasFingerprinterAlias::eClaydar;
+  } else if (accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_23) {
+    fingerprinter = CanvasFingerprinterAlias::eForter;
+  } else if (accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_2) {
+    fingerprinter = CanvasFingerprinterAlias::eImperva;
+  } else if (accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_26) {
+    fingerprinter = CanvasFingerprinterAlias::eClientGear;
+  } else if (seenExtracted2D_250x80 &&
+             accumulatedFeatureUsage & CanvasFeatureUsage::KnownText_6) {
+    fingerprinter = CanvasFingerprinterAlias::eVariant5;
+  } else if (seenExtracted2D_650x12) {
+    fingerprinter = CanvasFingerprinterAlias::eVariant6;
+  } else if (seenExtracted2D_860x6) {
+    fingerprinter = CanvasFingerprinterAlias::eVariant7;
   } else if (seenExtractedWebGL_300x150 && extracted2D > 0 &&
-             (featureUsage & CanvasFeatureUsage::SetFont)) {
-    fingerprinter =
-        Some(ContentBlockingNotifier::CanvasFingerprinter::eVariant1);
+             (accumulatedFeatureUsage & CanvasFeatureUsage::SetFont)) {
+    fingerprinter = CanvasFingerprinterAlias::eVariant1;
   } else if (extractedWebGL > 0 && extracted2D > 1 && seenExtracted2D_860x6) {
-    fingerprinter =
-        Some(ContentBlockingNotifier::CanvasFingerprinter::eVariant2);
-  } else if (extractedOther > 0 && (extractedWebGL > 0 || extracted2D > 0)) {
-    fingerprinter =
-        Some(ContentBlockingNotifier::CanvasFingerprinter::eVariant3);
-  } else if (extracted2D > 0 && (featureUsage & CanvasFeatureUsage::SetFont) &&
-             (featureUsage &
-              (CanvasFeatureUsage::FillRect | CanvasFeatureUsage::LineTo |
-               CanvasFeatureUsage::Stroke))) {
-    fingerprinter =
-        Some(ContentBlockingNotifier::CanvasFingerprinter::eVariant4);
-  } else if (extractedOther + extractedWebGL + extracted2D > 1) {
-    // This I added primarily to not miss anything, but it can cause false
-    // positives.
-    fingerprinter = Some(ContentBlockingNotifier::CanvasFingerprinter::eMaybe);
+    fingerprinter = CanvasFingerprinterAlias::eVariant2;
   }
 
-  bool knownFingerprintText =
-      bool(featureUsage & CanvasFeatureUsage::KnownFingerprintText);
-  if (!knownFingerprintText && fingerprinter.isNothing()) {
-    return;
-  }
-
+  nsAutoCString uri;
+  (void)aURI->GetSpec(uri);
+  nsAutoCString origin(aOriginNoSuffix);
+  nsAutoCString filename;
   if (MOZ_LOG_TEST(gFingerprinterDetection, LogLevel::Info)) {
-    nsAutoCString filename;
     uint32_t lineNum = 0;
     uint32_t columnNum = 0;
     MaybeCurrentCaller(filename, lineNum, columnNum);
-
-    nsAutoCString origin(aOriginNoSuffix);
-    MOZ_LOG(
-        gFingerprinterDetection, LogLevel::Info,
-        ("Detected a potential canvas fingerprinter on %s in script %s:%d:%d "
-         "(KnownFingerprintText: %s, CanvasFingerprinter: %s)",
-         origin.get(), filename.get(), lineNum, columnNum,
-         knownFingerprintText ? "true" : "false",
-         fingerprinter.isSome()
-             ? CanvasFingerprinterToString(fingerprinter.value())
-             : "<none>"));
   }
 
-  ContentBlockingNotifier::OnEvent(
-      aChannel, false,
-      nsIWebProgressListener::STATE_ALLOWED_CANVAS_FINGERPRINTING,
-      aOriginNoSuffix, Nothing(), fingerprinter,
-      Some(featureUsage & CanvasFeatureUsage::KnownFingerprintText));
+  if (knownTextBitmask == 0 && fingerprinter == eNoneIdentified) {
+    MOZ_LOG(gFingerprinterDetection, LogLevel::Debug,
+            ("Found no potential canvas fingerprinter on %s on %s in script %s",
+             origin.get(), uri.get(), filename.get()));
+    return;
+  }
+
+  auto event = CanvasFingerprintingEvent(fingerprinter, knownTextBitmask,
+                                         accumulatedUsageSource);
+
+  MOZ_LOG(gFingerprinterDetection, LogLevel::Info,
+          ("Detected a potential canvas fingerprinter on %s on %s in script %s "
+           "(KnownFingerprintTextBitmask: %u, CanvasFingerprinterAlias: %s, "
+           "AccumulatedCanvasUsageSource: %s)",
+           origin.get(), uri.get(), filename.get(), knownTextBitmask,
+           CanvasFingerprinterToString(fingerprinter),
+           CanvasUsageSourceToString(accumulatedUsageSource).get()));
+
+  NS_DispatchToMainThread(NS_NewRunnableFunction(
+      "nsRFPService::MaybeReportCanvasFingerprinter::NotifyEvent",
+      [channel = nsCOMPtr{aChannel}, origin = nsCString(aOriginNoSuffix),
+       event = event]() {
+        ContentBlockingNotifier::OnEvent(
+            channel, false,
+            nsIWebProgressListener::STATE_ALLOWED_CANVAS_FINGERPRINTING, origin,
+            Nothing(), Some(event));
+      }));
 }
 
 /* static */ void nsRFPService::MaybeReportFontFingerprinter(
-    nsIChannel* aChannel, const nsACString& aOriginNoSuffix) {
+    nsIChannel* aChannel, nsIURI* aURI, const nsACString& aOriginNoSuffix) {
   if (!aChannel) {
+    return;
+  }
+
+  nsAutoCString scheme;
+  (void)aURI->GetScheme(scheme);
+  // We exclude reporting for chrome and resource URIs.
+  if (scheme.EqualsLiteral("chrome") || scheme.EqualsLiteral("resource")) {
     return;
   }
 
@@ -1893,12 +2580,17 @@ static void MaybeCurrentCaller(nsACString& aFilename, uint32_t& aLineNum,
     NS_DispatchToMainThread(NS_NewRunnableFunction(
         "nsRFPService::MaybeReportFontFingerprinter",
         [channel = nsCOMPtr{aChannel},
-         originNoSuffix = nsCString(aOriginNoSuffix)]() {
-          nsRFPService::MaybeReportFontFingerprinter(channel, originNoSuffix);
+         originNoSuffix = nsCString(aOriginNoSuffix), uri = nsCOMPtr{aURI}]() {
+          nsRFPService::MaybeReportFontFingerprinter(channel, uri,
+                                                     originNoSuffix);
         }));
 
     return;
   }
+
+  nsAutoCString uri;
+  (void)aURI->GetSpec(uri);
+  nsAutoCString origin(aOriginNoSuffix);
 
   if (MOZ_LOG_TEST(gFingerprinterDetection, LogLevel::Info)) {
     nsAutoCString filename;
@@ -1906,58 +2598,15 @@ static void MaybeCurrentCaller(nsACString& aFilename, uint32_t& aLineNum,
     uint32_t columnNum = 0;
     MaybeCurrentCaller(filename, lineNum, columnNum);
 
-    nsAutoCString origin(aOriginNoSuffix);
     MOZ_LOG(gFingerprinterDetection, LogLevel::Info,
-            ("Detected a potential font fingerprinter on %s in script %s:%d:%d",
-             origin.get(), filename.get(), lineNum, columnNum));
+            ("Detected a potential font fingerprinter on %s on %s in script "
+             "%s:%d:%d",
+             origin.get(), uri.get(), filename.get(), lineNum, columnNum));
   }
 
   ContentBlockingNotifier::OnEvent(
       aChannel, false,
-      nsIWebProgressListener::STATE_ALLOWED_FONT_FINGERPRINTING,
-      aOriginNoSuffix);
-}
-
-/* static */
-bool nsRFPService::CheckSuspiciousFingerprintingActivity(
-    nsTArray<ContentBlockingLog::LogEntry>& aLogs) {
-  if (aLogs.Length() == 0) {
-    return false;
-  }
-
-  uint32_t cnt = 0;
-  // We use these two booleans to prevent counting duplicated fingerprinting
-  // events.
-  bool foundCanvas = false;
-  bool foundFont = false;
-
-  // Iterate through the logs to see if there are suspicious fingerprinting
-  // activities.
-  for (auto& log : aLogs) {
-    // If it's a known canvas fingerprinter, we can directly return true from
-    // here.
-    if (log.mCanvasFingerprinter &&
-        (log.mCanvasFingerprinter.ref() ==
-             ContentBlockingNotifier::CanvasFingerprinter::eFingerprintJS ||
-         log.mCanvasFingerprinter.ref() ==
-             ContentBlockingNotifier::CanvasFingerprinter::eAkamai)) {
-      return true;
-    } else if (!foundCanvas && log.mType ==
-                                   nsIWebProgressListener::
-                                       STATE_ALLOWED_CANVAS_FINGERPRINTING) {
-      cnt++;
-      foundCanvas = true;
-    } else if (!foundFont &&
-               log.mType ==
-                   nsIWebProgressListener::STATE_ALLOWED_FONT_FINGERPRINTING) {
-      cnt++;
-      foundFont = true;
-    }
-  }
-
-  // If the number of suspicious fingerprinting activity exceeds the threshold,
-  // we return true to indicates there is a suspicious fingerprinting activity.
-  return cnt > kSuspiciousFingerprintingActivityThreshold;
+      nsIWebProgressListener::STATE_ALLOWED_FONT_FINGERPRINTING, origin);
 }
 
 /* static */
@@ -1985,6 +2634,10 @@ nsresult nsRFPService::CreateOverrideDomainKey(
 
   nsAutoCString firstPartyDomain;
   nsresult rv = aOverride->GetFirstPartyDomain(firstPartyDomain);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  bool isBaseline = false;
+  rv = aOverride->GetIsBaseline(&isBaseline);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // The first party domain shouldn't be empty. And it shouldn't contain a comma
@@ -2016,6 +2669,9 @@ nsresult nsRFPService::CreateOverrideDomainKey(
     aDomainKey.Append(FP_OVERRIDES_DOMAIN_KEY_DELIMITER);
     aDomainKey.Append(thirdPartyDomain);
   }
+
+  aDomainKey.Append(FP_OVERRIDES_DOMAIN_KEY_DELIMITER);
+  aDomainKey.Append(isBaseline ? "1" : "0");
 
   return NS_OK;
 }
@@ -2077,8 +2733,9 @@ nsRFPService::SetFingerprintingOverrides(
     const nsTArray<RefPtr<nsIFingerprintingOverride>>& aOverrides) {
   MOZ_ASSERT(XRE_IsParentProcess());
   // Clear all overrides before importing.
-  mFingerprintingOverrides.Clear();
+  CleanAllOverrides();
 
+  StaticMutexAutoLock lock(sEnabledFingerprintingProtectionsMutex);
   for (const auto& fpOverride : aOverrides) {
     nsAutoCString domainKey;
 
@@ -2092,12 +2749,15 @@ nsRFPService::SetFingerprintingOverrides(
     rv = fpOverride->GetOverrides(overridesText);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    StaticMutexAutoLock lock(sEnabledFingerprintingProtectionsMutex);
+    bool isBaseline = false;
+    rv = fpOverride->GetIsBaseline(&isBaseline);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    RFPTargetSet baseOverrides = isBaseline
+                                     ? sEnabledFingerprintingProtectionsBase
+                                     : sEnabledFingerprintingProtections;
     RFPTargetSet targets = nsRFPService::CreateOverridesFromText(
-        NS_ConvertUTF8toUTF16(overridesText),
-        mFingerprintingOverrides.Contains(domainKey)
-            ? mFingerprintingOverrides.Get(domainKey)
-            : sEnabledFingerprintingProtections);
+        NS_ConvertUTF8toUTF16(overridesText), baseOverrides);
 
     // The newly added one will replace the existing one for the given domain
     // key.
@@ -2111,6 +2771,18 @@ nsRFPService::SetFingerprintingOverrides(
 
     obs->NotifyObservers(nullptr, "fpp-test:set-overrides-finishes", nullptr);
   }
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsRFPService::GetEnabledFingerprintingProtectionsBaseline(
+    nsIRFPTargetSetIDL** aProtections) {
+  StaticMutexAutoLock lock(sEnabledFingerprintingProtectionsMutex);
+  RFPTargetSet enabled = sEnabledFingerprintingProtectionsBase;
+
+  nsCOMPtr<nsIRFPTargetSetIDL> protections = new nsRFPTargetSetIDL(enabled);
+  protections.forget(aProtections);
 
   return NS_OK;
 }
@@ -2159,7 +2831,7 @@ Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForChannel(
   MOZ_ASSERT(XRE_IsParentProcess());
 
   nsCOMPtr<nsIURI> uri;
-  Unused << aChannel->GetURI(getter_AddRefs(uri));
+  (void)aChannel->GetURI(getter_AddRefs(uri));
 
   if (uri->SchemeIs("about") && !NS_IsContentAccessibleAboutURI(uri)) {
     return Nothing();
@@ -2174,9 +2846,11 @@ Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForChannel(
     return Nothing();
   }
 
+  bool isPrivate = loadInfo->GetOriginAttributes().IsPrivateBrowsing();
+
   // The channel is for the first-party load.
   if (!AntiTrackingUtils::IsThirdPartyChannel(aChannel)) {
-    return GetOverriddenFingerprintingSettingsForURI(uri, nullptr);
+    return GetOverriddenFingerprintingSettingsForURI(uri, nullptr, isPrivate);
   }
 
   // The channel is for the third-party load. We get the first-party URI from
@@ -2229,7 +2903,7 @@ Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForChannel(
     rv = NS_NewURI(getter_AddRefs(topURI), scheme + u"://"_ns + domain);
     MOZ_ASSERT(NS_SUCCEEDED(rv));
 
-    return GetOverriddenFingerprintingSettingsForURI(topURI, uri);
+    return GetOverriddenFingerprintingSettingsForURI(topURI, uri, isPrivate);
   }
 
   nsCOMPtr<nsIPrincipal> topPrincipal = topWGP->DocumentPrincipal();
@@ -2281,12 +2955,12 @@ Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForChannel(
                     attrsForeignByAncestor.mPartitionKey.Equals(partitionKey));
 #endif
 
-  return GetOverriddenFingerprintingSettingsForURI(topURI, uri);
+  return GetOverriddenFingerprintingSettingsForURI(topURI, uri, isPrivate);
 }
 
 /* static */
 Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForURI(
-    nsIURI* aFirstPartyURI, nsIURI* aThirdPartyURI) {
+    nsIURI* aFirstPartyURI, nsIURI* aThirdPartyURI, bool aIsPrivate) {
   MOZ_ASSERT(aFirstPartyURI);
   MOZ_ASSERT(XRE_IsParentProcess());
 
@@ -2300,9 +2974,17 @@ Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForURI(
   // will take over {first-party domain, *} because the latter one has a smaller
   // scope.
 
+  bool isBaseline = !IsFPPEnabled(aIsPrivate);
+  auto addIsBaseline = [](nsAutoCString& aKey, bool aIsBaseline) {
+    aKey.Append(FP_OVERRIDES_DOMAIN_KEY_DELIMITER);
+    aKey.Append(aIsBaseline ? "1" : "0");
+  };
+
   // First, we get the overrides that applies to every context.
-  Maybe<RFPTargetSet> result =
-      service->mFingerprintingOverrides.MaybeGet("*"_ns);
+  nsAutoCString key;
+  key.Assign("*"_ns);
+  addIsBaseline(key, isBaseline);
+  Maybe<RFPTargetSet> result = service->mFingerprintingOverrides.MaybeGet(key);
 
   nsCOMPtr<nsIEffectiveTLDService> eTLDService =
       mozilla::components::EffectiveTLD::Service();
@@ -2325,11 +3007,10 @@ Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForURI(
   //   first-party domain.
   if (!aThirdPartyURI) {
     // Test the {first-party domain, *} scope.
-    nsAutoCString key;
     key.Assign(firstPartyDomain);
     key.Append(FP_OVERRIDES_DOMAIN_KEY_DELIMITER);
-    key.Append("*");
-
+    key.Append("*"_ns);
+    addIsBaseline(key, isBaseline);
     Maybe<RFPTargetSet> fpOverrides =
         service->mFingerprintingOverrides.MaybeGet(key);
     if (fpOverrides) {
@@ -2337,7 +3018,9 @@ Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForURI(
     }
 
     // Test the {first-party domain} scope.
-    fpOverrides = service->mFingerprintingOverrides.MaybeGet(firstPartyDomain);
+    key.Assign(firstPartyDomain);
+    addIsBaseline(key, isBaseline);
+    fpOverrides = service->mFingerprintingOverrides.MaybeGet(key);
     if (fpOverrides) {
       result = fpOverrides;
     }
@@ -2361,10 +3044,10 @@ Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForURI(
   }
 
   // Test {first-party domain, *} scope.
-  nsAutoCString key;
   key.Assign(firstPartyDomain);
   key.Append(FP_OVERRIDES_DOMAIN_KEY_DELIMITER);
-  key.Append("*");
+  key.Append("*"_ns);
+  addIsBaseline(key, isBaseline);
   Maybe<RFPTargetSet> fpOverrides =
       service->mFingerprintingOverrides.MaybeGet(key);
   if (fpOverrides) {
@@ -2375,6 +3058,7 @@ Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForURI(
   key.Assign("*");
   key.Append(FP_OVERRIDES_DOMAIN_KEY_DELIMITER);
   key.Append(thirdPartyDomain);
+  addIsBaseline(key, isBaseline);
   fpOverrides = service->mFingerprintingOverrides.MaybeGet(key);
   if (fpOverrides) {
     result = fpOverrides;
@@ -2384,6 +3068,7 @@ Maybe<RFPTargetSet> nsRFPService::GetOverriddenFingerprintingSettingsForURI(
   key.Assign(firstPartyDomain);
   key.Append(FP_OVERRIDES_DOMAIN_KEY_DELIMITER);
   key.Append(thirdPartyDomain);
+  addIsBaseline(key, isBaseline);
   fpOverrides = service->mFingerprintingOverrides.MaybeGet(key);
   if (fpOverrides) {
     result = fpOverrides;
@@ -2413,13 +3098,11 @@ void nsRFPService::GetMediaDeviceGroup(nsString& aGroup,
                                        dom::MediaDeviceKind aKind) {
   switch (aKind) {
     case dom::MediaDeviceKind::Audioinput:
+    case dom::MediaDeviceKind::Audiooutput:
       aGroup.Assign(u"Audio Device Group"_ns);
       break;
     case dom::MediaDeviceKind::Videoinput:
       aGroup = u"Video Device Group"_ns;
-      break;
-    case dom::MediaDeviceKind::Audiooutput:
-      aGroup = u"Speaker Device Group"_ns;
       break;
   }
 }
@@ -2462,7 +3145,324 @@ float nsRFPService::GetDefaultPixelDensity() { return 2.0f; }
 
 /* static */
 double nsRFPService::GetDevicePixelRatioAtZoom(float aZoom) {
-  return double(AppUnitsPerCSSPixel()) /
-         double(NSToIntRound(AppUnitsPerCSSPixel() / GetDefaultPixelDensity() /
-                             aZoom));
+  // nsPresContext includes system zoom settings into its zoom factor.
+  // Even at 100% zoom shown in the UI, aZoom is not 1.0f, it is 1.0f *
+  // SystemZoom See
+  // https://searchfox.org/mozilla-central/rev/5bea6ede57be43d450ecc24af7a535288c9a9f7d/layout/base/nsPresContext.cpp#994
+  aZoom /= LookAndFeel::SystemZoomSettings().mFullZoom;
+
+  // Use the same logic as UpdateAppUnitsForFullZoom and ApplyFullZoom from
+  // nsDeviceContext.cpp.
+  int32_t unzoomedAppUnits =
+      NS_lround(AppUnitsPerCSSPixel() / GetDefaultPixelDensity());
+  int32_t appUnitsPerDevPixel =
+      aZoom == 1.0f
+          ? unzoomedAppUnits
+          : std::max(1, NSToIntRound(float(unzoomedAppUnits) / aZoom));
+  return double(AppUnitsPerCSSPixel()) / double(appUnitsPerDevPixel);
+}
+
+nsCString* nsRFPService::sExemptedDomainsLowercase = nullptr;
+
+/* static */
+void nsRFPService::GetExemptedDomainsLowercase(nsCString& aExemptedDomains) {
+#define EXEMPTED_DOMAINS_PREF_NAME \
+  "privacy.resistFingerprinting.exemptedDomains"
+
+  static bool sInited = false;
+  if (!sInited) {
+    sInited = true;
+    sExemptedDomainsLowercase = new nsCString();
+    ClearOnShutdown(sExemptedDomainsLowercase);
+    Preferences::GetCString(EXEMPTED_DOMAINS_PREF_NAME,
+                            *sExemptedDomainsLowercase);
+    Preferences::RegisterCallback(
+        [](const char* aPref, void* aData) {
+          Preferences::GetCString(EXEMPTED_DOMAINS_PREF_NAME,
+                                  *sExemptedDomainsLowercase);
+        },
+        EXEMPTED_DOMAINS_PREF_NAME);
+  }
+
+  aExemptedDomains = *sExemptedDomainsLowercase;
+
+#undef EXEMPTED_DOMAINS_PREF_NAME
+}
+
+/* static */
+CSSIntRect nsRFPService::GetSpoofedScreenAvailSize(const nsRect& aRect,
+                                                   float aScale,
+                                                   bool aIsFullscreen) {
+  int spoofedHeightOffset = aIsFullscreen ? 0 :
+#ifdef XP_WIN
+                                          48;
+#elif defined(XP_MACOSX)
+                                          76;
+#else
+                                          // Linux, Android and other platforms
+                                0;
+#endif
+  spoofedHeightOffset =
+      NS_lround(float(spoofedHeightOffset) / aScale * AppUnitsPerCSSPixel());
+
+  return CSSIntRect::FromAppUnitsRounded(
+      nsRect{0, 0, aRect.width, aRect.height - spoofedHeightOffset});
+}
+
+/* static */
+uint64_t nsRFPService::GetSpoofedStorageLimit() {
+  uint64_t limit = 50ULL * 1024ULL * 1024ULL * 1024ULL;  // 50 GiB
+  MOZ_ASSERT(limit / 5 ==
+             dom::quota::QuotaManager::GetGroupLimitForLimit(limit));
+
+  return limit;
+}
+
+/* static */
+bool nsRFPService::ExposeWebCodecsAPI(JSContext* aCx, JSObject* aObj) {
+  if (!StaticPrefs::dom_media_webcodecs_enabled()) {
+    return false;
+  }
+
+  return !IsWebCodecsRFPTargetEnabled(aCx);
+}
+
+/* static */
+bool nsRFPService::ExposeWebCodecsAPIImageDecoder(JSContext* aCx,
+                                                  JSObject* aObj) {
+  if (!StaticPrefs::dom_media_webcodecs_image_decoder_enabled()) {
+    return false;
+  }
+
+  return !IsWebCodecsRFPTargetEnabled(aCx);
+}
+
+/* static */
+bool nsRFPService::IsWebCodecsRFPTargetEnabled(JSContext* aCx) {
+  if (!nsContentUtils::ShouldResistFingerprinting("Efficiency check",
+                                                  RFPTarget::WebCodecs)) {
+    return false;
+  }
+
+  // We know that the RFPTarget::WebCodecs is enabled, check if principal
+  // is exempted.
+
+  if (NS_WARN_IF(!aCx)) {
+    MOZ_LOG(gResistFingerprintingLog, LogLevel::Warning,
+            ("nsRFPService::IsWebCodecsRFPTargetEnabled called with null "
+             "JSContext"));
+    return true;
+  }
+
+  // Once bug 1973966 is resolved, we can replace this section with just
+  // nsIPrincipal* principal = nsContentUtils::SubjectPrincipal(aCx);
+  JS::Realm* realm = js::GetContextRealm(aCx);
+  MOZ_ASSERT(realm);
+  JSPrincipals* principals = JS::GetRealmPrincipals(realm);
+  nsIPrincipal* principal = nsJSPrincipals::get(principals);
+
+  return nsContentUtils::ShouldResistFingerprinting_dangerous(
+      principal, "Principal is the best context we have", RFPTarget::WebCodecs);
+}
+
+uint32_t nsRFPService::CollapseMaxTouchPoints(uint32_t aMaxTouchPoints) {
+  if (aMaxTouchPoints <= 1) {
+    return aMaxTouchPoints;
+  }
+  // Android reports 5 as the max value, if a device supports multi-touch at all
+  // collapse them all to 5. A minority of devices (mostly desktop devices)
+  // will report uncommon values like 2, 3, 8, etc
+  return 5;
+}
+
+/* static */
+void nsRFPService::GetFingerprintingRandomizationKeyAsString(
+    nsICookieJarSettings* aCookieJarSettings,
+    nsACString& aRandomizationKeyStr) {
+  NS_ENSURE_TRUE_VOID(aCookieJarSettings);
+
+  nsTArray<uint8_t> randomizationKey(32);
+  nsresult rv =
+      aCookieJarSettings->GetFingerprintingRandomizationKey(randomizationKey);
+  NS_ENSURE_SUCCESS_VOID(rv);
+
+  aRandomizationKeyStr.Assign(
+      reinterpret_cast<const char*>(randomizationKey.Elements()),
+      randomizationKey.Length());
+}
+
+/* static */
+nsresult nsRFPService::GenerateRandomizationKeyFromHash(
+    const nsACString& aRandomizationKeyStr, uint32_t aContentHash,
+    nsACString& aHex) {
+  MOZ_ASSERT(aHex.IsEmpty(), "aHex should be empty");
+
+  if (aRandomizationKeyStr.IsEmpty()) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  uint64_t k0 = *reinterpret_cast<const uint64_t*>(aRandomizationKeyStr.Data());
+  uint64_t k1 =
+      *reinterpret_cast<const uint64_t*>(aRandomizationKeyStr.Data() + 8);
+  mozilla::HashCodeScrambler hcs(k0, k1);
+  mozilla::HashNumber hashResult = hcs.scramble(aContentHash);
+
+  nsTArray<uint8_t> bufferKey(32);
+
+  uint64_t digest = static_cast<uint64_t>(hashResult) << 32 | aContentHash;
+  non_crypto::XorShift128PlusRNG rng(
+      digest,
+      *reinterpret_cast<const uint64_t*>(aRandomizationKeyStr.Data() + 16));
+
+  for (size_t i = 0; i < 4; ++i) {
+    uint64_t val = rng.next();
+    for (size_t j = 0; j < 8; ++j) {
+      uint8_t data = static_cast<uint8_t>((val >> (j * 8)) & 0xFF);
+      bufferKey.InsertElementAt((i * 8) + j, data);
+    }
+  }
+
+  non_crypto::XorShift128PlusRNG rng1(
+      *reinterpret_cast<uint64_t*>(bufferKey.Elements()),
+      *reinterpret_cast<uint64_t*>(bufferKey.Elements() + 8));
+
+  uint64_t rand = rng1.next();
+
+  aHex.AppendPrintf("%016" PRIX64, rand);
+  MOZ_ASSERT(aHex.Length() == 16, "Expected 16 hex characters");
+
+  return NS_OK;
+}
+
+/* static */
+void nsRFPService::CalculateFontLocaleAllowlist() {
+  static bool sAcceptLanguagesIsDirty = true;
+
+  enum MatchSetting : uint8_t { StartsWith, EndsWith, Exact };
+
+  struct LocaleMatchingRule {
+    const char* lang;
+    MatchSetting matchSetting;
+  };
+
+  struct FontInclusionRule {
+    const char* fontName;
+    const LocaleMatchingRule* langs;
+  };
+
+#define FONT_RULE(font, ...)                          \
+  []() -> FontInclusionRule {                         \
+    static const LocaleMatchingRule _langs[] = {      \
+        __VA_ARGS__, {nullptr, MatchSetting::Exact}}; \
+    return FontInclusionRule{font, _langs};           \
+  }(),
+
+  static const FontInclusionRule fontInclusionRules[] = {
+#define FontInclusionByLocaleRules
+
+#ifdef XP_WIN
+#  include "../../gfx/thebes/StandardFonts-win10.inc"
+#elif defined(XP_MACOSX)
+#  include "../../gfx/thebes/StandardFonts-macos.inc"
+#elif defined(XP_LINUX)
+#  include "../../gfx/thebes/StandardFonts-linux.inc"
+#elif defined(XP_ANDROID)
+#  include "../../gfx/thebes/StandardFonts-android.inc"
+#endif
+
+#undef FontInclusionByLocaleRules
+  };
+
+#undef FONT_RULE
+
+  static std::once_flag sOnce;
+  std::call_once(sOnce, []() {
+    Preferences::RegisterCallback(
+        [](const char*, void*) { sAcceptLanguagesIsDirty = true; },
+        INTL_ACCEPT_LANGUAGES_PREF);
+  });
+
+  MOZ_ASSERT(NS_IsMainThread());
+
+  if (sAcceptLanguagesIsDirty) {
+    if (!sAllowedFonts) {
+      sAllowedFonts = new nsTArray<nsCString>();
+      ClearOnShutdown(&sAllowedFonts);
+    } else {
+      sAllowedFonts->ClearAndRetainStorage();
+    }
+
+    nsAutoCString acceptLang;
+    nsresult rv =
+        intl::LocaleService::GetInstance()->GetAcceptLanguages(acceptLang);
+    NS_ENSURE_SUCCESS_VOID(rv);
+
+    ToLowerCase(acceptLang);
+
+    for (const nsDependentCSubstring& locale :
+         nsCCharSeparatedTokenizer(acceptLang, ',').ToRange()) {
+      for (const FontInclusionRule& fontRules : fontInclusionRules) {
+        for (const LocaleMatchingRule* localeRule = fontRules.langs;
+             localeRule->lang != nullptr; localeRule++) {
+          bool matched = false;
+          switch (localeRule->matchSetting) {
+            case MatchSetting::Exact: {
+              if (locale.Equals(localeRule->lang)) {
+                matched = true;
+              }
+              break;
+            }
+            case MatchSetting::StartsWith: {
+              if (StringBeginsWith(locale,
+                                   nsDependentCString(localeRule->lang))) {
+                matched = true;
+              }
+              break;
+            }
+            case MatchSetting::EndsWith: {
+              if (StringEndsWith(locale,
+                                 nsDependentCString(localeRule->lang))) {
+                matched = true;
+              }
+              break;
+            }
+            default: {
+              MOZ_ASSERT_UNREACHABLE("Unknown match setting");
+              break;
+            }
+          }
+          if (matched) {
+            sAllowedFonts->AppendElement(fontRules.fontName);
+            break;
+          }
+        }
+      }
+    }
+
+    sAcceptLanguagesIsDirty = false;
+  }
+}
+
+/* static */
+bool nsRFPService::FontIsAllowedByLocale(const nsACString& aName) {
+  if (NS_IsMainThread()) {
+    CalculateFontLocaleAllowlist();
+  } else {
+    NS_DispatchToMainThread(
+        NS_NewRunnableFunction("CalculateFontLocaleAllowlist",
+                               &nsRFPService::CalculateFontLocaleAllowlist));
+  }
+
+  if (!sAllowedFonts || sAllowedFonts->IsEmpty() || aName.IsEmpty()) {
+    return false;
+  }
+
+  // Check if the font is in the allowed list.
+  for (const nsCString& font : *sAllowedFonts) {
+    if (aName.Equals(font, nsCaseInsensitiveCStringComparator)) {
+      return true;
+    }
+  }
+
+  return false;
 }

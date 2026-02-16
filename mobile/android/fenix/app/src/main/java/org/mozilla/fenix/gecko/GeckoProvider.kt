@@ -7,29 +7,26 @@ package org.mozilla.fenix.gecko
 import android.content.Context
 import androidx.annotation.VisibleForTesting
 import mozilla.components.browser.engine.gecko.autofill.GeckoAutocompleteStorageDelegate
+import mozilla.components.browser.engine.gecko.crash.GeckoCrashPullDelegate
 import mozilla.components.browser.engine.gecko.ext.toContentBlockingSetting
 import mozilla.components.concept.engine.EngineSession.TrackingProtectionPolicy
 import mozilla.components.concept.storage.CreditCardsAddressesStorage
 import mozilla.components.concept.storage.LoginsStorage
 import mozilla.components.experiment.NimbusExperimentDelegate
 import mozilla.components.lib.crash.handler.CrashHandlerService
+import mozilla.components.lib.crash.store.CrashAction
 import mozilla.components.service.sync.autofill.GeckoCreditCardsAddressesStorageDelegate
 import mozilla.components.service.sync.logins.GeckoLoginStorageDelegate
 import org.mozilla.fenix.Config
+import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.nimbus.FxNimbus
-import org.mozilla.geckoview.ContentBlocking
-import org.mozilla.geckoview.ContentBlocking.SafeBrowsingProvider
 import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.GeckoRuntimeSettings
 
 object GeckoProvider {
     private var runtime: GeckoRuntime? = null
-    private const val CN_UPDATE_URL =
-        "https://sb.firefox.com.cn/downloads?client=SAFEBROWSING_ID&appver=%MAJOR_VERSION%&pver=2.2"
-    private const val CN_GET_HASH_URL =
-        "https://sb.firefox.com.cn/gethash?client=SAFEBROWSING_ID&appver=%MAJOR_VERSION%&pver=2.2"
 
     @Synchronized
     fun getOrCreateRuntime(
@@ -61,31 +58,6 @@ object GeckoProvider {
             runtimeSettings.fontSizeFactor = fontSize
         }
 
-        // Add safebrowsing providers for China
-        if (Config.channel.isMozillaOnline) {
-            val mozcn = SafeBrowsingProvider
-                .withName("mozcn")
-                .version("2.2")
-                .lists("m6eb-phish-shavar", "m6ib-phish-shavar")
-                .updateUrl(CN_UPDATE_URL)
-                .getHashUrl(CN_GET_HASH_URL)
-                .build()
-
-            runtimeSettings.contentBlocking.setSafeBrowsingProviders(
-                mozcn,
-                // Keep the existing configuration
-                ContentBlocking.GOOGLE_SAFE_BROWSING_PROVIDER,
-                ContentBlocking.GOOGLE_LEGACY_SAFE_BROWSING_PROVIDER,
-            )
-
-            runtimeSettings.contentBlocking.setSafeBrowsingPhishingTable(
-                "m6eb-phish-shavar",
-                "m6ib-phish-shavar",
-                // Existing configuration
-                "goog-phish-proto",
-            )
-        }
-
         val geckoRuntime = GeckoRuntime.create(context, runtimeSettings)
 
         geckoRuntime.autocompleteStorageDelegate = GeckoAutocompleteStorageDelegate(
@@ -100,6 +72,14 @@ object GeckoProvider {
             ),
         )
 
+        geckoRuntime.crashPullDelegate = GeckoCrashPullDelegate(
+            dispatcher = { crashIDs ->
+                context.components.appStore.dispatch(
+                    AppAction.CrashActionWrapper(CrashAction.CheckDeferred(crashIDs.toList())),
+                )
+            },
+        )
+
         return geckoRuntime
     }
 
@@ -108,7 +88,7 @@ object GeckoProvider {
         context: Context,
         policy: TrackingProtectionPolicy,
     ): GeckoRuntimeSettings {
-        return GeckoRuntimeSettings.Builder()
+        val builder = GeckoRuntimeSettings.Builder()
             .crashHandler(CrashHandlerService::class.java)
             .experimentDelegate(NimbusExperimentDelegate())
             .contentBlocking(
@@ -122,14 +102,14 @@ object GeckoProvider {
                     context.settings().shouldEnableCookieBannerGlobalRules,
                     cookieBannerGlobalRulesSubFramesEnabled =
                     context.settings().shouldEnableCookieBannerGlobalRulesSubFrame,
-                    queryParameterStripping =
-                    context.settings().shouldEnableQueryParameterStripping,
-                    queryParameterStrippingPrivateBrowsing =
-                    context.settings().shouldEnableQueryParameterStrippingPrivateBrowsing,
-                    queryParameterStrippingAllowList =
-                    context.settings().queryParameterStrippingAllowList,
-                    queryParameterStrippingStripList =
-                    context.settings().queryParameterStrippingStripList,
+                    queryParameterStripping = false,
+                    queryParameterStrippingPrivateBrowsing = false,
+                    queryParameterStrippingAllowList = "",
+                    queryParameterStrippingStripList = "",
+                    allowListBaselineTrackingProtection =
+                    context.settings().strictAllowListBaselineTrackingProtection,
+                    allowListConvenienceTrackingProtection =
+                    context.settings().strictAllowListConvenienceTrackingProtection,
                 ),
             )
             .consoleOutput(context.components.settings.enableGeckoLogs)
@@ -138,8 +118,22 @@ object GeckoProvider {
             .extensionsProcessEnabled(true)
             .extensionsWebAPIEnabled(true)
             .translationsOfferPopup(context.settings().offerTranslation)
-            .disableShip(FxNimbus.features.ship.value().disabled)
-            .fissionEnabled(FxNimbus.features.fission.value().enabled)
-            .build()
+            .crashPullNeverShowAgain(context.settings().crashPullNeverShowAgain)
+            .setSameDocumentNavigationOverridesLoadType(
+                FxNimbus.features.sameDocumentNavigationOverridesLoadType.value().enabled,
+            )
+            .setSameDocumentNavigationOverridesLoadTypeForceDisable(
+                FxNimbus.features.sameDocumentNavigationOverridesLoadType.value().forceDisableUri,
+            )
+            .isolatedProcessEnabled(context.settings().isIsolatedProcessEnabled)
+            .appZygoteProcessEnabled(context.settings().isAppZygoteEnabled)
+
+        if (FxNimbus.features.fission.value().shouldUseNimbus) {
+            builder
+                .fissionEnabled(FxNimbus.features.fission.value().enabled)
+                .disableShip(FxNimbus.features.ship.value().disabled)
+        }
+
+        return builder.build()
     }
 }

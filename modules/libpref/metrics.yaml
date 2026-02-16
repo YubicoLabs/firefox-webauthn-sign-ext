@@ -56,3 +56,50 @@ preferences:
       - kwright@mozilla.com
     expires: never
     telemetry_mirror: PREFERENCES_PREFS_FILE_WAS_INVALID
+
+  prefs_file_first_parse_error:
+    type: string
+    description: >
+      The first error message encountered when parsing a prefs file.
+    bugs:
+      - https://bugzil.la/2004387
+    data_reviews:
+      - https://bugzil.la/2004387
+    notification_emails:
+      - gstoll@mozilla.com
+    expires: never
+    data_sensitivity:
+      - technical
+
+  user_prefs:
+    type: object
+    lifetime: application
+    description: |
+      The fossilized remains of the Legacy Telemetry Environment's
+      `settings.userPrefs` structure.
+      A list of pref names and values.
+      Some values will be the string "<user-set>" to obscure the value.
+      Do not add more prefs to this list.
+      Prefer instead to instrument your prefs directly with individual metrics.
+      See Environment.sys.mjs' `DEFAULT_ENVIRONMENT_PREFS`.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1950389
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1950389
+    notification_emails:
+      - chutten@mozilla.com
+    data_sensitivity:
+      - technical
+    expires: never
+    structure:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          value:
+            type: string
+    send_in_pings:
+      - metrics
+      - update

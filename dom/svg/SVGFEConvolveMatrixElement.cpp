@@ -5,15 +5,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/SVGFEConvolveMatrixElement.h"
-#include "mozilla/dom/SVGFEConvolveMatrixElementBinding.h"
+
+#include <numeric>
+
+#include "DOMSVGAnimatedNumberList.h"
 #include "mozilla/SVGFilterInstance.h"
 #include "mozilla/SVGUtils.h"
-#include "mozilla/UniquePtr.h"
-#include "mozilla/UniquePtrExtensions.h"
-#include "DOMSVGAnimatedNumberList.h"
-#include "mozilla/dom/Document.h"
 #include "mozilla/dom/BindContext.h"
-#include <numeric>
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/SVGFEConvolveMatrixElementBinding.h"
 
 NS_IMPL_NS_NEW_SVG_ELEMENT(FEConvolveMatrix)
 
@@ -30,13 +30,13 @@ SVGElement::NumberInfo SVGFEConvolveMatrixElement::sNumberInfo[2] = {
     {nsGkAtoms::divisor, 1}, {nsGkAtoms::bias, 0}};
 
 SVGElement::NumberPairInfo SVGFEConvolveMatrixElement::sNumberPairInfo[1] = {
-    {nsGkAtoms::kernelUnitLength, 0, 0}};
+    {nsGkAtoms::kernelUnitLength, 0}};
 
 SVGElement::IntegerInfo SVGFEConvolveMatrixElement::sIntegerInfo[2] = {
     {nsGkAtoms::targetX, 0}, {nsGkAtoms::targetY, 0}};
 
 SVGElement::IntegerPairInfo SVGFEConvolveMatrixElement::sIntegerPairInfo[1] = {
-    {nsGkAtoms::order, 3, 3}};
+    {nsGkAtoms::order, 3}};
 
 SVGElement::BooleanInfo SVGFEConvolveMatrixElement::sBooleanInfo[1] = {
     {nsGkAtoms::preserveAlpha, false}};
@@ -70,12 +70,12 @@ already_AddRefed<DOMSVGAnimatedString> SVGFEConvolveMatrixElement::In1() {
 
 already_AddRefed<DOMSVGAnimatedInteger> SVGFEConvolveMatrixElement::OrderX() {
   return mIntegerPairAttributes[ORDER].ToDOMAnimatedInteger(
-      SVGAnimatedIntegerPair::eFirst, this);
+      SVGAnimatedIntegerPairWhichOne::First, this);
 }
 
 already_AddRefed<DOMSVGAnimatedInteger> SVGFEConvolveMatrixElement::OrderY() {
   return mIntegerPairAttributes[ORDER].ToDOMAnimatedInteger(
-      SVGAnimatedIntegerPair::eSecond, this);
+      SVGAnimatedIntegerPairWhichOne::Second, this);
 }
 
 already_AddRefed<DOMSVGAnimatedNumberList>
@@ -113,13 +113,13 @@ already_AddRefed<DOMSVGAnimatedNumber> SVGFEConvolveMatrixElement::Bias() {
 already_AddRefed<DOMSVGAnimatedNumber>
 SVGFEConvolveMatrixElement::KernelUnitLengthX() {
   return mNumberPairAttributes[KERNEL_UNIT_LENGTH].ToDOMAnimatedNumber(
-      SVGAnimatedNumberPair::eFirst, this);
+      SVGAnimatedNumberPairWhichOne::First, this);
 }
 
 already_AddRefed<DOMSVGAnimatedNumber>
 SVGFEConvolveMatrixElement::KernelUnitLengthY() {
   return mNumberPairAttributes[KERNEL_UNIT_LENGTH].ToDOMAnimatedNumber(
-      SVGAnimatedNumberPair::eSecond, this);
+      SVGAnimatedNumberPairWhichOne::Second, this);
 }
 
 void SVGFEConvolveMatrixElement::GetSourceImageNames(
@@ -138,9 +138,9 @@ FilterPrimitiveDescription SVGFEConvolveMatrixElement::GetPrimitiveDescription(
   uint32_t kmLength = kernelMatrix.Length();
 
   int32_t orderX = mIntegerPairAttributes[ORDER].GetAnimValue(
-      SVGAnimatedIntegerPair::eFirst);
+      SVGAnimatedIntegerPairWhichOne::First);
   int32_t orderY = mIntegerPairAttributes[ORDER].GetAnimValue(
-      SVGAnimatedIntegerPair::eSecond);
+      SVGAnimatedIntegerPairWhichOne::Second);
 
   if (orderX <= 0 || orderY <= 0 ||
       static_cast<uint32_t>(orderX * orderY) != kmLength) {
@@ -161,17 +161,18 @@ FilterPrimitiveDescription SVGFEConvolveMatrixElement::GetPrimitiveDescription(
     targetY = orderY / 2;
   }
 
-  if (orderX > NS_SVG_OFFSCREEN_MAX_DIMENSION ||
-      orderY > NS_SVG_OFFSCREEN_MAX_DIMENSION)
+  if (orderX > kReasonableSurfaceSize || orderY > kReasonableSurfaceSize)
     return failureDescription;
 
   float divisor;
   if (mNumberAttributes[DIVISOR].IsExplicitlySet()) {
     divisor = mNumberAttributes[DIVISOR].GetAnimValue();
-    if (divisor == 0) return failureDescription;
-  } else {
+  }
+  if (!mNumberAttributes[DIVISOR].IsExplicitlySet() || divisor == 0) {
     divisor = std::accumulate(kernelMatrix.begin(), kernelMatrix.end(), 0.0f);
-    if (divisor == 0) divisor = 1;
+    if (divisor == 0) {
+      divisor = 1;
+    }
   }
 
   uint32_t edgeMode = mEnumAttributes[EDGEMODE].GetAnimValue();
@@ -181,12 +182,8 @@ FilterPrimitiveDescription SVGFEConvolveMatrixElement::GetPrimitiveDescription(
   Size kernelUnitLength = GetKernelUnitLength(
       aInstance, &mNumberPairAttributes[KERNEL_UNIT_LENGTH]);
 
-  if (kernelUnitLength.width <= 0 || kernelUnitLength.height <= 0) {
-    // According to spec, A negative or zero value is an error. See link below
-    // for details.
-    // https://www.w3.org/TR/SVG/filters.html#feConvolveMatrixElementKernelUnitLengthAttribute
-    return failureDescription;
-  }
+  MOZ_ASSERT(kernelUnitLength.width > 0.0f && kernelUnitLength.height > 0.0f,
+             "Expecting positive kernelUnitLength values");
 
   ConvolveMatrixAttributes atts;
   atts.mKernelSize = IntSize(orderX, orderY);

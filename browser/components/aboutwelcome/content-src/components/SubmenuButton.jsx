@@ -40,7 +40,7 @@ function addMenuitems(items, popup) {
       case "separator":
         popup.appendChild(document.createXULElement("menuseparator"));
         break;
-      case "menu":
+      case "menu": {
         let menu = document.createXULElement("menu");
         menu.className = "fxms-multi-stage-menu";
         translateMenuitem(item, menu);
@@ -56,7 +56,8 @@ function addMenuitems(items, popup) {
         menu.appendChild(submenuPopup);
         addMenuitems(item.submenu, submenuPopup);
         break;
-      case "action":
+      }
+      case "action": {
         let menuitem = document.createXULElement("menuitem");
         translateMenuitem(item, menuitem);
         menuitem.config = item;
@@ -69,6 +70,7 @@ function addMenuitems(items, popup) {
         }
         popup.appendChild(menuitem);
         break;
+      }
     }
   }
 }
@@ -142,12 +144,14 @@ const SubmenuButtonInner = ({ content, handleAction }) => {
   return (
     <Localized text={content.submenu_button.label ?? {}}>
       <button
+        id="submenu_button"
         className={`submenu-button ${isPrimary ? "primary" : "secondary"}`}
         value="submenu_button"
         onClick={onClick}
         ref={ref}
         aria-haspopup="menu"
         aria-expanded={isSubmenuExpanded}
+        aria-labelledby={`${content.submenu_button.attached_to} submenu_button`}
       />
     </Localized>
   );

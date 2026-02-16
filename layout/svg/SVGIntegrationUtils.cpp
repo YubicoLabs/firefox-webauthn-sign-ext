@@ -8,24 +8,21 @@
 #include "SVGIntegrationUtils.h"
 
 // Keep others in (case-insensitive) order:
+#include "SVGPaintServerFrame.h"
+#include "gfxContext.h"
 #include "gfxDrawable.h"
-
-#include "nsCSSAnonBoxes.h"
+#include "mozilla/CSSClipPathInstance.h"
+#include "mozilla/FilterInstance.h"
+#include "mozilla/SVGClipPathFrame.h"
+#include "mozilla/SVGMaskFrame.h"
+#include "mozilla/SVGObserverUtils.h"
+#include "mozilla/SVGUtils.h"
+#include "mozilla/StaticPrefs_layers.h"
+#include "mozilla/dom/SVGElement.h"
+#include "mozilla/gfx/Point.h"
 #include "nsCSSRendering.h"
 #include "nsDisplayList.h"
 #include "nsLayoutUtils.h"
-#include "gfxContext.h"
-#include "SVGPaintServerFrame.h"
-#include "mozilla/gfx/Point.h"
-#include "mozilla/CSSClipPathInstance.h"
-#include "mozilla/FilterInstance.h"
-#include "mozilla/StaticPrefs_layers.h"
-#include "mozilla/SVGClipPathFrame.h"
-#include "mozilla/SVGObserverUtils.h"
-#include "mozilla/SVGMaskFrame.h"
-#include "mozilla/SVGUtils.h"
-#include "mozilla/Unused.h"
-#include "mozilla/dom/SVGElement.h"
 
 using namespace mozilla::dom;
 using namespace mozilla::layers;
@@ -343,13 +340,13 @@ nsRect SVGIntegrationUtils::ComputePostEffectsInkOverflowRect(
 
   nsIFrame* firstFrame =
       nsLayoutUtils::FirstContinuationOrIBSplitSibling(aFrame);
-  // Note: we do not return here for eHasNoRefs since we must still handle any
+  // Note: we do not return here for HasNoRefs since we must still handle any
   // CSS filter functions.
-  // TODO: we should really return an empty rect for eHasRefsSomeInvalid since
+  // TODO: we should really return an empty rect for HasRefsSomeInvalid since
   // in that case we disable painting of the element.
   nsTArray<SVGFilterFrame*> filterFrames;
   if (SVGObserverUtils::GetAndObserveFilters(firstFrame, &filterFrames) ==
-      SVGObserverUtils::eHasRefsSomeInvalid) {
+      SVGObserverUtils::ReferenceState::HasRefsSomeInvalid) {
     return aPreEffectsOverflowRect;
   }
 
@@ -387,7 +384,7 @@ nsRect SVGIntegrationUtils::GetRequiredSourceForInvalidArea(
   nsTArray<SVGFilterFrame*> filterFrames;
   if (!aFrame->StyleEffects()->HasFilters() ||
       SVGObserverUtils::GetFiltersIfObserving(firstFrame, &filterFrames) ==
-          SVGObserverUtils::eHasRefsSomeInvalid) {
+          SVGObserverUtils::ReferenceState::HasRefsSomeInvalid) {
     return aDirtyRect;
   }
 
@@ -924,14 +921,14 @@ void SVGIntegrationUtils::PaintFilter(const PaintFramesParams& aParams,
   // sure all applicable ones are set again.
   nsIFrame* firstFrame =
       nsLayoutUtils::FirstContinuationOrIBSplitSibling(frame);
-  // Note: we do not return here for eHasNoRefs since we must still handle any
+  // Note: we do not return here for HasNoRefs since we must still handle any
   // CSS filter functions.
-  // XXX: Do we need to check for eHasRefsSomeInvalid here given that
-  // nsDisplayFilter::BuildLayer returns nullptr for eHasRefsSomeInvalid?
-  // Or can we just assert !eHasRefsSomeInvalid?
+  // XXX: Do we need to check for HasRefsSomeInvalid here given that
+  // nsDisplayFilter::BuildLayer returns nullptr for HasRefsSomeInvalid?
+  // Or can we just assert !HasRefsSomeInvalid?
   nsTArray<SVGFilterFrame*> filterFrames;
   if (SVGObserverUtils::GetAndObserveFilters(firstFrame, &filterFrames) ==
-      SVGObserverUtils::eHasRefsSomeInvalid) {
+      SVGObserverUtils::ReferenceState::HasRefsSomeInvalid) {
     aCallback(aParams.ctx, aParams.imgParams, nullptr, nullptr);
     return;
   }
@@ -1081,7 +1078,8 @@ bool SVGIntegrationUtils::UsesSVGEffectsNotSupportedInCompositor(
 class PaintFrameCallback : public gfxDrawingCallback {
  public:
   PaintFrameCallback(nsIFrame* aFrame, const nsSize aPaintServerSize,
-                     const IntSize aRenderSize, uint32_t aFlags)
+                     const IntSize aRenderSize,
+                     SVGIntegrationUtils::DecodeFlags aFlags)
       : mFrame(aFrame),
         mPaintServerSize(aPaintServerSize),
         mRenderSize(aRenderSize),
@@ -1094,7 +1092,7 @@ class PaintFrameCallback : public gfxDrawingCallback {
   nsIFrame* mFrame;
   nsSize mPaintServerSize;
   IntSize mRenderSize;
-  uint32_t mFlags;
+  SVGIntegrationUtils::DecodeFlags mFlags;
 };
 
 bool PaintFrameCallback::operator()(gfxContext* aContext,
@@ -1142,7 +1140,7 @@ bool PaintFrameCallback::operator()(gfxContext* aContext,
 
   using PaintFrameFlags = nsLayoutUtils::PaintFrameFlags;
   PaintFrameFlags flags = PaintFrameFlags::InTransform;
-  if (mFlags & SVGIntegrationUtils::FLAG_SYNC_DECODE_IMAGES) {
+  if (mFlags.contains(SVGIntegrationUtils::DecodeFlag::SyncDecodeImages)) {
     flags |= PaintFrameFlags::SyncDecodeImages;
   }
   nsLayoutUtils::PaintFrame(aContext, mFrame, dirty, NS_RGBA(0, 0, 0, 0),
@@ -1174,7 +1172,7 @@ bool PaintFrameCallback::operator()(gfxContext* aContext,
 already_AddRefed<gfxDrawable> SVGIntegrationUtils::DrawableFromPaintServer(
     nsIFrame* aFrame, nsIFrame* aTarget, const nsSize& aPaintServerSize,
     const IntSize& aRenderSize, const DrawTarget* aDrawTarget,
-    const gfxMatrix& aContextMatrix, uint32_t aFlags) {
+    const gfxMatrix& aContextMatrix, DecodeFlags aFlags) {
   // aPaintServerSize is the size that would be filled when using
   // background-repeat:no-repeat and background-size:auto. For normal background
   // images, this would be the intrinsic size of the image; for gradients and
@@ -1189,7 +1187,7 @@ already_AddRefed<gfxDrawable> SVGIntegrationUtils::DrawableFromPaintServer(
                            aPaintServerSize.height);
     overrideBounds.Scale(1.0 / aFrame->PresContext()->AppUnitsPerDevPixel());
     uint32_t imgFlags = imgIContainer::FLAG_ASYNC_NOTIFY;
-    if (aFlags & SVGIntegrationUtils::FLAG_SYNC_DECODE_IMAGES) {
+    if (aFlags.contains(DecodeFlag::SyncDecodeImages)) {
       imgFlags |= imgIContainer::FLAG_SYNC_DECODE;
     }
     imgDrawingParams imgParams(imgFlags);

@@ -9,11 +9,10 @@
  * between all test suites.
  */
 
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
   Assert: "resource://testing-common/Assert.sys.mjs",
   Extension: "resource://gre/modules/Extension.sys.mjs",
@@ -24,13 +23,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   FileUtils: "resource://gre/modules/FileUtils.sys.mjs",
   clearInterval: "resource://gre/modules/Timer.sys.mjs",
   setInterval: "resource://gre/modules/Timer.sys.mjs",
+  apiManager: () => lazy.ExtensionParent.apiManager,
 });
-
-ChromeUtils.defineLazyGetter(
-  lazy,
-  "apiManager",
-  () => lazy.ExtensionParent.apiManager
-);
 
 import { ExtensionCommon } from "resource://gre/modules/ExtensionCommon.sys.mjs";
 import { ExtensionUtils } from "resource://gre/modules/ExtensionUtils.sys.mjs";
@@ -511,7 +505,10 @@ export var ExtensionTestCommon = class ExtensionTestCommon {
     Object.assign(files, data.files);
 
     let manifest = data.manifest;
-    if (!manifest) {
+    if (manifest) {
+      // Copy manifest so that modifications below do not affect the input.
+      manifest = structuredClone(manifest);
+    } else {
       manifest = {};
     }
 
@@ -784,6 +781,8 @@ export var ExtensionTestCommon = class ExtensionTestCommon {
       id = Services.uuid.generateUUID().number;
     }
 
+    let version = data.manifest?.version;
+
     let signedState = lazy.AddonManager.SIGNEDSTATE_SIGNED;
     if (data.isPrivileged) {
       signedState = lazy.AddonManager.SIGNEDSTATE_PRIVILEGED;
@@ -801,6 +800,7 @@ export var ExtensionTestCommon = class ExtensionTestCommon {
     return new lazy.Extension(
       {
         id,
+        version,
         resourceURI: jarURI,
         cleanupFile: file,
         signedState,

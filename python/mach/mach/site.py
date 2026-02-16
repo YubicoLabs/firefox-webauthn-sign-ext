@@ -8,7 +8,6 @@
 import ast
 import enum
 import functools
-import json
 import os
 import platform
 import shutil
@@ -19,11 +18,11 @@ import sysconfig
 import tempfile
 import warnings
 from contextlib import contextmanager
-from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Optional
 
 from filelock import FileLock, Timeout
+from mozfile import json
 from packaging.specifiers import SpecifierSet
 
 from mach.requirements import (
@@ -41,24 +40,36 @@ PIP_NETWORK_INSTALL_RESTRICTED_VIRTUALENVS = ("mach", "build", "common")
 _is_windows = sys.platform == "cygwin" or (sys.platform == "win32" and os.sep == "\\")
 
 
-@lru_cache(maxsize=None)
+@functools.cache
 def use_uv():
-    return os.environ.get("MACH_NO_UV", "").lower() not in (
-        "1",
-        "true",
-    ) and shutil.which("uv")
+    return (
+        os.environ.get("MACH_NO_UV", "").lower()
+        not in (
+            "1",
+            "true",
+        )
+        and get_uv_executable()
+    )
 
 
-@lru_cache(maxsize=None)
+@functools.cache
+def get_uv_executable():
+    return shutil.which("uv")
+
+
+@functools.cache
 def show_pip_output():
     return os.environ.get("MACH_SHOW_PIP_OUTPUT", "").lower() in ("1", "true")
 
 
 def pip_command(*, python_executable, subcommand=None, args=None, non_uv_args=None):
     if use_uv():
-        command = ["uv", "pip"]
+        uv_executable = get_uv_executable()
+        command = [uv_executable, "pip"]
         if subcommand:
             command.append(subcommand)
+            python_root = Path(python_executable).parent.parent
+            command.append(f"--python={python_root}")
         full_command = command + (args or [])
     else:
         command = [python_executable, "-m", "pip"]
@@ -144,7 +155,7 @@ class SitePackagesSource(enum.Enum):
         )
 
 
-class MozSiteMetadata:
+class MozSiteMetadata:  # noqa PLW1641
     """Details about a Moz-managed python site
 
     When a Moz-managed site is active, its associated metadata is available
@@ -256,19 +267,10 @@ class MozSiteMetadata:
             ...
         """
 
-        try:
-            import pkg_resources
-        except ModuleNotFoundError:
-            pkg_resources = None
-
         yield
         MozSiteMetadata.current = self
 
         sys.executable = executable
-
-        if pkg_resources:
-            # Rebuild the working_set based on the new sys.path.
-            pkg_resources._initialize_master_working_set()
 
 
 class MachSiteManager:
@@ -340,9 +342,9 @@ class MachSiteManager:
         # yet, and the system isn't guaranteed to have the packages we need. For example,
         # "./mach bootstrap" can't have any dependencies.
         # So, all external dependencies of Mach's must be optional.
-        assert (
-            not requirements.pypi_requirements
-        ), "Mach pip package requirements must be optional."
+        assert not requirements.pypi_requirements, (
+            "Mach pip package requirements must be optional."
+        )
 
         # external_python is the Python interpreter that invoked Mach for this process.
         external_python = ExternalPythonSite(sys.executable)
@@ -387,6 +389,38 @@ class MachSiteManager:
             )
 
     def ensure(self, *, force=False):
+        root = None
+        if self._virtualenv_root:
+            root = self._virtualenv_root
+        else:
+            workspace = os.environ.get("WORKSPACE")
+            if os.environ.get("MOZ_AUTOMATION") and workspace:
+                # In CI, put Mach virtualenv in the $WORKSPACE dir, which
+                # should be cleaned between jobs.
+                root = os.path.join(workspace, "mach_virtualenv")
+
+        # Although `root` should never be `None` here, let's guard against
+        # that edge case by skipping the FileLock step if it is.
+        if root:
+            lock_file = Path(root).with_suffix(".lock")
+            timeout = 60
+
+            # In the scenario where multiple processes try to create a mach site that does not yet
+            # exist, they will trample each other when attempting to create it. To resolve this, we
+            # use a file lock. The first process to reach the lock will create it and ensure it is up
+            # to date, while the other(s) wait(s). Once the first releases the lock, the others will
+            # continue one-by-one and determine it's up-to-date.
+            try:
+                with FileLock(lock_file, timeout=timeout):
+                    self._ensure(force=force)
+            except Timeout:
+                self._log(
+                    f"Could not acquire the lock at {lock_file} for the mach site after {timeout} seconds."
+                )
+        else:
+            self._ensure(force=force)
+
+    def _ensure(self, force=False):
         result = self._up_to_date()
         if force or not result.is_up_to_date:
             if Path(sys.prefix) == Path(self._metadata.prefix):
@@ -573,9 +607,9 @@ class CommandSiteManager:
             should be created
         """
         active_metadata = MozSiteMetadata.from_runtime()
-        assert (
-            active_metadata
-        ), "A Mach-managed site must be active before doing work with command sites"
+        assert active_metadata, (
+            "A Mach-managed site must be active before doing work with command sites"
+        )
 
         mach_site_packages_source = active_metadata.mach_site_packages_source
         pip_restricted_site = site_name in PIP_NETWORK_INSTALL_RESTRICTED_VIRTUALENVS
@@ -720,22 +754,26 @@ class CommandSiteManager:
         if require_hashes:
             args.append("--require-hashes")
 
-        install_result = self._virtualenv.pip_install(args)
-
-        if install_result.returncode:
+        try:
+            install_result = self._virtualenv.pip_install(args)
+        except subprocess.CalledProcessError:
             raise InstallPipRequirementsException(
                 f'Failed to install "{path}" into the "{self._site_name}" site.'
             )
 
+        check_errors: str = "\n"  # save output when check fails
         check_result = subprocess.run(
             pip_command(python_executable=self.python_path, subcommand="check"),
+            check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            text=True,
         )
 
         if not check_result.returncode:
             return
+        else:
+            check_errors += "\n" + check_result.stdout
 
         """
         Some commands may use the "setup.py" script of first-party modules. This causes
@@ -788,12 +826,15 @@ class CommandSiteManager:
 
         check_result = subprocess.run(
             pip_command(python_executable=self.python_path, subcommand="check"),
+            check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            text=True,
         )
 
         if check_result.returncode:
+            if check_result.stdout not in check_errors:
+                check_errors += "\n" + check_result.stdout
             if quiet:
                 # If "quiet" was specified, then the "pip install" output wasn't printed
                 # earlier, and was buffered instead. Print that buffer so that debugging
@@ -812,7 +853,7 @@ class CommandSiteManager:
             raise InstallPipRequirementsException(
                 f'As part of validation after installing "{path}" into the '
                 f'"{self._site_name}" site, the site appears to contain installed '
-                "packages that are incompatible with each other."
+                "packages that are incompatible with each other." + check_errors
             )
 
     def _pthfile_lines(self):
@@ -1003,12 +1044,10 @@ class PythonVirtualenv:
                 constraints_path = os.path.join(tempdir, "site-constraints.txt")
                 with open(constraints_path, "w") as file:
                     file.write(
-                        "\n".join(
-                            [
-                                f"{name}=={version}"
-                                for name, version in existing_packages.items()
-                            ]
-                        )
+                        "\n".join([
+                            f"{name}=={version}"
+                            for name, version in existing_packages.items()
+                        ])
                     )
 
                 self.pip_install(["--constraint", constraints_path] + pip_args)
@@ -1022,13 +1061,13 @@ class PythonVirtualenv:
         # thereby causing a build failure. To avoid this, we explicitly influence the
         # build to only target a single architecture - our current architecture.
         kwargs.setdefault("env", os.environ.copy()).setdefault(
-            "ARCHFLAGS", "-arch {}".format(platform.machine())
+            "ARCHFLAGS", f"-arch {platform.machine()}"
         )
         kwargs.setdefault("check", True)
         kwargs.setdefault("stdout", None if show_pip_output() else subprocess.PIPE)
         kwargs.setdefault("stderr", None if show_pip_output() else subprocess.PIPE)
-        kwargs.setdefault("universal_newlines", True)
         kwargs.setdefault("text", True)
+        kwargs.setdefault("encoding", "utf-8")
 
         # It's tempting to call pip natively via pip.main(). However,
         # the current Python interpreter may not be the virtualenv python.
@@ -1038,34 +1077,42 @@ class PythonVirtualenv:
         # It /might/ be possible to cheat and set sys.executable to
         # self.python_path. However, this seems more risk than it's worth.
 
-        install_result = subprocess.run(
-            pip_command(
-                python_executable=self.python_path,
-                subcommand="install",
-                args=pip_install_args,
-            ),
-            **kwargs,
-        )
+        try:
+            install_result = subprocess.run(  # noqa PLW1510
+                pip_command(
+                    python_executable=self.python_path,
+                    subcommand="install",
+                    args=pip_install_args,
+                ),
+                check=kwargs.pop("check", True),
+                **kwargs,
+            )
+        except subprocess.CalledProcessError as cpe:
+            if not self._quiet:
+                # We print the stdout/stderr on a failed install here so that we don't
+                # need to do it for every code path. We still raise the CalledProcessError
+                # afterward so that the different paths can do their own handling.
+                if cpe.stdout:
+                    print(cpe.stdout)
+                if cpe.stderr:
+                    print(cpe.stderr, file=sys.stderr)
+            raise cpe
 
-        if install_result.returncode and not self._quiet:
-            if install_result.stdout:
-                print(install_result.stdout)
-            if install_result.stderr:
-                print(install_result.stderr, file=sys.stderr)
-
+        # On one code path we do a 'pip check', and if that fails, having the stdout
+        # of the 'pip install' is helpful for debugging, so we pass it along here so
+        # that we can print later if we hit that scenario.
         return install_result
 
     def install_optional_packages(self, optional_requirements):
         for requirement in optional_requirements:
             try:
                 self.pip_install_with_constraints([str(requirement.requirement)])
-            except subprocess.CalledProcessError as error:
-                print(
-                    f"{error.output if error.output else ''}"
-                    f"{error.stderr if error.stderr else ''}"
-                    f"Could not install {requirement.requirement.name}, so "
-                    f"{requirement.repercussion}. Continuing."
-                )
+            except subprocess.CalledProcessError:
+                if not self._quiet:
+                    print(
+                        f"Could not install {requirement.requirement.name}, so "
+                        f"{requirement.repercussion}. Continuing."
+                    )
 
     def _resolve_installed_packages(self):
         return _resolve_installed_packages(self.python_path)
@@ -1127,7 +1174,7 @@ class ExternalPythonSite:
         self._prefix = os.path.dirname(os.path.dirname(python_executable))
         self.python_path = python_executable
 
-    @functools.lru_cache(maxsize=None)
+    @functools.cache
     def sys_path(self):
         """Return lists of sys.path entries: one for standard library, one for the site
 
@@ -1199,7 +1246,7 @@ class ExternalPythonSite:
         return stdlib
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def resolve_requirements(topsrcdir, site_name):
     thunderbird_dir = Path(topsrcdir, "comm")
     is_thunderbird = thunderbird_dir.exists() and any(thunderbird_dir.iterdir())
@@ -1254,7 +1301,7 @@ def resolve_requirements(topsrcdir, site_name):
             f"https://docs.astral.sh/uv/guides/install-python/"
         )
 
-        exit(1)
+        sys.exit(1)
 
     return requirements
 
@@ -1267,9 +1314,8 @@ def _resolve_installed_packages(python_executable):
             args=["--format", "json"],
             non_uv_args=["--disable-pip-version-check"],
         ),
-        universal_newlines=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        text=True,
+        capture_output=True,
         check=True,
     )
 
@@ -1336,8 +1382,8 @@ def _assert_pip_check(pthfile_lines, virtualenv_name, requirements):
         # changes recently).
         process = subprocess.run(
             [sys.executable, "-m", "venv", "--without-pip", check_env_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            check=False,
+            capture_output=True,
             encoding="UTF-8",
         )
 
@@ -1383,9 +1429,10 @@ def _assert_pip_check(pthfile_lines, virtualenv_name, requirements):
 
         check_result = subprocess.run(
             pip + ["check"],
+            check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            text=True,
         )
         if check_result.returncode:
             subprocess.check_call(pip + ["list", "-v"], stdout=sys.stderr)
@@ -1448,8 +1495,8 @@ def _create_venv_with_pthfile(
 
     process = subprocess.run(
         [sys.executable, "-m", "venv", "--without-pip", virtualenv_root],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        check=False,
+        capture_output=True,
         encoding="UTF-8",
     )
 
@@ -1486,6 +1533,12 @@ def _create_venv_with_pthfile(
     os.environ["VIRTUAL_ENV"] = virtualenv_root
 
     if populate_with_pip:
+        for requirements_txt_file in requirements.requirements_txt_files:
+            target_venv.pip_install([
+                "--requirement",
+                requirements_txt_file.path,
+                "--require-hashes",
+            ])
         if requirements.pypi_requirements:
             requirements_list = [
                 str(req.requirement) for req in requirements.pypi_requirements
@@ -1518,6 +1571,16 @@ def _is_venv_up_to_date(
         if os.path.getmtime(dep_file) > metadata_mtime:
             return SiteUpToDateResult(
                 False, f'"{dep_file}" has changed since the virtualenv was created'
+            )
+
+    for requirements_txt_file in requirements.requirements_txt_files:
+        req_txt_path = requirements_txt_file.path
+        if (
+            os.path.exists(req_txt_path)
+            and os.path.getmtime(req_txt_path) > metadata_mtime
+        ):
+            return SiteUpToDateResult(
+                False, f'"{req_txt_path}" has changed since the virtualenv was created'
             )
 
     try:

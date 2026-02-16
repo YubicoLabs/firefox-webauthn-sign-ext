@@ -7,10 +7,10 @@
 #ifndef DOM_QUOTA_CLIENTDIRECTORYLOCK_H_
 #define DOM_QUOTA_CLIENTDIRECTORYLOCK_H_
 
-#include "nsStringFwd.h"
 #include "mozilla/dom/quota/Client.h"
 #include "mozilla/dom/quota/OriginDirectoryLock.h"
 #include "mozilla/dom/quota/PersistenceType.h"
+#include "nsStringFwd.h"
 
 template <class T>
 class RefPtr;
@@ -64,7 +64,7 @@ class ClientDirectoryLock final : public OriginDirectoryLock {
       MovingNotNull<RefPtr<QuotaManager>> aQuotaManager,
       const PersistenceScope& aPersistenceScope,
       const OriginScope& aOriginScope,
-      const Nullable<Client::Type>& aClientType, bool aExclusive,
+      const ClientStorageScope& aClientStorageScope, bool aExclusive,
       bool aInternal, ShouldUpdateLockIdTableFlag aShouldUpdateLockIdTableFlag,
       DirectoryLockCategory aCategory);
 };

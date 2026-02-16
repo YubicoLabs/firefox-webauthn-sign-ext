@@ -10,15 +10,16 @@
 import {
   UrlbarProvider,
   UrlbarUtils,
-} from "resource:///modules/UrlbarUtils.sys.mjs";
+} from "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs";
 
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  UrlbarView: "resource:///modules/UrlbarView.sys.mjs",
-  UrlbarPrefs: "resource:///modules/UrlbarPrefs.sys.mjs",
-  UrlbarProviderTopSites: "resource:///modules/UrlbarProviderTopSites.sys.mjs",
-  UrlbarResult: "resource:///modules/UrlbarResult.sys.mjs",
+  UrlbarView: "moz-src:///browser/components/urlbar/UrlbarView.sys.mjs",
+  UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
+  UrlbarProviderTopSites:
+    "moz-src:///browser/components/urlbar/UrlbarProviderTopSites.sys.mjs",
+  UrlbarResult: "moz-src:///browser/components/urlbar/UrlbarResult.sys.mjs",
 });
 
 const DYNAMIC_RESULT_TYPE = "quickSuggestContextualOptIn";
@@ -75,15 +76,14 @@ function initializeDynamicResult() {
 /**
  * Class used to create the provider.
  */
-class ProviderQuickSuggestContextualOptIn extends UrlbarProvider {
+export class UrlbarProviderQuickSuggestContextualOptIn extends UrlbarProvider {
   constructor() {
     super();
   }
 
-  get name() {
-    return "UrlbarProviderQuickSuggestContextualOptIn";
-  }
-
+  /**
+   * @returns {Values<typeof UrlbarUtils.PROVIDER_TYPE>}
+   */
   get type() {
     return UrlbarUtils.PROVIDER_TYPE.HEURISTIC;
   }
@@ -104,7 +104,7 @@ class ProviderQuickSuggestContextualOptIn extends UrlbarProvider {
     if (
       !lazy.UrlbarPrefs.get("quickSuggestEnabled") ||
       !lazy.UrlbarPrefs.get("quicksuggest.contextualOptIn") ||
-      lazy.UrlbarPrefs.get("quicksuggest.dataCollection.enabled")
+      lazy.UrlbarPrefs.get("quicksuggest.online.enabled")
     ) {
       return false;
     }
@@ -149,8 +149,41 @@ class ProviderQuickSuggestContextualOptIn extends UrlbarProvider {
     return Date.now() / 1000 - lastDismissedTime > time;
   }
 
-  isActive(queryContext) {
-    return this.#shouldDisplayContextualOptIn(queryContext);
+  async isActive(queryContext) {
+    if (!this.#shouldDisplayContextualOptIn(queryContext)) {
+      return false;
+    }
+
+    // Evaluate impressions in order to dismiss.
+    let firstImpressionTime = lazy.UrlbarPrefs.get(
+      "quicksuggest.contextualOptIn.firstImpressionTime"
+    );
+    if (!firstImpressionTime) {
+      return true;
+    }
+
+    let impressionCount = lazy.UrlbarPrefs.get(
+      "quicksuggest.contextualOptIn.impressionCount"
+    );
+    let impressionLimit = lazy.UrlbarPrefs.get(
+      "quicksuggest.contextualOptIn.impressionLimit"
+    );
+
+    if (impressionCount < impressionLimit) {
+      return true;
+    }
+
+    let daysLimit = lazy.UrlbarPrefs.get(
+      "quicksuggest.contextualOptIn.impressionDaysLimit"
+    );
+    let timeLimit = daysLimit * 24 * 60 * 60;
+    if (Date.now() / 1000 - firstImpressionTime < timeLimit) {
+      return true;
+    }
+
+    this.#dismiss();
+
+    return false;
   }
 
   getPriority() {
@@ -213,41 +246,20 @@ class ProviderQuickSuggestContextualOptIn extends UrlbarProvider {
     let impressionCount = lazy.UrlbarPrefs.get(
       "quicksuggest.contextualOptIn.impressionCount"
     );
-    let impressionLimit = lazy.UrlbarPrefs.get(
-      "quicksuggest.contextualOptIn.impressionLimit"
+    lazy.UrlbarPrefs.set(
+      "quicksuggest.contextualOptIn.impressionCount",
+      impressionCount + 1
     );
-
-    impressionCount += 1;
-    if (impressionCount >= impressionLimit) {
-      this.#dismiss();
-      return;
-    }
 
     let firstImpressionTime = lazy.UrlbarPrefs.get(
       "quicksuggest.contextualOptIn.firstImpressionTime"
     );
-
-    if (firstImpressionTime) {
-      let days = lazy.UrlbarPrefs.get(
-        "quicksuggest.contextualOptIn.impressionDaysLimit"
-      );
-
-      let time = days * 24 * 60 * 60;
-      if (Date.now() / 1000 - firstImpressionTime > time) {
-        this.#dismiss();
-        return;
-      }
-    } else {
+    if (!firstImpressionTime) {
       lazy.UrlbarPrefs.set(
         "quicksuggest.contextualOptIn.firstImpressionTime",
         Date.now() / 1000
       );
     }
-
-    lazy.UrlbarPrefs.set(
-      "quicksuggest.contextualOptIn.impressionCount",
-      impressionCount
-    );
   }
 
   onEngagement(queryContext, controller, details) {
@@ -261,7 +273,7 @@ class ProviderQuickSuggestContextualOptIn extends UrlbarProvider {
         controller.browserWindow.openHelpLink("firefox-suggest");
         break;
       case "allow":
-        lazy.UrlbarPrefs.set("quicksuggest.dataCollection.enabled", true);
+        lazy.UrlbarPrefs.set("quicksuggest.online.enabled", true);
         break;
       case "dismiss":
         this.#dismiss();
@@ -269,8 +281,6 @@ class ProviderQuickSuggestContextualOptIn extends UrlbarProvider {
       default:
         return;
     }
-
-    this._recordGlean(commandName);
 
     // Remove the result if it shouldn't be active anymore due to above
     // actions.
@@ -305,16 +315,16 @@ class ProviderQuickSuggestContextualOptIn extends UrlbarProvider {
   /**
    * Starts querying.
    *
-   * @param {object} queryContext The query context object
-   * @param {Function} addCallback Callback invoked by the provider to add a new
-   *        result.
-   * @returns {Promise} resolved when the query stops.
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
    */
   async startQuery(queryContext, addCallback) {
-    let result = new lazy.UrlbarResult(
-      UrlbarUtils.RESULT_TYPE.DYNAMIC,
-      UrlbarUtils.RESULT_SOURCE.SEARCH,
-      {
+    let result = new lazy.UrlbarResult({
+      type: UrlbarUtils.RESULT_TYPE.DYNAMIC,
+      source: UrlbarUtils.RESULT_SOURCE.SEARCH,
+      suggestedIndex: 0,
+      payload: {
         buttons: [
           {
             l10n: {
@@ -330,19 +340,10 @@ class ProviderQuickSuggestContextualOptIn extends UrlbarProvider {
           },
         ],
         dynamicType: DYNAMIC_RESULT_TYPE,
-      }
-    );
-    result.suggestedIndex = 0;
+      },
+    });
     addCallback(this, result);
-
-    this._recordGlean("impression");
-  }
-
-  _recordGlean(interaction) {
-    Glean.urlbar.quickSuggestContextualOptIn.record({ interaction });
   }
 }
 
-export var UrlbarProviderQuickSuggestContextualOptIn =
-  new ProviderQuickSuggestContextualOptIn();
 initializeDynamicResult();

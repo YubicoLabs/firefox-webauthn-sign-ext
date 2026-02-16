@@ -181,6 +181,16 @@ export class ChromeProfileMigrator extends MigratorBase {
     return false;
   }
 
+  /**
+   * For Chrome on Windows, we show a specialized flow for importing passwords
+   * from a CSV file.
+   *
+   * @returns {boolean}
+   */
+  get showsManualPasswordImport() {
+    return AppConstants.platform == "win" && this.constructor.key == "chrome";
+  }
+
   _keychainServiceName = "Chrome Safe Storage";
 
   _keychainAccountName = "Chrome";
@@ -241,7 +251,7 @@ export class ChromeProfileMigrator extends MigratorBase {
         if (lazy.ChromeMigrationUtils.supportsLoginsForPlatform) {
           possibleResourcePromises.push(
             this._GetPasswordsResource(profileFolder),
-            this._GetPaymentMethodsResource(profileFolder)
+            this._GetPaymentMethodsResource(profileFolder, this.constructor.key)
           );
         }
 
@@ -481,7 +491,7 @@ export class ChromeProfileMigrator extends MigratorBase {
             };
 
             switch (row.getResultByName("scheme")) {
-              case AUTH_TYPE.SCHEME_HTML:
+              case AUTH_TYPE.SCHEME_HTML: {
                 let action_url = row.getResultByName("action_url");
                 if (!action_url) {
                   // If there is no action_url, store the wildcard "" value.
@@ -495,6 +505,7 @@ export class ChromeProfileMigrator extends MigratorBase {
                 }
                 loginInfo.formActionOrigin = action_uri.prePath;
                 break;
+              }
               case AUTH_TYPE.SCHEME_BASIC:
               case AUTH_TYPE.SCHEME_DIGEST:
                 // signon_realm format is URIrealm, so we need remove URI
@@ -527,12 +538,21 @@ export class ChromeProfileMigrator extends MigratorBase {
       },
     };
   }
-  async _GetPaymentMethodsResource(aProfileFolder) {
+  async _GetPaymentMethodsResource(aProfileFolder, aBrowserKey = "chrome") {
     if (
       !Services.prefs.getBoolPref(
         "browser.migrate.chrome.payment_methods.enabled",
         false
       )
+    ) {
+      return null;
+    }
+
+    // We no longer support importing payment methods from Chrome or Edge on
+    // Windows.
+    if (
+      AppConstants.platform == "win" &&
+      (aBrowserKey == "chrome" || aBrowserKey == "chromium-edge")
     ) {
       return null;
     }
@@ -611,18 +631,25 @@ export class ChromeProfileMigrator extends MigratorBase {
 
         let cards = [];
         for (let row of rows) {
-          cards.push({
-            "cc-name": row.getResultByName("name_on_card"),
-            "cc-number": await loginCrypto.decryptData(
-              row.getResultByName("card_number_encrypted"),
-              null
-            ),
-            "cc-exp-month": parseInt(
-              row.getResultByName("expiration_month"),
-              10
-            ),
-            "cc-exp-year": parseInt(row.getResultByName("expiration_year"), 10),
-          });
+          try {
+            cards.push({
+              "cc-name": row.getResultByName("name_on_card"),
+              "cc-number": await loginCrypto.decryptData(
+                row.getResultByName("card_number_encrypted"),
+                null
+              ),
+              "cc-exp-month": parseInt(
+                row.getResultByName("expiration_month"),
+                10
+              ),
+              "cc-exp-year": parseInt(
+                row.getResultByName("expiration_year"),
+                10
+              ),
+            });
+          } catch (e) {
+            console.error(e);
+          }
         }
 
         await MigrationUtils.insertCreditCardsWrapper(cards);
@@ -1206,8 +1233,15 @@ export class OperaProfileMigrator extends ChromeProfileMigrator {
   _keychainServiceName = "Opera Safe Storage";
   _keychainAccountName = "Opera";
 
-  getSourceProfiles() {
-    return null;
+  async getSourceProfiles() {
+    let detectedProfiles = await super.getSourceProfiles();
+    if (Array.isArray(detectedProfiles) && !detectedProfiles.length) {
+      // We might be attempting from a version of Opera that doesn't support
+      // profiles yet, so try returning null to see if the profile data
+      // exists in the data directory.
+      return null;
+    }
+    return detectedProfiles;
   }
 }
 

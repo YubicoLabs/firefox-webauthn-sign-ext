@@ -5,19 +5,108 @@
 //! Generic types for CSS handling of specified and computed values of
 //! [`position`](https://drafts.csswg.org/css-backgrounds-3/#position)
 
+use cssparser::Parser;
 use std::fmt::Write;
 
+use style_derive::Animate;
 use style_traits::CssWriter;
+use style_traits::ParseError;
 use style_traits::SpecifiedValueInfo;
 use style_traits::ToCss;
 
-use crate::logical_geometry::PhysicalAxis;
+use crate::derives::*;
+use crate::logical_geometry::PhysicalSide;
+use crate::parser::{Parse, ParserContext};
+use crate::rule_tree::CascadeLevel;
 use crate::values::animated::ToAnimatedZero;
+use crate::values::computed::position::TryTacticAdjustment;
 use crate::values::generics::box_::PositionProperty;
-use crate::values::generics::length::{AnchorResolutionResult, GenericAnchorSizeFunction};
+use crate::values::generics::length::GenericAnchorSizeFunction;
 use crate::values::generics::ratio::Ratio;
 use crate::values::generics::Optional;
 use crate::values::DashedIdent;
+
+use crate::values::computed::Context;
+use crate::values::computed::ToComputedValue;
+
+/// A generic type for representing a value scoped to a specific cascade level
+/// in the shadow tree hierarchy.
+#[repr(C)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    MallocSizeOf,
+    PartialEq,
+    SpecifiedValueInfo,
+    ToAnimatedValue,
+    ToCss,
+    ToResolvedValue,
+    ToShmem,
+    ToTyped,
+    Serialize,
+    Deserialize,
+)]
+#[typed_value(derive_fields)]
+pub struct TreeScoped<T> {
+    /// The scoped value.
+    pub value: T,
+    /// The cascade level in the shadow tree hierarchy.
+    #[css(skip)]
+    pub scope: CascadeLevel,
+}
+
+impl<T> TreeScoped<T> {
+    /// Creates a new `TreeScoped` value.
+    pub fn new(value: T, scope: CascadeLevel) -> Self {
+        Self { value, scope }
+    }
+
+    /// Creates a new `TreeScoped` value with the default cascade level
+    /// (same tree author normal).
+    pub fn with_default_level(value: T) -> Self {
+        Self {
+            value,
+            scope: CascadeLevel::same_tree_author_normal(),
+        }
+    }
+}
+
+impl<T> Parse for TreeScoped<T>
+where
+    T: Parse,
+{
+    fn parse<'i, 't>(
+        context: &ParserContext,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Self, ParseError<'i>> {
+        Ok(TreeScoped {
+            value: T::parse(context, input)?,
+            scope: CascadeLevel::same_tree_author_normal(),
+        })
+    }
+}
+
+impl<T: ToComputedValue> ToComputedValue for TreeScoped<T> {
+    type ComputedValue = TreeScoped<T::ComputedValue>;
+    fn to_computed_value(&self, context: &Context) -> Self::ComputedValue {
+        TreeScoped {
+            value: self.value.to_computed_value(context),
+            scope: if context.current_scope().is_tree() {
+                context.current_scope()
+            } else {
+                self.scope.clone()
+            },
+        }
+    }
+
+    fn from_computed_value(computed: &Self::ComputedValue) -> Self {
+        Self {
+            value: ToComputedValue::from_computed_value(&computed.value),
+            scope: computed.scope.clone(),
+        }
+    }
+}
 
 /// A generic type for representing a CSS [position](https://drafts.csswg.org/css-values/#position).
 #[derive(
@@ -36,6 +125,7 @@ use crate::values::DashedIdent;
     ToComputedValue,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(C)]
 pub struct GenericPosition<H, V> {
@@ -96,6 +186,7 @@ pub trait PositionComponent {
     ToCss,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(C, u8)]
 pub enum GenericPositionOrAuto<Pos> {
@@ -138,6 +229,7 @@ impl<Pos> PositionOrAuto<Pos> {
     ToCss,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(C, u8)]
 pub enum GenericZIndex<I> {
@@ -217,6 +309,7 @@ pub enum PreferredRatio<N> {
     ToCss,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(C)]
 pub struct GenericAspectRatio<N> {
@@ -272,6 +365,7 @@ impl<N> ToAnimatedZero for AspectRatio<N> {
     ToAnimatedZero,
     ToComputedValue,
     ToResolvedValue,
+    ToTyped,
 )]
 #[repr(C)]
 pub enum GenericInset<P, LP> {
@@ -282,19 +376,14 @@ pub enum GenericInset<P, LP> {
     /// Inset defined by the anchor element.
     ///
     /// <https://drafts.csswg.org/css-anchor-position-1/#anchor-pos>
-    AnchorFunction(
-        #[animation(field_bound)]
-        #[distance(field_bound)]
-        Box<GenericAnchorFunction<P, LP>>,
-    ),
+    AnchorFunction(Box<GenericAnchorFunction<P, Self>>),
     /// Inset defined by the size of the anchor element.
     ///
     /// <https://drafts.csswg.org/css-anchor-position-1/#anchor-pos>
-    AnchorSizeFunction(
-        #[animation(field_bound)]
-        #[distance(field_bound)]
-        Box<GenericAnchorSizeFunction<LP>>,
-    ),
+    AnchorSizeFunction(Box<GenericAnchorSizeFunction<Self>>),
+    /// A `<length-percentage>` value, guaranteed to contain `calc()`,
+    /// which then is guaranteed to contain `anchor()` or `anchor-size()`.
+    AnchorContainingCalcFunction(LP),
 }
 
 impl<P, LP> SpecifiedValueInfo for GenericInset<P, LP>
@@ -315,6 +404,13 @@ impl<P, LP> GenericInset<P, LP> {
     #[inline]
     pub fn auto() -> Self {
         Self::Auto
+    }
+
+    /// Return true if it is 'auto'.
+    #[inline]
+    #[cfg(feature = "servo")]
+    pub fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
     }
 }
 
@@ -341,29 +437,31 @@ pub use self::GenericInset as Inset;
     Deserialize,
 )]
 #[repr(C)]
-pub struct GenericAnchorFunction<Percentage, LengthPercentage> {
+pub struct GenericAnchorFunction<Percentage, Fallback> {
     /// Anchor name of the element to anchor to.
     /// If omitted, selects the implicit anchor element.
+    /// The shadow cascade order of the tree-scoped anchor name
+    /// associates the name with the host of the originating stylesheet.
     #[animation(constant)]
-    pub target_element: DashedIdent,
+    pub target_element: TreeScoped<DashedIdent>,
     /// Where relative to the target anchor element to position
     /// the anchored element to.
-    pub side: AnchorSide<Percentage>,
+    pub side: GenericAnchorSide<Percentage>,
     /// Value to use in case the anchor function is invalid.
-    pub fallback: Optional<LengthPercentage>,
+    pub fallback: Optional<Fallback>,
 }
 
-impl<Percentage, LengthPercentage> ToCss for GenericAnchorFunction<Percentage, LengthPercentage>
+impl<Percentage, Fallback> ToCss for GenericAnchorFunction<Percentage, Fallback>
 where
     Percentage: ToCss,
-    LengthPercentage: ToCss,
+    Fallback: ToCss,
 {
     fn to_css<W>(&self, dest: &mut CssWriter<W>) -> std::fmt::Result
     where
         W: Write,
     {
         dest.write_str("anchor(")?;
-        if !self.target_element.is_empty() {
+        if !self.target_element.value.is_empty() {
             self.target_element.to_css(dest)?;
             dest.write_str(" ")?;
         }
@@ -377,23 +475,10 @@ where
     }
 }
 
-impl<Percentage, LengthPercentage> GenericAnchorFunction<Percentage, LengthPercentage> {
-    /// Resolve the anchor function. On failure, return reference to fallback, if exists.
-    pub fn resolve<'a>(
-        &'a self,
-        axis: PhysicalAxis,
-        position_property: PositionProperty,
-    ) -> AnchorResolutionResult<'a, LengthPercentage> {
-        if !position_property.is_absolutely_positioned() {
-            return AnchorResolutionResult::new_anchor_invalid(self.fallback.as_ref());
-        }
-
-        if !self.side.valid_for_axis(axis) {
-            return AnchorResolutionResult::new_anchor_invalid(self.fallback.as_ref());
-        }
-
-        // TODO(dshin): Do the actual anchor resolution here.
-        AnchorResolutionResult::new_anchor_invalid(self.fallback.as_ref())
+impl<Percentage, Fallback> GenericAnchorFunction<Percentage, Fallback> {
+    /// Is the anchor valid for given property?
+    pub fn valid_for(&self, side: PhysicalSide, position_property: PositionProperty) -> bool {
+        position_property.is_absolutely_positioned() && self.side.valid_for(side)
     }
 }
 
@@ -446,17 +531,71 @@ pub enum AnchorSideKeyword {
 }
 
 impl AnchorSideKeyword {
-    fn valid_for_axis(&self, axis: PhysicalAxis) -> bool {
+    fn from_physical_side(side: PhysicalSide) -> Self {
+        match side {
+            PhysicalSide::Top => Self::Top,
+            PhysicalSide::Right => Self::Right,
+            PhysicalSide::Bottom => Self::Bottom,
+            PhysicalSide::Left => Self::Left,
+        }
+    }
+
+    fn physical_side(self) -> Option<PhysicalSide> {
+        Some(match self {
+            Self::Top => PhysicalSide::Top,
+            Self::Right => PhysicalSide::Right,
+            Self::Bottom => PhysicalSide::Bottom,
+            Self::Left => PhysicalSide::Left,
+            _ => return None,
+        })
+    }
+}
+
+impl TryTacticAdjustment for AnchorSideKeyword {
+    fn try_tactic_adjustment(&mut self, old_side: PhysicalSide, new_side: PhysicalSide) {
+        if !old_side.parallel_to(new_side) {
+            let Some(s) = self.physical_side() else {
+                return;
+            };
+            *self = Self::from_physical_side(if s == new_side {
+                old_side
+            } else if s == old_side {
+                new_side
+            } else if s == new_side.opposite_side() {
+                old_side.opposite_side()
+            } else {
+                debug_assert_eq!(s, old_side.opposite_side());
+                new_side.opposite_side()
+            });
+            return;
+        }
+
+        *self = match self {
+            Self::Center | Self::Inside | Self::Outside => *self,
+            Self::SelfStart => Self::SelfEnd,
+            Self::SelfEnd => Self::SelfStart,
+            Self::Start => Self::End,
+            Self::End => Self::Start,
+            Self::Top => Self::Bottom,
+            Self::Bottom => Self::Top,
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+        }
+    }
+}
+
+impl AnchorSideKeyword {
+    fn valid_for(&self, side: PhysicalSide) -> bool {
         match self {
-            Self::Left | Self::Right => axis == PhysicalAxis::Horizontal,
-            Self::Top | Self::Bottom => axis == PhysicalAxis::Vertical,
-            Self::Inside |
-            Self::Outside |
-            Self::Start |
-            Self::End |
-            Self::SelfStart |
-            Self::SelfEnd |
-            Self::Center => true,
+            Self::Left | Self::Right => matches!(side, PhysicalSide::Left | PhysicalSide::Right),
+            Self::Top | Self::Bottom => matches!(side, PhysicalSide::Top | PhysicalSide::Bottom),
+            Self::Inside
+            | Self::Outside
+            | Self::Start
+            | Self::End
+            | Self::SelfStart
+            | Self::SelfEnd
+            | Self::Center => true,
         }
     }
 }
@@ -482,18 +621,18 @@ impl AnchorSideKeyword {
     Deserialize,
 )]
 #[repr(C)]
-pub enum AnchorSide<P> {
+pub enum GenericAnchorSide<P> {
     /// A keyword value for the anchor side.
     Keyword(AnchorSideKeyword),
     /// Percentage value between the `start` and `end` sides.
     Percentage(P),
 }
 
-impl<P> AnchorSide<P> {
-    /// Is this anchor side valid for a given axis?
-    pub fn valid_for_axis(&self, axis: PhysicalAxis) -> bool {
+impl<P> GenericAnchorSide<P> {
+    /// Is this anchor side valid for a given side?
+    pub fn valid_for(&self, side: PhysicalSide) -> bool {
         match self {
-            Self::Keyword(k) => k.valid_for_axis(axis),
+            Self::Keyword(k) => k.valid_for(side),
             Self::Percentage(_) => true,
         }
     }

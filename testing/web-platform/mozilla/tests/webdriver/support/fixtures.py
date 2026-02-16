@@ -1,15 +1,32 @@
+import os
+
 import pytest
 import pytest_asyncio
+from tests.support.helpers import deep_update
 
+from .chrome_handler import using_chrome_handler
+from .context import using_context
 from .helpers import (
     Browser,
     Geckodriver,
     create_custom_profile,
-    get_pref,
     get_profile_folder,
     read_user_preferences,
-    set_pref,
 )
+
+
+def pytest_collection_modifyitems(items):
+    """Auto-apply markers for specific API usage by fixtures"""
+    for item in items:
+        if "use_pref" in getattr(item, "fixturenames", ()):
+            item.add_marker("allow_system_access")
+
+
+def pytest_configure(config):
+    # register the allow_system_access marker
+    config.addinivalue_line(
+        "markers", "allow_system_access: Mark test to allow system access"
+    )
 
 
 @pytest.fixture(scope="module")
@@ -21,7 +38,7 @@ def browser(configuration, firefox_options):
 
     Starting Firefox without geckodriver allows to set those command line arguments
     as needed. The fixture method returns the browser instance that should be used
-    to connect to a RemoteAgent supported protocol (CDP, WebDriver BiDi).
+    to connect to a RemoteAgent supported protocol (WebDriver BiDi).
     """
     current_browser = None
 
@@ -30,7 +47,6 @@ def browser(configuration, firefox_options):
         extra_args=None,
         extra_prefs=None,
         use_bidi=False,
-        use_cdp=False,
         use_marionette=False,
     ):
         nonlocal current_browser
@@ -56,7 +72,6 @@ def browser(configuration, firefox_options):
                 and current_browser.extra_prefs == extra_prefs
                 and current_browser.is_running
                 and current_browser.use_bidi == use_bidi
-                and current_browser.use_cdp == use_cdp
                 and current_browser.use_marionette == use_marionette
                 and current_browser.log_level == log_level
                 and current_browser.truncate_enabled == truncate_enabled
@@ -85,7 +100,6 @@ def browser(configuration, firefox_options):
             log_level=log_level,
             truncate_enabled=truncate_enabled,
             use_bidi=use_bidi,
-            use_cdp=use_cdp,
             use_marionette=use_marionette,
         )
         current_browser.start()
@@ -97,6 +111,137 @@ def browser(configuration, firefox_options):
     if current_browser is not None:
         current_browser.quit()
         current_browser = None
+
+
+@pytest.fixture
+def default_capabilities(request):
+    """Default capabilities to use for a new WebDriver session for Mozilla specific tests."""
+
+    # Get the value from the overwritten original fixture
+    capabilities = request.getfixturevalue("default_capabilities")
+
+    allow_system_access = any(
+        marker.name == "allow_system_access" for marker in request.node.own_markers
+    )
+
+    if allow_system_access:
+        deep_update(
+            capabilities,
+            {
+                "moz:firefoxOptions": {
+                    "args": [
+                        "--remote-allow-system-access",
+                    ]
+                }
+            },
+        )
+
+    return capabilities
+
+
+@pytest.fixture
+def default_chrome_handler(current_session):
+    manifest_path = os.path.join(
+        os.path.abspath(os.path.dirname(__file__)), "chrome-assets", "chrome.manifest"
+    )
+    entries = [["content", "marionette-chrome", "chrome/"]]
+
+    with using_chrome_handler(current_session, manifest_path, entries):
+        yield "chrome://marionette-chrome/content/"
+
+
+@pytest.fixture
+def default_preferences(profile_folder):
+    return read_user_preferences(profile_folder)
+
+
+@pytest.fixture
+def new_chrome_window(current_session):
+    opened_chrome_windows = []
+
+    def _new_chrome_window(url, focus=True):
+        # Bug 1944570: Replace with BiDi once scripts can be evaluated
+        # in the parent process.
+        with using_context(current_session, "chrome"):
+            new_window = current_session.execute_async_script(
+                """
+                  const { NavigableManager } = ChromeUtils.importESModule(
+                    "chrome://remote/content/shared/NavigableManager.sys.mjs"
+                  );
+
+                  let [url, focus, resolve] = arguments;
+
+                  function waitForEvent(target, type, args) {
+                    return new Promise(resolve => {
+                      let params = Object.assign({once: true}, args);
+                      target.addEventListener(type, event => {
+                        dump(`** Received DOM event ${event.type} for ${event.target}\n`);
+                        resolve();
+                      }, params);
+                    });
+                  }
+
+                  function waitForFocus(win) {
+                    return Promise.all([
+                      waitForEvent(win, "activate"),
+                      waitForEvent(win, "focus", {capture: true}),
+                    ]);
+                  }
+
+                  const isLoaded = window =>
+                    window?.document.readyState === "complete" &&
+                    !window?.document.isUncommittedInitialDocument;
+
+                  (async function() {
+                    // Open a window, wait for it to receive focus
+                    let newWindow = window.openDialog(url, null, "chrome,centerscreen");
+                    let focused = waitForFocus(newWindow);
+
+                    newWindow.focus();
+                    await focused;
+
+                    // The new window shouldn't get focused. As such set the
+                    // focus back to the opening window.
+                    if (!focus && Services.focus.activeWindow != window) {
+                      let focused = waitForFocus(window);
+                      window.focus();
+                      await focused;
+                    }
+
+                    // Wait for the new window to be finished loading
+                    if (isLoaded(newWindow)) {
+                      resolve(newWindow);
+                    } else {
+                      const onLoad = () => {
+                        if (isLoaded(newWindow)) {
+                          newWindow.removeEventListener("load", onLoad);
+                          resolve(newWindow);
+                        } else {
+                          dump(`** Target window not loaded yet.  Waiting for the next "load" event\n`);
+                        }
+                      };
+                      newWindow.addEventListener("load", onLoad);
+                    }
+                  })();
+                """,
+                args=[url, focus],
+            )
+
+            # Append opened chrome window to automatic closing on teardown
+            opened_chrome_windows.append(new_window)
+            return new_window
+
+    yield _new_chrome_window
+
+    with using_context(current_session, "chrome"):
+        for win in opened_chrome_windows:
+            try:
+                current_session.window_handle = win.id
+                current_session.execute_script("arguments[0].close()", args=[win])
+            except Exception:
+                pass
+
+    current_session.window_handle = current_session.handles[0]
 
 
 @pytest.fixture(name="create_custom_profile")
@@ -115,11 +260,6 @@ def fixture_create_custom_profile(default_preferences, profile_folder):
     # if profile is not None:
     if profile:
         profile.cleanup()
-
-
-@pytest.fixture
-def default_preferences(profile_folder):
-    return read_user_preferences(profile_folder)
 
 
 @pytest.fixture(scope="session")
@@ -152,20 +292,3 @@ async def geckodriver(configuration):
 @pytest.fixture
 def profile_folder(firefox_options):
     return get_profile_folder(firefox_options)
-
-
-@pytest.fixture
-def use_pref(session):
-    """Set a specific pref value."""
-    reset_values = {}
-
-    def _use_pref(pref, value):
-        if pref not in reset_values:
-            reset_values[pref] = get_pref(session, pref)
-
-        set_pref(session, pref, value)
-
-    yield _use_pref
-
-    for pref, reset_value in reset_values.items():
-        set_pref(session, pref, reset_value)

@@ -10,8 +10,10 @@
 #include "mozilla/dom/IdleDeadline.h"
 #include "mozilla/dom/PerformanceTiming.h"
 #include "mozilla/dom/TimeoutManager.h"
+#include "mozilla/dom/WebTaskScheduler.h"
 #include "mozilla/dom/WindowBinding.h"
 #include "nsComponentManagerUtils.h"
+#include "nsGlobalWindowInner.h"
 #include "nsPIDOMWindow.h"
 
 namespace mozilla::dom {
@@ -54,7 +56,20 @@ void IdleRequest::IdleRun(nsPIDOMWindowInner* aWindow,
       new IdleDeadline(aWindow, aDidTimeout, aDeadline);
   RefPtr<IdleRequestCallback> callback(std::move(mCallback));
   MOZ_ASSERT(!mCallback);
+
+  RefPtr<nsGlobalWindowInner> innerWindow = nsGlobalWindowInner::Cast(aWindow);
+  // https://wicg.github.io/scheduling-apis/#sec-patches-invoke-idle-callbacks
+  // Let state be a new scheduling state.
+  RefPtr<WebTaskSchedulingState> newState = new WebTaskSchedulingState();
+  // Set state’s priority source to the result of creating a fixed priority
+  // unabortable task signal given "background" and realm.
+  newState->SetPrioritySource(
+      TaskSignal::Create(aWindow->AsGlobal(), TaskPriority::Background));
+  // Set event loop’s current scheduling state to state.
+  innerWindow->SetWebTaskSchedulingState(newState);
   callback->Call(*deadline, "requestIdleCallback handler");
+  // Set event loop’s current scheduling state to null.
+  innerWindow->SetWebTaskSchedulingState(nullptr);
 }
 
 }  // namespace mozilla::dom

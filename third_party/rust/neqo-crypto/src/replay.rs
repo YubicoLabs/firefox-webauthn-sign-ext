@@ -5,7 +5,7 @@
 // except according to those terms.
 
 use std::{
-    ops::{Deref, DerefMut},
+    ops::Deref,
     os::raw::c_uint,
     ptr::null_mut,
     time::{Duration, Instant},
@@ -44,7 +44,6 @@ scoped_ptr!(
 /// It limits the exposure of servers to replay attack by rejecting 0-RTT
 /// if it appears to be a replay.  There is a false-positive rate that can be
 /// managed by tuning the parameters used to create the context.
-#[allow(clippy::module_name_repetitions)]
 pub struct AntiReplay {
     ctx: AntiReplayContext,
 }
@@ -65,7 +64,7 @@ impl AntiReplay {
                 Interval::from(window).try_into()?,
                 c_uint::try_from(k)?,
                 c_uint::try_from(bits)?,
-                &mut ctx,
+                &raw mut ctx,
             )
         }?;
 
@@ -77,5 +76,20 @@ impl AntiReplay {
     /// Configure the provided socket with this anti-replay context.
     pub(crate) fn config_socket(&self, fd: *mut PRFileDesc) -> Res<()> {
         unsafe { SSL_SetAntiReplayContext(fd, *self.ctx) }
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use std::time::Duration;
+
+    #[test]
+    fn creation() {
+        test_fixture::fixture_init();
+        for (k, bits, expected) in [(7, 8, true), (usize::MAX, 3, false), (1, usize::MAX, false)] {
+            let res = crate::AntiReplay::new(test_fixture::now(), Duration::from_secs(10), k, bits);
+            assert_eq!(res.is_ok(), expected);
+        }
     }
 }

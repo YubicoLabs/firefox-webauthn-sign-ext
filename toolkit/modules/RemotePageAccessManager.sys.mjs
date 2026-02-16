@@ -56,13 +56,14 @@ export let RemotePageAccessManager = {
         "services.settings.last_update_seconds",
       ],
       RPMGetAppBuildID: ["*"],
-      RPMGetInnerMostURI: ["*"],
+      RPMGetHostForDisplay: ["*"],
+      RPMGetInnermostAsciiHost: ["*"],
       RPMIsWindowPrivate: ["*"],
-      RPMAddToHistogram: ["*"],
     },
     "about:home": {
       RPMSendAsyncMessage: ["ActivityStream:ContentToMain"],
       RPMAddMessageListener: ["ActivityStream:MainToContent"],
+      RPMGetFormatURLPref: ["app.support.baseURL"],
     },
     "about:httpsonlyerror": {
       RPMGetFormatURLPref: ["app.support.baseURL"],
@@ -74,6 +75,18 @@ export let RemotePageAccessManager = {
     },
     "about:certificate": {
       RPMSendQuery: ["getCertificates"],
+    },
+    "about:keyboard": {
+      RPMAddMessageListener: ["CustomKeys:CapturedKey"],
+      RPMSendAsyncMessage: ["CustomKeys:CaptureKey"],
+      RPMSendQuery: [
+        "CustomKeys:ChangeKey",
+        "CustomKeys:ClearKey",
+        "CustomKeys:GetDefaultKey",
+        "CustomKeys:GetKeys",
+        "CustomKeys:ResetAll",
+        "CustomKeys:ResetKey",
+      ],
     },
     "about:neterror": {
       RPMSendAsyncMessage: [
@@ -88,7 +101,12 @@ export let RemotePageAccessManager = {
         "OpenTRRPreferences",
       ],
       RPMCheckAlternateHostAvailable: ["*"],
-      RPMRecordGleanEvent: ["securityDohNeterror", "securityUiTlserror"],
+      RPMRecordGleanEvent: [
+        "securityDohNeterror",
+        "securityUiTlserror",
+        "securityUiCerterror",
+        "securityUiNeterror",
+      ],
       RPMAddMessageListener: ["*"],
       RPMRemoveMessageListener: ["*"],
       RPMGetFormatURLPref: [
@@ -96,48 +114,30 @@ export let RemotePageAccessManager = {
         "network.trr_ui.skip_reason_learn_more_url",
       ],
       RPMGetBoolPref: [
+        "security.certerrors.mitm.priming.enabled",
+        "security.certerrors.permanentOverride",
+        "security.enterprise_roots.auto-enabled",
         "security.certerror.hideAddException",
         "security.certerrors.felt-privacy-v1",
       ],
-      RPMAddToHistogram: ["*"],
-      RPMGetInnerMostURI: ["*"],
+      RPMGetHostForDisplay: ["*"],
+      RPMGetInnermostAsciiHost: ["*"],
       RPMGetHttpResponseHeader: ["*"],
       RPMIsTRROnlyFailure: ["*"],
       RPMIsFirefox: ["*"],
+      RPMHasConnectivity: ["*"],
       RPMGetTRRSkipReason: ["*"],
       RPMGetTRRDomain: ["*"],
       RPMIsSiteSpecificTRRError: ["*"],
       RPMSetTRRDisabledLoadFlags: ["*"],
       RPMShowOSXLocalNetworkPermissionWarning: ["*"],
       RPMSendQuery: ["Browser:AddTRRExcludedDomain"],
-      RPMGetIntPref: ["network.trr.mode"],
+      RPMGetIntPref: ["network.trr.mode", "security.dialog_enable_delay"],
     },
     "about:newtab": {
       RPMSendAsyncMessage: ["ActivityStream:ContentToMain"],
       RPMAddMessageListener: ["ActivityStream:MainToContent"],
-    },
-    "about:pocket-saved": {
-      RPMSendAsyncMessage: ["*"],
-      RPMAddMessageListener: ["*"],
-      RPMRemoveMessageListener: ["*"],
-      RPMGetStringPref: ["extensions.pocket.site"],
-    },
-    "about:pocket-signup": {
-      RPMSendAsyncMessage: ["*"],
-      RPMAddMessageListener: ["*"],
-      RPMRemoveMessageListener: ["*"],
-      RPMGetStringPref: ["extensions.pocket.site"],
-    },
-    "about:pocket-home": {
-      RPMSendAsyncMessage: ["*"],
-      RPMAddMessageListener: ["*"],
-      RPMRemoveMessageListener: ["*"],
-      RPMGetStringPref: ["extensions.pocket.site"],
-    },
-    "about:pocket-style-guide": {
-      RPMSendAsyncMessage: ["*"],
-      RPMAddMessageListener: ["*"],
-      RPMRemoveMessageListener: ["*"],
+      RPMGetFormatURLPref: ["app.support.baseURL"],
     },
     "about:privatebrowsing": {
       RPMSendAsyncMessage: [
@@ -154,10 +154,7 @@ export let RemotePageAccessManager = {
       ],
       RPMAddMessageListener: ["*"],
       RPMRemoveMessageListener: ["*"],
-      RPMGetFormatURLPref: [
-        "app.support.baseURL",
-        "browser.privatebrowsing.vpnpromourl",
-      ],
+      RPMGetFormatURLPref: ["app.support.baseURL"],
       RPMIsWindowPrivate: ["*"],
       RPMGetBoolPref: ["browser.privatebrowsing.felt-privacy-v1"],
     },
@@ -169,10 +166,11 @@ export let RemotePageAccessManager = {
       RPMSendQuery: [
         "Profiles:GetEditProfileContent",
         "Profiles:UpdateProfileTheme",
+        "Profiles:UpdateProfileAvatar",
+        "Profiles:SetDesktopShortcut",
       ],
       RPMSendAsyncMessage: [
         "Profiles:UpdateProfileName",
-        "Profiles:UpdateProfileAvatar",
         "Profiles:OpenDeletePage",
         "Profiles:CloseProfileTab",
         "Profiles:MoreThemes",
@@ -183,10 +181,10 @@ export let RemotePageAccessManager = {
       RPMSendQuery: [
         "Profiles:GetNewProfileContent",
         "Profiles:UpdateProfileTheme",
+        "Profiles:UpdateProfileAvatar",
       ],
       RPMSendAsyncMessage: [
         "Profiles:UpdateProfileName",
-        "Profiles:UpdateProfileAvatar",
         "Profiles:DeleteProfile",
         "Profiles:CloseProfileTab",
         "Profiles:MoreThemes",
@@ -227,6 +225,7 @@ export let RemotePageAccessManager = {
         "browser.contentblocking.report.proxy.enabled",
         "privacy.trackingprotection.cryptomining.enabled",
         "privacy.trackingprotection.fingerprinting.enabled",
+        "privacy.trackingprotection.harmfuladdon.enabled",
         "privacy.trackingprotection.enabled",
         "privacy.trackingprotection.socialtracking.enabled",
         "browser.contentblocking.report.show_mobile_app",
@@ -262,26 +261,9 @@ export let RemotePageAccessManager = {
       ],
       RPMRecordGleanEvent: ["securityUiProtections"],
     },
-    "about:shoppingsidebar": {
-      RPMSetPref: [
-        "browser.shopping.experience2023.optedIn",
-        "browser.shopping.experience2023.active",
-        "browser.shopping.experience2023.ads.userEnabled",
-        "browser.shopping.experience2023.autoClose.userEnabled",
-        "browser.shopping.experience2023.autoOpen.userEnabled",
-        "browser.shopping.experience2023.newPositionCard.hasSeen",
-        "browser.shopping.experience2023.sidebarClosedCount",
-        "browser.shopping.experience2023.showKeepSidebarClosedMessage",
-      ],
-      RPMGetFormatURLPref: ["app.support.baseURL"],
-      RPMGetIntPref: ["browser.shopping.experience2023.sidebarClosedCount"],
-      RPMGetBoolPref: [
-        "browser.shopping.experience2023.showKeepSidebarClosedMessage",
-        "sidebar.revamp",
-        "browser.shopping.experience2023.integratedSidebar",
-        "toolkit.shopping.experience2023.defr",
-        "browser.shopping.experience2023.newPositionCard.hasSeen",
-      ],
+    "about:restricted": {
+      RPMSendAsyncMessage: ["goBack"],
+      RPMGetBoolPref: ["security.restrict_to_adults.always"],
     },
     "about:tabcrashed": {
       RPMSendAsyncMessage: ["Load", "closeTab", "restoreTab", "restoreAll"],

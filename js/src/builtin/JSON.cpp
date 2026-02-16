@@ -7,18 +7,17 @@
 #include "builtin/JSON.h"
 
 #include "mozilla/CheckedInt.h"
-#include "mozilla/FloatingPoint.h"
 #include "mozilla/Range.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/Variant.h"
 
 #include <algorithm>
 
-#include "jsnum.h"
 #include "jstypes.h"
 
 #include "builtin/Array.h"
 #include "builtin/BigInt.h"
+#include "builtin/Number.h"
 #include "builtin/ParseRecordObject.h"
 #include "builtin/RawJSONObject.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
@@ -43,6 +42,7 @@
 #include "vm/NumberObject.h"  // js::NumberObject
 #include "vm/PlainObject.h"   // js::PlainObject
 #include "vm/StringObject.h"  // js::StringObject
+
 #include "builtin/Array-inl.h"
 #include "vm/GeckoProfiler-inl.h"
 #include "vm/JSAtomUtils-inl.h"  // AtomToId, PrimitiveValueToId, IndexToId, IdToString,
@@ -519,7 +519,6 @@ static bool SerializeJSONObject(JSContext* cx, HandleObject obj,
                  prop.propertyInfo().isDataDescriptor());
     }
 #endif  // DEBUG
-
     RootedValue objValue(cx, ObjectValue(*obj));
     if (!GetProperty(cx, obj, objValue, id, &outputValue)) {
       return false;
@@ -651,7 +650,7 @@ static bool SerializeJSONArray(JSContext* cx, HandleObject obj,
          */
         MOZ_ASSERT(obj->is<ArrayObject>());
         MOZ_ASSERT(obj->is<NativeObject>());
-        Rooted<NativeObject*> nativeObj(cx, &obj->as<NativeObject>());
+        auto* nativeObj = &obj->as<NativeObject>();
         if (i <= PropertyKey::IntMax) {
           MOZ_ASSERT(
               nativeObj->containsDenseElement(i) != nativeObj->isIndexed(),
@@ -1717,37 +1716,34 @@ static bool InternalizeJSONProperty(JSContext* cx, HandleObject holder,
   }
 
   RootedObject context(cx);
-  Rooted<ParseRecordObject::EntryMap*> entries(cx);
-  if (JS::Prefs::experimental_json_parse_with_source()) {
-    // https://tc39.es/proposal-json-parse-with-source/#sec-internalizejsonproperty
-    if (parseRecord) {
-      bool sameVal = false;
-      Rooted<Value> parsedValue(cx, parseRecord->getValue());
-      if (!SameValue(cx, parsedValue, val, &sameVal)) {
-        return false;
-      }
-      if (parseRecord->hasValue() && sameVal) {
-        if (parseRecord->getParseNode()) {
-          MOZ_ASSERT(!val.isObject());
-          Rooted<IdValueVector> props(cx, cx);
-          if (!props.emplaceBack(
-                  IdValuePair(NameToId(cx->names().source),
-                              StringValue(parseRecord->getParseNode())))) {
-            return false;
-          }
-          context = NewPlainObjectWithUniqueNames(cx, props);
-          if (!context) {
-            return false;
-          }
-        }
-        parseRecord->getEntries(cx, &entries);
-      }
+  Rooted<ParseRecordObject*> entries(cx);
+  // https://tc39.es/proposal-json-parse-with-source/#sec-internalizejsonproperty
+  if (parseRecord) {
+    bool sameVal = false;
+    if (!SameValue(cx, parseRecord->getValue(), val, &sameVal)) {
+      return false;
     }
-    if (!context) {
-      context = NewPlainObject(cx);
-      if (!context) {
-        return false;
+    if (parseRecord->hasValue() && sameVal) {
+      if (parseRecord->getParseNode()) {
+        MOZ_ASSERT(!val.isObject());
+        Rooted<IdValueVector> props(cx, cx);
+        if (!props.emplaceBack(
+                IdValuePair(NameToId(cx->names().source),
+                            StringValue(parseRecord->getParseNode())))) {
+          return false;
+        }
+        context = NewPlainObjectWithUniqueNames(cx, props);
+        if (!context) {
+          return false;
+        }
       }
+      entries.set(parseRecord);
+    }
+  }
+  if (!context) {
+    context = NewPlainObject(cx);
+    if (!context) {
+      return false;
     }
   }
 
@@ -1873,11 +1869,8 @@ static bool InternalizeJSONProperty(JSContext* cx, HandleObject holder,
   }
 
   RootedValue keyVal(cx, StringValue(key));
-  if (JS::Prefs::experimental_json_parse_with_source()) {
-    RootedValue contextVal(cx, ObjectValue(*context));
-    return js::Call(cx, reviver, holder, keyVal, val, contextVal, vp);
-  }
-  return js::Call(cx, reviver, holder, keyVal, val, vp);
+  RootedValue contextVal(cx, ObjectValue(*context));
+  return js::Call(cx, reviver, holder, keyVal, val, contextVal, vp);
 }
 
 static bool Revive(JSContext* cx, HandleValue reviver,
@@ -1891,8 +1884,7 @@ static bool Revive(JSContext* cx, HandleValue reviver,
     return false;
   }
 
-  MOZ_ASSERT_IF(JS::Prefs::experimental_json_parse_with_source(),
-                pro->getValue() == vp.get());
+  MOZ_ASSERT(pro->getValue() == vp.get());
   Rooted<jsid> id(cx, NameToId(cx->names().empty_));
   return InternalizeJSONProperty(cx, obj, id, reviver, pro, vp);
 }
@@ -1913,7 +1905,7 @@ bool js::ParseJSONWithReviver(JSContext* cx,
                                          JS::ProfilingCategoryPair::JS_Parsing);
   /* https://262.ecma-international.org/14.0/#sec-json.parse steps 2-10. */
   Rooted<ParseRecordObject*> pro(cx);
-  if (JS::Prefs::experimental_json_parse_with_source() && IsCallable(reviver)) {
+  if (IsCallable(reviver)) {
     Rooted<JSONReviveParser<CharT>> parser(cx, cx, chars);
     if (!parser.get().parse(vp, &pro)) {
       return false;

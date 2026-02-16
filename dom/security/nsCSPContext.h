@@ -4,13 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsCSPContext_h___
-#define nsCSPContext_h___
+#ifndef nsCSPContext_h_
+#define nsCSPContext_h_
 
-#include "mozilla/dom/CSPViolationData.h"
-#include "mozilla/dom/nsCSPUtils.h"
-#include "mozilla/dom/SecurityPolicyViolationEvent.h"
 #include "mozilla/StaticPrefs_security.h"
+#include "mozilla/dom/CSPViolationData.h"
+#include "mozilla/dom/SecurityPolicyViolationEvent.h"
+#include "mozilla/dom/nsCSPUtils.h"
 #include "nsIChannel.h"
 #include "nsIChannelEventSink.h"
 #include "nsIContentSecurityPolicy.h"
@@ -42,6 +42,8 @@ class nsCSPContext : public nsIContentSecurityPolicy {
   NS_DECL_ISUPPORTS
   NS_DECL_NSICONTENTSECURITYPOLICY
   NS_DECL_NSISERIALIZABLE
+
+  NS_DEFINE_STATIC_CID_ACCESSOR(NS_CSPCONTEXT_CID)
 
  protected:
   virtual ~nsCSPContext();
@@ -106,10 +108,10 @@ class nsCSPContext : public nsIContentSecurityPolicy {
       const mozilla::dom::SecurityPolicyViolationEventInit&
           aViolationEventInit);
 
-  void RecordInternalViolationTelemetry(
+  void HandleInternalPageViolation(
       const mozilla::dom::CSPViolationData& aCSPViolationData,
-      const mozilla::dom::SecurityPolicyViolationEventInit&
-          aViolationEventInit);
+      const mozilla::dom::SecurityPolicyViolationEventInit& aViolationEventInit,
+      const nsAString& aViolatedDirectiveNameAndValue);
 
   nsresult FireViolationEvent(
       mozilla::dom::Element* aTriggeringElement,
@@ -158,6 +160,13 @@ class nsCSPContext : public nsIContentSecurityPolicy {
   void SerializePolicies(
       nsTArray<mozilla::ipc::ContentSecurityPolicy>& aPolicies);
 
+  static nsCSPContext* Cast(nsIContentSecurityPolicy* aCSP) {
+    return static_cast<nsCSPContext*>(aCSP);
+  }
+
+  [[nodiscard]] nsresult PolicyContainerRead(
+      nsIObjectInputStream* aInputStream);
+
  private:
   enum class ForceReportSample { Yes, No };
 
@@ -183,16 +192,31 @@ class nsCSPContext : public nsIContentSecurityPolicy {
                        bool aSendContentLocationInViolationReports);
 
   // helper to report inline script/style violations
-  void reportInlineViolation(CSPDirective aDirective,
+  void ReportInlineViolation(CSPDirective aDirective,
                              mozilla::dom::Element* aTriggeringElement,
                              nsICSPEventListener* aCSPEventListener,
                              const nsAString& aNonce, bool aReportSample,
-                             const nsAString& aSample,
+                             const nsAString& aSourceCode,
                              const nsAString& aViolatedDirective,
                              const nsAString& aViolatedDirectiveString,
                              CSPDirective aEffectiveDirective,
                              uint32_t aViolatedPolicyIndex,
                              uint32_t aLineNumber, uint32_t aColumnNumber);
+
+  enum class PolicyDataVersion {
+    Pre136,   // Before v136
+    Post136,  // v136-137 with bug 1901492 or v138+ with bug 1958259. (This is
+              // the current version)
+    V138_9PreRelease,  // v138 Beta/Nightly and v139 Nightly with bug 1942306
+                       // and without bug 1958259
+  };
+
+  nsresult TryReadPolicies(PolicyDataVersion aVersion,
+                           nsIObjectInputStream* aStream, uint32_t aNumPolicies,
+                           bool aForPolicyContainer);
+
+  [[nodiscard]] nsresult ReadImpl(nsIObjectInputStream* aStream,
+                                  bool aForPolicyContainer);
 
   nsCString mReferrer;
   uint64_t mInnerWindowID;          // See `nsPIDOMWindowInner::mWindowID`.
@@ -261,4 +285,4 @@ class CSPReportRedirectSink final : public nsIChannelEventSink,
   nsCOMPtr<nsINetworkInterceptController> mInterceptController;
 };
 
-#endif /* nsCSPContext_h___ */
+#endif /* nsCSPContext_h_ */

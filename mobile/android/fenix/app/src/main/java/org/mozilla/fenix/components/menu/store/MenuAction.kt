@@ -29,11 +29,6 @@ sealed class MenuAction : Action {
     data object AddBookmark : MenuAction()
 
     /**
-     * [MenuAction] dispatched when reader view should be toggled active or dismiss.
-     */
-    data object ToggleReaderView : MenuAction()
-
-    /**
      * [MenuAction] dispatched when reader view customization controls should be displayed.
      */
     data object CustomizeReaderView : MenuAction()
@@ -83,9 +78,14 @@ sealed class MenuAction : Action {
     data object FindInPage : MenuAction()
 
     /**
-     * [MenuAction] dispatched when a private tab is open in normal tab.
+     * [MenuAction] dispatched when it's a new installation of Firefox.
      */
-    data object OpenInRegularTab : MenuAction()
+    data object MenuBanner : MenuAction()
+
+    /**
+     * [MenuAction] dispatched when menu banner should be dismissed.
+     */
+    data object DismissMenuBanner : MenuAction()
 
     /**
      * [MenuAction] dispatched when the extension state is updated.
@@ -133,16 +133,6 @@ sealed class MenuAction : Action {
     ) : MenuAction()
 
     /**
-     * [MenuAction] dispatched when we what to show manage extensions menu item.
-     *
-     * @property isVisible Indicates if manage extensions menu item
-     * should be displayed to the user.
-     */
-    data class UpdateManageExtensionsMenuItemVisibility(
-        val isVisible: Boolean,
-    ) : MenuAction()
-
-    /**
      * [MenuAction] dispatched when an addon installation was completed with success.
      *
      * @property addon The [Addon] that was installed.
@@ -158,25 +148,6 @@ sealed class MenuAction : Action {
      */
     data class InstallAddonFailed(
         val addon: Addon,
-    ) : MenuAction()
-
-    /**
-     * [MenuAction] dispatched when extensions promotion banner onboarding should be visible or not.
-     *
-     * @property showExtensionsOnboarding Show extensions promotion banner onboarding.
-     */
-    data class UpdateShowExtensionsOnboarding(
-        val showExtensionsOnboarding: Boolean,
-    ) : MenuAction()
-
-    /**
-     * [MenuAction] dispatched when disabled extensions promotion banner onboarding should be visible or not.
-     *
-     * @property showDisabledExtensionsOnboarding Show extensions promotion banner onboarding when
-     * all installed extensions have been disabled.
-     */
-    data class UpdateShowDisabledExtensionsOnboarding(
-        val showDisabledExtensionsOnboarding: Boolean,
     ) : MenuAction()
 
     /**
@@ -199,16 +170,6 @@ sealed class MenuAction : Action {
      * [MenuAction] dispatched when requesting to switch to the mobile version of the current page.
      */
     data object RequestMobileSite : MenuAction()
-
-    /**
-     * [MenuAction] dispatched when the save menu item is clicked.
-     */
-    data object SaveMenuClicked : MenuAction()
-
-    /**
-     * [MenuAction] dispatched when the tools menu item is clicked.
-     */
-    data object ToolsMenuClicked : MenuAction()
 
     /**
      * [MenuAction] dispatched to show the menu CFR.
@@ -237,11 +198,6 @@ sealed class MenuAction : Action {
         ) : Navigate()
 
         /**
-         * [Navigate] action dispatched when navigating to the help SUMO article.
-         */
-        data object Help : Navigate()
-
-        /**
          * [Navigate] action dispatched when navigating to the settings.
          */
         data object Settings : Navigate()
@@ -265,16 +221,6 @@ sealed class MenuAction : Action {
          * [Navigate] action dispatched when navigating to passwords.
          */
         data object Passwords : Navigate()
-
-        /**
-         * [Navigate] action dispatched when navigating to customize homepage.
-         */
-        data object CustomizeHomepage : Navigate()
-
-        /**
-         * [Navigate] action dispatched when navigating to release notes.
-         */
-        data object ReleaseNotes : Navigate()
 
         /**
          * [Navigate] action dispatched when navigating to edit the existing bookmark.
@@ -316,21 +262,6 @@ sealed class MenuAction : Action {
         data object DiscoverMoreExtensions : Navigate()
 
         /**
-         * [Navigate] action dispatched when navigating to the SUMO page for installing add-ons.
-         */
-        data object ExtensionsLearnMore : Navigate()
-
-        /**
-         * [Navigate] action dispatched when navigating to the new tab.
-         */
-        data object NewTab : Navigate()
-
-        /**
-         * [Navigate] action dispatched when navigating to the new private tab.
-         */
-        data object NewPrivateTab : Navigate()
-
-        /**
          * [Navigate] action dispatched when navigating to the given [addon] details.
          *
          * @property addon The [Addon] details to display.
@@ -340,8 +271,54 @@ sealed class MenuAction : Action {
         ) : Navigate()
 
         /**
+         * [Navigate] action dispatched when navigating to the given installed [addon] details.
+         *
+         * @property addon The [Addon] details to display.
+         */
+        data class InstalledAddonDetails(
+            val addon: Addon,
+        ) : Navigate()
+
+        /**
          * [Navigate] action dispatched when the user clicks to report a broken site.
          */
         data object WebCompatReporter : Navigate()
+
+        /**
+         * [Navigate] action dispatched when the user clicks to summarize the current page.
+         */
+        data object Summarizer : Navigate()
+
+        /**
+         * [Navigate] action dispatched when navigating back from the current page.
+         *
+         * @property viewHistory Whether the tab history menu should be displayed.
+         */
+        data class Back(
+            val viewHistory: Boolean,
+        ) : Navigate()
+
+        /**
+         * [Navigate] action dispatched when navigating forward from the current page.
+         *
+         * @property viewHistory Whether the tab history menu should be displayed.
+         */
+        data class Forward(
+            val viewHistory: Boolean,
+        ) : Navigate()
+
+        /**
+         * [Navigate] action dispatched when reloading the current page.
+         *
+         * @property bypassCache Whether or not the cache should be bypassed when reloading.
+         */
+        data class Reload(
+            val bypassCache: Boolean,
+        ) : Navigate()
+
+        /**
+         * [Navigate] action dispatched when stopping the current page from loading.
+         */
+        data object Stop : Navigate()
     }
 }

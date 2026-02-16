@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { PrivateBrowsingUtils } from "resource://gre/modules/PrivateBrowsingUtils.sys.mjs";
+import { TabMetrics } from "moz-src:///browser/components/tabbrowser/TabMetrics.sys.mjs";
 
 const MAX_INITIAL_ITEMS = 5;
 
@@ -66,9 +67,9 @@ export class GroupsPanel {
   }
 
   #handleCommand(event) {
-    let { tabGroupId } = event.target.dataset;
+    let { tabGroupId, command } = event.target.dataset;
 
-    switch (event.target.dataset.command) {
+    switch (command) {
       case "allTabsGroupView_selectGroup": {
         let group = this.win.gBrowser.getTabGroupById(tabGroupId);
         group.select();
@@ -77,7 +78,9 @@ export class GroupsPanel {
       }
 
       case "allTabsGroupView_restoreGroup":
-        this.win.SessionStore.openSavedTabGroup(tabGroupId, this.win);
+        this.win.SessionStore.openSavedTabGroup(tabGroupId, this.win, {
+          source: TabMetrics.METRIC_SOURCE.TAB_OVERFLOW_MENU,
+        });
         break;
     }
   }
@@ -96,11 +99,9 @@ export class GroupsPanel {
   #populate() {
     let fragment = this.doc.createDocumentFragment();
 
-    let openGroups = this.win.gBrowser.getAllTabGroups();
-    openGroups.sort(
-      (group1, group2) => group2.lastSeenActive - group1.lastSeenActive
-    );
-
+    let openGroups = this.win.gBrowser.getAllTabGroups({
+      sortByLastSeenActive: true,
+    });
     let savedGroups = [];
     if (!PrivateBrowsingUtils.isWindowPrivate(this.win)) {
       savedGroups = this.win.SessionStore.savedGroups.toSorted(
@@ -127,10 +128,6 @@ export class GroupsPanel {
       }
       itemCount++;
       let row = this.#createRow(groupData);
-      let button = row.querySelector("toolbarbutton");
-      button.dataset.command = "allTabsGroupView_selectGroup";
-      button.dataset.tabGroupId = groupData.id;
-      button.setAttribute("context", "open-tab-group-context-menu");
       fragment.appendChild(row);
     }
 
@@ -140,11 +137,6 @@ export class GroupsPanel {
       }
       itemCount++;
       let row = this.#createRow(groupData, { isOpen: false });
-      let button = row.querySelector("toolbarbutton");
-      button.dataset.command = "allTabsGroupView_restoreGroup";
-      button.dataset.tabGroupId = groupData.id;
-      button.classList.add("all-tabs-group-saved-group");
-      button.setAttribute("context", "saved-tab-group-context-menu");
       fragment.appendChild(row);
     }
 
@@ -189,17 +181,19 @@ export class GroupsPanel {
     let button = doc.createXULElement("toolbarbutton");
     button.setAttribute(
       "class",
-      "all-tabs-button subviewbutton subviewbutton-iconic all-tabs-group-action-button"
+      "all-tabs-button subviewbutton subviewbutton-iconic all-tabs-group-action-button tab-group-icon"
     );
+    button.dataset.tabGroupId = group.id;
     if (!isOpen) {
       button.classList.add(
         "all-tabs-group-saved-group",
         "tab-group-icon-closed"
       );
       button.dataset.command = "allTabsGroupView_restoreGroup";
+      button.setAttribute("context", "saved-tab-group-context-menu");
     } else {
-      button.classList.add("tab-group-icon");
       button.dataset.command = "allTabsGroupView_selectGroup";
+      button.setAttribute("context", "open-tab-group-context-menu");
     }
     button.setAttribute("flex", "1");
     button.setAttribute("crop", "end");

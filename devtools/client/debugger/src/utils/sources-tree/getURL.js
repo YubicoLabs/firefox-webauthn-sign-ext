@@ -32,6 +32,12 @@ function getFileExtension(path) {
   return lastIndex !== -1 ? path.slice(lastIndex + 1).toLowerCase() : "";
 }
 
+const bundlerGroups = {
+  "webpack:": "Webpack",
+  "ng:": "Angular",
+  "turbopack:": "Turbopack",
+};
+
 const NoDomain = "(no domain)";
 const def = {
   path: "",
@@ -44,9 +50,9 @@ const def = {
 /**
  * Compute the URL which may be displayed in the Source Tree.
  *
- * @param {String} url
+ * @param {string} url
  *        The source absolute URL as a string
- * @param {String} extensionName
+ * @param {string} extensionName
  *        Optional, but mandatory when passing a moz-extension URL.
  *        Name of the extension serving this moz-extension source.
  * @return URL Object
@@ -64,12 +70,13 @@ const def = {
  *        - `path` and `pathname` have some special behavior.
  *          See `parse` implementation.
  */
+// eslint-disable-next-line complexity
 export function getDisplayURL(url, extensionName = null) {
   if (!url) {
     return def;
   }
 
-  let { pathname, search, protocol, host } = parse(url);
+  let { pathname, search, protocol, host, origin } = parse(url);
 
   // Decode encoded characters early so that all other code rely on decoded strings
   pathname = getUnicodeUrlPath(pathname);
@@ -94,6 +101,7 @@ export function getDisplayURL(url, extensionName = null) {
         // that we receive from the SourceActor.extensionName attribute.
         // `extensionName` might be null for content script of disabled add-ons.
         group: extensionName || `${protocol}//${host}`,
+        origin: `${protocol}//${host}`,
       };
     case "resource:":
       return {
@@ -103,25 +111,9 @@ export function getDisplayURL(url, extensionName = null) {
         filename,
         fileExtension: getFileExtension(pathname),
         group: `${protocol}//${host || ""}`,
+        origin: `${protocol}//${host || ""}`,
       };
-    case "webpack:":
-      return {
-        ...def,
-        path: pathname,
-        search,
-        filename,
-        fileExtension: getFileExtension(pathname),
-        group: `Webpack`,
-      };
-    case "ng:":
-      return {
-        ...def,
-        path: pathname,
-        search,
-        filename,
-        fileExtension: getFileExtension(pathname),
-        group: `Angular`,
-      };
+
     case "about:":
       // An about page is a special case
       return {
@@ -131,6 +123,7 @@ export function getDisplayURL(url, extensionName = null) {
         filename,
         fileExtension: getFileExtension("/"),
         group: getUnicodeUrlPath(url),
+        origin: getUnicodeUrlPath(url),
       };
 
     case "data:":
@@ -141,6 +134,7 @@ export function getDisplayURL(url, extensionName = null) {
         filename: url,
         fileExtension: getFileExtension("/"),
         group: NoDomain,
+        origin: protocol,
       };
 
     case "":
@@ -153,6 +147,7 @@ export function getDisplayURL(url, extensionName = null) {
           filename,
           fileExtension: getFileExtension(pathname),
           group: "file://",
+          origin: "file://",
         };
       } else if (!host) {
         return {
@@ -162,6 +157,7 @@ export function getDisplayURL(url, extensionName = null) {
           filename,
           fileExtension: getFileExtension(pathname),
           group: "",
+          origin: "",
         };
       }
       break;
@@ -175,15 +171,17 @@ export function getDisplayURL(url, extensionName = null) {
         filename,
         fileExtension: getFileExtension(pathname),
         group: host,
+        origin,
       };
   }
 
   return {
     ...def,
-    path: pathname,
+    path: host + pathname,
     search,
     fileExtension: getFileExtension(pathname),
-    filename,
-    group: protocol ? `${protocol}//` : "",
+    filename: filename ? filename : host,
+    group: protocol ? bundlerGroups[protocol] || `${protocol}//` : "",
+    origin: origin && origin !== "null" ? origin : `${protocol}//${host || ""}`,
   };
 }

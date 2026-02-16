@@ -4,16 +4,26 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::{borrow::Cow, cell::RefCell, collections::HashMap, fmt::Display, rc::Rc, time::Instant};
+#![expect(clippy::unwrap_used, reason = "This is example code.")]
+
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    fmt::{self, Display, Formatter},
+    num::NonZeroUsize,
+    rc::Rc,
+    slice, str,
+    time::Instant,
+};
 
 use neqo_common::{event::Provider as _, hex, qdebug, qerror, qinfo, qwarn, Datagram};
 use neqo_crypto::{generate_ech_keys, random, AllowZeroRtt, AntiReplay};
 use neqo_http3::Error;
 use neqo_transport::{
     server::{ConnectionRef, Server, ValidateAddress},
-    ConnectionEvent, ConnectionIdGenerator, Output, State, StreamId,
+    ConnectionEvent, ConnectionIdGenerator, OutputBatch, State, StreamId,
 };
-use regex::Regex;
+use rustc_hash::FxHashMap as HashMap;
 
 use super::{qns_read_response, Args};
 use crate::{send_data::SendData, STREAM_IO_BUFFER_SIZE};
@@ -29,7 +39,6 @@ pub struct HttpServer {
     write_state: HashMap<StreamId, HttpStreamState>,
     read_state: HashMap<StreamId, Vec<u8>>,
     is_qns_test: bool,
-    regex: Regex,
     read_buffer: Vec<u8>,
 }
 
@@ -41,8 +50,8 @@ impl HttpServer {
     ) -> Result<Self, Error> {
         let mut server = Server::new(
             args.now(),
-            &[args.key.clone()],
-            &[args.shared.alpn.clone()],
+            slice::from_ref(&args.key),
+            slice::from_ref(&args.shared.alpn),
             anti_replay,
             Box::new(AllowZeroRtt {}),
             cid_manager,
@@ -55,37 +64,36 @@ impl HttpServer {
             server.set_validation(ValidateAddress::Always);
         }
         if args.ech {
-            let (sk, pk) = generate_ech_keys().expect("generate ECH keys");
+            let (sk, pk) = generate_ech_keys().map_err(|_| Error::Internal)?;
             server
                 .enable_ech(random::<1>()[0], "public.example", &sk, &pk)
-                .expect("enable ECH");
-            let cfg = server.ech_config();
-            qinfo!("ECHConfigList: {}", hex(cfg));
+                .map_err(|_| Error::Internal)?;
+            qinfo!("ECHConfigList: {}", hex(server.ech_config()));
         }
 
-        let is_qns_test = args.shared.qns_test.is_some();
         Ok(Self {
             server,
-            write_state: HashMap::new(),
-            read_state: HashMap::new(),
-            is_qns_test,
-            regex: if is_qns_test {
-                Regex::new(r"GET +/(\S+)(?:\r)?\n").unwrap()
-            } else {
-                Regex::new(r"GET +/(\d+)(?:\r)?\n").unwrap()
-            },
+            write_state: HashMap::default(),
+            read_state: HashMap::default(),
+            is_qns_test: args.shared.qns_test.is_some(),
             read_buffer: vec![0; STREAM_IO_BUFFER_SIZE],
         })
     }
 
     fn save_partial(&mut self, stream_id: StreamId, partial: Vec<u8>, conn: &ConnectionRef) {
-        let url_dbg = String::from_utf8(partial.clone())
-            .unwrap_or_else(|_| format!("<invalid UTF-8: {}>", hex(&partial)));
         if partial.len() < 4096 {
-            qdebug!("Saving partial URL: {url_dbg}");
+            qdebug!(
+                "Saving partial URL: {}",
+                String::from_utf8(partial.clone())
+                    .unwrap_or_else(|_| format!("<invalid UTF-8: {}>", hex(&partial)))
+            );
             self.read_state.insert(stream_id, partial);
         } else {
-            qdebug!("Giving up on partial URL {url_dbg}");
+            qdebug!(
+                "Giving up on partial URL {}",
+                String::from_utf8(partial.clone())
+                    .unwrap_or_else(|_| format!("<invalid UTF-8: {}>", hex(&partial)))
+            );
             conn.borrow_mut().stream_stop_sending(stream_id, 0).unwrap();
         }
     }
@@ -116,19 +124,28 @@ impl HttpServer {
             },
         );
 
-        let Ok(msg) = std::str::from_utf8(&buf[..]) else {
+        let Ok(msg) = str::from_utf8(&buf[..]) else {
             self.save_partial(stream_id, buf.to_vec(), conn);
             return;
         };
 
-        let m = self.regex.captures(msg);
-        let Some(path) = m.and_then(|m| m.get(1)) else {
+        // Parse "GET /path\n" or "GET /path\r\n"
+        let Some(path) = msg
+            .strip_prefix("GET /")
+            .and_then(|s| s.lines().next())
+            .filter(|p| {
+                if self.is_qns_test {
+                    !p.chars().any(char::is_whitespace)
+                } else {
+                    p.chars().all(|c| c.is_ascii_digit())
+                }
+            })
+        else {
             self.save_partial(stream_id, buf.to_vec(), conn);
             return;
         };
 
         let resp: SendData = {
-            let path = path.as_str();
             qdebug!("Path = '{path}'");
             if self.is_qns_test {
                 match qns_read_response(path) {
@@ -185,20 +202,29 @@ impl HttpServer {
 }
 
 impl super::HttpServer for HttpServer {
-    fn process(&mut self, dgram: Option<Datagram<&[u8]>>, now: Instant) -> Output {
-        self.server.process(dgram, now)
+    fn process_multiple<'a, D: IntoIterator<Item = Datagram<&'a mut [u8]>>>(
+        &mut self,
+        dgrams: D,
+        now: Instant,
+        max_datagrams: NonZeroUsize,
+    ) -> OutputBatch {
+        self.server.process_multiple(dgrams, now, max_datagrams)
     }
 
     fn process_events(&mut self, now: Instant) {
-        // `ActiveConnectionRef` `Hash` implementation doesn’t access any of the interior mutable
-        // types.
-        #[allow(clippy::mutable_key_type)]
+        #[expect(
+            clippy::mutable_key_type,
+            reason = "ActiveConnectionRef::Hash doesn't access any of the interior mutable types"
+        )]
         let active_conns = self.server.active_connections();
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "OK to loop over active connections in an undefined order."
+        )]
         for acr in active_conns {
             loop {
-                let event = match acr.borrow_mut().next_event() {
-                    None => break,
-                    Some(e) => e,
+                let Some(event) = acr.borrow_mut().next_event() else {
+                    break;
                 };
                 match event {
                     ConnectionEvent::NewStream { stream_id } => {
@@ -232,7 +258,7 @@ impl super::HttpServer for HttpServer {
 }
 
 impl Display for HttpServer {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "Http 0.9 server ")
     }
 }

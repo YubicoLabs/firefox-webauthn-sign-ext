@@ -9,35 +9,23 @@
 
 #include "gc/BufferAllocator.h"
 
-#include "mozilla/Atomics.h"
 #include "mozilla/MathAlgorithms.h"
 
 #include "ds/SlimLinkedList.h"
-#include "gc/Cell.h"
 #include "js/HeapAPI.h"
 
 #include "gc/Allocator-inl.h"
 
 namespace js::gc {
 
-// todo: rename
-static constexpr size_t MinAllocSize = MinCellSize;  // 16 bytes
-
-static constexpr size_t MaxSmallAllocSize =
-    1 << (BufferAllocator::MinMediumAllocShift - 1);
-static constexpr size_t MinMediumAllocSize =
-    1 << BufferAllocator::MinMediumAllocShift;
-static constexpr size_t MaxMediumAllocSize =
-    1 << BufferAllocator::MaxMediumAllocShift;
-
 /* static */
 inline bool BufferAllocator::IsSmallAllocSize(size_t bytes) {
-  return bytes + sizeof(SmallBuffer) <= MaxSmallAllocSize;
+  return bytes <= MaxSmallAllocSize;
 }
 
 /* static */
 inline bool BufferAllocator::IsLargeAllocSize(size_t bytes) {
-  return bytes + sizeof(MediumBuffer) > MaxMediumAllocSize;
+  return bytes > MaxMediumAllocSize;
 }
 
 /* static */
@@ -45,32 +33,21 @@ inline size_t BufferAllocator::GetGoodAllocSize(size_t requiredBytes) {
   requiredBytes = std::max(requiredBytes, MinAllocSize);
 
   if (IsLargeAllocSize(requiredBytes)) {
-    size_t headerSize = sizeof(LargeBuffer);
-    return RoundUp(requiredBytes + headerSize, ChunkSize) - headerSize;
+    return RoundUp(requiredBytes, ChunkSize);
   }
 
-  // Small and medium headers have the same size.
-  size_t headerSize = sizeof(SmallBuffer);
-  static_assert(sizeof(SmallBuffer) == sizeof(MediumBuffer));
+  if (IsSmallAllocSize(requiredBytes)) {
+    return RoundUp(requiredBytes, SmallAllocGranularity);
+  }
 
-  // TODO: Support more sizes than powers of 2
-  return mozilla::RoundUpPow2(requiredBytes + headerSize) - headerSize;
+  return RoundUp(requiredBytes, MediumAllocGranularity);
 }
 
 /* static */
 size_t BufferAllocator::GetGoodPower2AllocSize(size_t requiredBytes) {
   requiredBytes = std::max(requiredBytes, MinAllocSize);
 
-  size_t headerSize;
-  if (IsLargeAllocSize(requiredBytes)) {
-    headerSize = sizeof(LargeBuffer);
-  } else {
-    // Small and medium headers have the same size.
-    headerSize = sizeof(SmallBuffer);
-    static_assert(sizeof(SmallBuffer) == sizeof(MediumBuffer));
-  }
-
-  return mozilla::RoundUpPow2(requiredBytes + headerSize) - headerSize;
+  return mozilla::RoundUpPow2(requiredBytes);
 }
 
 /* static */
@@ -135,20 +112,32 @@ inline bool IsBufferAlloc(void* alloc) {
   return BufferAllocator::IsBufferAlloc(alloc);
 }
 
-inline size_t GetAllocSize(void* alloc) {
-  return BufferAllocator::GetAllocSize(alloc);
+#ifdef DEBUG
+inline bool IsBufferAllocInZone(void* alloc, JS::Zone* zone) {
+  return zone->bufferAllocator.hasAlloc(alloc);
+}
+#endif
+
+inline size_t GetAllocSize(JS::Zone* zone, const void* alloc) {
+  return zone->bufferAllocator.getAllocSize(const_cast<void*>(alloc));
 }
 
-inline JS::Zone* GetAllocZone(void* alloc) {
-  return BufferAllocator::GetAllocZone(alloc);
+inline bool IsNurseryOwned(JS::Zone* zone, void* alloc) {
+  return zone->bufferAllocator.isNurseryOwned(alloc);
 }
 
-inline bool IsNurseryOwned(void* alloc) {
-  return BufferAllocator::IsNurseryOwned(alloc);
+inline bool IsBufferAllocMarkedBlack(JS::Zone* zone, void* alloc) {
+  return zone->bufferAllocator.isMarkedBlack(alloc);
 }
 
-inline bool IsBufferAllocMarkedBlack(void* alloc) {
-  return BufferAllocator::IsMarkedBlack(alloc);
+inline void TraceBufferEdgeInternal(JSTracer* trc, JS::Zone* zone,
+                                    Cell* maybeOwner, void** bufferp,
+                                    const char* name) {
+  zone->bufferAllocator.traceEdge(trc, maybeOwner, bufferp, name);
+}
+
+inline void MarkTenuredBuffer(JS::Zone* zone, void* alloc) {
+  zone->bufferAllocator.markTenuredAlloc(alloc);
 }
 
 }  // namespace js::gc

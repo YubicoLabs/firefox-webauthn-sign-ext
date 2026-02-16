@@ -66,11 +66,10 @@ inline unsigned CountArgSlots(JSScript* script, bool hasFun,
 // Contains information about the compilation source for IR being generated.
 class CompileInfo {
  public:
-  CompileInfo(CompileRuntime* runtime, JSScript* script, JSFunction* fun,
-              jsbytecode* osrPc, bool scriptNeedsArgsObj,
-              InlineScriptTree* inlineScriptTree)
+  CompileInfo(CompileRuntime* runtime, JSScript* script, jsbytecode* osrPc,
+              bool scriptNeedsArgsObj, InlineScriptTree* inlineScriptTree)
       : script_(script),
-        fun_(fun),
+        fun_(script->function()),
         osrPc_(osrPc),
         scriptNeedsArgsObj_(scriptNeedsArgsObj),
         hadEagerTruncationBailout_(script->hadEagerTruncationBailout()),
@@ -84,21 +83,14 @@ class CompileInfo {
         isDerivedClassConstructor_(script->isDerivedClassConstructor()),
         inlineScriptTree_(inlineScriptTree),
         hasSeenObjectEmulateUndefinedFuseIntact_(
-            runtime->hasSeenObjectEmulateUndefinedFuseIntact()) {
+            runtime->hasSeenObjectEmulateUndefinedFuseIntact()),
+        hasSeenArrayExceedsInt32LengthFuseIntact_(
+            runtime->hasSeenArrayExceedsInt32LengthFuseIntact()) {
     MOZ_ASSERT_IF(osrPc, JSOp(*osrPc) == JSOp::LoopHead);
 
-    // The function here can flow in from anywhere so look up the canonical
-    // function to ensure that we do not try to embed a nursery pointer in
-    // jit-code. Precisely because it can flow in from anywhere, it's not
-    // guaranteed to be non-lazy. Hence, don't access its script!
-    if (fun_) {
-      fun_ = fun_->baseScript()->function();
-      MOZ_ASSERT(fun_->isTenured());
-    }
-
     nimplicit_ = StartArgSlot(script) /* env chain and argument obj */
-                 + (fun ? 1 : 0);     /* this */
-    nargs_ = fun ? fun->nargs() : 0;
+                 + (fun_ ? 1 : 0);    /* this */
+    nargs_ = fun_ ? fun_->nargs() : 0;
     nlocals_ = script->nfixed();
 
     // An extra slot is needed for global scopes because InitGLexical (stack
@@ -132,7 +124,7 @@ class CompileInfo {
     // will need to be observable.
     needsBodyEnvironmentObject_ = script->needsBodyEnvironment();
     funNeedsSomeEnvironmentObject_ =
-        fun ? fun->needsSomeEnvironmentObject() : false;
+        fun_ ? fun_->needsSomeEnvironmentObject() : false;
   }
 
   explicit CompileInfo(unsigned nlocals)
@@ -152,7 +144,8 @@ class CompileInfo {
         inlineScriptTree_(nullptr),
         needsBodyEnvironmentObject_(false),
         funNeedsSomeEnvironmentObject_(false),
-        hasSeenObjectEmulateUndefinedFuseIntact_(false) {
+        hasSeenObjectEmulateUndefinedFuseIntact_(false),
+        hasSeenArrayExceedsInt32LengthFuseIntact_(false) {
     nimplicit_ = 0;
     nargs_ = 0;
     nlocals_ = nlocals;
@@ -355,6 +348,10 @@ class CompileInfo {
     return hasSeenObjectEmulateUndefinedFuseIntact_;
   }
 
+  bool hasSeenArrayExceedsInt32LengthFuseIntact() const {
+    return hasSeenArrayExceedsInt32LengthFuseIntact_;
+  }
+
  private:
   unsigned nimplicit_;
   unsigned nargs_;
@@ -392,6 +389,7 @@ class CompileInfo {
   bool funNeedsSomeEnvironmentObject_;
 
   bool hasSeenObjectEmulateUndefinedFuseIntact_;
+  bool hasSeenArrayExceedsInt32LengthFuseIntact_;
 };
 
 }  // namespace jit

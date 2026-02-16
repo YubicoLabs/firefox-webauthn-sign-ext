@@ -13,12 +13,9 @@ prefs = [
   # The form autofill framescript is only used in certain locales if this
   # pref is set to 'detect', which is the default value on non-Nightly.
   "extensions.formautofill.addresses.available='on'",
-  "browser.urlbar.disableExtendForTests=true",
   # For perfomance tests do not enable the remote control cue, which gets set
   # when Marionette is enabled, but users normally don't see.
   "browser.chrome.disableRemoteControlCueForTests=true",
-  # Need to keep the revamped sidebar off until Bug 1905212 is done
-  "sidebar.revamp=false",
 ]
 support-files = ["head.js"]
 
@@ -26,8 +23,10 @@ support-files = ["head.js"]
 skip-if = [
   "asan",
   "debug",
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && tsan", # Bug 1969231
+  "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && opt", # Bug 1969231
+  "os == 'mac' && os_version == '15.30' && arch == 'aarch64'", # Bug 1969231
   "os == 'win'", # Bug 1775626
-  "os == 'linux' && os_version == '18.04' && processor == 'x86_64' && socketprocess_networking", # Bug 1382809, bug 1369959
 ]
 
 ["browser_hidden_browser_vsync.js"]
@@ -41,9 +40,10 @@ support-files = ["!/browser/components/downloads/test/browser/head.js"]
 
 ["browser_preferences_usage.js"]
 https_first_disabled = true
-run-if = ["debug"]
+run-if = [
+  "debug",
+]
 skip-if = [
-  "os == 'mac' && os_version == '11.20' && arch == 'aarch64'",  # platform migration
   "socketprocess_networking",
 ]
 
@@ -56,7 +56,9 @@ skip-if = [
 support-files = ["file_empty.html"]
 
 ["browser_startup_content_subframe.js"]
-run-if = ["fission"]
+run-if = [
+  "fission",
+]
 support-files = [
   "file_empty.html",
   "StartupContentSubframe.sys.mjs",
@@ -67,12 +69,13 @@ run-if = [
   "debug",
   "nightly_build", # Requires StartupRecorder.sys.mjs, which isn't shipped everywhere by default
 ]
+skip-if = [
+  "os == 'mac' && os_version == '15.30' && arch == 'aarch64' && opt", # Bug 1889278
+]
 
 ["browser_tabclose.js"]
 skip-if = [
-  "os == 'linux' && os_version == '18.04' && processor == 'x86_64' && devedition", # Bug 1737131
-  "os == 'mac' && os_version == '11.20' && arch == 'aarch64'", # Bug 1531417
-  "os == 'mac' && os_version == '10.15' && processor == 'x86_64'", # Bug 1531417
+  "os == 'mac' && os_version == '10.15' && arch == 'x86_64'", # Bug 1531417
   "os == 'win'", # Bug 1488537, Bug 1497713
 ]
 
@@ -82,30 +85,24 @@ skip-if = [
 
 ["browser_tabopen.js"]
 skip-if = [
-  "os == 'mac' && os_version == '11.20' && arch == 'aarch64'", # Bug 1594274
-  "os == 'mac' && os_version == '10.15' && processor == 'x86_64'", # Bug 1705492
-  "os == 'linux' && os_version == '18.04' && processor == 'x86_64' && opt", # Bug 1705492
-  "os == 'mac' && os_version == '14.70' && processor == 'x86_64' && opt", # Bug 1870476
+  "os == 'mac' && os_version == '10.15' && arch == 'x86_64'", # Bug 1705492
+  "os == 'mac' && os_version == '14.70' && arch == 'x86_64' && opt", # Bug 1870476
 ]
 
 ["browser_tabopen_squeeze.js"]
 
 ["browser_tabstrip_overflow_underflow.js"]
-skip-if = [
-  "os == 'win' && verify && !debug",
-  "win11_2009 && bits == 32",
-]
 
 ["browser_tabswitch.js"]
-skip-if = ["os == 'win'"] #Bug 1455054
+skip-if = [
+  "os == 'win'", # Bug 1455054
+]
 
 ["browser_toolbariconcolor_restyles.js"]
 
 ["browser_urlbar_keyed_search.js"]
-skip-if = ["true"]  # Bug 1926118: Disabled until the test can be revisited to measure performance under representative conditions.
 
 ["browser_urlbar_search.js"]
-skip-if = ["true"]  # Bug 1926118: Disabled until the test can be revisited to measure performance under representative conditions.
 
 ["browser_vsync_accessibility.js"]
 

@@ -14,7 +14,7 @@
      *
      * @param insertElementFn Called with the "notification-stack" element as an
      *        argument when the first notification has to be displayed.
-     * @param {Number} securityDelayMS - Delay in milliseconds until buttons are enabled to
+     * @param {number} securityDelayMS - Delay in milliseconds until buttons are enabled to
      * protect against click- and tapjacking.
      */
     constructor(insertElementFn, securityDelayMS = 0) {
@@ -88,6 +88,13 @@
      *        The main message text (as string), or object (with l10n-id, l10n-args),
      *        or a DocumentFragment containing elements to
      *        add as children of the notification's main <description> element.
+     *    style
+     *        Optional object of CSS overrides, currently for use in
+     *        experiments. Currently supported keys:
+     *          - "background-color": Any valid CSS color or `light-dark(light,
+     *        dark)` expression to accommodate light/dark modes
+     *          - "font-size": Any valid CSS font-size value, rem units
+     *        recommended
      *    eventCallback
      *        This may be called with the "removed", "dismissed" or "disconnected"
      *        parameter:
@@ -133,13 +140,14 @@
      *        Optional boolean arg to disable clickjacking protections. By
      *        default the security delay is enabled.
      *
-     * @returns {Promise<Object>} The <notification-message> element that is shown.
+     * @returns {Promise<object>} The <notification-message> element that is shown.
      */
     async appendNotification(
       aType,
       aNotification,
       aButtons,
-      aDisableClickJackingDelay = false
+      aDisableClickJackingDelay = false,
+      dismissable = true
     ) {
       if (
         aNotification.priority < this.PRIORITY_SYSTEM ||
@@ -160,13 +168,14 @@
         // Wrapped in a try/catch to handle rare cases where we start creating
         // a notification but then the window gets closed/goes away.
         try {
-          await createNotificationMessageElement();
+          await createNotificationMessageElement(dismissable);
         } catch (err) {
           console.warn(err);
           throw err;
         }
       }
       newitem = document.createElement("notification-message");
+      newitem.dismissable = dismissable;
       newitem.setAttribute("message-bar-type", "infobar");
 
       // Append or prepend notification, based on stack preference.
@@ -221,6 +230,30 @@
         newitem.setAttribute("type", "info");
       } else {
         newitem.setAttribute("type", "warning");
+      }
+
+      // Apply any allowed configurable styles to the notification
+      const CONFIGURABLE_NOTIFICATION_STYLES = [
+        "background-color",
+        "font-size",
+      ];
+
+      const CONFIGURED_STYLES = aNotification.style || {};
+      for (let prop of Object.keys(CONFIGURED_STYLES)) {
+        if (!CONFIGURABLE_NOTIFICATION_STYLES.includes(prop)) {
+          continue;
+        }
+
+        if (prop === "background-color") {
+          // Set as a CSS var to be referenced in infobar.css so that we can
+          // skip for high contrast mode.
+          newitem.style.setProperty(
+            "--info-bar-background-color-configurable",
+            aNotification.style["background-color"]
+          );
+        } else {
+          newitem.style[prop] = aNotification.style[prop];
+        }
       }
 
       // If clickjacking protection is not explicitly disabled, enable it.
@@ -381,7 +414,7 @@
     PRIORITY_CRITICAL_HIGH: 9,
   });
 
-  async function createNotificationMessageElement() {
+  async function createNotificationMessageElement(dismissable) {
     document.createElement("moz-message-bar");
     let MozMessageBar = await customElements.whenDefined("moz-message-bar");
     class NotificationMessage extends MozMessageBar {
@@ -396,7 +429,7 @@
         this.persistence = 0;
         this.priority = 0;
         this.timeout = 0;
-        this.dismissable = true;
+        this.dismissable = dismissable;
 
         // Variables used for security delay / clickjacking protection.
         this._clickjackingDelayActive = false;
@@ -599,7 +632,7 @@
        * restarts on window focus or if the user attempts to click during the
        * disabled period.
        *
-       * @param {Number} securityDelayMS - ClickJacking delay to apply
+       * @param {number} securityDelayMS - ClickJacking delay to apply
        * (milliseconds).
        */
       _initClickJackingProtection(securityDelayMS) {

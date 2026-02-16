@@ -6,13 +6,15 @@
 
 #include "GMPVideoEncoder.h"
 
+#include "AnnexB.h"
 #include "ErrorList.h"
-#include "H264.h"
 #include "GMPLog.h"
-#include "GMPUtils.h"
 #include "GMPService.h"
+#include "GMPUtils.h"
 #include "GMPVideoHost.h"
+#include "H264.h"
 #include "ImageContainer.h"
+#include "ImageConversion.h"
 #include "mozilla/StaticPrefs_media.h"
 #include "nsServiceManagerUtils.h"
 #include "prsystem.h"
@@ -25,7 +27,9 @@ static GMPVideoCodecMode ToGMPVideoCodecMode(Usage aUsage) {
       return kGMPRealtimeVideo;
     case Usage::Record:
     default:
-      return kGMPNonRealtimeVideo;
+      // ParamValidationExt in OpenH264 rejects all other codec modes besides
+      // realtime and screensharing.
+      return kGMPScreensharing;
   }
 }
 
@@ -133,7 +137,22 @@ void GMPVideoEncoder::InitComplete(GMPVideoEncoderProxy* aGMP,
   codec.mMode = ToGMPVideoCodecMode(mConfig.mUsage);
   codec.mWidth = mConfig.mSize.width;
   codec.mHeight = mConfig.mSize.height;
-  codec.mStartBitrate = mConfig.mBitrate / 1000;
+
+  // A bitrate need to be set here, attempt to make an educated guess if none is
+  // provided.
+  if (mConfig.mBitrate) {
+    codec.mStartBitrate = mConfig.mBitrate / 1000;
+  } else {
+    int32_t longDimension = std::max(mConfig.mSize.width, mConfig.mSize.height);
+    if (longDimension < 720) {
+      codec.mStartBitrate = 2000;
+    } else if (longDimension < 1080) {
+      codec.mStartBitrate = 4000;
+    } else {
+      codec.mStartBitrate = 8000;
+    }
+  }
+
   codec.mMinBitrate = mConfig.mMinBitrate / 1000;
   codec.mMaxBitrate = mConfig.mMaxBitrate ? mConfig.mMaxBitrate / 1000
                                           : codec.mStartBitrate * 2;
@@ -155,8 +174,8 @@ void GMPVideoEncoder::InitComplete(GMPVideoEncoderProxy* aGMP,
       break;
   }
 
-  if (mConfig.mCodecSpecific) {
-    const H264Specific& specific = mConfig.mCodecSpecific->as<H264Specific>();
+  if (mConfig.mCodecSpecific.is<H264Specific>()) {
+    const H264Specific& specific = mConfig.mCodecSpecific.as<H264Specific>();
     codec.mProfile = ToGMPProfile(specific.mProfile);
     codec.mLevel = ToGMPLevel(specific.mLevel);
   }
@@ -173,7 +192,7 @@ void GMPVideoEncoder::InitComplete(GMPVideoEncoderProxy* aGMP,
 
   GMP_LOG_DEBUG("[%p] GMPVideoEncoder::InitComplete -- encoder initialized",
                 this);
-  mInitPromise.Resolve(TrackInfo::TrackType::kVideoTrack, __func__);
+  mInitPromise.Resolve(true, __func__);
 }
 
 RefPtr<MediaDataEncoder::EncodePromise> GMPVideoEncoder::Encode(
@@ -195,25 +214,24 @@ RefPtr<MediaDataEncoder::EncodePromise> GMPVideoEncoder::Encode(
                                           __func__);
   }
 
-  const VideoData* sample(aSample->As<const VideoData>());
-  const layers::PlanarYCbCrImage* image = sample->mImage->AsPlanarYCbCrImage();
-  const layers::PlanarYCbCrData* yuv = image->GetData();
-  const gfx::IntSize ySize = yuv->YDataSize();
-  const gfx::IntSize cbCrSize = yuv->CbCrDataSize();
-  const int32_t yStride = yuv->mYStride;
-  const int32_t cbCrStride = yuv->mCbCrStride;
-
-  CheckedInt32 yBufSize = CheckedInt32(yStride) * ySize.height;
-  MOZ_RELEASE_ASSERT(yBufSize.isValid());
-
-  CheckedInt32 cbCrBufSize = CheckedInt32(cbCrStride) * cbCrSize.height;
-  MOZ_RELEASE_ASSERT(cbCrBufSize.isValid());
-
   GMPUniquePtr<GMPVideoi420Frame> frame(static_cast<GMPVideoi420Frame*>(ftmp));
-  err = frame->CreateFrame(yBufSize.value(), yuv->mYChannel,
-                           cbCrBufSize.value(), yuv->mCbChannel,
-                           cbCrBufSize.value(), yuv->mCrChannel, ySize.width,
-                           ySize.height, yStride, cbCrStride, cbCrStride);
+  const VideoData* sample(aSample->As<const VideoData>());
+  const uint64_t timestamp = sample->mTime.ToMicroseconds();
+
+  const gfx::IntSize ySize = mConfig.mSize;
+  const gfx::IntSize cbCrSize =
+      gfx::ChromaSize(ySize, gfx::ChromaSubsampling::HALF_WIDTH_AND_HEIGHT);
+  const int32_t yStride = ySize.width;
+  const int32_t cbCrStride = cbCrSize.width;
+
+  GMP_LOG_DEBUG(
+      "[%p] GMPVideoEncoder::Encode -- request encode of frame @ %" PRIu64
+      " y %dx%d stride=%d cbCr %dx%d stride=%d",
+      this, timestamp, ySize.width, ySize.height, yStride, cbCrSize.width,
+      cbCrSize.height, cbCrStride);
+
+  err = frame->CreateEmptyFrame(ySize.width, ySize.height, yStride, cbCrStride,
+                                cbCrStride);
   if (NS_WARN_IF(err != GMPNoErr)) {
     GMP_LOG_ERROR(
         "[%p] GMPVideoEncoder::Encode -- failed to allocate frame data", this);
@@ -221,7 +239,19 @@ RefPtr<MediaDataEncoder::EncodePromise> GMPVideoEncoder::Encode(
                                           __func__);
   }
 
-  uint64_t timestamp = sample->mTime.ToMicroseconds();
+  uint8_t* yDest = frame->Buffer(GMPPlaneType::kGMPYPlane);
+  uint8_t* uDest = frame->Buffer(GMPPlaneType::kGMPUPlane);
+  uint8_t* vDest = frame->Buffer(GMPPlaneType::kGMPVPlane);
+
+  nsresult rv = ConvertToI420(sample->mImage, yDest, yStride, uDest, cbCrStride,
+                              vDest, cbCrStride, ySize);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    GMP_LOG_ERROR("[%p] GMPVideoEncoder::Encode -- failed to convert to I420",
+                  this);
+    return EncodePromise::CreateAndReject(NS_ERROR_DOM_MEDIA_FATAL_ERR,
+                                          __func__);
+  }
+
   frame->SetTimestamp(timestamp);
 
   AutoTArray<GMPVideoFrameType, 1> frameType;
@@ -236,15 +266,28 @@ RefPtr<MediaDataEncoder::EncodePromise> GMPVideoEncoder::Encode(
                                           __func__);
   }
 
-  GMP_LOG_DEBUG(
-      "[%p] GMPVideoEncoder::Encode -- request encode of frame @ %" PRIu64
-      " y %dx%d stride=%u cbCr %dx%d stride=%u",
-      this, timestamp, ySize.width, ySize.height, yStride, cbCrSize.width,
-      cbCrSize.height, cbCrStride);
-
   RefPtr<EncodePromise::Private> promise = new EncodePromise::Private(__func__);
   mPendingEncodes.InsertOrUpdate(timestamp, promise);
   return promise.forget();
+}
+
+// TODO(Bug 1984936): For realtime mode, resolve the promise after the first
+// sample's result is available, then continue processing remaining samples.
+// This allows the caller to keep submitting new samples while the encoder
+// handles pending ones.
+RefPtr<MediaDataEncoder::EncodePromise> GMPVideoEncoder::Encode(
+    nsTArray<RefPtr<MediaData>>&& aSamples) {
+  MOZ_ASSERT(!aSamples.IsEmpty());
+  MOZ_ASSERT(IsOnGMPThread());
+
+  if (NS_WARN_IF(!IsInitialized())) {
+    return EncodePromise::CreateAndReject(NS_ERROR_DOM_MEDIA_FATAL_ERR,
+                                          __func__);
+  }
+
+  RefPtr<EncodePromise> promise = mEncodeBatchPromise.Ensure(__func__);
+  EncodeNextSample(std::move(aSamples), EncodedData());
+  return promise;
 }
 
 RefPtr<MediaDataEncoder::ReconfigurationPromise> GMPVideoEncoder::Reconfigure(
@@ -366,6 +409,34 @@ void GMPVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
                 this, output->mKeyframe ? "key" : "", timestamp,
                 maybeTemporalLayerId);
 
+  if (mConfig.mCodecSpecific.is<H264Specific>()) {
+    const H264Specific& specific = mConfig.mCodecSpecific.as<H264Specific>();
+    if (specific.mFormat == H264BitStreamFormat::AVC) {
+      const uint8_t kExtraData[] = {
+          1 /* version */,
+          static_cast<uint8_t>(specific.mProfile),
+          0 /* profile compat (0) */,
+          static_cast<uint8_t>(specific.mLevel),
+          0xfc | 3 /* nal size - 1 */,
+          0xe0 /* num SPS (0) */,
+          0 /* num PPS (0) */
+      };
+
+      auto extraData = MakeRefPtr<MediaByteBuffer>();
+      extraData->AppendElements(kExtraData, std::size(kExtraData));
+
+      if (NS_WARN_IF(!AnnexB::ConvertSampleToAVCC(output, extraData))) {
+        GMP_LOG_ERROR(
+            "[%p] GMPVideoEncoder::Encoded -- failed to convert to AVCC", this);
+        promise->Reject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
+        Teardown(
+            MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR, "Convert AVCC failed"_ns),
+            __func__);
+        return;
+      }
+    }
+  }
+
   EncodedData encodedDataSet(1);
   encodedDataSet.AppendElement(std::move(output));
   promise->Resolve(std::move(encodedDataSet), __func__);
@@ -375,6 +446,20 @@ void GMPVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
   }
 }
 
+void GMPVideoEncoder::Dropped(uint64_t aTimestamp) {
+  MOZ_ASSERT(IsOnGMPThread());
+
+  RefPtr<EncodePromise::Private> promise;
+  if (!mPendingEncodes.Remove(aTimestamp, getter_AddRefs(promise))) {
+    GMP_LOG_WARNING(
+        "[%p] GMPVideoEncoder::Dropped -- no frame matching timestamp %" PRIu64,
+        this, aTimestamp);
+    return;
+  }
+
+  promise->Reject(NS_ERROR_DOM_MEDIA_DROPPED_BY_ENCODER_ERR, __func__);
+}
+
 void GMPVideoEncoder::Teardown(const MediaResult& aResult,
                                StaticString aCallSite) {
   GMP_LOG_DEBUG("[%p] GMPVideoEncoder::Teardown", this);
@@ -382,6 +467,9 @@ void GMPVideoEncoder::Teardown(const MediaResult& aResult,
 
   // Ensure we are kept alive at least until we return.
   RefPtr<GMPVideoEncoder> self(this);
+
+  mEncodeBatchPromise.RejectIfExists(aResult, aCallSite);
+  mEncodeBatchRequest.DisconnectIfExists();
 
   PendingEncodePromises pendingEncodes = std::move(mPendingEncodes);
   for (auto i = pendingEncodes.Iter(); !i.Done(); i.Next()) {
@@ -412,6 +500,55 @@ void GMPVideoEncoder::Terminated() {
   Teardown(
       MediaResult(NS_ERROR_DOM_MEDIA_ABORT_ERR, "Terminated GMP callback"_ns),
       __func__);
+}
+
+void GMPVideoEncoder::EncodeNextSample(
+    nsTArray<RefPtr<MediaData>>&& aInputs,
+    MediaDataEncoder::EncodedData&& aOutputs) {
+  MOZ_ASSERT(IsOnGMPThread());
+  MOZ_ASSERT(IsInitialized());
+  MOZ_ASSERT(!mEncodeBatchPromise.IsEmpty());
+  MOZ_ASSERT(!mEncodeBatchRequest.Exists());
+
+  if (aInputs.IsEmpty()) {
+    GMP_LOG_VERBOSE("[%p] All samples processed. Resolving the encode promise",
+                    this);
+    mEncodeBatchPromise.Resolve(std::move(aOutputs), __func__);
+    return;
+  }
+
+  GMP_LOG_VERBOSE("[%p] Processing next sample out of %zu remaining", this,
+                  aInputs.Length());
+  Encode(aInputs[0])
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [self = RefPtr{this}, inputs = std::move(aInputs),
+           outputs = std::move(aOutputs)](
+              EncodePromise::ResolveOrRejectValue&& aValue) mutable {
+            self->mEncodeBatchRequest.Complete();
+            if (aValue.IsReject() &&
+                aValue.RejectValue().Code() !=
+                    NS_ERROR_DOM_MEDIA_DROPPED_BY_ENCODER_ERR) {
+              auto& error = aValue.RejectValue();
+              GMP_LOG_ERROR(
+                  "[%p] GMPVideoEncoder::EncodeNextSample -- failed to encode: "
+                  "%s",
+                  self.get(), error.Description().get());
+              self->mEncodeBatchPromise.Reject(error, __func__);
+              return;
+            }
+            inputs.RemoveElementAt(0);
+            if (aValue.IsResolve()) {
+              outputs.AppendElements(aValue.ResolveValue());
+            } else {
+              GMP_LOG_WARNING(
+                  "[%p] GMPVideoEncoder::EncodeNextSample -- dropped by "
+                  "encoder: %s. Continuing.",
+                  self.get(), aValue.RejectValue().Description().get());
+            }
+            self->EncodeNextSample(std::move(inputs), std::move(outputs));
+          })
+      ->Track(mEncodeBatchRequest);
 }
 
 }  // namespace mozilla

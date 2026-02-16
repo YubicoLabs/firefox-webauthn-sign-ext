@@ -1,5 +1,9 @@
 "use strict";
 
+// test_newtab calls SpecialPowers.spawn, which injects ContentTaskUtils in the
+// scope of the callback. Eslint doesn't know about that.
+/* global ContentTaskUtils */
+
 // Tests that:
 // 1. Top sites header is hidden and the topsites section is not collapsed on load.
 // 2. Pocket header and section are visible and not collapsed on load.
@@ -47,30 +51,6 @@ test_newtab({
     ok(
       pocketHeader && !pocketHeader.style.visibility,
       "Pocket header should be visible"
-    );
-
-    // Highlights (Recent activity) section.
-    await ContentTaskUtils.waitForCondition(
-      () =>
-        content.document.querySelector("section[data-section-id='highlights']"),
-      "Wait for the highlights section to load"
-    );
-    let highlightsSection = content.document.querySelector(
-      "section[data-section-id='topstories']"
-    );
-    let isHighlightsSectionCollapsed =
-      highlightsSection.className.includes("collapsed");
-    ok(
-      !isHighlightsSectionCollapsed,
-      "Highlights section should not be collapsed on load"
-    );
-
-    let highlightsHeader = content.document.querySelector(
-      "section[data-section-id='highlights'] .section-title"
-    );
-    ok(
-      highlightsHeader && !highlightsHeader.style.visibility,
-      "Highlights header should be visible"
     );
   },
 });

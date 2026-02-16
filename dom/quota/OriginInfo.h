@@ -26,7 +26,8 @@ class OriginInfo final {
   OriginInfo(GroupInfo* aGroupInfo, const nsACString& aOrigin,
              const nsACString& aStorageOrigin, bool aIsPrivate,
              const ClientUsageArray& aClientUsages, uint64_t aUsage,
-             int64_t aAccessTime, bool aPersisted, bool aDirectoryExists);
+             int64_t aAccessTime, int32_t aMaintenanceDate, bool aPersisted,
+             bool aDirectoryExists);
 
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(OriginInfo)
 
@@ -58,6 +59,18 @@ class OriginInfo final {
     return mAccessTime;
   }
 
+  int32_t LockedMaintenanceDate() const {
+    AssertCurrentThreadOwnsQuotaMutex();
+
+    return mMaintenanceDate;
+  }
+
+  bool LockedAccessed() const {
+    AssertCurrentThreadOwnsQuotaMutex();
+
+    return mAccessed;
+  }
+
   bool LockedPersisted() const {
     AssertCurrentThreadOwnsQuotaMutex();
 
@@ -73,6 +86,8 @@ class OriginInfo final {
   }
 
   OriginMetadata FlattenToOriginMetadata() const;
+
+  OriginStateMetadata LockedFlattenToOriginStateMetadata() const;
 
   FullOriginMetadata LockedFlattenToFullOriginMetadata() const;
 
@@ -101,18 +116,37 @@ class OriginInfo final {
     }
   }
 
+  void LockedUpdateMaintenanceDate(int32_t aMaintenanceDate) {
+    AssertCurrentThreadOwnsQuotaMutex();
+
+    mMaintenanceDate = aMaintenanceDate;
+  }
+
+  void LockedUpdateAccessed() {
+    AssertCurrentThreadOwnsQuotaMutex();
+
+    if (!mAccessed) {
+      mAccessed = true;
+    }
+  }
+
   void LockedPersist();
 
   void LockedDirectoryCreated();
 
+  void LockedTruncateUsages(Client::Type aClientType, uint64_t aDelta);
+
+  Maybe<bool> LockedUpdateUsages(Client::Type aClientType, uint64_t aDelta);
+
+  bool LockedUpdateUsagesForEviction(Client::Type aClientType, uint64_t aDelta);
+
   nsTHashMap<nsStringHashKey, NotNull<CanonicalQuotaObject*>>
       mCanonicalQuotaObjects;
-  ClientUsageArray mClientUsages;
   GroupInfo* mGroupInfo;
   const nsCString mOrigin;
   const nsCString mStorageOrigin;
-  uint64_t mUsage;
   int64_t mAccessTime;
+  int32_t mMaintenanceDate;
   bool mIsPrivate;
   bool mAccessed;
   bool mPersisted;
@@ -130,6 +164,10 @@ class OriginInfo final {
    * has not yet flushed the data to disk.
    */
   bool mDirectoryExists;
+
+ private:
+  ClientUsageArray mClientUsages;
+  uint64_t mUsage;
 };
 
 class OriginInfoAccessTimeComparator {

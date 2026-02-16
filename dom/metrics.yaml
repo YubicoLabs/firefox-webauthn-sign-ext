@@ -24,6 +24,9 @@ perf:
       - perf-telemetry-alerts@mozilla.com
     expires: never
     telemetry_mirror: PERF_LARGEST_CONTENTFUL_PAINT_MS
+    metadata:
+      # Settings used for prototyping telemetry alerting
+      monitor: True
   largest_contentful_paint_from_response_start:
     type: timing_distribution
     time_unit: millisecond
@@ -48,6 +51,8 @@ perf:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1862939
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892231
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1923894
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1954216
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1949038
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1759744#c5
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1799727#c4
@@ -60,80 +65,280 @@ perf:
     expires: never
     extra_keys:
       load_time:
-        description:
-          "Time between loadEventStart and navigationStart, in ms."
+        description: |
+          Time between loadEventStart and navigationStart, in ms.
         type: quantity
         unit: ms
       dns_lookup_time:
-        description:
-          "Time taken to perform dns lookup of the top level document, in ms."
+        description: |
+          Time taken to perform dns lookup of the top level document, in ms.
         type: quantity
         unit: ms
       time_to_request_start:
-        description:
-          "Time between requestStart and navigationStart, in ms."
+        description: |
+          Time between requestStart and navigationStart, in ms.
         type: quantity
         unit: ms
       response_time:
-        description:
-          "Time between responseStart and navigationStart, in ms."
+        description: |
+          Time between responseStart and navigationStart, in ms.
         type: quantity
         unit: ms
       fcp_time:
-        description:
-          "Time between firstContentfulPaint and navigationStart, in ms."
+        description: |
+          Time between firstContentfulPaint and navigationStart, in ms.
         type: quantity
         unit: ms
       lcp_time:
-        description:
-          "Time between largestContentfulPaint and navigationStart, at the point of onLoad firing, in ms. This may differ from the final LCP value as reported through the LCP histogram."
+        description: |
+          Time between largestContentfulPaint and navigationStart, at the point of onLoad firing, in ms. This may differ from the final LCP value as reported through the LCP histogram.
         type: quantity
         unit: ms
       js_exec_time:
-        description:
-          "Time spent executing JS during page load, in ms."
+        description: |
+          Time spent executing JS during page load, in ms.
+        type: quantity
+        unit: ms
+      delazify_time:
+        description: |
+          Time spent delazifying JS during page load, in ms.
         type: quantity
         unit: ms
       redirect_time:
         type: quantity
-        description:
-          "Time spent in redirections for the top level document."
+        description: |
+          Time spent in redirections for the top level document.
+        unit: ms
+      tls_handshake_time:
+        type: quantity
+        description: |
+          Time spent in TLS handshake for the top level document.
         unit: ms
       redirect_count:
-        description:
-          "Number of redirections for the top level document."
+        description: |
+          Number of redirections for the top level document.
         type: quantity
         unit: integer
       load_type:
-        description:
-          "One of normal,reload,stop,link,history,error or other."
+        description: |
+          One of normal,reload,stop,link,history,error or other.
         type: string
       same_origin_nav:
-        description:
-          "If true, a normal navigation was performed on the same origin."
+        description: |
+          If true, a normal navigation was performed on the same origin.
         type: boolean
       using_webdriver:
-        description:
-          "If true, a webdriver is running on the client."
+        description: |
+          If true, a webdriver is running on the client.
         type: boolean
       http_ver:
-        description:
-          "Version of HTTP protocol used."
+        description: |
+          Version of HTTP protocol used.
         type: quantity
         unit: integer
       trr_domain:
-        description:
-          "TRR domain used."
+        description: |
+          TRR domain used.
         type: string
-      features:
-        description:
-          "Bitfield of features in use within this document:
+      document_features:
+        description: >
+          Bitfield of web features in use within this document:
             1 - fetchpriority applied to images
-            2 - assistive technology in use"
+        type: quantity
+        unit: integer
+      user_features:
+        description: >
+          Bitfield of features the user is enabling:
+            1 - assistive technology in use
+        type: quantity
+        unit: integer
+      has_ssd:
+        description: |
+          Whether the user has SSD in their hardware or not. Only available on Windows, after startup-idle-tasks are done
+        type: boolean
+      cache_disposition:
+        description: |
+          cache disposition for the top level document
+        type: quantity
+        unit: integer
+      network_type:
+        description: |
+          Network link type from nsINetworkLinkService, only available on android. Values as:
+            - 0 unknown
+            - 1 ethernet
+            - 2 usb
+            - 3 wifi
+            - 4 wifimax
+            - 9 mobile
+        type: quantity
+        unit: integer
+      android_app_link_launch_type:
+        description:
+          "AppLink launch type, android only. UNKNOWN = 0 COLD = 1, WARM = 2, HOT = 3, see LoadURIOptions.webidl"
+        type: quantity
+        unit: integer
+      android_app_link_to_navigation_start:
+        type: quantity
+        description:
+          "For android navigations, the time from application launch (i.e parent process start) to navigation start. Only meaningful with android_app_link_launch_type = COLD"
+        unit: ms
+      android_isolation_category:
+        description: |
+          Process isolation category: shared_web, site_isolated, coop_isolated, or other
+        type: string
+    send_in_pings:
+      - pageload
+  page_load_domain:
+    type: event
+    description: >
+        Recorded when a top level content document has been loaded.
+        Includes ETLD+1 information and sent with ohttp.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1967780
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D250521
+    notification_emails:
+      - perf-telemetry-alerts@mozilla.com
+      - dpalmeiro@mozilla.com
+    expires: never
+    extra_keys:
+      lcp_time:
+        description: |
+          Time between largestContentfulPaint and navigationStart, at the point of onLoad firing, in ms. This may differ from the final LCP value as reported through the LCP histogram.
+        type: quantity
+        unit: ms
+      load_type:
+        description: |
+          One of normal,reload,stop,link,history,error or other.
+        type: string
+      same_origin_nav:
+        description: |
+          If true, a normal navigation was performed on the same origin.
+        type: boolean
+      http_ver:
+        description: |
+          Version of HTTP protocol used.
+        type: quantity
+        unit: integer
+      document_features:
+        description: >
+          Bitfield of web features in use within this document:
+            1 - fetchpriority applied to images
+        type: quantity
+        unit: integer
+      domain:
+        description: |
+          ETLD+1 domain of website visited.
+        type: string
+      channel:
+        description: |
+          Release channel of the build. Either "nightly" or "release" only.
+        type: string
+      app_version_major:
+        description: |
+          Major version number.
         type: quantity
         unit: integer
     send_in_pings:
-      - pageload
+      - pageload-base-domain
+
+  h3p_page_load_time:
+    type: labeled_timing_distribution
+    description: >
+      Time in milliseconds from navigationStart to loadEventStart for the
+      foreground http or https root content document. This is collected only on
+      page load where the main document uses HTTP3. It is keyed based on whether
+      a "priority" header has been received.
+
+      This metric was generated to correspond to the Legacy Telemetry
+      exponential histogram H3P_PERF_PAGE_LOAD_TIME_MS.
+    time_unit: millisecond
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1743965
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1796398
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1743965
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1796398
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+    telemetry_mirror: H3P_PERF_PAGE_LOAD_TIME_MS
+
+  h3p_first_contentful_paint:
+    type: labeled_timing_distribution
+    description: >
+      The time between navigationStart and the first contentful paint of a
+      foreground http or https root content document, in milliseconds. The
+      contentful paint timestamp is taken during display list building and does
+      not include rasterization or compositing of that paint. This is collected
+      only on page load where the main document uses HTTP3. It is keyed based on
+      whether a "priority" header has been received.
+
+      This metric was generated to correspond to the Legacy Telemetry
+      exponential histogram H3P_PERF_FIRST_CONTENTFUL_PAINT_MS.
+    time_unit: millisecond
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1743965
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1796398
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1743965
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1796398
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+    telemetry_mirror: H3P_PERF_FIRST_CONTENTFUL_PAINT_MS
+
+  dns_first_byte:
+    type: labeled_timing_distribution
+    description: >
+      The time from a top-level document's HTTP channel open to the first byte
+      of the reply is received (ms). Keyed by TRR domain for DoH or 'Native'
+      otherwise
+
+      This metric was generated to correspond to the Legacy Telemetry
+      exponential histogram DNS_PERF_FIRST_BYTE_MS.
+    time_unit: millisecond
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1803671
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1803671
+    notification_emails:
+      - necko@mozilla.com
+      - acreskey@mozilla.com
+    expires: never
+    telemetry_mirror: DNS_PERF_FIRST_BYTE_MS
+
+  cold_applink_process_launch_to_load_uri:
+    type: timing_distribution
+    time_unit: millisecond
+    description: |
+      The duration from cold process launch to load URI for an android cold applink.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1990344
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1990344
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - perf-telemetry-alerts@mozilla.com
+      - android-probes@mozilla.com
+    expires: never
+
+  cold_applink_main_to_load_uri:
+    type: timing_distribution
+    time_unit: millisecond
+    description: |
+      The duration from StartupTimeline::MAIN to load URI for an android cold applink.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1991160
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1991160
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - perf-telemetry-alerts@mozilla.com
+      - android-probes@mozilla.com
+    expires: never
 
 performance.pageload:
   load_time:
@@ -392,6 +597,47 @@ performance.time:
       - perf-telemetry-alerts@mozilla.com
     expires: never
 
+  to_first_contentful_paint:
+    type: timing_distribution
+    description: >
+      The time between navigation start and the first contentful paint of a
+      foreground root content document, in milliseconds. This only records
+      documents that were in an active docshell throughout the whole time
+      between navigation start and contentful paint. The contentful paint
+      timestamp is taken during display list building and does not include
+      rasterization or compositing of that paint.
+
+      This metric was generated to correspond to the Legacy Telemetry
+      exponential histogram TIME_TO_FIRST_CONTENTFUL_PAINT_MS.
+    time_unit: millisecond
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1515132
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1515132
+    notification_emails:
+      - perf-telemetry-alerts@mozilla.com
+    expires: never
+    telemetry_mirror: TIME_TO_FIRST_CONTENTFUL_PAINT_MS
+
+  to_dom_loading:
+    type: timing_distribution
+    description: >
+      Time in milliseconds from navigationStart to domLoading.
+
+      This metric was generated to correspond to the Legacy Telemetry
+      exponential histogram TIME_TO_DOM_LOADING_MS.
+    time_unit: millisecond
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1344893
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1489524
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1344893
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1489524
+    notification_emails:
+      - vgosu@mozilla.com
+      - necko@mozilla.com
+    expires: never
+    telemetry_mirror: TIME_TO_DOM_LOADING_MS
 
 performance.page:
   non_blank_paint:
@@ -415,128 +661,6 @@ performance.page:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1580077#c10
     notification_emails:
       - vchin@mozilla.com
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
-
-
-javascript.pageload:
-  execution_time:
-    type: timing_distribution
-    time_unit: millisecond
-    telemetry_mirror: JS_PAGELOAD_EXECUTION_MS
-    description: >
-      Time spent during page load executing Javascript in ms.
-      (Migrated from the geckoview metric of the same name.)
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1877843
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139#c4
-    notification_emails:
-      - dpalmeiro@mozilla.com
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
-
-  delazification_time:
-    type: timing_distribution
-    time_unit: millisecond
-    telemetry_mirror: JS_PAGELOAD_DELAZIFICATION_MS
-    description: >
-      Time spent during page load delazifying Javascript in ms.
-      (Migrated from the geckoview metric of the same name.)
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1877843
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139#c4
-    notification_emails:
-      - dpalmeiro@mozilla.com
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
-
-  xdr_encode_time:
-    type: timing_distribution
-    time_unit: millisecond
-    telemetry_mirror: JS_PAGELOAD_XDR_ENCODING_MS
-    description: >
-      Time spent during page load XDR encoding Javascript in ms.
-      (Migrated from the geckoview metric of the same name.)
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1877843
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139#c4
-    notification_emails:
-      - dpalmeiro@mozilla.com
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
-
-  baseline_compile_time:
-    type: timing_distribution
-    time_unit: millisecond
-    telemetry_mirror: JS_PAGELOAD_BASELINE_COMPILE_MS
-    description: >
-      Time spent during page load baseline compiling Javascript in ms.
-      (Migrated from the geckoview metric of the same name.)
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1877843
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139#c4
-    notification_emails:
-      - dpalmeiro@mozilla.com
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
-
-  gc_time:
-    type: timing_distribution
-    time_unit: millisecond
-    telemetry_mirror: JS_PAGELOAD_GC_MS
-    description: >
-      Time spent during page load in the GC in ms.
-      (Migrated from the geckoview metric of the same name.)
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1877843
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139#c4
-    notification_emails:
-      - dpalmeiro@mozilla.com
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
-
-  parse_time:
-    type: timing_distribution
-    time_unit: millisecond
-    telemetry_mirror: JS_PAGELOAD_PARSE_MS
-    description: >
-      Time spent during page load syntax parsing JS scripts on
-      the main thread in ms.
-      (Migrated from the geckoview metric of the same name.)
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1877843
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139#c4
-    notification_emails:
-      - dpalmeiro@mozilla.com
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
-
-  protect_time:
-    type: timing_distribution
-    time_unit: millisecond
-    telemetry_mirror: JS_PAGELOAD_PROTECT_MS
-    description: >
-      Time spent during page load protecting JIT executable memory.
-      (Migrated from the geckoview metric of the same name.)
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1877843
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1709139#c4
-    notification_emails:
-      - dpalmeiro@mozilla.com
       - perf-telemetry-alerts@mozilla.com
     expires: never
 
@@ -580,27 +704,24 @@ security:
         type: string
     telemetry_mirror: Security_Fissionprincipals_Contentparent
 
-mathml:
-  doc_count:
-    type: counter
+  shadowed_html_document_property_access:
+    type: event
     description: >
-      The number of documents that contained enabled MathML elements.
-      This metric was generated to correspond to the Legacy Telemetry
-      scalar mathml.doc_count.
+      When accessing a property on the HTMLDocument like (document.currentScript),
+      if that property was shadowed/"clobbered" (e.g. using <img name=currentScript>), the
+      name of the shadowed built-in property is collected.
     bugs:
-      - https://bugzil.la/1362187
-      - https://bugzil.la/1538985
-      - https://bugzil.la/1590350
+      - https://bugzil.la/1955578
     data_reviews:
-      - https://bugzil.la/1362187
-      - https://bugzil.la/1538985
-      - https://bugzil.la/1590350
+      - https://bugzil.la/1955578
     notification_emails:
-      - emilio@mozilla.com
-      - fred.wang@free.fr
-      - dev-tech-layout@lists.mozilla.org
-    expires: never
-    telemetry_mirror: MATHML_DOC_COUNT
+      - tschuster@mozilla.com
+    expires: 152
+    extra_keys:
+      name:
+        description: >
+          Name of the shadowed HTML property that was accessed.
+        type: string
 
 dom.contentprocess:
   build_id_mismatch:
@@ -635,6 +756,7 @@ dom.contentprocess:
       - https://bugzil.la/1817104
       - https://bugzil.la/1866197
       - https://bugzil.la/1928259
+      - https://bugzil.la/2010454
     data_reviews:
       - https://bugzil.la/1651133
       - https://bugzil.la/1730045
@@ -643,9 +765,10 @@ dom.contentprocess:
       - https://bugzil.la/1817104
       - https://bugzil.la/1866197
       - https://bugzil.la/1928259
+      - https://bugzil.la/2010454
     notification_emails:
       - alissy@mozilla.com
-    expires: 150
+    expires: 170
     telemetry_mirror: DOM_CONTENTPROCESS_BUILDID_MISMATCH_FALSE_POSITIVE
 
   os_priority_lowered:
@@ -814,3 +937,277 @@ dom.parentprocess:
       - alissy@mozilla.com
     expires: never
     telemetry_mirror: DOM_PARENTPROCESS_PROCESS_LAUNCH_ERRORS
+
+dom.textfragment:
+  find_directives:
+    type: timing_distribution
+    description: |
+      Time spent in TextDirectiveFinder::FindTextDirectivesInDocument() per page load
+    time_unit: millisecond
+    expires: never
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1942117
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1942117
+    notification_emails:
+      - dom-core@mozilla.com
+      - jjaschke@mozilla.com
+
+  create_directive:
+    type: timing_distribution
+    description: |
+      Time spent in FragmentDirective::CreateTextDirective()
+    time_unit: millisecond
+    expires: never
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1942117
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1942117
+    notification_emails:
+      - dom-core@mozilla.com
+      - jjaschke@mozilla.com
+
+dom:
+  forget_skippable_during_idle:
+    type: custom_distribution
+    description: >
+      Percent of the cycle collector's forget skippable done during idle time
+
+      This metric was generated to correspond to the Legacy Telemetry linear
+      histogram FORGET_SKIPPABLE_DURING_IDLE.
+    range_min: 1
+    range_max: 100
+    bucket_count: 50
+    histogram_type: linear
+    unit: percent
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1372042
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1372042
+    notification_emails:
+      - dev-telemetry-gc-alerts@mozilla.org
+    expires: never
+    telemetry_mirror: FORGET_SKIPPABLE_DURING_IDLE
+
+  forget_skippable_frequency:
+    type: custom_distribution
+    description: >
+      Number of forget skippables occurred during a minute
+
+      This metric was generated to correspond to the Legacy Telemetry linear
+      histogram FORGET_SKIPPABLE_FREQUENCY.
+    range_min: 1
+    range_max: 500
+    bucket_count: 100
+    histogram_type: linear
+    unit: forget skippables per minute
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1487271
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1487271
+    notification_emails:
+      - smaug@mozilla.com
+      - dev-telemetry-gc-alerts@mozilla.org
+    expires: never
+    telemetry_mirror: FORGET_SKIPPABLE_FREQUENCY
+
+  fullscreen_transition_black:
+    type: timing_distribution
+    description: >
+      The time spent in the fully-black screen in fullscreen transition
+
+      This metric was generated to correspond to the Legacy Telemetry
+      exponential histogram FULLSCREEN_TRANSITION_BLACK_MS.
+    time_unit: millisecond
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1271160
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1271160
+    notification_emails:
+      - mozilla-telemetry@upsuper.org
+    expires: never
+    telemetry_mirror: FULLSCREEN_TRANSITION_BLACK_MS
+
+  gc_in_progress:
+    type: timing_distribution
+    description: >
+      Time from the beginning of the first slice to the end of the last slice
+      (ms)
+
+      This metric was generated to correspond to the Legacy Telemetry
+      exponential histogram GC_IN_PROGRESS_MS.
+    time_unit: millisecond
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1545093
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1545093
+    notification_emails:
+      - dev-telemetry-gc-alerts@mozilla.org
+      - smaug@mozilla.com
+    expires: never
+    telemetry_mirror: GC_IN_PROGRESS_MS
+
+  gc_slice_during_idle:
+    type: custom_distribution
+    description: >
+      Percent of GC slice done during idle time
+
+      This metric was generated to correspond to the Legacy Telemetry linear
+      histogram GC_SLICE_DURING_IDLE.
+    range_min: 1
+    range_max: 100
+    bucket_count: 50
+    histogram_type: linear
+    unit: percent
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1372042
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1372042
+    notification_emails:
+      - dev-telemetry-gc-alerts@mozilla.org
+    expires: never
+    telemetry_mirror: GC_SLICE_DURING_IDLE
+
+  xmlhttprequest_async_or_sync:
+    type: labeled_counter
+    description: >
+      Type of XMLHttpRequest, async or sync
+
+      This metric was generated to correspond to the Legacy Telemetry boolean
+      histogram XMLHTTPREQUEST_ASYNC_OR_SYNC.
+    labels:
+      - "false"
+      - "true"
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1956726
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1956726
+    notification_emails:
+      - dom-core@mozilla.com
+    expires: never
+    telemetry_mirror: h#XMLHTTPREQUEST_ASYNC_OR_SYNC
+
+  storage_access_api_ui:
+    type: labeled_counter
+    description: >
+      Storage Access API UI events.
+
+      This metric was generated to correspond to the Legacy Telemetry
+      categorical histogram STORAGE_ACCESS_API_UI.
+    labels:
+      - Request
+      - AllowAutomatically
+      - Deny
+      - Allow
+      - AllowOnAnySite
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1513309
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1588844
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1643432
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1689262
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1730043
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1832670
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1513309
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1588844
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1643432
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1689262
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1730043
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1832670
+    notification_emails:
+      - emz@mozilla.com
+      - tihuang@mozilla.com
+    expires: never
+    telemetry_mirror: h#STORAGE_ACCESS_API_UI
+
+  slow_script_notice_count:
+    type: counter
+    description: >
+      Count slow script notices
+
+      This metric was generated to correspond to the Legacy Telemetry count
+      histogram SLOW_SCRIPT_NOTICE_COUNT.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1956726
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1956726
+    notification_emails:
+      - perf-telemetry-alerts@mozilla.com
+    expires: never
+    telemetry_mirror: h#SLOW_SCRIPT_NOTICE_COUNT
+
+  slow_script_page_count:
+    type: counter
+    description: >
+      The number of pages that trigger slow script notices
+
+      This metric was generated to correspond to the Legacy Telemetry count
+      histogram SLOW_SCRIPT_PAGE_COUNT.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1251667
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1251667
+    notification_emails:
+      - perf-telemetry-alerts@mozilla.com
+    expires: never
+    telemetry_mirror: h#SLOW_SCRIPT_PAGE_COUNT
+
+  script_loading_source:
+    type: labeled_counter
+    description: >
+      Record the input from which the bytes are coming from, for each script in
+      a document.
+
+      This metric was generated to correspond to the Legacy Telemetry
+      categorical histogram DOM_SCRIPT_LOADING_SOURCE.
+    labels:
+      - Inline
+      - SourceFallback
+      - Source
+      - AltData
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1362114
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1362114
+    notification_emails:
+      - nicolas.b.pierron@mozilla.com
+    expires: never
+    telemetry_mirror: h#DOM_SCRIPT_LOADING_SOURCE
+
+  blink_filesystem_used:
+    type: labeled_counter
+    description: >
+      Webkit/Blink filesystem used
+
+      This metric was generated to correspond to the Legacy Telemetry boolean
+      histogram BLINK_FILESYSTEM_USED.
+    labels:
+      - "false"
+      - "true"
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1272501
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1272501
+    notification_emails:
+      - amarchesini@mozilla.com
+    expires: never
+    telemetry_mirror: h#BLINK_FILESYSTEM_USED
+
+  webkit_directory_used:
+    type: labeled_counter
+    description: >
+      HTMLInputElement.webkitdirectory attribute used
+
+      This metric was generated to correspond to the Legacy Telemetry boolean
+      histogram WEBKIT_DIRECTORY_USED.
+    labels:
+      - "false"
+      - "true"
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1272501
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1272501
+    notification_emails:
+      - amarchesini@mozilla.com
+    expires: never
+    telemetry_mirror: h#WEBKIT_DIRECTORY_USED

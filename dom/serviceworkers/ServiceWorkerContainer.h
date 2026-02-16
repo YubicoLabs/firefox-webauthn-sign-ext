@@ -4,14 +4,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_serviceworkercontainer_h__
-#define mozilla_dom_serviceworkercontainer_h__
+#ifndef mozilla_dom_serviceworkercontainer_h_
+#define mozilla_dom_serviceworkercontainer_h_
 
 #include "mozilla/DOMEventTargetHelper.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/dom/ServiceWorkerUtils.h"
 
 class nsIGlobalWindow;
+class nsIPrincipal;
 
 namespace mozilla::dom {
 
@@ -54,7 +55,7 @@ class ServiceWorkerContainer final : public DOMEventTargetHelper {
 
   MOZ_CAN_RUN_SCRIPT already_AddRefed<Promise> Register(
       const TrustedScriptURLOrUSVString& aScriptURL,
-      const RegistrationOptions& aOptions, const CallerType aCallerType,
+      const RegistrationOptions& aOptions, nsIPrincipal* aSubjectPrincipal,
       ErrorResult& aRv);
 
   already_AddRefed<ServiceWorker> GetController();
@@ -117,8 +118,7 @@ class ServiceWorkerContainer final : public DOMEventTargetHelper {
   static Result<Ok, bool> FillInMessageEventInit(JSContext* aCx,
                                                  nsIGlobalObject* aGlobal,
                                                  ReceivedMessage& aMessage,
-                                                 MessageEventInit& aInit,
-                                                 ErrorResult& aRv);
+                                                 MessageEventInit& aInit);
 
   void Shutdown();
 
@@ -142,4 +142,4 @@ class ServiceWorkerContainer final : public DOMEventTargetHelper {
 
 }  // namespace mozilla::dom
 
-#endif /* mozilla_dom_serviceworkercontainer_h__ */
+#endif /* mozilla_dom_serviceworkercontainer_h_ */

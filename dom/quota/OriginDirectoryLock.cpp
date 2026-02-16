@@ -8,7 +8,6 @@
 
 #include <utility>
 
-#include "nsString.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/NotNull.h"
 #include "mozilla/RefPtr.h"
@@ -18,6 +17,7 @@
 #include "mozilla/dom/quota/OriginScope.h"
 #include "mozilla/dom/quota/PersistenceScope.h"
 #include "mozilla/dom/quota/QuotaManager.h"
+#include "nsString.h"
 
 namespace mozilla::dom::quota {
 
@@ -33,7 +33,8 @@ RefPtr<OriginDirectoryLock> OriginDirectoryLock::CreateForEviction(
   return MakeRefPtr<OriginDirectoryLock>(
       std::move(aQuotaManager),
       PersistenceScope::CreateFromValue(aPersistenceType),
-      OriginScope::FromOrigin(aOriginMetadata), Nullable<Client::Type>(),
+      OriginScope::FromOrigin(aOriginMetadata),
+      ClientStorageScope::CreateFromNull(),
       /* aExclusive */ true, /* aInternal */ true,
       ShouldUpdateLockIdTableFlag::No, DirectoryLockCategory::UninitOrigins);
 }

@@ -281,11 +281,24 @@ nsresult nsOSXSystemProxySettings::GetPACURI(nsACString& aResult) {
   NS_OBJC_END_TRY_BLOCK_RETURN(NS_ERROR_FAILURE);
 }
 
+NS_IMETHODIMP nsOSXSystemProxySettings::SetSystemProxyInfo(
+    const nsACString& aHost, int32_t aPort, const nsACString& aPacFileUrl,
+    const nsTArray<nsCString>& aExclusionList) {
+  MOZ_ASSERT(false, "Did not expect to be called on this platform");
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
 nsresult nsOSXSystemProxySettings::GetProxyForURI(const nsACString& aSpec,
                                                   const nsACString& aScheme,
                                                   const nsACString& aHost,
                                                   const int32_t aPort,
                                                   nsACString& aResult) {
+  nsresult rv = mozilla::toolkit::system::GetProxyFromEnvironment(
+      aScheme, aHost, aPort, aResult);
+  if (NS_SUCCEEDED(rv)) {
+    return rv;
+  }
+
   NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
   int32_t proxyPort;
@@ -408,6 +421,13 @@ OSXSystemProxySettingsAsync::GetPACURI(nsACString& aResult) {
 NS_IMETHODIMP
 OSXSystemProxySettingsAsync::GetSystemWPADSetting(bool* aSystemWPADSetting) {
   return nsOSXSystemProxySettings::GetSystemWPADSetting(aSystemWPADSetting);
+}
+
+NS_IMETHODIMP OSXSystemProxySettingsAsync::SetSystemProxyInfo(
+    const nsACString& aHost, int32_t aPort, const nsACString& aPacFileUrl,
+    const nsTArray<nsCString>& aExclusionList) {
+  MOZ_ASSERT(false, "Did not expect to be called on this platform");
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP

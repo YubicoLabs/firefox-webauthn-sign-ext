@@ -3,33 +3,28 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsICanvasRenderingContextInternal_h___
-#define nsICanvasRenderingContextInternal_h___
+#ifndef nsICanvasRenderingContextInternal_h_
+#define nsICanvasRenderingContextInternal_h_
 
 #include "gfxRect.h"
-#include "mozilla/gfx/2D.h"
-#include "nsISupports.h"
-#include "nsIInputStream.h"
-#include "nsIDocShell.h"
-#include "nsRefreshObservers.h"
-#include "nsRFPService.h"
-#include "mozilla/dom/HTMLCanvasElement.h"
-#include "mozilla/dom/OffscreenCanvas.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/NotNull.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/StateWatching.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/NotNull.h"
 #include "mozilla/WeakPtr.h"
+#include "mozilla/dom/HTMLCanvasElement.h"
+#include "mozilla/dom/OffscreenCanvas.h"
+#include "mozilla/gfx/2D.h"
 #include "mozilla/layers/LayersSurfaces.h"
+#include "nsIDocShell.h"
+#include "nsIInputStream.h"
+#include "nsISupports.h"
+#include "nsRefreshObservers.h"
 
-#define NS_ICANVASRENDERINGCONTEXTINTERNAL_IID       \
-  {                                                  \
-    0xb84f2fed, 0x9d4b, 0x430b, {                    \
-      0xbd, 0xfb, 0x85, 0x57, 0x8a, 0xc2, 0xb4, 0x4b \
-    }                                                \
-  }
+#define NS_ICANVASRENDERINGCONTEXTINTERNAL_IID \
+  {0xb84f2fed, 0x9d4b, 0x430b, {0xbd, 0xfb, 0x85, 0x57, 0x8a, 0xc2, 0xb4, 0x4b}}
 
 class nsICookieJarSettings;
 class nsIDocShell;
@@ -41,6 +36,9 @@ class nsDisplayListBuilder;
 class ClientWebGLContext;
 class PresShell;
 class WebGLFramebufferJS;
+namespace ipc {
+class IProtocol;
+}  // namespace ipc
 namespace layers {
 class CanvasRenderer;
 class CompositableForwarder;
@@ -67,7 +65,7 @@ class nsICanvasRenderingContextInternal : public nsISupports,
   using CanvasRenderer = mozilla::layers::CanvasRenderer;
   using WebRenderCanvasData = mozilla::layers::WebRenderCanvasData;
 
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICANVASRENDERINGCONTEXTINTERNAL_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_ICANVASRENDERINGCONTEXTINTERNAL_IID)
 
   nsICanvasRenderingContextInternal();
 
@@ -114,6 +112,7 @@ class nsICanvasRenderingContextInternal : public nsISupports,
 
   // Creates an image buffer. Returns null on failure.
   virtual mozilla::UniquePtr<uint8_t[]> GetImageBuffer(
+      mozilla::CanvasUtils::ImageExtraction aExtractionBehavior,
       int32_t* out_format, mozilla::gfx::IntSize* out_imageSize) = 0;
 
   // Gives you a stream containing the image represented by this context.
@@ -122,9 +121,10 @@ class nsICanvasRenderingContextInternal : public nsISupports,
   // If the image format does not support transparency or includeTransparency
   // is false, alpha will be discarded and the result will be the image
   // composited on black.
-  NS_IMETHOD GetInputStream(const char* mimeType,
-                            const nsAString& encoderOptions,
-                            nsIInputStream** stream) = 0;
+  NS_IMETHOD GetInputStream(
+      const char* mimeType, const nsAString& encoderOptions,
+      mozilla::CanvasUtils::ImageExtraction extractionBehavior,
+      const nsACString& randomizationKey, nsIInputStream** stream) = 0;
 
   // This gets an Azure SourceSurface for the canvas, this will be a snapshot
   // of the canvas at the time it was called.
@@ -138,10 +138,13 @@ class nsICanvasRenderingContextInternal : public nsISupports,
   // provided DrawTarget, which may be nullptr. By default, this will defer to
   // GetSurfaceSnapshot and ignore target-dependent optimization.
   virtual already_AddRefed<mozilla::gfx::SourceSurface> GetOptimizedSnapshot(
-      mozilla::gfx::DrawTarget* aTarget,
-      gfxAlphaType* out_alphaType = nullptr) {
-    return GetSurfaceSnapshot(out_alphaType);
+      mozilla::gfx::DrawTarget* aTarget, gfxAlphaType* out_alphaType = nullptr);
+
+  virtual mozilla::ipc::IProtocol* SupportsSnapshotExternalCanvas() const {
+    return nullptr;
   }
+
+  virtual void SyncSnapshot() {}
 
   virtual RefPtr<mozilla::gfx::SourceSurface> GetFrontBufferSnapshot(bool) {
     return GetSurfaceSnapshot();
@@ -228,13 +231,13 @@ class nsICanvasRenderingContextInternal : public nsISupports,
   bool DispatchEvent(const nsAString& eventName, mozilla::CanBubble aCanBubble,
                      mozilla::Cancelable aIsCancelable) const;
 
+  void RecordCanvasUsage(mozilla::CanvasExtractionAPI aAPI,
+                         mozilla::CSSIntSize size) const;
+
  protected:
   RefPtr<mozilla::dom::HTMLCanvasElement> mCanvasElement;
   RefPtr<mozilla::dom::OffscreenCanvas> mOffscreenCanvas;
   RefPtr<nsRefreshDriver> mRefreshDriver;
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsICanvasRenderingContextInternal,
-                              NS_ICANVASRENDERINGCONTEXTINTERNAL_IID)
-
-#endif /* nsICanvasRenderingContextInternal_h___ */
+#endif /* nsICanvasRenderingContextInternal_h_ */

@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsUnknownDecoder_h__
-#define nsUnknownDecoder_h__
+#ifndef nsUnknownDecoder_h_
+#define nsUnknownDecoder_h_
 
 #include "nsIStreamConverter.h"
 #include "nsIThreadRetargetableStreamListener.h"
@@ -15,12 +15,12 @@
 #include "nsCOMPtr.h"
 #include "nsString.h"
 
-#define NS_UNKNOWNDECODER_CID                        \
-  { /* 7d7008a0-c49a-11d3-9b22-0080c7cb1080 */       \
-    0x7d7008a0, 0xc49a, 0x11d3, {                    \
-      0x9b, 0x22, 0x00, 0x80, 0xc7, 0xcb, 0x10, 0x80 \
-    }                                                \
-  }
+#define NS_UNKNOWNDECODER_CID                 \
+  {/* 7d7008a0-c49a-11d3-9b22-0080c7cb1080 */ \
+   0x7d7008a0,                                \
+   0xc49a,                                    \
+   0x11d3,                                    \
+   {0x9b, 0x22, 0x00, 0x80, 0xc7, 0xcb, 0x10, 0x80}}
 
 class nsUnknownDecoder : public nsIStreamConverter, public nsIContentSniffer {
  public:
@@ -105,10 +105,12 @@ class nsUnknownDecoder : public nsIStreamConverter, public nsIContentSniffer {
   };
 
 #define SNIFFER_ENTRY(_bytes, _type) \
-  { _bytes, sizeof(_bytes) - 1, _type, nullptr }
+  {_bytes, sizeof(_bytes) - 1, _type, nullptr}
 
 #define SNIFFER_ENTRY_WITH_FUNC(_bytes, _func) \
-  { _bytes, sizeof(_bytes) - 1, nullptr, _func }
+  {                                            \
+    _bytes, sizeof(_bytes) - 1, nullptr, _func \
+  }
 
   static nsSnifferEntry sSnifferEntries[];
   static uint32_t sSnifferEntryNum;
@@ -129,12 +131,12 @@ class nsUnknownDecoder : public nsIStreamConverter, public nsIContentSniffer {
   nsCString mDecodedData;  // If data are encoded this will be uncompress data.
 };
 
-#define NS_BINARYDETECTOR_CID                        \
-  { /* a2027ec6-ba0d-4c72-805d-148233f5f33c */       \
-    0xa2027ec6, 0xba0d, 0x4c72, {                    \
-      0x80, 0x5d, 0x14, 0x82, 0x33, 0xf5, 0xf3, 0x3c \
-    }                                                \
-  }
+#define NS_BINARYDETECTOR_CID                 \
+  {/* a2027ec6-ba0d-4c72-805d-148233f5f33c */ \
+   0xa2027ec6,                                \
+   0xba0d,                                    \
+   0x4c72,                                    \
+   {0x80, 0x5d, 0x14, 0x82, 0x33, 0xf5, 0xf3, 0x3c}}
 
 /**
  * Class that detects whether a data stream is text or binary.  This reuses
@@ -147,4 +149,4 @@ class nsBinaryDetector : public nsUnknownDecoder {
   virtual void DetermineContentType(nsIRequest* aRequest) override;
 };
 
-#endif /* nsUnknownDecoder_h__ */
+#endif /* nsUnknownDecoder_h_ */

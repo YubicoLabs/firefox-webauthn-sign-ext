@@ -32,9 +32,13 @@ def do_hg_pull(dir, repository, hg):
         if repository is not None:
             cmd.append(repository)
         check_call_noisy(cmd)
-    check_call(
-        [hg, "parent", "-R", fulldir, "--template=Updated to revision {node}.\n"]
-    )
+    check_call([
+        hg,
+        "parent",
+        "-R",
+        fulldir,
+        "--template=Updated to revision {node}.\n",
+    ])
 
 
 def do_hg_replace(dir, repository, tag, exclusions, hg):
@@ -74,7 +78,7 @@ def toggle_trailing_blank_line(depname):
 
 
 def get_trailing_blank_line_state(depname):
-    lines = open(depname, "r").readlines()
+    lines = open(depname).readlines()
     if not lines:
         print("unexpected short file", file=sys.stderr)
         return "no blank line"

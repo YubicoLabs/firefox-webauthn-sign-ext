@@ -53,10 +53,16 @@ def executor_kwargs(logger, test_type, test_environment, run_info_data, **kwargs
     browser_bundle_version = run_info_data["browser_bundle_version"]
     if (browser_bundle_version is not None and
         Version(browser_bundle_version[2:]) >= Version("613.1.7.1")):
-        logger.debug("using acceptInsecureCerts=True")
         executor_kwargs["capabilities"]["acceptInsecureCerts"] = True
     else:
         logger.warning("not using acceptInsecureCerts, Safari will require certificates to be trusted")
+
+    if (browser_bundle_version is not None and
+        Version(browser_bundle_version[2:]) >= Version("622.1.17")):
+        executor_kwargs["capabilities"]["webkit:alwaysAllowAutoplay"] = True
+    else:
+        logger.warning("not using webkit:alwaysAllowAutoplay, " +
+                       "Safari will require all autoplay for all WPT domains to be allowed")
 
     return executor_kwargs
 
@@ -123,8 +129,8 @@ def get_safari_info(wd_path):
 
 def get_webkit_info(safari_bundle_path):
     framework_paths = [
-        os.path.join(os.path.dirname(safari_bundle_path), "Contents", "Frameworks"),  # bundled Safari (e.g. STP)
-        os.path.join(os.path.dirname(safari_bundle_path), ".."),  # local Safari build
+        os.path.join(os.path.normpath(safari_bundle_path), "Contents", "Frameworks"),  # bundled Safari (e.g. STP)
+        os.path.join(os.path.normpath(safari_bundle_path), ".."),  # local Safari build
         "/System/Library/PrivateFrameworks",
         "/Library/Frameworks",
         "/System/Library/Frameworks",
@@ -146,24 +152,19 @@ class SafariBrowser(WebDriverBrowser):
     """Safari is backed by safaridriver, which is supplied through
     ``wptrunner.webdriver.SafariDriverServer``.
     """
-    def __init__(self, logger, binary=None, webdriver_binary=None, webdriver_args=None,
-                 port=None, env=None, kill_safari=False, **kwargs):
+    def __init__(self, logger, kill_safari=False, **kwargs):
         """Creates a new representation of Safari.  The `webdriver_binary`
         argument gives the WebDriver binary to use for testing. (The browser
         binary location cannot be specified, as Safari and SafariDriver are
         coupled.) If `kill_safari` is True, then `Browser.stop` will stop Safari."""
         super().__init__(logger,
-                         binary,
-                         webdriver_binary,
-                         webdriver_args=webdriver_args,
-                         port=None,
                          supports_pac=False,
-                         env=env)
+                         **kwargs)
 
-        if "/" not in webdriver_binary:
-            wd_path = which(webdriver_binary)
+        if "/" not in self.webdriver_binary:
+            wd_path = which(self.webdriver_binary)
         else:
-            wd_path = webdriver_binary
+            wd_path = self.webdriver_binary
         self.safari_path = self._find_safari_executable(wd_path)
 
         logger.debug("WebDriver executable path: %s" % wd_path)

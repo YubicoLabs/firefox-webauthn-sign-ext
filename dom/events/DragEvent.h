@@ -7,9 +7,9 @@
 #ifndef mozilla_dom_DragEvent_h_
 #define mozilla_dom_DragEvent_h_
 
-#include "mozilla/dom/MouseEvent.h"
-#include "mozilla/dom/DragEventBinding.h"
 #include "mozilla/EventForwards.h"
+#include "mozilla/dom/DragEventBinding.h"
+#include "mozilla/dom/MouseEvent.h"
 
 namespace mozilla::dom {
 
@@ -46,9 +46,6 @@ class DragEvent : public MouseEvent {
   static already_AddRefed<DragEvent> Constructor(const GlobalObject& aGlobal,
                                                  const nsAString& aType,
                                                  const DragEventInit& aParam);
-
- private:
-  bool mImageInputTelemetryCollected = false;
 
  protected:
   ~DragEvent() = default;

@@ -31,7 +31,7 @@ const OBSERVER_TOPIC_RESOURCE_CACHE_RESPONSE =
  * };
  * ```
  *
- * @fires cached-resource-sent
+ * @fires CachedResourceListener#"cached-resource-sent"
  *    The CachedResourceListener emits "cached-resource-sent" event with the
  *    following object as payload:
  *      - {nsIHttpChannel} channel
@@ -71,8 +71,9 @@ export class CachedResourceListener {
         const id = lazy.NetworkUtils.getChannelBrowsingContextID(channel);
         const browsingContext = BrowsingContext.get(id);
 
-        // Send the event only if the notification comes for observed context.
-        if (this.#context === browsingContext) {
+        // Send the event only if the notification comes for the observed
+        // context.
+        if (browsingContext === this.#context) {
           this.emit("cached-resource-sent", {
             channel,
           });

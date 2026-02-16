@@ -5,6 +5,11 @@ support-files = [
   "CatBackgroundTaskRegistrationComponents.manifest",
   "bug451678_subscript.js",
   "environment_script.js",
+  "file_envChain_subscript.js",
+  "file_envChain_subscript_unique_target.js",
+  "file_envChain_subscript_unique_no_target.js",
+  "file_envChain_subscript_non_unique_target.js",
+  "file_envChain_subscript_non_unique_no_target.js",
   "file_simple_script.js",
   "ReturnCodeChild.sys.mjs",
   "es6module.js",
@@ -189,7 +194,9 @@ support-files = [
 ["test_defineESModuleGetters_options.js"]
 
 ["test_defineESModuleGetters_options_worker.js"]
-skip-if = ["os == 'android'"]
+skip-if = [
+  "os == 'android' && os_version == '14' && arch == 'x86_64'",
+]
 
 ["test_envChain_frameScript.js"]
 
@@ -204,7 +211,6 @@ skip-if = ["os == 'android'"]
 ["test_exportFunction.js"]
 
 ["test_file2.js"]
-skip-if = ["os == 'android' && processor == 'x86_64'"]
 
 ["test_fileReader.js"]
 
@@ -215,6 +221,8 @@ skip-if = ["os == 'android' && processor == 'x86_64'"]
 ["test_getCallerLocation.js"]
 
 ["test_getObjectPrincipal.js"]
+
+["test_import_data.js"]
 
 ["test_import_devtools_loader.js"]
 
@@ -227,20 +235,25 @@ skip-if = ["os == 'android' && processor == 'x86_64'"]
 ["test_import_global_contextual.js"]
 
 ["test_import_global_contextual_worker.js"]
-skip-if = ["os == 'android'"]
+skip-if = [
+  "os == 'android' && os_version == '14' && arch == 'x86_64'",
+]
 
 ["test_import_global_current.js"]
 
 ["test_import_global_current_worker.js"]
-skip-if = ["os == 'android'"]
+skip-if = [
+  "os == 'android' && os_version == '14' && arch == 'x86_64'",
+]
 
 ["test_import_global_worker.js"]
-skip-if = ["os == 'android'"]
+skip-if = [
+  "os == 'android' && os_version == '14' && arch == 'x86_64'",
+]
 
 ["test_import_stack.js"]
 skip-if = [
   "!nightly_build",
-  "!debug",
 ]
 
 ["test_isProxy.js"]
@@ -250,9 +263,6 @@ skip-if = [
 ["test_js_weak_references.js"]
 
 ["test_json_parse_with_source.js"]
-prefs = [
-  "javascript.options.experimental.json_parse_with_source=true",
-]
 
 ["test_loadedESModules.js"]
 
@@ -264,11 +274,15 @@ prefs = [
 
 ["test_messageChannel.js"]
 
+["test_new_document_wrapper_preservation.js"]
+
 ["test_nuke_sandbox.js"]
 
 ["test_nuke_sandbox_event_listeners.js"]
 
 ["test_nuke_webextension_wrappers.js"]
+# bug 1865028
+skip-if = ["true"]
 
 ["test_onGarbageCollection-01.js"]
 head = "head_ongc.js"
@@ -330,6 +344,11 @@ skip-if = [
 
 ["test_tearoffs.js"]
 
+["test_telemetry.js"]
+prefs = [
+  "javascript.options.experimental.self_hosted_cache=true",
+]
+
 ["test_textDecoder.js"]
 
 ["test_uawidget_scope.js"]
@@ -340,14 +359,15 @@ skip-if = [
 
 ["test_wasm_jspi_profiler.js"]
 skip-if = [
-  "tsan",
   "!nightly_build",
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && tsan",
 ]
 
 ["test_wasm_tailcalls_profiler.js"]
+requesttimeoutfactor = 3  # Slow on Windows
 skip-if = [
-  "tsan",
   "!nightly_build",
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && tsan",
 ]
 
 ["test_watchdog_default.js"]

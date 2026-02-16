@@ -7,9 +7,9 @@
 const {
   createFactory,
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   connect,
 } = require("resource://devtools/client/shared/vendor/react-redux.js");
@@ -132,7 +132,7 @@ class ChangesApp extends PureComponent {
    *
    * @param  {Array} selectors
    *         List of strings as versions of this rule's selector over time.
-   * @param  {Boolean} isNewRule
+   * @param  {boolean} isNewRule
    *         Whether the rule was created at runtime.
    * @return {Array}
    */

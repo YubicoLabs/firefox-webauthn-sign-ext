@@ -36,13 +36,10 @@ class gfxPlatformGtk final : public gfxPlatform {
                        nsTArray<nsString>& aListOfFonts) override;
 
   void GetCommonFallbackFonts(uint32_t aCh, Script aRunScript,
-                              eFontPresentation aPresentation,
+                              FontPresentation aPresentation,
                               nsTArray<const char*>& aFontList) override;
 
   bool CreatePlatformFontList() override;
-
-  static int32_t GetFontScaleDPI();
-  static double GetFontScaleFactor();
 
   gfxImageFormat GetOffscreenFormat() override;
 
@@ -68,9 +65,10 @@ class gfxPlatformGtk final : public gfxPlatform {
   void InitAcceleration() override;
   void InitX11EGLConfig();
   void InitDmabufConfig();
-  bool InitVAAPIConfig(bool aForceEnabledByUser);
+  void InitPlatformHardwareVideoConfig() override;
   void InitPlatformGPUProcessPrefs() override;
   void InitWebRenderConfig() override;
+  void InitMesaThreading();
   void BuildContentDeviceData(mozilla::gfx::ContentDeviceData* aOut) override;
 
  private:

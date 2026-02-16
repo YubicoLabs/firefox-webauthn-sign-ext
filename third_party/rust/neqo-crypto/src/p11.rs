@@ -4,14 +4,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(dead_code)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-
 use std::{
     cell::RefCell,
-    ops::{Deref, DerefMut},
+    fmt::{self, Debug, Formatter},
+    ops::Deref,
     os::raw::c_uint,
     ptr::null_mut,
     slice::Iter as SliceIter,
@@ -24,7 +20,19 @@ use crate::{
     null_safe_slice,
 };
 
-#[allow(clippy::unreadable_literal)]
+#[allow(
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::needless_raw_strings,
+    clippy::derive_partial_eq_without_eq,
+    dead_code,
+    non_snake_case,
+    non_upper_case_globals,
+    non_camel_case_types,
+    clippy::unreadable_literal,
+    clippy::use_self,
+    reason = "For included bindgen code."
+)]
 mod nss_p11 {
     include!(concat!(env!("OUT_DIR"), "/nss_p11.rs"));
 }
@@ -44,6 +52,11 @@ macro_rules! scoped_ptr {
             /// # Errors
             ///
             /// When passed a null pointer generates an error.
+            #[allow(
+                clippy::allow_attributes,
+                dead_code,
+                reason = "False positive; is used in code calling the macro."
+            )]
             pub fn from_ptr(ptr: *mut $target) -> Result<Self, $crate::err::Error> {
                 if ptr.is_null() {
                     Err($crate::err::Error::last_nss_error())
@@ -55,15 +68,8 @@ macro_rules! scoped_ptr {
 
         impl Deref for $scoped {
             type Target = *mut $target;
-            #[must_use]
             fn deref(&self) -> &*mut $target {
                 &self.ptr
-            }
-        }
-
-        impl DerefMut for $scoped {
-            fn deref_mut(&mut self) -> &mut *mut $target {
-                &mut self.ptr
             }
         }
 
@@ -95,7 +101,7 @@ impl PublicKey {
             PK11_HPKE_Serialize(
                 **self,
                 buf.as_mut_ptr(),
-                &mut len,
+                &raw mut len,
                 c_uint::try_from(buf.len())?,
             )
         })?;
@@ -105,7 +111,6 @@ impl PublicKey {
 }
 
 impl Clone for PublicKey {
-    #[must_use]
     fn clone(&self) -> Self {
         let ptr = unsafe { SECKEY_CopyPublicKey(self.ptr) };
         assert!(!ptr.is_null());
@@ -113,8 +118,8 @@ impl Clone for PublicKey {
     }
 }
 
-impl std::fmt::Debug for PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl Debug for PublicKey {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if let Ok(b) = self.key_data() {
             write!(f, "PublicKey {}", hex_with_len(b))
         } else {
@@ -143,7 +148,7 @@ impl PrivateKey {
                 PK11ObjectType::PK11_TypePrivKey,
                 (**self).cast(),
                 CK_ATTRIBUTE_TYPE::from(CKA_VALUE),
-                &mut key_item,
+                &raw mut key_item,
             )
         })?;
         let slc = unsafe { null_safe_slice(key_item.data, key_item.len) };
@@ -152,7 +157,7 @@ impl PrivateKey {
         // use the scoped `Item` implementation.  This is OK as long as nothing
         // panics between `PK11_ReadRawAttribute` succeeding and here.
         unsafe {
-            SECITEM_FreeItem(&mut key_item, PRBool::from(false));
+            SECITEM_FreeItem(&raw mut key_item, PRBool::from(false));
         }
         Ok(key)
     }
@@ -160,7 +165,6 @@ impl PrivateKey {
 unsafe impl Send for PrivateKey {}
 
 impl Clone for PrivateKey {
-    #[must_use]
     fn clone(&self) -> Self {
         let ptr = unsafe { SECKEY_CopyPrivateKey(self.ptr) };
         assert!(!ptr.is_null());
@@ -168,8 +172,8 @@ impl Clone for PrivateKey {
     }
 }
 
-impl std::fmt::Debug for PrivateKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl Debug for PrivateKey {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if let Ok(b) = self.key_data() {
             write!(f, "PrivateKey {}", hex_with_len(b))
         } else {
@@ -201,14 +205,13 @@ impl SymKey {
         let key_item = unsafe { PK11_GetKeyData(self.ptr) };
         // This is accessing a value attached to the key, so we can treat this as a borrow.
         match unsafe { key_item.as_mut() } {
-            None => Err(Error::InternalError),
+            None => Err(Error::Internal),
             Some(key) => Ok(unsafe { null_safe_slice(key.data, key.len) }),
         }
     }
 }
 
 impl Clone for SymKey {
-    #[must_use]
     fn clone(&self) -> Self {
         let ptr = unsafe { PK11_ReferenceSymKey(self.ptr) };
         assert!(!ptr.is_null());
@@ -216,13 +219,19 @@ impl Clone for SymKey {
     }
 }
 
-impl std::fmt::Debug for SymKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl Debug for SymKey {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if let Ok(b) = self.as_bytes() {
             write!(f, "SymKey {}", hex_with_len(b))
         } else {
             write!(f, "Opaque SymKey")
         }
+    }
+}
+
+impl Default for SymKey {
+    fn default() -> Self {
+        Self { ptr: null_mut() }
     }
 }
 
@@ -247,25 +256,25 @@ impl Item {
     /// Creating this object is technically safe, but using it is extremely dangerous.
     /// Minimally, it can only be passed as a `const SECItem*` argument to functions,
     /// or those that treat their argument as `const`.
-    pub fn wrap(buf: &[u8]) -> SECItem {
-        SECItem {
+    pub fn wrap(buf: &[u8]) -> Res<SECItem> {
+        Ok(SECItem {
             type_: SECItemType::siBuffer,
             data: buf.as_ptr().cast_mut(),
-            len: c_uint::try_from(buf.len()).unwrap(),
-        }
+            len: c_uint::try_from(buf.len())?,
+        })
     }
 
     /// Create a wrapper for a struct.
     /// Creating this object is technically safe, but using it is extremely dangerous.
     /// Minimally, it can only be passed as a `const SECItem*` argument to functions,
     /// or those that treat their argument as `const`.
-    pub fn wrap_struct<T>(v: &T) -> SECItem {
+    pub fn wrap_struct<T>(v: &T) -> Res<SECItem> {
         let data: *const T = v;
-        SECItem {
+        Ok(SECItem {
             type_: SECItemType::siBuffer,
             data: data.cast_mut().cast(),
-            len: c_uint::try_from(std::mem::size_of::<T>()).unwrap(),
-        }
+            len: c_uint::try_from(size_of::<T>())?,
+        })
     }
 
     /// Make an empty `SECItem` for passing as a mutable `SECItem*` argument.
@@ -275,20 +284,6 @@ impl Item {
             data: null_mut(),
             len: 0,
         }
-    }
-
-    /// This dereferences the pointer held by the item and makes a copy of the
-    /// content that is referenced there.
-    ///
-    /// # Safety
-    ///
-    /// This dereferences two pointers.  It doesn't get much less safe.
-    pub unsafe fn into_vec(self) -> Vec<u8> {
-        let b = self.ptr.as_ref().unwrap();
-        // Sanity check the type, as some types don't count bytes in `Item::len`.
-        assert_eq!(b.type_, SECItemType::siBuffer);
-        let slc = null_safe_slice(b.data, b.len);
-        Vec::from(slc)
     }
 }
 
@@ -348,8 +343,8 @@ pub fn randomize<B: AsMut<[u8]>>(mut buf: B) -> B {
 #[cfg(not(feature = "disable-random"))]
 pub fn randomize<B: AsMut<[u8]>>(mut buf: B) -> B {
     let m_buf = buf.as_mut();
-    let len = std::os::raw::c_int::try_from(m_buf.len()).unwrap();
-    secstatus_to_res(unsafe { PK11_GenerateRandom(m_buf.as_mut_ptr(), len) }).unwrap();
+    let len = std::os::raw::c_int::try_from(m_buf.len()).expect("usize fits into c_int");
+    secstatus_to_res(unsafe { PK11_GenerateRandom(m_buf.as_mut_ptr(), len) }).expect("NSS failed");
     buf
 }
 
@@ -362,6 +357,8 @@ impl RandomCache {
     const SIZE: usize = 256;
     const CUTOFF: usize = 32;
 
+    // Const constructor for compile-time initialization in thread_local!.
+    // Cannot derive Default because `used` must be SIZE, not 0.
     const fn new() -> Self {
         Self {
             cache: [0; Self::SIZE],
@@ -406,11 +403,14 @@ pub fn random<const N: usize>() -> [u8; N] {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod test {
+    use std::ptr::null_mut;
+
     use test_fixture::fixture_init;
 
     use super::RandomCache;
-    use crate::random;
+    use crate::{random, PrivateKey, PublicKey};
 
     #[cfg(not(feature = "disable-random"))]
     #[test]
@@ -446,5 +446,40 @@ mod test {
                 assert_ne!(&cache.randomize(&mut buf[..len])[..len], &ZERO[..len]);
             }
         }
+    }
+
+    #[test]
+    fn key_operations() {
+        use crate::ech::generate_keys;
+
+        fixture_init();
+        let (sk, pk) = generate_keys().unwrap();
+
+        // Test key_data serialization - X25519 keys are 32 bytes
+        assert_eq!(pk.key_data().unwrap().len(), 32);
+
+        // Test Debug formatting
+        let pk_dbg = format!("{pk:?}");
+        assert_eq!(&pk_dbg[..9], "PublicKey");
+        let sk_dbg = format!("{sk:?}");
+        // Private key debug output depends on whether key extraction is allowed by NSS.
+        // It could be either "PrivateKey [hex]" or "Opaque PrivateKey".
+        assert!(
+            sk_dbg.starts_with("PrivateKey") || sk_dbg.starts_with("Opaque"),
+            "unexpected private key debug format: {sk_dbg}"
+        );
+
+        // Test cloning
+        let pk2 = pk.clone();
+        let sk2 = sk.clone();
+        assert_eq!(pk.key_data().unwrap(), pk2.key_data().unwrap());
+        assert_eq!(format!("{sk:?}"), format!("{sk2:?}"));
+    }
+
+    #[test]
+    fn null_pointer_error() {
+        fixture_init();
+        assert!(PublicKey::from_ptr(null_mut()).is_err());
+        assert!(PrivateKey::from_ptr(null_mut()).is_err());
     }
 }

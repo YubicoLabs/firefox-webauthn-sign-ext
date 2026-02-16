@@ -4,16 +4,14 @@
 
 import org.apache.tools.ant.filters.ReplaceTokens
 
+plugins {
+    alias(libs.plugins.dependency.analysis)
+}
+
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 android {
-    defaultConfig {
-        minSdkVersion config.minSdkVersion
-        compileSdk config.compileSdkVersion
-        targetSdkVersion config.targetSdkVersion
-    }
-
     sourceSets {
         main {
             assets {
@@ -22,14 +20,7 @@ android {
         }
     }
 
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-        }
-    }
-
-    namespace 'mozilla.components.feature.webcompat'
+    namespace = 'mozilla.components.feature.webcompat'
 }
 
 // We copy the webcompat extension from `browser/extensions/webcompat/` to
@@ -60,22 +51,27 @@ tasks.register("syncWebcompatExtension", Sync) {
     }
 }
 
-dependencies {
-    implementation project(':concept-engine')
-
-    implementation libs.androidx.core.ktx
-
-    implementation libs.kotlin.coroutines
-
-    testImplementation project(':support-test')
-    testImplementation project(':support-webextensions')
-    testImplementation libs.androidx.test.core
-    testImplementation libs.androidx.test.junit
-    testImplementation libs.testing.robolectric
-    testImplementation libs.testing.coroutines
+// Make sure DAGP asset-source exploding happens after syncWebcompatExtension
+tasks.matching { it.name.startsWith("explodeAssetSource") }.configureEach { t ->
+    t.dependsOn(tasks.named("syncWebcompatExtension"))
 }
 
-apply from: '../../../android-lint.gradle'
+dependencies {
+    implementation project(':components:concept-engine')
+
+    implementation libs.androidx.core.ktx
+    implementation libs.kotlinx.coroutines
+
+    testImplementation project(':components:support-test')
+    testImplementation project(':components:support-webextensions')
+
+    testImplementation libs.androidx.test.core
+    testImplementation libs.androidx.test.junit
+    testImplementation libs.kotlinx.coroutines.test
+    testImplementation libs.robolectric
+}
+
+apply from: '../../../common-config.gradle'
 apply from: '../../../publish.gradle'
 ext.configurePublish(config.componentsGroupId, project.name, project.ext.description)
 preBuild.dependsOn syncWebcompatExtension

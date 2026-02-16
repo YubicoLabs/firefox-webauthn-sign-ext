@@ -30,14 +30,13 @@
 #include <sstream>
 #include <vector>
 
-#include "pk11pub.h"
-#include "prerror.h"
-#include "secmodt.h"
-
 #include "BigEndian.h"
 #include "ClearKeyBase64.h"
 #include "mozilla/Sprintf.h"
+#include "pk11pub.h"
+#include "prerror.h"
 #include "psshparser/PsshParser.h"
+#include "secmodt.h"
 
 using namespace cdm;
 using std::string;
@@ -122,8 +121,8 @@ bool ClearKeyUtils::DecryptCbcs(const vector<uint8_t>& aKey,
     return false;
   }
 
-  SECItem keyItem = {siBuffer, (unsigned char*)&aKey[0], CENC_KEY_LEN};
-  SECItem ivItem = {siBuffer, (unsigned char*)&aIV[0], CENC_KEY_LEN};
+  SECItem keyItem = {siBuffer, (unsigned char*)aKey.data(), CENC_KEY_LEN};
+  SECItem ivItem = {siBuffer, (unsigned char*)aIV.data(), CENC_KEY_LEN};
 
   std::unique_ptr<PK11SymKey, MaybeDeleteHelper<PK11SymKey>> key(
       PK11_ImportSymKey(slot.get(), CKM_AES_CBC, PK11_OriginUnwrap, CKA_DECRYPT,
@@ -145,10 +144,10 @@ bool ClearKeyUtils::DecryptCbcs(const vector<uint8_t>& aKey,
   assert(aCryptByteBlock <= 0xFF);
   assert(aSkipByteBlock <= 0xFF);
 
-  uint8_t* encryptedSubsample = &aSubsample[0];
+  uint8_t* encryptedSubsample = aSubsample.data();
   const uint32_t BLOCK_SIZE = 16;
   const uint32_t skipBytes = aSkipByteBlock * BLOCK_SIZE;
-  const uint32_t totalBlocks = aSubsample.Length() / BLOCK_SIZE;
+  const uint32_t totalBlocks = aSubsample.size() / BLOCK_SIZE;
   uint32_t blocksProcessed = 0;
 
   if (aSkipByteBlock == 0) {
@@ -189,8 +188,10 @@ bool ClearKeyUtils::DecryptCbcs(const vector<uint8_t>& aKey,
 /* static */
 bool ClearKeyUtils::DecryptAES(const vector<uint8_t>& aKey,
                                vector<uint8_t>& aData, vector<uint8_t>& aIV) {
-  assert(aIV.size() == CENC_KEY_LEN);
-  assert(aKey.size() == CENC_KEY_LEN);
+  if (aKey.size() != CENC_KEY_LEN || aIV.size() != CENC_KEY_LEN) {
+    CK_LOGE("Key and IV size should be 16!");
+    return false;
+  }
 
   PK11SlotInfo* slot = PK11_GetInternalKeySlot();
   if (!slot) {
@@ -198,7 +199,7 @@ bool ClearKeyUtils::DecryptAES(const vector<uint8_t>& aKey,
     return false;
   }
 
-  SECItem keyItem = {siBuffer, (unsigned char*)&aKey[0], CENC_KEY_LEN};
+  SECItem keyItem = {siBuffer, (unsigned char*)aKey.data(), CENC_KEY_LEN};
   PK11SymKey* key = PK11_ImportSymKey(slot, CKM_AES_CTR, PK11_OriginUnwrap,
                                       CKA_ENCRYPT, &keyItem, nullptr);
   PK11_FreeSlot(slot);
@@ -209,13 +210,13 @@ bool ClearKeyUtils::DecryptAES(const vector<uint8_t>& aKey,
 
   CK_AES_CTR_PARAMS params;
   params.ulCounterBits = 32;
-  memcpy(&params.cb, &aIV[0], CENC_KEY_LEN);
+  memcpy(&params.cb, aIV.data(), CENC_KEY_LEN);
   SECItem paramItem = {siBuffer, (unsigned char*)&params,
                        sizeof(CK_AES_CTR_PARAMS)};
 
   unsigned int outLen = 0;
-  auto rv = PK11_Decrypt(key, CKM_AES_CTR, &paramItem, &aData[0], &outLen,
-                         aData.size(), &aData[0], aData.size());
+  auto rv = PK11_Decrypt(key, CKM_AES_CTR, &paramItem, aData.data(), &outLen,
+                         aData.size(), aData.data(), aData.size());
 
   aData.resize(outLen);
   PK11_FreeSymKey(key);

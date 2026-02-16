@@ -4,9 +4,7 @@
  */
 
 /*---
-includes: [deepEqual.js, sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
+includes: [deepEqual.js]
 description: |
   pending
 esid: pending

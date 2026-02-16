@@ -22,6 +22,8 @@ using namespace mozilla;
 
 #define MAX_NOTIFICATION_NAME_LEN 5000
 
+static constexpr nsLiteralString kActionSuffix = u"-moz"_ns;
+
 @interface mozNotificationCenterDelegate
     : NSObject <NSUserNotificationCenterDelegate> {
   OSXNotificationCenter* mOSXNC;
@@ -44,14 +46,8 @@ using namespace mozilla;
 
 - (void)userNotificationCenter:(NSUserNotificationCenter*)center
        didActivateNotification:(NSUserNotification*)notification {
-  unsigned long long additionalActionIndex = ULLONG_MAX;
-  if ([notification respondsToSelector:@selector(_alternateActionIndex)]) {
-    NSNumber* alternateActionIndex =
-        [(NSObject*)notification valueForKey:@"_alternateActionIndex"];
-    additionalActionIndex = [alternateActionIndex unsignedLongLongValue];
-  }
   mOSXNC->OnActivate([[notification userInfo] valueForKey:@"name"],
-                     notification.activationType, additionalActionIndex,
+                     notification.activationType,
                      notification.additionalActivationAction);
 }
 
@@ -82,11 +78,6 @@ using namespace mozilla;
 
 namespace mozilla {
 
-enum {
-  OSXNotificationActionDisable = 0,
-  OSXNotificationActionSettings = 1,
-};
-
 class OSXNotificationInfo final : public nsISupports {
  private:
   virtual ~OSXNotificationInfo();
@@ -100,8 +91,6 @@ class OSXNotificationInfo final : public nsISupports {
   nsCOMPtr<nsIAlertNotification> mAlertNotification;
   nsCOMPtr<nsIObserver> mObserver;
   nsString mCookie;
-  RefPtr<nsICancelable> mIconRequest;
-  NSUserNotification* mPendingNotification;
 };
 
 NS_IMPL_ISUPPORTS0(OSXNotificationInfo)
@@ -116,7 +105,6 @@ OSXNotificationInfo::OSXNotificationInfo(
   mAlertNotification = aAlertNotification;
   mObserver = observer;
   mCookie = alertCookie;
-  mPendingNotification = nil;
 
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
@@ -125,7 +113,6 @@ OSXNotificationInfo::~OSXNotificationInfo() {
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
   [mName release];
-  [mPendingNotification release];
 
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
@@ -158,8 +145,8 @@ OSXNotificationCenter::~OSXNotificationCenter() {
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
 
-NS_IMPL_ISUPPORTS(OSXNotificationCenter, nsIAlertsService, nsIAlertsIconData,
-                  nsIAlertsDoNotDisturb, nsIAlertNotificationImageListener)
+NS_IMPL_ISUPPORTS(OSXNotificationCenter, nsIAlertsService,
+                  nsIAlertsDoNotDisturb)
 
 nsresult OSXNotificationCenter::Init() {
   NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
@@ -171,37 +158,8 @@ nsresult OSXNotificationCenter::Init() {
 }
 
 NS_IMETHODIMP
-OSXNotificationCenter::ShowAlertNotification(
-    const nsAString& aImageUrl, const nsAString& aAlertTitle,
-    const nsAString& aAlertText, bool aAlertTextClickable,
-    const nsAString& aAlertCookie, nsIObserver* aAlertListener,
-    const nsAString& aAlertName, const nsAString& aBidi, const nsAString& aLang,
-    const nsAString& aData, nsIPrincipal* aPrincipal, bool aInPrivateBrowsing,
-    bool aRequireInteraction) {
-  nsCOMPtr<nsIAlertNotification> alert =
-      do_CreateInstance(ALERT_NOTIFICATION_CONTRACTID);
-  NS_ENSURE_TRUE(alert, NS_ERROR_FAILURE);
-  // vibrate is unused for now
-  nsTArray<uint32_t> vibrate;
-  nsresult rv = alert->Init(aAlertName, aImageUrl, aAlertTitle, aAlertText,
-                            aAlertTextClickable, aAlertCookie, aBidi, aLang,
-                            aData, aPrincipal, aInPrivateBrowsing,
-                            aRequireInteraction, false, vibrate);
-  NS_ENSURE_SUCCESS(rv, rv);
-  return ShowAlert(alert, aAlertListener);
-}
-
-NS_IMETHODIMP
 OSXNotificationCenter::ShowAlert(nsIAlertNotification* aAlert,
                                  nsIObserver* aAlertListener) {
-  return ShowAlertWithIconData(aAlert, aAlertListener, 0, nullptr);
-}
-
-NS_IMETHODIMP
-OSXNotificationCenter::ShowAlertWithIconData(nsIAlertNotification* aAlert,
-                                             nsIObserver* aAlertListener,
-                                             uint32_t aIconSize,
-                                             const uint8_t* aIconData) {
   NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
   NS_ENSURE_ARG(aAlert);
@@ -211,7 +169,7 @@ OSXNotificationCenter::ShowAlertWithIconData(nsIAlertNotification* aAlert,
   }
 
   Class unClass = NSClassFromString(@"NSUserNotification");
-  NSUserNotification* notification = [[unClass alloc] init];
+  NSUserNotification* notification = [[[unClass alloc] init] autorelease];
 
   nsAutoString title;
   nsresult rv = aAlert->GetTitle(title);
@@ -243,53 +201,12 @@ OSXNotificationCenter::ShowAlertWithIconData(nsIAlertNotification* aAlert,
   bool isSilent;
   aAlert->GetSilent(&isSilent);
   notification.soundName = isSilent ? nil : NSUserNotificationDefaultSoundName;
-  notification.hasActionButton = NO;
 
-  // If this is not an application/extension alert, show additional actions
-  // dealing with permissions.
-  bool isActionable;
-  if (bundle && NS_SUCCEEDED(aAlert->GetActionable(&isActionable)) &&
-      isActionable) {
-    nsAutoString closeButtonTitle, actionButtonTitle, disableButtonTitle,
-        settingsButtonTitle;
-    bundle->GetStringFromName("closeButton.title", closeButtonTitle);
-    bundle->GetStringFromName("actionButton.label", actionButtonTitle);
-    if (!hostPort.IsEmpty()) {
-      AutoTArray<nsString, 1> formatStrings = {hostPort};
-      bundle->FormatStringFromName("webActions.disableForOrigin.label",
-                                   formatStrings, disableButtonTitle);
-    }
-    bundle->GetStringFromName("webActions.settings.label", settingsButtonTitle);
-
-    notification.otherButtonTitle = nsCocoaUtils::ToNSString(closeButtonTitle);
-
-    // OS X 10.8 only shows action buttons if the "Alerts" style is set in
-    // Notification Center preferences, and doesn't support the alternate
-    // action menu.
-    if ([notification respondsToSelector:@selector(set_showsButtons:)] &&
-        [notification
-            respondsToSelector:@selector(set_alwaysShowAlternateActionMenu:)] &&
-        [notification
-            respondsToSelector:@selector(set_alternateActionButtonTitles:)]) {
-      notification.hasActionButton = YES;
-      notification.actionButtonTitle =
-          nsCocoaUtils::ToNSString(actionButtonTitle);
-
-      [(NSObject*)notification setValue:@(YES) forKey:@"_showsButtons"];
-      [(NSObject*)notification setValue:@(YES)
-                                 forKey:@"_alwaysShowAlternateActionMenu"];
-      [(NSObject*)notification setValue:@[
-        nsCocoaUtils::ToNSString(disableButtonTitle),
-        nsCocoaUtils::ToNSString(settingsButtonTitle)
-      ]
-                                 forKey:@"_alternateActionButtonTitles"];
-    }
-  }
+  NSMutableArray* additionalActions = [[NSMutableArray alloc] init];
 
   nsTArray<RefPtr<nsIAlertAction>> actions;
   MOZ_TRY(aAlert->GetActions(actions));
 
-  NSMutableArray* additionalActions = [[NSMutableArray alloc] init];
   for (const RefPtr<nsIAlertAction>& action : actions) {
     nsAutoString actionName;
     MOZ_TRY(action->GetAction(actionName));
@@ -297,14 +214,48 @@ OSXNotificationCenter::ShowAlertWithIconData(nsIAlertNotification* aAlert,
     nsAutoString actionTitle;
     MOZ_TRY(action->GetTitle(actionTitle));
 
-    NSString* actionNameNS = nsCocoaUtils::ToNSString(actionName);
+    // Add suffix to prevent potential collision with keywords like "settings"
+    NSString* actionNameNS =
+        nsCocoaUtils::ToNSString(actionName + kActionSuffix);
     NSString* actionTitleNS = nsCocoaUtils::ToNSString(actionTitle);
     NSUserNotificationAction* notificationAction =
         [NSUserNotificationAction actionWithIdentifier:actionNameNS
                                                  title:actionTitleNS];
     [additionalActions addObject:notificationAction];
   }
+
+  // If this is not an application/extension alert, show additional actions
+  // dealing with permissions.
+  bool isActionable;
+  if (bundle && NS_SUCCEEDED(aAlert->GetActionable(&isActionable)) &&
+      isActionable) {
+    nsAutoString disableButtonTitle;
+    if (!hostPort.IsEmpty()) {
+      AutoTArray<nsString, 1> formatStrings = {hostPort};
+      bundle->FormatStringFromName("webActions.disableForOrigin.label",
+                                   formatStrings, disableButtonTitle);
+    }
+
+    nsAutoString settingsButtonTitle;
+    bundle->GetStringFromName("webActions.settings.label", settingsButtonTitle);
+
+    NSString* actionNameNS = nsCocoaUtils::ToNSString(kAlertActionDisable);
+    NSString* actionTitleNS = nsCocoaUtils::ToNSString(disableButtonTitle);
+    NSUserNotificationAction* notificationAction =
+        [NSUserNotificationAction actionWithIdentifier:actionNameNS
+                                                 title:actionTitleNS];
+    [additionalActions addObject:notificationAction];
+
+    actionNameNS = nsCocoaUtils::ToNSString(kAlertActionSettings);
+    actionTitleNS = nsCocoaUtils::ToNSString(settingsButtonTitle);
+    notificationAction =
+        [NSUserNotificationAction actionWithIdentifier:actionNameNS
+                                                 title:actionTitleNS];
+    [additionalActions addObject:notificationAction];
+  }
+
   notification.additionalActions = additionalActions;
+  notification.hasActionButton = additionalActions.count == 0;
   [additionalActions release];
 
   nsAutoString name;
@@ -329,44 +280,32 @@ OSXNotificationCenter::ShowAlertWithIconData(nsIAlertNotification* aAlert,
   rv = aAlert->GetCookie(cookie);
   NS_ENSURE_SUCCESS(rv, rv);
 
+  nsCOMPtr<imgIContainer> image;
+  MOZ_TRY(aAlert->GetImage(getter_AddRefs(image)));
+  if (image) {
+    NSImage* cocoaImage = nil;
+    // TODO: Pass pres context / ComputedStyle here to support context paint
+    // properties.
+    // TODO: Do we have a reasonable size to pass around here?
+    nsCocoaUtils::CreateDualRepresentationNSImageFromImageContainer(
+        image, imgIContainer::FRAME_FIRST, nullptr, NSMakeSize(0, 0),
+        &cocoaImage);
+    notification.contentImage = cocoaImage;
+    [cocoaImage release];
+  }
+
   OSXNotificationInfo* osxni =
       new OSXNotificationInfo(alertName, aAlert, aAlertListener, cookie);
-
-  // Show the favicon if supported on this version of OS X.
-  if (aIconSize > 0 &&
-      [notification respondsToSelector:@selector(set_identityImage:)] &&
-      [notification
-          respondsToSelector:@selector(set_identityImageHasBorder:)]) {
-    NSData* iconData = [NSData dataWithBytes:aIconData length:aIconSize];
-    NSImage* icon = [[[NSImage alloc] initWithData:iconData] autorelease];
-
-    [(NSObject*)notification setValue:icon forKey:@"_identityImage"];
-    [(NSObject*)notification setValue:@(NO) forKey:@"_identityImageHasBorder"];
-  }
 
   bool inPrivateBrowsing;
   rv = aAlert->GetInPrivateBrowsing(&inPrivateBrowsing);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // Show the notification without waiting for an image if there is no icon URL
-  // or notification icons are not supported on this version of OS X.
-  if (![unClass instancesRespondToSelector:@selector(setContentImage:)]) {
-    CloseAlertCocoaString(alertName);
-    mActiveAlerts.AppendElement(osxni);
-    [GetNotificationCenter() deliverNotification:notification];
-    [notification release];
-    if (aAlertListener) {
-      aAlertListener->Observe(nullptr, "alertshow", cookie.get());
-    }
-  } else {
-    mPendingAlerts.AppendElement(osxni);
-    osxni->mPendingNotification = notification;
-    // Wait six seconds for the image to load.
-    rv = aAlert->LoadImage(6000, this, osxni,
-                           getter_AddRefs(osxni->mIconRequest));
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      ShowPendingNotification(osxni);
-    }
+  CloseAlertCocoaString(alertName);
+  mActiveAlerts.AppendElement(osxni);
+  [GetNotificationCenter() deliverNotification:notification];
+  if (aAlertListener) {
+    aAlertListener->Observe(nullptr, "alertshow", cookie.get());
   }
 
   return NS_OK;
@@ -384,6 +323,15 @@ OSXNotificationCenter::CloseAlert(const nsAString& aAlertName,
   return NS_OK;
 
   NS_OBJC_END_TRY_BLOCK_RETURN(NS_ERROR_FAILURE);
+}
+
+NS_IMETHODIMP OSXNotificationCenter::Teardown() {
+  mActiveAlerts.Clear();
+  return NS_OK;
+}
+
+NS_IMETHODIMP OSXNotificationCenter::PbmTeardown() {
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 void OSXNotificationCenter::CloseAlertCocoaString(NSString* aAlertName) {
@@ -409,10 +357,6 @@ void OSXNotificationCenter::CloseAlertCocoaString(NSString* aAlertName) {
         osxni->mObserver->Observe(nullptr, "alertfinished",
                                   osxni->mCookie.get());
       }
-      if (osxni->mIconRequest) {
-        osxni->mIconRequest->Cancel(NS_BINDING_ABORTED);
-        osxni->mIconRequest = nullptr;
-      }
       mActiveAlerts.RemoveElementAt(i);
       break;
     }
@@ -423,7 +367,6 @@ void OSXNotificationCenter::CloseAlertCocoaString(NSString* aAlertName) {
 
 void OSXNotificationCenter::OnActivate(
     NSString* aAlertName, NSUserNotificationActivationType aActivationType,
-    unsigned long long aAdditionalActionIndex,
     NSUserNotificationAction* aAdditionalActivationAction) {
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
@@ -436,34 +379,34 @@ void OSXNotificationCenter::OnActivate(
     if ([aAlertName isEqualToString:osxni->mName]) {
       if (osxni->mObserver) {
         switch ((int)aActivationType) {
-          case NSUserNotificationActivationTypeAdditionalActionClicked:
-          case NSUserNotificationActivationTypeActionButtonClicked:
-            if (aAdditionalActivationAction) {
-              nsAutoString actionName;
-              nsCocoaUtils::GetStringForNSString(
-                  aAdditionalActivationAction.identifier, actionName);
-              nsCOMPtr<nsIAlertAction> action;
-              osxni->mAlertNotification->GetAction(actionName,
-                                                   getter_AddRefs(action));
-              osxni->mObserver->Observe(action, "alertclickcallback",
+          case NSUserNotificationActivationTypeAdditionalActionClicked: {
+            MOZ_ASSERT(aAdditionalActivationAction);
+            nsAutoString actionName;
+            nsCocoaUtils::GetStringForNSString(
+                aAdditionalActivationAction.identifier, actionName);
+
+            if (actionName == kAlertActionDisable) {
+              osxni->mObserver->Observe(nullptr, "alertdisablecallback",
                                         osxni->mCookie.get());
               break;
             }
-            switch (aAdditionalActionIndex) {
-              case OSXNotificationActionDisable:
-                osxni->mObserver->Observe(nullptr, "alertdisablecallback",
-                                          osxni->mCookie.get());
-                break;
-              case OSXNotificationActionSettings:
-                osxni->mObserver->Observe(nullptr, "alertsettingscallback",
-                                          osxni->mCookie.get());
-                break;
-              default:
-                NS_WARNING(
-                    "Unknown NSUserNotification additional action clicked");
-                break;
+            if (actionName == kAlertActionSettings) {
+              osxni->mObserver->Observe(nullptr, "alertsettingscallback",
+                                        osxni->mCookie.get());
+              break;
             }
+
+            // Trim the suffix
+            actionName.Truncate(actionName.Length() - kActionSuffix.Length());
+
+            nsCOMPtr<nsIAlertAction> action;
+            osxni->mAlertNotification->GetAction(actionName,
+                                                 getter_AddRefs(action));
+            osxni->mObserver->Observe(action, "alertclickcallback",
+                                      osxni->mCookie.get());
             break;
+          }
+          case NSUserNotificationActivationTypeActionButtonClicked:
           default:
             osxni->mObserver->Observe(nullptr, "alertclickcallback",
                                       osxni->mCookie.get());
@@ -477,82 +420,14 @@ void OSXNotificationCenter::OnActivate(
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
 
-void OSXNotificationCenter::ShowPendingNotification(
-    OSXNotificationInfo* osxni) {
-  NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
-
-  if (osxni->mIconRequest) {
-    osxni->mIconRequest->Cancel(NS_BINDING_ABORTED);
-    osxni->mIconRequest = nullptr;
-  }
-
-  CloseAlertCocoaString(osxni->mName);
-
-  for (unsigned int i = 0; i < mPendingAlerts.Length(); i++) {
-    if (mPendingAlerts[i] == osxni) {
-      mActiveAlerts.AppendElement(osxni);
-      mPendingAlerts.RemoveElementAt(i);
-      break;
-    }
-  }
-
-  [GetNotificationCenter() deliverNotification:osxni->mPendingNotification];
-
-  if (osxni->mObserver) {
-    osxni->mObserver->Observe(nullptr, "alertshow", osxni->mCookie.get());
-  }
-
-  [osxni->mPendingNotification release];
-  osxni->mPendingNotification = nil;
-
-  NS_OBJC_END_TRY_IGNORE_BLOCK;
-}
-
 NS_IMETHODIMP
-OSXNotificationCenter::OnImageMissing(nsISupports* aUserData) {
-  NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
-
-  OSXNotificationInfo* osxni = static_cast<OSXNotificationInfo*>(aUserData);
-  if (osxni->mPendingNotification) {
-    // If there was an error getting the image, or the request timed out, show
-    // the notification without a content image.
-    ShowPendingNotification(osxni);
-  }
-  return NS_OK;
-
-  NS_OBJC_END_TRY_BLOCK_RETURN(NS_ERROR_FAILURE);
-}
-
-NS_IMETHODIMP
-OSXNotificationCenter::OnImageReady(nsISupports* aUserData,
-                                    imgIRequest* aRequest) {
-  NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
-
-  nsCOMPtr<imgIContainer> image;
-  nsresult rv = aRequest->GetImage(getter_AddRefs(image));
-  if (NS_WARN_IF(NS_FAILED(rv) || !image)) {
-    return rv;
-  }
-
-  OSXNotificationInfo* osxni = static_cast<OSXNotificationInfo*>(aUserData);
-  if (!osxni->mPendingNotification) {
-    return NS_ERROR_FAILURE;
-  }
-
-  NSImage* cocoaImage = nil;
-  // TODO: Pass pres context / ComputedStyle here to support context paint
-  // properties.
-  // TODO: Do we have a reasonable size to pass around here?
-  nsCocoaUtils::CreateDualRepresentationNSImageFromImageContainer(
-      image, imgIContainer::FRAME_FIRST, nullptr, NSMakeSize(0, 0),
-      &cocoaImage);
-  (osxni->mPendingNotification).contentImage = cocoaImage;
-  [cocoaImage release];
-  ShowPendingNotification(osxni);
-
-  return NS_OK;
-
-  NS_OBJC_END_TRY_BLOCK_RETURN(NS_ERROR_FAILURE);
+OSXNotificationCenter::GetHistory(nsTArray<nsString>& aResult) {
+  // NSUserNotificationCenter doesn't support this, blocked by the migration to
+  // UNUserNotificationCenter which has
+  // getDeliveredNotificationsWithCompletionHandler
+  // https://developer.apple.com/documentation/usernotifications/unusernotificationcenter/getdeliverednotifications(completionhandler:)?language=objc
+  // See bug 1971395.
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 // nsIAlertsDoNotDisturb

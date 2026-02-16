@@ -14,7 +14,7 @@ from .progressbar import ProgressBar
 from .results import NullTestOutput, TestOutput, escape_cmdline
 
 
-class Task(object):
+class Task:
     def __init__(self, test, prefix, tempdir, pid, stdout, stderr):
         self.test = test
         self.cmd = test.get_command(prefix, tempdir)
@@ -70,8 +70,7 @@ def get_max_wait(tasks, timeout):
         timeout_delta = timedelta(seconds=timeout)
         for task in tasks:
             remaining = task.start + timeout_delta - now
-            if remaining < wait:
-                wait = remaining
+            wait = min(wait, remaining)
 
     # Return the wait time in seconds, clamped between zero and max_wait.
     return max(wait.total_seconds(), 0)
@@ -133,7 +132,7 @@ def remove_task(tasks, pid):
             index = i
             break
     else:
-        raise KeyError("No such pid: {}".format(pid))
+        raise KeyError(f"No such pid: {pid}")
 
     out = tasks[index]
     tasks.pop(index)

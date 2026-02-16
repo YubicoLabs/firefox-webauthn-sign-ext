@@ -6,12 +6,12 @@ Tests for GPUCanvasContext.getCurrentTexture.
 import { makeTestGroup } from '../../../common/framework/test_group.js';
 import { timeout } from '../../../common/util/timeout.js';
 import { assert, unreachable } from '../../../common/util/util.js';
-import { GPUTest } from '../../gpu_test.js';
+import { AllFeaturesMaxLimitsGPUTest } from '../../gpu_test.js';
 import { kAllCanvasTypes, createCanvas } from '../../util/create_elements.js';
 
 const kFormat = 'bgra8unorm';
 
-class GPUContextTest extends GPUTest {
+class GPUContextTest extends AllFeaturesMaxLimitsGPUTest {
   initCanvasContext(canvasType = 'onscreen') {
     const canvas = createCanvas(this, canvasType, 2, 2);
     if (canvasType === 'onscreen') {
@@ -432,4 +432,25 @@ fn((t) => {
     default:
       break;
   }
+});
+
+g.test('compatibility').
+desc(
+  `
+Test that the texture returned from getCurrentTexture has textureBindingViewDimension
+and that it's undefined in core and '2d' in compatibility mode.
+  `
+).
+params((u) =>
+u //
+.combine('canvasType', kAllCanvasTypes)
+).
+fn((t) => {
+  const { canvasType } = t.params;
+  const ctx = t.initCanvasContext(canvasType);
+  const texture = ctx.getCurrentTexture();
+  t.expect(() => 'textureBindingViewDimension' in texture);
+
+  const expected = t.isCompatibility ? '2d' : undefined;
+  t.expect(texture.textureBindingViewDimension === expected);
 });

@@ -31,13 +31,6 @@ add_task(async function test_load_serp() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       adImpressions: [
         {
@@ -90,13 +83,6 @@ add_task(async function test_load_serp_and_push_unrelated_state() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       adImpressions: [
         {
@@ -130,13 +116,6 @@ add_task(async function test_load_serp_and_load_non_serp_tab() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       engagements: [
         {
@@ -173,13 +152,6 @@ add_task(async function test_load_serp_and_click_ad() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       adImpressions: [
         {
@@ -205,13 +177,6 @@ add_task(async function test_load_serp_and_click_ad() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       engagements: [
         {
@@ -250,13 +215,6 @@ add_task(async function test_load_serp_and_click_redirect_ad() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       engagements: [
         {
@@ -294,13 +252,6 @@ add_task(async function test_load_serp_and_click_redirect_ad_in_new_tab() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       engagements: [
         {
@@ -339,13 +290,6 @@ add_task(async function test_load_serp_click_a_related_search() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       engagements: [
         {
@@ -365,13 +309,6 @@ add_task(async function test_load_serp_click_a_related_search() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       adImpressions: [
         {
@@ -404,13 +341,6 @@ add_task(async function test_load_serp_click_a_related_search_click_ad() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       engagements: [
         {
@@ -430,13 +360,6 @@ add_task(async function test_load_serp_click_a_related_search_click_ad() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       engagements: [
         {
@@ -475,13 +398,6 @@ add_task(async function test_load_serp_click_non_serp_tab_click_all() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       engagements: [
         {
@@ -515,13 +431,6 @@ add_task(async function test_load_serp_click_non_serp_tab_click_all() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       engagements: [
         {
@@ -541,13 +450,6 @@ add_task(async function test_load_serp_click_non_serp_tab_click_all() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       adImpressions: [
         {
@@ -584,13 +486,6 @@ add_task(async function test_load_serp_and_use_back_and_forward() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       engagements: [
         {
@@ -610,13 +505,6 @@ add_task(async function test_load_serp_and_use_back_and_forward() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       adImpressions: [
         {
@@ -633,13 +521,7 @@ add_task(async function test_load_serp_and_use_back_and_forward() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
         source: "tabhistory",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       adImpressions: [
         {
@@ -656,15 +538,176 @@ add_task(async function test_load_serp_and_use_back_and_forward() {
     {
       impression: {
         provider: "example1",
-        tagged: "true",
-        partner_code: "ff",
         source: "tabhistory",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
       adImpressions: [
+        {
+          component: SearchSERPTelemetryUtils.COMPONENTS.AD_LINK,
+          ads_loaded: "2",
+          ads_visible: "2",
+          ads_hidden: "0",
+        },
+      ],
+    },
+  ]);
+
+  await BrowserTestUtils.removeTab(tab);
+});
+
+add_task(async function test_load_serp_and_click_shopping_tab() {
+  resetTelemetry();
+
+  const PROVIDERS = [
+    {
+      telemetryId: "example1",
+      searchPageRegexp:
+        /^https:\/\/example.org\/browser\/browser\/components\/search\/test\/browser\/telemetry\/searchTelemetrySinglePageApp/,
+      queryParamNames: ["s"],
+      codeParamName: "abc",
+      taggedCodes: ["ff"],
+      adServerAttributes: ["mozAttr"],
+      extraAdServersRegexps: [
+        /^https:\/\/example\.com\/ad/,
+        /^https:\/\/example.org\/browser\/browser\/components\/search\/test\/browser\/telemetry\/redirect_ad/,
+      ],
+      components: [
+        {
+          included: {
+            parent: {
+              selector: "#searchbox-container",
+            },
+            related: {
+              selector: "#searchbox-suggestions",
+            },
+            children: [
+              {
+                selector: "#searchbox",
+              },
+            ],
+          },
+          topDown: true,
+          type: SearchSERPTelemetryUtils.COMPONENTS.INCONTENT_SEARCHBOX,
+        },
+        {
+          type: SearchSERPTelemetryUtils.COMPONENTS.AD_LINK,
+          default: true,
+        },
+      ],
+      pageTypeParam: {
+        enableSPAHandling: true,
+        keys: ["page"],
+        pageTypes: [
+          {
+            name: "web",
+            values: ["web"],
+            target: "default_tab",
+            enabled: true,
+            isDefault: true,
+          },
+          {
+            name: "shopping",
+            values: ["shopping"],
+            target: "shopping_tab",
+            enabled: true,
+          },
+          {
+            name: "images",
+            values: ["images"],
+            target: "images_tab",
+            enabled: false,
+          },
+          {
+            name: "videos",
+            values: ["videos"],
+            target: "videos_tab",
+            enabled: false,
+          },
+          {
+            name: "news",
+            values: ["news"],
+            target: "news_tab",
+            enabled: false,
+          },
+        ],
+      },
+      impressionAttributes: [
+        {
+          key: "is_shopping_page",
+          url: {
+            regexp: "&page=shopping",
+          },
+        },
+        {
+          key: "shopping_tab_displayed",
+          element: {
+            selector: "nav a",
+            attributeName: "href",
+            regexp: "&page=shopping",
+            component: {
+              type: "shopping_tab",
+              countImpressions: true,
+            },
+          },
+        },
+      ],
+    },
+  ];
+  SearchSERPTelemetry.overrideSearchTelemetryForTests(PROVIDERS);
+  await waitForIdle();
+
+  let tab = await SinglePageAppUtils.createTabAndLoadURL();
+  await SinglePageAppUtils.clickShoppingTab(tab);
+
+  await assertSearchSourcesTelemetry(
+    {},
+    {
+      "browser.search.content.unknown": { "example1:tagged:ff": 2 },
+      "browser.search.withads.unknown": { "example1:tagged": 2 },
+    }
+  );
+
+  assertSERPTelemetry([
+    {
+      impression: {
+        provider: "example1",
+        is_shopping_page: "false",
+        shopping_tab_displayed: "true",
+      },
+      engagements: [
+        {
+          action: SearchSERPTelemetryUtils.ACTIONS.CLICKED,
+          target: SearchSERPTelemetryUtils.COMPONENTS.SHOPPING_TAB,
+        },
+      ],
+      adImpressions: [
+        {
+          component: SearchSERPTelemetryUtils.COMPONENTS.SHOPPING_TAB,
+          ads_loaded: "1",
+          ads_visible: "1",
+          ads_hidden: "0",
+        },
+        {
+          component: SearchSERPTelemetryUtils.COMPONENTS.AD_LINK,
+          ads_loaded: "2",
+          ads_visible: "2",
+          ads_hidden: "0",
+        },
+      ],
+    },
+    {
+      impression: {
+        provider: "example1",
+        is_shopping_page: "true",
+        shopping_tab_displayed: "true",
+      },
+      engagements: [],
+      adImpressions: [
+        {
+          component: SearchSERPTelemetryUtils.COMPONENTS.SHOPPING_TAB,
+          ads_loaded: "1",
+          ads_visible: "1",
+          ads_hidden: "0",
+        },
         {
           component: SearchSERPTelemetryUtils.COMPONENTS.AD_LINK,
           ads_loaded: "2",

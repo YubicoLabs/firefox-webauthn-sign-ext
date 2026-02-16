@@ -9,13 +9,11 @@ import io.mockk.spyk
 import io.mockk.verify
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
-import mozilla.components.support.test.rule.MainCoroutineRule
-import mozilla.components.support.test.rule.runTestOnMain
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.debugsettings.cfrs.CfrPreferencesRepository
@@ -27,9 +25,6 @@ import org.mozilla.fenix.debugsettings.cfrs.CfrToolsStore
 @RunWith(AndroidJUnit4::class)
 class CfrToolsPreferencesMiddlewareTest {
 
-    @get:Rule
-    val mainCoroutineTestRule = MainCoroutineRule()
-
     private lateinit var cfrPreferencesRepository: CfrPreferencesRepository
     private lateinit var middleware: CfrToolsPreferencesMiddleware
 
@@ -40,7 +35,7 @@ class CfrToolsPreferencesMiddlewareTest {
     }
 
     @Test
-    fun `WHEN the store gets initialized THEN repository is initialized`() = runTestOnMain {
+    fun `WHEN the store gets initialized THEN repository is initialized`() = runTest {
         var initCalled = false
         val repository = object : CfrPreferencesRepository {
             override val cfrPreferenceUpdates: Flow<CfrPreferencesRepository.CfrPreferenceUpdate>
@@ -72,6 +67,8 @@ class CfrToolsPreferencesMiddlewareTest {
             ),
         )
 
+        testScheduler.advanceUntilIdle()
+
         assertTrue(initCalled)
         assertTrue(store.state.inactiveTabsShown)
     }
@@ -96,133 +93,27 @@ class CfrToolsPreferencesMiddlewareTest {
 
         preferenceUpdates.forEach {
             when (it.preferenceType) {
-                CfrPreferencesRepository.CfrPreference.HomepageSync -> {
-                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.HomepageSyncCfrUpdated
-                    val actualValue = !actual.newValue
-                    assertEquals(it.value, actualValue)
-                }
-                CfrPreferencesRepository.CfrPreference.HomepageNavToolbar -> {
-                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.HomepageNavToolbarCfrUpdated
-                    val actualValue = !actual.newValue
-                    assertEquals(it.value, actualValue)
-                }
                 CfrPreferencesRepository.CfrPreference.HomepageSearchBar -> {
-                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.HomepageSearchbarCfrUpdated
+                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.HomepageSearchbarCfrLoaded
                     val actualValue = !actual.newValue
-                    assertEquals(it.value, actualValue)
-                }
-                CfrPreferencesRepository.CfrPreference.NavButtons -> {
-                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.NavButtonsCfrUpdated
-                    val actualValue = !actual.newValue
-                    assertEquals(it.value, actualValue)
-                }
-                CfrPreferencesRepository.CfrPreference.AddPrivateTabToHome -> {
-                    // Note that the new value is not inverted in this CFR because of the different
-                    // logic for the pref key
-                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.AddPrivateTabToHomeCfrUpdated
-                    val actualValue = actual.newValue
                     assertEquals(it.value, actualValue)
                 }
                 CfrPreferencesRepository.CfrPreference.TabAutoCloseBanner -> {
-                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.TabAutoCloseBannerCfrUpdated
+                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.TabAutoCloseBannerCfrLoaded
                     val actualValue = !actual.newValue
                     assertEquals(it.value, actualValue)
                 }
                 CfrPreferencesRepository.CfrPreference.InactiveTabs -> {
-                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.InactiveTabsCfrUpdated
+                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.InactiveTabsCfrLoaded
                     val actualValue = !actual.newValue
                     assertEquals(it.value, actualValue)
                 }
                 CfrPreferencesRepository.CfrPreference.OpenInApp -> {
-                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.OpenInAppCfrUpdated
+                    val actual = middleware.mapRepoUpdateToStoreAction(it) as CfrToolsAction.OpenInAppCfrLoaded
                     val actualValue = !actual.newValue
                     assertEquals(it.value, actualValue)
                 }
             }
-        }
-    }
-
-    @Test
-    fun `GIVEN the homepage sync CFR should not be shown WHEN the toggle homepage sync CFR action is dispatched THEN its preference is set to should be shown`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                homepageSyncShown = true,
-            ),
-            middlewares = listOf(
-                middleware,
-            ),
-        )
-        store.dispatch(CfrToolsAction.HomepageSyncShownToggled)
-        verify {
-            cfrPreferencesRepository.updateCfrPreference(
-                CfrPreferencesRepository.CfrPreferenceUpdate(
-                    preferenceType = CfrPreferencesRepository.CfrPreference.HomepageSync,
-                    value = false,
-                ),
-            )
-        }
-    }
-
-    @Test
-    fun `GIVEN the homepage sync CFR should be shown WHEN the toggle homepage sync CFR action is dispatched THEN its preference is set to should not be shown`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                homepageSyncShown = false,
-            ),
-            middlewares = listOf(
-                middleware,
-            ),
-        )
-        store.dispatch(CfrToolsAction.HomepageSyncShownToggled)
-        verify {
-            cfrPreferencesRepository.updateCfrPreference(
-                CfrPreferencesRepository.CfrPreferenceUpdate(
-                    preferenceType = CfrPreferencesRepository.CfrPreference.HomepageSync,
-                    value = true,
-                ),
-            )
-        }
-    }
-
-    @Test
-    fun `GIVEN the homepage nav toolbar CFR should not be shown WHEN the toggle homepage nav toolbar CFR action is dispatched THEN its preference is set to should be shown`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                homepageNavToolbarShown = true,
-            ),
-            middlewares = listOf(
-                middleware,
-            ),
-        )
-        store.dispatch(CfrToolsAction.HomepageNavToolbarShownToggled)
-        verify {
-            cfrPreferencesRepository.updateCfrPreference(
-                CfrPreferencesRepository.CfrPreferenceUpdate(
-                    preferenceType = CfrPreferencesRepository.CfrPreference.HomepageNavToolbar,
-                    value = false,
-                ),
-            )
-        }
-    }
-
-    @Test
-    fun `GIVEN the homepage nav toolbar CFR should be shown WHEN the toggle homepage nav toolbar CFR action is dispatched THEN its preference is set to should not be shown`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                homepageNavToolbarShown = false,
-            ),
-            middlewares = listOf(
-                middleware,
-            ),
-        )
-        store.dispatch(CfrToolsAction.HomepageNavToolbarShownToggled)
-        verify {
-            cfrPreferencesRepository.updateCfrPreference(
-                CfrPreferencesRepository.CfrPreferenceUpdate(
-                    preferenceType = CfrPreferencesRepository.CfrPreference.HomepageNavToolbar,
-                    value = true,
-                ),
-            )
         }
     }
 
@@ -262,48 +153,6 @@ class CfrToolsPreferencesMiddlewareTest {
             cfrPreferencesRepository.updateCfrPreference(
                 CfrPreferencesRepository.CfrPreferenceUpdate(
                     preferenceType = CfrPreferencesRepository.CfrPreference.HomepageSearchBar,
-                    value = true,
-                ),
-            )
-        }
-    }
-
-    @Test
-    fun `GIVEN the nav buttons CFR should not be shown WHEN the toggle nav buttons CFR action is dispatched THEN its preference is set to should be shown`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                navButtonsShown = true,
-            ),
-            middlewares = listOf(
-                middleware,
-            ),
-        )
-        store.dispatch(CfrToolsAction.NavButtonsShownToggled)
-        verify {
-            cfrPreferencesRepository.updateCfrPreference(
-                CfrPreferencesRepository.CfrPreferenceUpdate(
-                    preferenceType = CfrPreferencesRepository.CfrPreference.NavButtons,
-                    value = false,
-                ),
-            )
-        }
-    }
-
-    @Test
-    fun `GIVEN the nav buttons CFR should be shown WHEN the toggle nav buttons CFR action is dispatched THEN its preference is set to should not be shown`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                navButtonsShown = false,
-            ),
-            middlewares = listOf(
-                middleware,
-            ),
-        )
-        store.dispatch(CfrToolsAction.NavButtonsShownToggled)
-        verify {
-            cfrPreferencesRepository.updateCfrPreference(
-                CfrPreferencesRepository.CfrPreferenceUpdate(
-                    preferenceType = CfrPreferencesRepository.CfrPreference.NavButtons,
                     value = true,
                 ),
             )

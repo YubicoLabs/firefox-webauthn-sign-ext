@@ -65,6 +65,9 @@ struct nr_ice_candidate_ {
   nr_transport_addr addr;             /* The advertised address;
                                          JDR calls this the candidate */
   nr_transport_addr base;             /* The base address (S 2.1)*/
+  /* This is mainly to avoid forgetting tcp/tls relay protocol, since the base
+   * of relay candidates is the TURN server's allocation address, which will be UDP */
+  UCHAR local_protocol;    /* IPPROTO_TCP, IPPROTO_UDP. */
   char *mdns_addr;                    /* MDNS address, if any */
   char *foundation;                   /* Foundation for the candidate (S 4) */
   UINT4 priority;                     /* The priority value (S 5.4 */
@@ -102,8 +105,8 @@ struct nr_ice_candidate_ {
   TAILQ_ENTRY(nr_ice_candidate_) entry_comp;
 };
 
-extern char *nr_ice_candidate_type_names[];
-extern char *nr_ice_candidate_tcp_type_names[];
+extern const char *nr_ice_candidate_type_names[];
+extern const char *nr_ice_candidate_tcp_type_names[];
 
 
 int nr_ice_candidate_create(struct nr_ice_ctx_ *ctx,nr_ice_component *component, nr_ice_socket *isock, nr_socket *osock, nr_ice_candidate_type ctype, nr_socket_tcp_type tcp_type, nr_ice_stun_server *stun_server, UCHAR component_id, nr_ice_candidate **candp);
@@ -114,7 +117,7 @@ int nr_ice_candidate_destroy(nr_ice_candidate **candp);
 void nr_ice_candidate_stop_gathering(nr_ice_candidate *cand);
 int nr_ice_format_candidate_attribute(nr_ice_candidate *cand, char *attr, int maxlen, int obfuscate_srflx_addr);
 int nr_ice_peer_candidate_from_attribute(nr_ice_ctx *ctx,char *attr,nr_ice_media_stream *stream,nr_ice_candidate **candp);
-int nr_ice_peer_peer_rflx_candidate_create(nr_ice_ctx *ctx,char *label, nr_ice_component *comp,nr_transport_addr *addr, nr_ice_candidate **candp);
+int nr_ice_peer_peer_rflx_candidate_create(nr_ice_ctx *ctx, const char *label, nr_ice_component *comp,nr_transport_addr *addr, nr_ice_candidate **candp);
 int nr_ice_candidate_compute_priority(nr_ice_candidate *cand);
 
 #ifdef __cplusplus

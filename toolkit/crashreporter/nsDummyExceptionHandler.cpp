@@ -6,6 +6,8 @@
 
 #include "nsExceptionHandler.h"
 
+using mozilla::UniqueFileHandle;
+
 namespace CrashReporter {
 
 void AnnotateOOMAllocationSize(size_t size) {}
@@ -118,11 +120,6 @@ nsresult AppendAppNotesToCrashReport(const nsACString& data) {
 
 bool GetAnnotation(const nsACString& key, nsACString& data) { return false; }
 
-void GetAnnotation(ProcessId childPid, Annotation annotation,
-                   nsACString& outStr) {
-  return;
-}
-
 nsresult RegisterAppMemory(void* ptr, size_t length) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
@@ -203,13 +200,24 @@ bool WriteExtraFile(const nsAString& id, const AnnotationTable& annotations) {
   return false;
 }
 
-void OOPInit() {}
+#if defined(MOZ_WIDGET_ANDROID)
+void SetNotificationPipeForChild(FileHandle breakpadFd,
+                                 FileHandle crashHelperFd) {}
+#endif  // defined(MOZ_WIDGET_ANDROID)
 
 CrashPipeType GetChildNotificationPipe() { return nullptr; }
 
+bool RegisterChildIPCChannel(mozilla::geckoargs::ChildProcessArgs& aArgs) {
+  return false;
+}
+
+#if defined(MOZ_WIDGET_ANDROID)
+void SetCrashHelperPipes(FileHandle breakpadFd, FileHandle crashHelperFd) {}
+#endif  // defined(MOZ_WIDGET_ANDROID)
+
 bool GetLastRunCrashID(nsAString& id) { return false; }
 
-bool SetRemoteExceptionHandler(CrashPipeType aCrashPipe) { return false; }
+bool SetRemoteExceptionHandler(int& aArgc, char** aArgv) { return false; }
 
 bool TakeMinidumpForChild(ProcessId childPid, nsIFile** dump,
                           AnnotationTable& aAnnotations) {

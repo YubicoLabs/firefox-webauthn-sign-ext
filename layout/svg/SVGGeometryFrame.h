@@ -7,11 +7,11 @@
 #ifndef LAYOUT_SVG_SVGGEOMETRYFRAME_H_
 #define LAYOUT_SVG_SVGGEOMETRYFRAME_H_
 
-#include "mozilla/Attributes.h"
-#include "mozilla/DisplaySVGItem.h"
-#include "mozilla/ISVGDisplayableFrame.h"
 #include "gfxMatrix.h"
 #include "gfxRect.h"
+#include "mozilla/DisplaySVGItem.h"
+#include "mozilla/EnumSet.h"
+#include "mozilla/ISVGDisplayableFrame.h"
 #include "nsIFrame.h"
 
 namespace mozilla {
@@ -66,7 +66,7 @@ class SVGGeometryFrame final : public nsIFrame, public ISVGDisplayableFrame {
             nsIFrame* aPrevInFlow) override;
 
   nsresult AttributeChanged(int32_t aNameSpaceID, nsAtom* aAttribute,
-                            int32_t aModType) override;
+                            AttrModType aModType) override;
 
   void DidSetComputedStyle(ComputedStyle* aOldComputedStyle) override;
 
@@ -92,13 +92,14 @@ class SVGGeometryFrame final : public nsIFrame, public ISVGDisplayableFrame {
                 imgDrawingParams& aImgParams) override;
   nsIFrame* GetFrameForPoint(const gfxPoint& aPoint) override;
   void ReflowSVG() override;
-  void NotifySVGChanged(uint32_t aFlags) override;
+  void NotifySVGChanged(ChangeFlags aFlags) override;
   SVGBBox GetBBoxContribution(const Matrix& aToBBoxUserspace,
                               uint32_t aFlags) override;
   bool IsDisplayContainer() override { return false; }
 
-  enum { eRenderFill = 1, eRenderStroke = 2 };
-  void Render(gfxContext* aContext, uint32_t aRenderComponents,
+  enum class RenderFlag { Fill, Stroke };
+  using RenderFlags = EnumSet<RenderFlag>;
+  void Render(gfxContext* aContext, RenderFlags aRenderComponents,
               const gfxMatrix& aTransform, imgDrawingParams& aImgParams);
 
   bool CreateWebRenderCommands(

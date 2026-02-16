@@ -5,15 +5,15 @@
 package org.mozilla.samples.browser.addons
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.text.method.LinkMovementMethod
 import android.view.View
 import android.widget.RatingBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.net.toUri
 import androidx.core.text.HtmlCompat
-import kotlinx.coroutines.CoroutineScope
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,7 +79,7 @@ class AddonDetailsActivity : AppCompatActivity() {
     private fun bindWebsite(addon: Addon) {
         findViewById<View>(R.id.home_page_text).setOnClickListener {
             val intent =
-                Intent(Intent.ACTION_VIEW).setData(Uri.parse(addon.homepageUrl))
+                Intent(Intent.ACTION_VIEW).setData(addon.homepageUrl.toUri())
             startActivity(intent)
         }
     }
@@ -103,14 +103,13 @@ class AddonDetailsActivity : AppCompatActivity() {
 
     private fun showUpdaterDialog(addon: Addon) {
         val context = this@AddonDetailsActivity
-        val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
-            val updateAttempt = updateAttemptStorage.findUpdateAttemptBy(addon.id)
-            updateAttempt?.let {
-                withContext(Dispatchers.Main) {
-                    it.showInformationDialog(context)
-                }
+
+        lifecycleScope.launch {
+            val updateAttempt = withContext(Dispatchers.IO) {
+                updateAttemptStorage.findUpdateAttemptBy(addon.id)
             }
+
+            updateAttempt?.showInformationDialog(context)
         }
     }
 

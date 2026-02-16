@@ -5,8 +5,6 @@ l10n:
     # browser and mobile/android l10n.tomls
     include:
         - browser/branding/official/locales/en-US
-        - browser/extensions/formautofill/locales/en-US
-        - browser/extensions/report-site-issue/locales/en-US
         - browser/locales/en-US
         - devtools/client/locales/en-US
         - devtools/shared/locales/en-US
@@ -21,7 +19,6 @@ l10n:
     # and also not relevant to this linter
     exclude:
         - browser/locales/en-US/firefox-l10n.js
-        - mobile/android/locales/en-US/mobile-l10n.js
         - toolkit/locales/en-US/chrome/global/intl.css
     l10n_configs:
         - browser/locales/l10n.toml

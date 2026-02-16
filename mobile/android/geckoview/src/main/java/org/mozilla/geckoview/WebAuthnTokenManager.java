@@ -16,6 +16,8 @@ import com.google.android.gms.fido.fido2.api.common.Algorithm;
 import com.google.android.gms.fido.fido2.api.common.Attachment;
 import com.google.android.gms.fido.fido2.api.common.AttestationConveyancePreference;
 import com.google.android.gms.fido.fido2.api.common.AuthenticationExtensions;
+import com.google.android.gms.fido.fido2.api.common.AuthenticationExtensionsClientOutputs;
+import com.google.android.gms.fido.fido2.api.common.AuthenticationExtensionsCredPropsOutputs;
 import com.google.android.gms.fido.fido2.api.common.AuthenticatorAssertionResponse;
 import com.google.android.gms.fido.fido2.api.common.AuthenticatorAttestationResponse;
 import com.google.android.gms.fido.fido2.api.common.AuthenticatorErrorResponse;
@@ -133,7 +135,7 @@ import org.mozilla.gecko.util.WebAuthnUtils;
     }
     final AuthenticationExtensions ext = extBuilder.build();
 
-    // requireUserVerification are not yet consumed by Android's API
+    // userVerification are not yet consumed by Android's FIDO API
 
     final List<PublicKeyCredentialDescriptor> excludedList =
         new ArrayList<PublicKeyCredentialDescriptor>();
@@ -244,10 +246,24 @@ import org.mozilla.gecko.util.WebAuthnUtils;
                         return;
                       }
 
+                      final WebAuthnUtils.MakeCredentialResponse.Builder builder =
+                          new WebAuthnUtils.MakeCredentialResponse.Builder();
+
+                      // credProps is optional.
+                      final AuthenticationExtensionsClientOutputs extensionsClientOutputsData =
+                          publicKeyCredentialData.getClientExtensionResults();
+                      if (extensionsClientOutputsData != null) {
+                        final AuthenticationExtensionsCredPropsOutputs credPropsOutput =
+                            extensionsClientOutputsData.getCredProps();
+                        if (credPropsOutput != null) {
+                          builder.setCredProps(credPropsOutput.getIsDiscoverableCredential());
+                        }
+                      }
+
                       final AuthenticatorAttestationResponse responseData =
                           (AuthenticatorAttestationResponse) response;
                       final WebAuthnUtils.MakeCredentialResponse credentialResponse =
-                          new WebAuthnUtils.MakeCredentialResponse.Builder()
+                          builder
                               .setKeyHandle(publicKeyCredentialData.getRawId())
                               .setAuthenticatorAttachment(
                                   publicKeyCredentialData.getAuthenticatorAttachment())
@@ -291,7 +307,8 @@ import org.mozilla.gecko.util.WebAuthnUtils;
       final GeckoBundle authenticatorSelection,
       final GeckoBundle extensions,
       final int[] algs,
-      final ByteBuffer clientDataHash) {
+      final ByteBuffer clientDataHash,
+      final String requestJSON) {
     final ArrayList<WebAuthnUtils.WebAuthnPublicCredential> excludeArrayList;
 
     final byte[] challBytes = new byte[challenge.remaining()];
@@ -315,13 +332,7 @@ import org.mozilla.gecko.util.WebAuthnUtils;
 
     final GeckoResult<WebAuthnUtils.MakeCredentialResponse> result = new GeckoResult<>();
     WebAuthnCredentialManager.makeCredential(
-            credentialBundle,
-            userBytes,
-            challBytes,
-            algs,
-            excludeList,
-            authenticatorSelection,
-            clientDataHashBytes)
+            credentialBundle.getString("origin"), clientDataHashBytes, requestJSON)
         .accept(
             response -> result.complete(response),
             exceptionInCredManager -> {
@@ -493,7 +504,8 @@ import org.mozilla.gecko.util.WebAuthnUtils;
       final ByteBuffer transportList,
       final GeckoBundle assertionBundle,
       final GeckoBundle extensions,
-      final ByteBuffer clientDataHash) {
+      final ByteBuffer clientDataHash,
+      final String requestJSON) {
     final ArrayList<WebAuthnUtils.WebAuthnPublicCredential> allowArrayList;
 
     final byte[] challBytes = new byte[challenge.remaining()];
@@ -532,7 +544,7 @@ import org.mozilla.gecko.util.WebAuthnUtils;
               }
 
               WebAuthnCredentialManager.prepareGetAssertion(
-                      challBytes, allowList, assertionBundle, extensions, clientDataHashBytes)
+                      assertionBundle.getString("origin"), clientDataHashBytes, requestJSON)
                   .accept(
                       pendingHandle -> {
                         if (pendingHandle != null) {

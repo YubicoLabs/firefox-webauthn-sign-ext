@@ -3,7 +3,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::CodeType;
-use crate::backend::Literal;
+use crate::{
+    bail,
+    interface::{DefaultValue, Literal},
+    Result,
+};
 
 #[derive(Debug)]
 pub struct EnumCodeType {
@@ -25,11 +29,11 @@ impl CodeType for EnumCodeType {
         format!("Type{}", self.id)
     }
 
-    fn literal(&self, literal: &Literal) -> String {
-        if let Literal::Enum(v, _) = literal {
-            format!(".{}", super::SwiftCodeOracle.enum_variant_name(v))
+    fn default(&self, default: &DefaultValue) -> Result<String> {
+        if let DefaultValue::Literal(Literal::Enum(v, _)) = default {
+            Ok(format!(".{}", super::SwiftCodeOracle.enum_variant_name(v)))
         } else {
-            unreachable!();
+            bail!("Invalid literal for enum type: {default:?}")
         }
     }
 }

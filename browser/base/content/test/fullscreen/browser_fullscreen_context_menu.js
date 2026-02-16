@@ -24,20 +24,14 @@ async function testContextMenu() {
   await BrowserTestUtils.withNewTab("about:blank", async () => {
     let panelUIMenuButton = document.getElementById("PanelUI-menu-button");
     let contextMenu = await openContextMenu(panelUIMenuButton);
-    let array1 = AppConstants.MENUBAR_CAN_AUTOHIDE
+    let array1 = !Services.appinfo.nativeMenubar
       ? [
-          ".customize-context-moveToPanel",
-          ".customize-context-removeFromToolbar",
-          "#customizationMenuSeparator",
           "#toggle_toolbar-menubar",
           "#toggle_PersonalToolbar",
           "#viewToolbarsMenuSeparator",
           ".viewCustomizeToolbar",
         ]
       : [
-          ".customize-context-moveToPanel",
-          ".customize-context-removeFromToolbar",
-          "#customizationMenuSeparator",
           "#toggle_PersonalToolbar",
           "#viewToolbarsMenuSeparator",
           ".viewCustomizeToolbar",
@@ -65,11 +59,8 @@ async function testContextMenu() {
     info("trigger the context menu");
     let contextMenu2 = await openContextMenu(panelUIMenuButton);
     info("context menu should be open, verify its menu items");
-    let array2 = AppConstants.MENUBAR_CAN_AUTOHIDE
+    let array2 = !Services.appinfo.nativeMenubar
       ? [
-          ".customize-context-moveToPanel",
-          ".customize-context-removeFromToolbar",
-          "#customizationMenuSeparator",
           "#toggle_toolbar-menubar",
           "#toggle_PersonalToolbar",
           "#viewToolbarsMenuSeparator",
@@ -79,9 +70,6 @@ async function testContextMenu() {
           `menuitem[contexttype="fullscreen"]`,
         ]
       : [
-          ".customize-context-moveToPanel",
-          ".customize-context-removeFromToolbar",
-          "#customizationMenuSeparator",
           "#toggle_PersonalToolbar",
           "#viewToolbarsMenuSeparator",
           ".viewCustomizeToolbar",
@@ -139,5 +127,11 @@ function verifyContextMenu(contextMenu, itemSelectors) {
   }
   return null;
 }
+
+add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
+});
 
 add_task(testContextMenu);

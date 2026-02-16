@@ -4,15 +4,18 @@
 
 package org.mozilla.fenix.ui
 
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.core.net.toUri
 import org.junit.Rule
 import org.junit.Test
 import org.mozilla.fenix.customannotations.SmokeTest
 import org.mozilla.fenix.helpers.AppAndSystemHelper.clickSystemHomeScreenShortcutAddButton
 import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
+import org.mozilla.fenix.helpers.HomeActivityTestRule
 import org.mozilla.fenix.helpers.MatcherHelper.itemContainingText
 import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.helpers.TestSetup
+import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
 import org.mozilla.fenix.ui.robots.clickPageObject
 import org.mozilla.fenix.ui.robots.customTabScreen
 import org.mozilla.fenix.ui.robots.navigationToolbar
@@ -28,24 +31,31 @@ class PwaTest : TestSetup() {
     private val shortcutTitle = "TEST_APP"
 
     @get:Rule
-    val activityTestRule = HomeActivityIntentTestRule.withDefaultSettingsOverrides()
+    val composeTestRule =
+        AndroidComposeTestRule(
+            HomeActivityTestRule.withDefaultSettingsOverrides(),
+        ) { it.activity }
+
+    @get:Rule
+    val memoryLeaksRule = DetectMemoryLeaksRule()
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/845695
     @Test
     fun externalLinkPWATest() {
         val externalLinkURL = "https://mozilla-mobile.github.io/testapp/downloads"
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(externalLinksPWAPage.toUri()) {
             verifyPageContent("Misc Link Types")
         }.openThreeDotMenu {
-        }.clickAddAppToHomeScreen {
+            clickTheMoreButton()
+        }.clickAddAppToHomeScreenButton {
             clickSystemHomeScreenShortcutAddButton()
         }.openHomeScreenShortcut(shortcutTitle) {
-            clickPageObject(itemContainingText("External link"))
+            clickPageObject(composeTestRule, itemContainingText("External link"))
         }
 
-        customTabScreen {
+        customTabScreen(composeTestRule) {
             verifyCustomTabToolbarTitle(externalLinkURL)
         }
     }
@@ -53,11 +63,12 @@ class PwaTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/845694
     @Test
     fun appLikeExperiencePWATest() {
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(externalLinksPWAPage.toUri()) {
             verifyPageContent("Misc Link Types")
         }.openThreeDotMenu {
-        }.clickAddAppToHomeScreen {
+            clickTheMoreButton()
+        }.clickAddAppToHomeScreenButton {
             clickSystemHomeScreenShortcutAddButton()
         }.openHomeScreenShortcut(shortcutTitle) {
         }
@@ -74,11 +85,14 @@ class PwaTest : TestSetup() {
     fun installPWAFromTheMainMenuTest() {
         val pwaPage = "https://mozilla-mobile.github.io/testapp/loginForm"
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(pwaPage.toUri()) {
+            waitForPageToLoad()
+            verifyUrl("mozilla-mobile.github.io/testapp/loginForm")
             verifyPageContent("Login Form")
         }.openThreeDotMenu {
-        }.clickAddAppToHomeScreen {
+            clickTheMoreButton()
+        }.clickAddAppToHomeScreenButton {
             clickSystemHomeScreenShortcutAddButton()
         }.openHomeScreenShortcut("TEST_APP") {
             mDevice.waitForIdle()

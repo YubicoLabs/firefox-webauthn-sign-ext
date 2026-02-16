@@ -4,25 +4,32 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {execSync} from 'child_process';
-import os from 'os';
-import path from 'path';
-import * as readline from 'readline';
-import {Writable, Readable} from 'stream';
+import {execSync} from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+import * as readline from 'node:readline';
+import {Writable, Readable} from 'node:stream';
 
 import {TestServer} from '@pptr/testserver';
 
-import {isErrorLike} from '../../lib/cjs/launch.js';
-import {Cache} from '../../lib/cjs/main.js';
+import {isErrorLike} from '../../lib/esm/launch.js';
+import {Cache} from '../../lib/esm/main.js';
 
 export function createMockedReadlineInterface(
   input: string,
 ): readline.Interface {
-  const readable = Readable.from([input]);
+  const waitForQuestion = Promise.withResolvers<void>();
+  async function* readableGen() {
+    await waitForQuestion.promise;
+    yield input;
+  }
+
+  const readable = Readable.from(readableGen());
   const writable = new Writable({
     write(_chunk, _encoding, callback) {
       // Suppress the output to keep the test clean
       callback();
+      waitForQuestion.resolve();
     },
   });
 
@@ -33,7 +40,7 @@ export function createMockedReadlineInterface(
 }
 
 const startServer = async () => {
-  const assetsPath = path.join(__dirname, '..', '.cache', 'server');
+  const assetsPath = path.join(import.meta.dirname, '..', '.cache', 'server');
   return await TestServer.create(assetsPath);
 };
 
@@ -43,7 +50,7 @@ interface ServerState {
 
 const state: Partial<ServerState> = {};
 
-export function setupTestServer(): void {
+export function setupTestServer(): ServerState {
   before(async () => {
     state.server = await startServer();
   });
@@ -52,6 +59,8 @@ export function setupTestServer(): void {
     await state.server!.stop();
     state.server = undefined;
   });
+
+  return state as ServerState;
 }
 
 export function getServerUrl(): string {

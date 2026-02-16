@@ -81,16 +81,16 @@ add_setup(async function () {
   // Undo mocking from head.js
   sinon.restore();
 
-  let oldPrefValue = LoginHelper.getOSAuthEnabled(PASSWORDS_OS_REAUTH_PREF);
-  LoginHelper.setOSAuthEnabled(PASSWORDS_OS_REAUTH_PREF, false);
+  let oldPrefValue = LoginHelper.getOSAuthEnabled();
+  LoginHelper.setOSAuthEnabled(false);
   await BrowserTestUtils.openNewForegroundTab({
     gBrowser,
     url: "about:logins",
   });
   registerCleanupFunction(async () => {
     BrowserTestUtils.removeTab(gBrowser.selectedTab);
-    Services.logins.removeAllUserFacingLogins();
-    LoginHelper.setOSAuthEnabled(PASSWORDS_OS_REAUTH_PREF, oldPrefValue);
+    await Services.logins.removeAllUserFacingLoginsAsync();
+    LoginHelper.setOSAuthEnabled(oldPrefValue);
   });
   TEST_LOGIN1 = await addLogin(TEST_LOGIN1);
 });

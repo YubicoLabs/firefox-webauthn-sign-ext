@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-env mozilla/remote-page */
-
 import LockwiseCard from "./lockwise-card.mjs";
 import MonitorCard from "./monitor-card.mjs";
 import ProxyCard from "./proxy-card.mjs";
@@ -169,7 +167,14 @@ document.addEventListener("DOMContentLoaded", () => {
             div.setAttribute("role", "img");
             div.setAttribute("data-type", type);
             div.style.height = `${dataHeight}%`;
-            document.l10n.setAttributes(div, `bar-tooltip-${type}`, {
+            const messageIDs = {
+              social: "bar-tooltip-social",
+              cookie: "bar-tooltip-cookie",
+              tracker: "bar-tooltip-tracker",
+              cryptominer: "bar-tooltip-cryptominer",
+              fingerprinter: "bar-tooltip-fingerprinter",
+            };
+            document.l10n.setAttributes(div, messageIDs[type], {
               count: content[type],
               percentage: dataHeight,
             });

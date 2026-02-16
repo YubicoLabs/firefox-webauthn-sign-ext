@@ -5,6 +5,9 @@
 //! - texture/sampler pairs
 //! - expression reference counts
 
+use alloc::{boxed::Box, vec};
+use core::ops;
+
 use super::{ExpressionError, FunctionError, ModuleInfo, ShaderStages, ValidationFlags};
 use crate::diagnostic_filter::{DiagnosticFilterNode, StandardFilterableTriggeringRule};
 use crate::span::{AddSpan as _, WithSpan};
@@ -12,7 +15,6 @@ use crate::{
     arena::{Arena, Handle},
     proc::{ResolveContext, TypeResolution},
 };
-use std::ops;
 
 pub type NonUniformResult = Option<Handle<crate::Expression>>;
 
@@ -27,6 +29,7 @@ bitflags::bitflags! {
         const WORK_GROUP_BARRIER = 0x1;
         const DERIVATIVE = if DISABLE_UNIFORMITY_REQ_FOR_FRAGMENT_STAGE { 0 } else { 0x2 };
         const IMPLICIT_LEVEL = if DISABLE_UNIFORMITY_REQ_FOR_FRAGMENT_STAGE { 0 } else { 0x4 };
+        const COOP_OPS = 0x8;
     }
 }
 
@@ -156,8 +159,11 @@ pub struct ExpressionInfo {
     /// originates. Otherwise, this is `None`.
     pub uniformity: Uniformity,
 
-    /// The number of statements and other expressions using this
-    /// expression's value.
+    /// The number of direct references to this expression in statements and
+    /// other expressions.
+    ///
+    /// This is a _local_ reference count only, it may be non-zero for
+    /// expressions that are ultimately unused.
     pub ref_count: usize,
 
     /// The global variable into which this expression produces a pointer.
@@ -233,7 +239,6 @@ struct Sampling {
 #[cfg_attr(feature = "deserialize", derive(serde::Deserialize))]
 pub struct FunctionInfo {
     /// Validation flags.
-    #[allow(dead_code)]
     flags: ValidationFlags,
     /// Set of shader stages where calling this function is valid.
     pub available_stages: ShaderStages,
@@ -261,7 +266,7 @@ pub struct FunctionInfo {
     /// How this function and its callees use this module's globals.
     ///
     /// This is indexed by `Handle<GlobalVariable>` indices. However,
-    /// `FunctionInfo` implements `std::ops::Index<Handle<GlobalVariable>>`,
+    /// `FunctionInfo` implements `core::ops::Index<Handle<GlobalVariable>>`,
     /// so you can simply index this struct with a global handle to retrieve
     /// its usage information.
     global_uses: Box<[GlobalUse]>,
@@ -269,7 +274,7 @@ pub struct FunctionInfo {
     /// Information about each expression in this function's body.
     ///
     /// This is indexed by `Handle<Expression>` indices. However, `FunctionInfo`
-    /// implements `std::ops::Index<Handle<Expression>>`, so you can simply
+    /// implements `core::ops::Index<Handle<Expression>>`, so you can simply
     /// index this struct with an expression handle to retrieve its
     /// `ExpressionInfo`.
     expressions: Box<[ExpressionInfo]>,
@@ -360,11 +365,27 @@ impl FunctionInfo {
     ) -> NonUniformResult {
         let info = &mut self.expressions[expr.index()];
         info.ref_count += 1;
-        // mark the used global as read
+        // Record usage if this expression may access a global
         if let Some(global) = info.assignable_global {
             self.global_uses[global.index()] |= global_use;
         }
         info.uniformity.non_uniform_result
+    }
+
+    /// Note an entry point's use of `global` not recorded by [`ModuleInfo::process_function`].
+    ///
+    /// Most global variable usage should be recorded via [`add_ref_impl`] in the process
+    /// of expression behavior analysis by [`ModuleInfo::process_function`]. But that code
+    /// has no access to entrypoint-specific information, so interface analysis uses this
+    /// function to record global uses there (like task shader payloads).
+    ///
+    /// [`add_ref_impl`]: Self::add_ref_impl
+    pub(super) fn insert_global_use(
+        &mut self,
+        global_use: GlobalUse,
+        global: Handle<crate::GlobalVariable>,
+    ) {
+        self.global_uses[global.index()] |= global_use;
     }
 
     /// Record a use of `expr` for its value.
@@ -530,30 +551,34 @@ impl FunctionInfo {
                         base: array_element_ty_handle,
                         ..
                     } => {
-                        // these are nasty aliases, but these idents are too long and break rustfmt
-                        let sto = super::Capabilities::STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING;
-                        let uni = super::Capabilities::UNIFORM_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
-                        let st_sb = super::Capabilities::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
-                        let sampler = super::Capabilities::SAMPLER_NON_UNIFORM_INDEXING;
-
                         // We're a binding array, so lets use the type of _what_ we are array of to determine if we can non-uniformly index it.
                         let array_element_ty =
                             &resolve_context.types[array_element_ty_handle].inner;
 
                         needed_caps |= match *array_element_ty {
-                            // If we're an image, use the appropriate limit.
+                            // If we're an image, use the appropriate capability.
                             crate::TypeInner::Image { class, .. } => match class {
-                                crate::ImageClass::Storage { .. } => sto,
-                                _ => st_sb,
+                                crate::ImageClass::Storage { .. } => {
+                                    super::Capabilities::STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING
+                                }
+                                _ => {
+                                    super::Capabilities::TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+                                }
                             },
-                            crate::TypeInner::Sampler { .. } => sampler,
-                            // If we're anything but an image, assume we're a buffer and use the address space.
+                            crate::TypeInner::Sampler { .. } => {
+                                super::Capabilities::TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+                            }
+                            // If we're anything but an image or sampler, assume we're a buffer and use the address space.
                             _ => {
                                 if let E::GlobalVariable(global_handle) = expression_arena[base] {
                                     let global = &resolve_context.global_vars[global_handle];
                                     match global.space {
-                                        crate::AddressSpace::Uniform => uni,
-                                        crate::AddressSpace::Storage { .. } => st_sb,
+                                        crate::AddressSpace::Uniform => {
+                                            super::Capabilities::BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+                                        }
+                                        crate::AddressSpace::Storage { .. } => {
+                                            super::Capabilities::STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+                                        }
                                         _ => unreachable!(),
                                     }
                                 } else {
@@ -630,9 +655,10 @@ impl FunctionInfo {
                     // local data is non-uniform
                     As::Function | As::Private => false,
                     // workgroup memory is exclusively accessed by the group
-                    As::WorkGroup => true,
+                    // task payload memory is very similar to workgroup memory
+                    As::WorkGroup | As::TaskPayload => true,
                     // uniform data
-                    As::Uniform | As::PushConstant => true,
+                    As::Uniform | As::Immediate => true,
                     // storage data is only uniform when read-only
                     As::Storage { access } => !access.contains(crate::StorageAccess::STORE),
                     As::Handle => false,
@@ -656,9 +682,10 @@ impl FunctionInfo {
                 gather: _,
                 coordinate,
                 array_index,
-                offset: _,
+                offset,
                 level,
                 depth_ref,
+                clamp_to_edge: _,
             } => {
                 let image_storage = GlobalOrArgument::from_expression(expression_arena, image)?;
                 let sampler_storage = GlobalOrArgument::from_expression(expression_arena, sampler)?;
@@ -683,6 +710,7 @@ impl FunctionInfo {
                     Sl::Gradient { x, y } => self.add_ref(x).or(self.add_ref(y)),
                 };
                 let dref_nur = depth_ref.and_then(|h| self.add_ref(h));
+                let offset_nur = offset.and_then(|h| self.add_ref(h));
                 Uniformity {
                     non_uniform_result: self
                         .add_ref(image)
@@ -690,7 +718,8 @@ impl FunctionInfo {
                         .or(self.add_ref(coordinate))
                         .or(array_nur)
                         .or(level_nur)
-                        .or(dref_nur),
+                        .or(dref_nur)
+                        .or(offset_nur),
                     requirements: if level.implicit_derivatives() {
                         UniformityRequirements::IMPLICIT_LEVEL
                     } else {
@@ -807,6 +836,21 @@ impl FunctionInfo {
                 non_uniform_result: Some(handle),
                 requirements: UniformityRequirements::empty(),
             },
+            E::RayQueryVertexPositions {
+                query,
+                committed: _,
+            } => Uniformity {
+                non_uniform_result: self.add_ref(query),
+                requirements: UniformityRequirements::empty(),
+            },
+            E::CooperativeLoad { ref data, .. } => Uniformity {
+                non_uniform_result: self.add_ref(data.pointer).or(self.add_ref(data.stride)),
+                requirements: UniformityRequirements::COOP_OPS,
+            },
+            E::CooperativeMultiplyAdd { a, b, c } => Uniformity {
+                non_uniform_result: self.add_ref(a).or(self.add_ref(b).or(self.add_ref(c))),
+                requirements: UniformityRequirements::COOP_OPS,
+            },
         };
 
         let ty = resolve_context.resolve(expression, |h| Ok(&self[h].ty))?;
@@ -888,7 +932,7 @@ impl FunctionInfo {
                         ExitFlags::empty()
                     },
                 },
-                S::Barrier(_) => FunctionUniformity {
+                S::ControlBarrier(_) | S::MemoryBarrier(_) => FunctionUniformity {
                     result: Uniformity {
                         non_uniform_result: None,
                         requirements: UniformityRequirements::WORK_GROUP_BARRIER,
@@ -1128,12 +1172,24 @@ impl FunctionInfo {
                         | crate::GatherMode::Shuffle(index)
                         | crate::GatherMode::ShuffleDown(index)
                         | crate::GatherMode::ShuffleUp(index)
-                        | crate::GatherMode::ShuffleXor(index) => {
+                        | crate::GatherMode::ShuffleXor(index)
+                        | crate::GatherMode::QuadBroadcast(index) => {
                             let _ = self.add_ref(index);
                         }
+                        crate::GatherMode::QuadSwap(_) => {}
                     }
                     FunctionUniformity::new()
                 }
+                S::CooperativeStore { target, ref data } => FunctionUniformity {
+                    result: Uniformity {
+                        non_uniform_result: self
+                            .add_ref(target)
+                            .or(self.add_ref_impl(data.pointer, GlobalUse::WRITE))
+                            .or(self.add_ref(data.stride)),
+                        requirements: UniformityRequirements::COOP_OPS,
+                    },
+                    exit: ExitFlags::empty(),
+                },
             };
 
             disruptor = disruptor.or(uniformity.exit_disruptor());
@@ -1208,6 +1264,19 @@ impl ModuleInfo {
         )?;
         info.uniformity = uniformity.result;
         info.may_kill = uniformity.exit.contains(ExitFlags::MAY_KILL);
+
+        // If there are any globals referenced directly by a named expression,
+        // ensure they are marked as used even if they are not referenced
+        // anywhere else. An important case where this matters is phony
+        // assignments used to include a global in the shader's resource
+        // interface. https://www.w3.org/TR/WGSL/#phony-assignment-section
+        for &handle in fun.named_expressions.keys() {
+            if let Some(global) = info[handle].assignable_global {
+                if info.global_uses[global.index()].is_empty() {
+                    info.global_uses[global.index()] = GlobalUse::QUERY;
+                }
+            }
+        }
 
         Ok(info)
     }

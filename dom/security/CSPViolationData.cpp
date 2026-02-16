@@ -6,12 +6,12 @@
 
 #include "mozilla/dom/CSPViolationData.h"
 
-#include "nsCharTraits.h"
-#include "nsContentUtils.h"
+#include <utility>
+
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/nsCSPContext.h"
-
-#include <utility>
+#include "nsCharTraits.h"
+#include "nsContentUtils.h"
 
 namespace mozilla::dom {
 
@@ -45,7 +45,8 @@ CSPViolationData::CSPViolationData(uint32_t aViolatedPolicyIndex,
                                    const CSPDirective aEffectiveDirective,
                                    const nsACString& aSourceFile,
                                    uint32_t aLineNumber, uint32_t aColumnNumber,
-                                   Element* aElement, const nsAString& aSample)
+                                   Element* aElement, const nsAString& aSample,
+                                   const nsACString& aHashSHA256)
     : mViolatedPolicyIndex{aViolatedPolicyIndex},
       mResource{std::move(aResource)},
       mEffectiveDirective{aEffectiveDirective},
@@ -53,14 +54,17 @@ CSPViolationData::CSPViolationData(uint32_t aViolatedPolicyIndex,
       mLineNumber{aLineNumber},
       mColumnNumber{aColumnNumber},
       mElement{aElement},
-      // For TrustedTypesSink, sample is already truncated and formatted in
-      // ShouldSinkTypeMismatchViolationBeBlockedByCSP.
+      // For TrustedTypesSink/TrustedTypesPolicy, sample is already truncated
+      // and formatted in ReportSinkTypeMismatch/PolicyCreationViolations.
       // TODO(bug 1935996): The specifications do not mention adding an
       // ellipsis.
-      mSample{BlockedContentSourceOrUnknown() ==
-                      BlockedContentSource::TrustedTypesSink
+      mSample{(BlockedContentSourceOrUnknown() ==
+                   BlockedContentSource::TrustedTypesSink ||
+               BlockedContentSourceOrUnknown() ==
+                   BlockedContentSource::TrustedTypesPolicy)
                   ? nsString(aSample)
-                  : MaybeTruncateSampleWithEllipsis(aSample)} {}
+                  : MaybeTruncateSampleWithEllipsis(aSample)},
+      mHashSHA256{aHashSHA256} {}
 
 // Required for `mElement`, since its destructor requires a definition of
 // `Element`.

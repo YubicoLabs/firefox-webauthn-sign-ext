@@ -20,6 +20,7 @@ const { SelectableProfileService } = ChromeUtils.importESModule(
 export class ProfileSelector extends MozLitElement {
   static properties = {
     profiles: { type: Array },
+    showSelector: { type: Boolean },
   };
 
   static queries = {
@@ -93,9 +94,11 @@ export class ProfileSelector extends MozLitElement {
     await this.selectableProfileService.init();
     await this.selectableProfileService.maybeSetupDataStore();
     this.profiles = await this.selectableProfileService.getAllProfiles();
+    this.showSelector =
+      this.selectableProfileService.groupToolkitProfile.showProfileSelector;
 
     if (!this.profiles.length) {
-      this.selectableProfileService.setShowProfileSelectorWindow(false);
+      await this.selectableProfileService.setShowProfileSelectorWindow(false);
     }
 
     this.initialized = true;
@@ -110,10 +113,11 @@ export class ProfileSelector extends MozLitElement {
   }
 
   handleCheckboxToggle() {
-    let state = this.checkbox.checked ? "enabled" : "disabled";
+    this.showSelector = this.checkbox.checked;
+    let state = this.showSelector ? "enabled" : "disabled";
     Glean.profilesSelectorWindow.showAtStartup.record({ value: state });
     this.selectableProfileService.setShowProfileSelectorWindow(
-      this.checkbox.checked
+      this.showSelector
     );
   }
 
@@ -122,7 +126,7 @@ export class ProfileSelector extends MozLitElement {
       await this.setLaunchArguments(profile, url ? ["-url", url] : []);
       await this.selectableProfileService.uninit();
     } else {
-      this.selectableProfileService.launchInstance(profile, url);
+      this.selectableProfileService.launchInstance(profile, url ? [url] : []);
     }
 
     window.close();
@@ -180,9 +184,14 @@ export class ProfileSelector extends MozLitElement {
       <moz-checkbox
         @click=${this.handleCheckboxToggle}
         data-l10n-id="profile-window-checkbox-label-2"
-        ?checked=${this.selectableProfileService.groupToolkitProfile
-          .showProfileSelector}
-      ></moz-checkbox>`;
+        ?checked=${this.showSelector}
+      >
+        <span
+          slot="description"
+          data-l10n-id="profile-window-checkbox-subcopy"
+          ?hidden=${this.showSelector}
+        ></span>
+      </moz-checkbox>`;
   }
 }
 

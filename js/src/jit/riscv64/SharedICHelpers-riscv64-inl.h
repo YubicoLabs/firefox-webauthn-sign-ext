@@ -7,6 +7,7 @@
 #ifndef jit_riscv64_SharedICHelpers_riscv64_inl_h
 #define jit_riscv64_SharedICHelpers_riscv64_inl_h
 
+#include "jit/BaselineFrame.h"
 #include "jit/SharedICHelpers.h"
 
 namespace js {
@@ -30,7 +31,7 @@ inline void EmitBaselineTailCallVM(TrampolinePtr target, MacroAssembler& masm,
 #endif
 
   // Push frame descriptor and perform the tail call.
-  masm.pushFrameDescriptor(FrameType::BaselineJS);
+  masm.push(FrameDescriptor(FrameType::BaselineJS));
 
   MOZ_ASSERT(ICTailCallReg == ra);
   // The return address will be pushed by the VM wrapper, for compatibility
@@ -42,7 +43,7 @@ inline void EmitBaselineTailCallVM(TrampolinePtr target, MacroAssembler& masm,
 }
 
 inline void EmitBaselineCallVM(TrampolinePtr target, MacroAssembler& masm) {
-  masm.pushFrameDescriptor(FrameType::BaselineStub);
+  masm.push(FrameDescriptor(FrameType::BaselineStub));
   masm.call(target);
 }
 
@@ -63,7 +64,7 @@ inline void EmitBaselineEnterStubFrame(MacroAssembler& masm, Register scratch) {
   // BaselineStubFrame if needed.
 
   // Push frame descriptor and return address.
-  masm.PushFrameDescriptor(FrameType::BaselineJS);
+  masm.Push(FrameDescriptor(FrameType::BaselineJS));
   masm.Push(ICTailCallReg);
 
   // Save old frame pointer, stack pointer and stub reg.

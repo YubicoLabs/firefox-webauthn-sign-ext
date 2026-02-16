@@ -46,6 +46,11 @@ class PageAction extends PageActionBase {
     }
     return null;
   }
+
+  isPanelShownBlockingOpenPopup(window) {
+    const panel = this.buttonDelegate.popupNode?.panel;
+    return panel && panel.ownerGlobal === window && panel.state !== "closed";
+  }
 }
 
 this.pageAction = class extends ExtensionAPIPersistent {
@@ -236,7 +241,7 @@ this.pageAction = class extends ExtensionAPIPersistent {
 
   handleEvent(event) {
     switch (event.type) {
-      case "popupshowing":
+      case "popupshowing": {
         const menu = event.target;
         const trigger = menu.triggerNode;
         const getActionId = () => {
@@ -263,7 +268,9 @@ this.pageAction = class extends ExtensionAPIPersistent {
           menu.id === "pageActionContextMenu" &&
           trigger &&
           getActionId() === this.browserPageAction.id &&
-          !this.browserPageAction.getDisabled(trigger.ownerGlobal)
+          !this.browserPageAction.getDisabled(trigger.ownerGlobal) &&
+          (this.extension.hasPermission("contextMenus") ||
+            this.extension.hasPermission("menus"))
         ) {
           global.actionContextMenu({
             extension: this.extension,
@@ -272,6 +279,7 @@ this.pageAction = class extends ExtensionAPIPersistent {
           });
         }
         break;
+      }
     }
   }
 
@@ -373,6 +381,7 @@ this.pageAction = class extends ExtensionAPIPersistent {
 
         openPopup: () => {
           let window = windowTracker.topWindow;
+          action.throwIfOpenPopupIsBlockedByAnyAction(window);
           this.triggerAction(window);
         },
       },

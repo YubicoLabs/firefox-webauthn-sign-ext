@@ -5,11 +5,9 @@
 #ifndef DOM_MEDIA_PLATFORMS_ANDROID_ANDROIDDATAENCODER_H_
 #define DOM_MEDIA_PLATFORMS_ANDROID_ANDROIDDATAENCODER_H_
 
+#include "JavaCallbacksSupport.h"
 #include "MediaData.h"
 #include "PlatformEncoderModule.h"
-
-#include "JavaCallbacksSupport.h"
-
 #include "mozilla/Maybe.h"
 #include "mozilla/Mutex.h"
 
@@ -28,6 +26,7 @@ class AndroidDataEncoder final : public MediaDataEncoder {
 
   RefPtr<InitPromise> Init() override;
   RefPtr<EncodePromise> Encode(const MediaData* aSample) override;
+  RefPtr<EncodePromise> Encode(nsTArray<RefPtr<MediaData>>&& aSamples) override;
   RefPtr<EncodePromise> Drain() override;
   RefPtr<ShutdownPromise> Shutdown() override;
   RefPtr<GenericPromise> SetBitrate(uint32_t aBitsPerSec) override;
@@ -72,7 +71,7 @@ class AndroidDataEncoder final : public MediaDataEncoder {
 
   // Methods only called on mTaskQueue.
   RefPtr<InitPromise> ProcessInit();
-  RefPtr<EncodePromise> ProcessEncode(const RefPtr<const MediaData>& aSample);
+  RefPtr<EncodePromise> ProcessEncode(nsTArray<RefPtr<MediaData>>&& aSamples);
   RefPtr<EncodePromise> ProcessDrain();
   RefPtr<ShutdownPromise> ProcessShutdown();
   void ProcessInput();
@@ -112,6 +111,8 @@ class AndroidDataEncoder final : public MediaDataEncoder {
   EncodedData mEncodedData;
   // SPS/PPS NALUs for realtime usage, avcC otherwise.
   RefPtr<MediaByteBuffer> mConfigData;
+  // Record the input sample duration because MediaCodec doesn’t provide it.
+  media::TimeUnit mInputSampleDuration = media::TimeUnit::Invalid();
 
   enum class DrainState { DRAINABLE, DRAINING, DRAINED };
   DrainState mDrainState = DrainState::DRAINABLE;

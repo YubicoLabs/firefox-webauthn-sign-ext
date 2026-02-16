@@ -23,7 +23,7 @@
 //! let cfg = ConfigurationBuilder::new(true, "/tmp/data", "org.mozilla.glean_core.example").build();
 //! glean::initialize(cfg, ClientInfoMetrics::unknown());
 //!
-//! let prototype_ping = PingType::new("prototype", true, true, true, true, true, vec!(), vec!(), true);
+//! let prototype_ping = PingType::new("prototype", true, true, true, true, true, vec!(), vec!(), true, vec![]);
 //!
 //! prototype_ping.submit(None);
 //! ```
@@ -36,11 +36,11 @@ pub use configuration::{Builder as ConfigurationBuilder, Configuration};
 pub use core_metrics::ClientInfoMetrics;
 pub use glean_core::{
     metrics::{
-        Datetime, DistributionData, MemoryUnit, MetricIdentifier, Rate, RecordedEvent, TimeUnit,
-        TimerId,
+        Datetime, DistributionData, MemoryUnit, MetricIdentifier, Rate, RecordedEvent,
+        TestGetValue, TimeUnit, TimerId,
     },
-    traits, CommonMetricData, Error, ErrorType, Glean, HistogramType, LabeledMetricData, Lifetime,
-    PingRateLimit, RecordedExperiment, Result,
+    traits, AttributionMetrics, CommonMetricData, DistributionMetrics, Error, ErrorType, Glean,
+    HistogramType, LabeledMetricData, Lifetime, PingRateLimit, RecordedExperiment, Result,
 };
 
 mod configuration;
@@ -162,7 +162,7 @@ pub fn set_collection_enabled(enabled: bool) {
 /// Note that this needs to be public in order for RLB consumers to
 /// use Glean debugging facilities.
 ///
-/// See [`glean_core::Glean.submit_ping_by_name`].
+/// See [`glean_core::Glean::submit_ping_by_name`].
 pub fn submit_ping_by_name(ping: &str, reason: Option<&str>) {
     let ping = ping.to_string();
     let reason = reason.map(|s| s.to_string());
@@ -203,7 +203,7 @@ pub fn test_get_experimentation_id() -> Option<String> {
 
 /// Set the remote configuration values for the metrics' disabled property
 ///
-/// See [`glean_core::Glean::glean_apply_server_knobs_config`].
+/// See [`glean_core::Glean::apply_server_knobs_config`].
 pub fn glean_apply_server_knobs_config(json: String) {
     glean_core::glean_apply_server_knobs_config(json)
 }
@@ -354,6 +354,39 @@ pub fn persist_ping_lifetime_data() {
 /// The list of ping names that are currently registered.
 pub fn get_registered_ping_names() -> Vec<String> {
     glean_core::glean_get_registered_ping_names()
+}
+
+/// Updates attribution fields with new values.
+/// AttributionMetrics fields with `None` values will not overwrite older values.
+pub fn update_attribution(attribution: AttributionMetrics) {
+    glean_core::glean_update_attribution(attribution);
+}
+
+/// **TEST-ONLY Method**
+///
+/// Returns the current attribution metrics.
+pub fn test_get_attribution() -> AttributionMetrics {
+    glean_core::glean_test_get_attribution()
+}
+
+/// Updates distribution fields with new values.
+/// DistributionMetrics fields with `None` values will not overwrite older values.
+pub fn update_distribution(distribution: DistributionMetrics) {
+    glean_core::glean_update_distribution(distribution);
+}
+
+/// **TEST-ONLY Method**
+///
+/// Returns the current distribution metrics.
+pub fn test_get_distribution() -> DistributionMetrics {
+    glean_core::glean_test_get_distribution()
+}
+
+/// Return the heap usage of the `Glean` object and all descendant heap-allocated structures.
+///
+/// Value is in bytes.
+pub fn alloc_size(ops: &mut malloc_size_of::MallocSizeOfOps) -> usize {
+    glean_core::alloc_size(ops)
 }
 
 #[cfg(test)]

@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -11,8 +9,8 @@ This was mostly copies from glean_parser, and should be kept in sync.
 """
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from glean_parser import parser, util
 

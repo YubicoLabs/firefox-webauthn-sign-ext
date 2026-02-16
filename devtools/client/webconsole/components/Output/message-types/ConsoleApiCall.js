@@ -7,8 +7,8 @@
 // React & Redux
 const {
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
 const GripMessageBody = require("resource://devtools/client/webconsole/components/Output/GripMessageBody.js");
 const ConsoleTable = createFactory(
@@ -139,7 +139,8 @@ function ConsoleApiCall(props) {
   }
 
   const collapsible =
-    isGroupType(type) || (type === "error" && Array.isArray(stacktrace));
+    isGroupType(type) ||
+    ((type === "error" || type === "logPoint") && Array.isArray(stacktrace));
   const topLevelClasses = ["cm-s-mozilla"];
 
   return Message({

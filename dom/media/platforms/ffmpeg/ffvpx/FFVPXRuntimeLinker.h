@@ -4,14 +4,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __FFVPXRuntimeLinker_h__
-#define __FFVPXRuntimeLinker_h__
+#ifndef FFVPXRuntimeLinker_h_
+#define FFVPXRuntimeLinker_h_
 
 #include "PlatformDecoderModule.h"
 #include "PlatformEncoderModule.h"
+#include "ffvpx/tx.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/ThreadSafety.h"
-#include "ffvpx/tx.h"
 
 struct FFmpegFFTFuncs {
   decltype(av_tx_init)* init;
@@ -30,6 +30,8 @@ class FFVPXRuntimeLinker {
   static void GetFFTFuncs(FFmpegFFTFuncs* aOutFuncs);
 
  private:
+  static void PrefCallbackLogLevel(const char* aPref, void* aData);
+
   // Provide critical-section for Init() and sLinkStatus.
   static StaticMutex sMutex;
 
@@ -43,4 +45,4 @@ class FFVPXRuntimeLinker {
 
 }  // namespace mozilla
 
-#endif /* __FFVPXRuntimeLinker_h__ */
+#endif /* FFVPXRuntimeLinker_h_ */

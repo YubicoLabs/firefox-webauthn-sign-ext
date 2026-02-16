@@ -10,10 +10,10 @@
 #include "FilterSupport.h"
 #include "gfxMatrix.h"
 #include "gfxRect.h"
+#include "mozilla/ServoStyleConsts.h"
 #include "mozilla/gfx/Point.h"
 #include "mozilla/gfx/Types.h"
 #include "nsColor.h"
-#include "mozilla/ServoStyleConsts.h"
 
 namespace mozilla {
 
@@ -100,12 +100,6 @@ class CSSFilterInstance {
                  const nsTArray<FilterPrimitiveDescription>& aPrimitiveDescrs);
 
   /**
-   * Converts an nscolor to a Color, suitable for use as a
-   * FilterPrimitiveDescription attribute.
-   */
-  sRGBColor ToAttributeColor(nscolor aColor);
-
-  /**
    * Converts a blur radius in frame space to filter space.
    */
   Size BlurRadiusToFilterSpace(nscoord aRadiusInFrameSpace);
@@ -123,12 +117,6 @@ class CSSFilterInstance {
   const StyleFilter& mFilter;
 
   /**
-   * The color that should be used for drop-shadow() filters that don't
-   * specify a shadow color.
-   */
-  nscolor mShadowFallbackColor;
-
-  /**
    * The pre-filter overflow rect of the frame being filtered, in filter space.
    * Used for input bounds if this CSS filter is the first in the filter chain.
    */
@@ -139,6 +127,12 @@ class CSSFilterInstance {
    * filter space. Used to transform style values to filter space.
    */
   gfxMatrix mFrameSpaceInCSSPxToFilterSpaceTransform;
+
+  /**
+   * The color that should be used for drop-shadow() filters that don't
+   * specify a shadow color.
+   */
+  nscolor mShadowFallbackColor;
 };
 
 }  // namespace mozilla

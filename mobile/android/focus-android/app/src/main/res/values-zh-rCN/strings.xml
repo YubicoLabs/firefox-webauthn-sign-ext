@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">浏览历史已清除</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">已清除标签页浏览历史。</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">搜索 %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">分享…</string>
@@ -52,7 +62,7 @@
   <string name="menu_settings">设置</string>
   <string name="menu_about">关于</string>
   <string name="menu_help">帮助</string>
-  <string name="menu_rights">您的权利</string>
+  <string name="menu_terms_of_use">使用条款</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -143,19 +153,12 @@
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Focus Nightly · 搜索</string>
   <!--
-    Content of about focus. Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
-    Argument 2 is the url for the learn-more link.
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
   -->
-  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote">&lt;p&gt;%1$s 让您掌控线上生活。&lt;/p&gt;
-&lt;p&gt;可以用作隐私浏览器：
-  &lt;ul&gt;
-    &lt;li&gt;直接在应用中搜索和浏览&lt;/li&gt;
-    &lt;li&gt;拦截跟踪器（也可调整为允许跟踪器）&lt;/li&gt;
-    &lt;li&gt;自动清除 Cookie、搜索记录和浏览历史&lt;/li&gt;
-  &lt;/ul&gt;
-&lt;/p&gt;
-&lt;p&gt;%1$s 由 Mozilla 出品。我们的使命是促成健康、开放的互联网。&lt;br/&gt;
-&lt;a href="%2$s"&gt;详细了解&lt;/a&gt;&lt;/p&gt;</string>
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s 让您掌控线上生活。</p>\n<p>可以用作隐私浏览器：\n<ul>\n<li>直接在应用中搜索和浏览</li>\n<li>拦截跟踪器（也可调整为允许跟踪器）</li>\n<li>自动清除 Cookie、搜索记录和浏览历史</li>\n</ul> </p>\n<p>%1$s 由 Mozilla 出品。我们的使命是促成健康、开放的互联网。<br/>\n<a href=\"%2$s\">详细了解</a></p>]]></string>
+  <!-- A link to SUMO at the bottom of About Focus screen. -->
+  <string name="about_screen_learn_more">详细了解</string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">隐私与安全</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -207,14 +210,14 @@
   <string name="preference_switch_autocomplete_topsites">对于常用网站</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">开启之后，%s 地址栏可以自动补全超过 450 个热门网站。</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">对于您添加的网站</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">开启之后，%s 可以自动补全您喜爱的网址。</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -289,8 +292,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">若 %s 有打开的网站或添加过快捷方式，请使用指纹解锁。</string>
   <!--
@@ -328,7 +331,7 @@
   <string name="preference_mozilla_telemetry_summary2">Mozilla 力图仅收集为大众提供和改进 %1$s 所必需的数据。</string>
   <!-- Preference switch for daily usage ping data collection -->
   <string name="preference_daily_usage_ping_title">每日使用情况报告</string>
-  <string name="preference_daily_usage_ping_description">此数据可帮助 Mozilla 估算活跃用户数量。</string>
+  <string name="preference_daily_usage_ping_description">此信息可帮助 Mozilla 估算活跃用户数量。</string>
   <string name="preference_daily_usage_ping_learn_more">详细信息</string>
   <!-- In-app link (in settings) to Focus privacy notice. -->
   <string name="preference_privacy_notice">隐私声明</string>
@@ -338,9 +341,9 @@
   <string name="preference_libraries_we_use">我们使用的开源库</string>
   <!-- Link to Focus Crash reports list. -->
   <string name="preference_crashes">崩溃</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s | 开源软件库</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">关于 %1$s</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">已安装的搜索引擎</string>
@@ -364,7 +367,7 @@
   <string name="search_add_manually_name_hint">搜索引擎名称</string>
   <string name="search_add_manually_string">搜索字符串</string>
   <string name="search_add_manually_save">保存</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">例如：example.com/search/?q=%s</string>
   <string name="search_add_confirmation">已添加新的搜索引擎。</string>
   <string name="search_add_error_empty_name">输入搜索引擎名称</string>
@@ -436,19 +439,19 @@
   <string name="external_app_prompt_title">用另一个应用打开链接</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
-  <string name="external_app_prompt">您可以离开 %1$s，用 %2$s 打开此链接。</string>
+  <string name="external_app_prompt">您可以离开 %1$s，用“%2$s”打开此链接。</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">寻找可以打开此链接的应用</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">您的设备上的应用都不能打开此链接。您可以离开 %1$s，到 %2$s 找找适合的应用。</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">退出隐私浏览模式？</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s 下载完毕</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">打开</string>
@@ -458,7 +461,7 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">欢迎使用 %1$s</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
@@ -468,25 +471,25 @@
 
     %1$s will be replaced by a link using onboarding_first_screen_terms_of_use_link as text
   -->
-  <string name="onboarding_first_screen_terms_of_use_text" tools:ignore="UnusedResources">继续使用即表示您同意 %1$s</string>
+  <string name="onboarding_first_screen_terms_of_use_text_2" tools:ignore="UnusedResources">继续使用即表示您同意 %1$s。</string>
   <!--
     New Onboarding flow first screen 'terms of use link'
 
     Text for the link used in onboarding_first_screen_terms_of_use_text
   -->
-  <string name="onboarding_first_screen_terms_of_use_link" tools:ignore="BrandUsage">Firefox 使用条款。</string>
+  <string name="onboarding_first_screen_terms_of_use_link_2" tools:ignore="BrandUsage">Firefox 使用条款</string>
   <!--
     New Onboarding flow first screen 'privacy notice' text
 
     %1$s will be replaced by a link using onboarding_first_screen_privacy_notice_link as text
   -->
-  <string name="onboarding_first_screen_privacy_notice_text" tools:ignore="BrandUsage">Firefox 重视您的隐私。阅读%1$s可详细了解</string>
+  <string name="onboarding_first_screen_privacy_notice_text_2" tools:ignore="BrandUsage">Firefox 重视您的隐私。阅读%1$s可详细了解。</string>
   <!-- Text for the link used in onboarding_first_screen_privacy_notice_text -->
-  <string name="onboarding_first_screen_privacy_notice_link">隐私声明。</string>
+  <string name="onboarding_first_screen_privacy_notice_link_2">隐私政策</string>
   <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">开始使用</string>
-  <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_agree_and_continue">同意并继续</string>
+  <string name="onboarding_first_screen_button_agree_and_continue_2">继续</string>
+  <!-- In the first screen of new onboarding flow, additional accessibility description for content that contain urls. -->
+  <string name="a11y_link_available">包含链接</string>
   <!--
     Onboarding second screen: Title
 
@@ -564,36 +567,6 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">下载 Firefox</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">%1$s 是由 Mozilla 及贡献者制作的一款自由的开源软件。</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s 依照 &lt;a href="%2$s"&gt;Mozilla 公共许可证&lt;/a&gt;及其他一些开源许可证向您授权。</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">您没有取得 Mozilla 基金会或任何一方的商标的任何权利或许可，包括 Mozilla、Firefox 和 %1$s 名称或徽标的许可。有关信息请查阅&lt;a href="%2$s"&gt;此处&lt;/a&gt;。</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">%1$s 其他源代码以各类自由和开源&lt;a href="%2$s"&gt;许可证&lt;/a&gt;开放。</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s 还使用 Disconnect 公司提供的拦截列表，它是以 &lt;a href="%2$s"&gt;GNU 通用公共许可证 v3&lt;/a&gt; 提供的一个独立的作品，可在&lt;a href="%3$s"&gt;这里&lt;/a&gt;找到。</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">用户名</string>
   <string name="gv_prompt_password_hint">密码</string>
@@ -615,13 +588,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">在此页面中查找</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">第 %1$d 项，共 %2$d 个匹配项</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -668,13 +643,13 @@
   <string name="cookie_banner_exception_panel_switch_state_off">在该网站关闭</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">在该网站开启</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">要为 %1$s 开启“减少 Cookie 横幅”功能吗？</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">要为 %1$s 关闭“减少 Cookie 横幅”功能吗？</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">%1$s 将清除此网站的 Cookie 并刷新页面。清除 Cookie 可能会导致您退出登录，或清空购物车。</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">%1$s 会尝试自动拒绝 Cookie 请求。</string>
   <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_description_site_is_not_supported">“减少 Cookie 横幅”功能暂不支持此网站。您希望请求我们的团队调查此网站以在将来完成支持吗？</string>
@@ -701,11 +676,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. 前往 Android 设置</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. 点按&lt;b&gt;权限&lt;/b&gt;</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. 点按<b>权限</b>]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">前往设置</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. 开启&lt;b&gt;%1$s&lt;/b&gt;权限</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. 开启<b>%1$s</b>权限]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">相机</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -732,20 +707,6 @@
   <string name="preference_block_autoplay_audio_only_summary">推荐</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">阻止音频和视频</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">研究</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Firefox 可能会不时地安装并运行一些研究项目。</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">详细了解</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">应用程序将退出以应用更改</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">移除</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">进行中</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">已完成</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">通过 USB/Wi-Fi 远程调试</string>
   <!-- Text Button for show biometric prompt -->
@@ -792,34 +753,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">网站表现异常？？\n
-    尝试关闭跟踪保护</string>
+  <string name="tip_disable_tracking_protection">网站表现异常？？\n尝试关闭跟踪保护</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">一键访问您的常用网站%1$s菜单 &gt; 添加到主屏幕</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">用 %1$s 打开所有链接\n
-        将 %1$s 设为默认浏览器
-    </string>
+  <string name="tip_set_default_browser">用 %1$s 打开所有链接\n将 %1$s 设为默认浏览器</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">自动补全您的常用网站地址\n
-        长按地址栏的中任一链接
-    </string>
+  <string name="tip_autocomplete_url">自动补全您的常用网站地址\n长按地址栏的中任一链接</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">新建标签页打开链接\n
-        长按页面上的任一链接</string>
+  <string name="tip_open_in_new_tab">新建标签页打开链接\n长按页面上的任一链接</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">关闭启动页上的小提示</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -860,29 +815,29 @@
   <string name="crash_report_send_crash_label">向 Mozilla 发送崩溃报告</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">自%s起拦截的跟踪器</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">内容</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">营销</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">社交</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">统计</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">增强型跟踪保护</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">已关闭此网站的跟踪保护</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">已开启此网站的跟踪保护</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">连接安全</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">连接不安全</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">要拦截的跟踪器和脚本</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">返回</string>
   <!--
     Top Sites
@@ -900,7 +855,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">清除 %1$s 的历史记录时，&lt;b&gt;将不会&lt;/b&gt;删除保存和分享的图像。</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[清除 %1$s 的历史记录时，<b>将不会</b>删除保存和分享的图像。]]></string>
   <!--
     Theme Preferences
 
@@ -918,25 +873,16 @@
   <!-- The title of the error page for websites that do not support HTTPS when HTTPS-Only is turned on -->
   <string name="errorpage_httpsonly_title2">此站点不支持 HTTPS</string>
   <!--
-    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s will get replaced with the name of the app (e.g. "Firefox Focus").
-    Contains a button that will redirect the user to Privacy & Security Screen
+    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"),
+    %2$s is a URL to a support article. Contains a button that will redirect the user to Privacy & Security Screen.
   -->
-  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote">%1$s 尽可能尝试使用 HTTPS 连接以提高安全性。
-     &lt;a href="%2$s"&gt;详细了解&lt;/a&gt; &lt;br/&gt;&lt;br/&gt;
-     通过“设置”&gt;“隐私与安全”&gt;“安全”更改此设置。</string>
+  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[%1$s 尽可能尝试使用 HTTPS 连接以提高安全性。 <a href=\"%2$s\">详细了解</a> <br/><br/> 通过“设置”>“隐私与安全”>“安全”更改此设置。]]></string>
   <!-- The document title and heading of the error page shown when a website has an invalid or expired SSL certificate. -->
   <string name="mozac_browser_errorpages_security_bad_cert_title">连接不安全</string>
   <!-- The error message shown when a website has an invalid or expired SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_message">
-    这可能是服务器配置的问题，也可能是有人试图冒充服务器。 &lt;br/&gt;&lt;br/&gt;
-    如果您过去曾成功连接到此服务器，则该错误可能是暂时的。
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_message"><![CDATA[这可能是服务器配置的问题，也可能是有人试图冒充服务器。 <br/><br/> 如果您过去曾成功连接到此服务器，则该错误可能是暂时的。]]></string>
   <!-- The advanced certificate information shown when a website has an invalid SSL certificate. The %1$s will be replaced by the app name and %2$s will be replaced by website URL. It's only shown when a website has an invalid SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_techInfo">
-        &lt;label&gt;可能有人试图冒充该网站，继续访问可能会有风险。&lt;/label&gt;
-        &lt;br&gt;&lt;br&gt;
-        &lt;label&gt;%1$s 不信任 &lt;b&gt;%2$s&lt;/b&gt;，因为其证书颁发者未知、证书为自签名的，或者服务器未发送正确的中间证书。&lt;/label&gt;
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_techInfo"><![CDATA[<label>可能有人试图冒充该网站，继续访问可能会有风险。</label> <br><br>\n<label>%1$s 不信任 <b>%2$s</b>，因为其证书颁发者未知、证书为自签名的，或者服务器未发送正确的中间证书。</label>]]></string>
   <!--
     Sessions List
 
@@ -999,13 +945,13 @@
 
     Message shown to explain how to exit fullscreen mode when gesture navigation is enabled.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_gesture_short">从屏幕顶部下拉，并使用返回手势退出</string>
   <!--
     Message shown to explain how to exit fullscreen mode when using back button navigation.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_back_button_short">从屏幕顶部下拉，并按下返回按钮退出</string>
 </resources>

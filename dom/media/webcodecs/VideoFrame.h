@@ -7,18 +7,21 @@
 #ifndef mozilla_dom_VideoFrame_h
 #define mozilla_dom_VideoFrame_h
 
+#include "MediaResult.h"
 #include "js/TypeDecls.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/ErrorResult.h"
-#include "mozilla/NotNull.h"
 #include "mozilla/Span.h"
+#include "mozilla/WeakPtr.h"
 #include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/BufferSourceBindingFwd.h"
 #include "mozilla/dom/TypedArray.h"
 #include "mozilla/dom/VideoColorSpaceBinding.h"
+#include "mozilla/dom/WebCodecsUtils.h"
 #include "mozilla/gfx/Point.h"
 #include "mozilla/gfx/Rect.h"
 #include "mozilla/media/MediaUtils.h"
 #include "nsCycleCollectionParticipant.h"
+#include "nsTArrayForwardDeclare.h"
 #include "nsWrapperCache.h"
 
 class nsIGlobalObject;
@@ -37,9 +40,7 @@ class HTMLCanvasElement;
 class HTMLImageElement;
 class HTMLVideoElement;
 class ImageBitmap;
-class MaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer;
 class OffscreenCanvas;
-class OwningMaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer;
 class Promise;
 class SVGImageElement;
 class StructuredCloneHolder;
@@ -52,6 +53,11 @@ struct VideoFrameCopyToOptions;
 struct VideoFrameInit;
 
 }  // namespace dom
+
+namespace webgpu {
+class ExternalTexture;
+}  // namespace webgpu
+
 }  // namespace mozilla
 
 namespace mozilla::dom {
@@ -60,7 +66,7 @@ struct VideoFrameData {
   VideoFrameData(layers::Image* aImage, const Maybe<VideoPixelFormat>& aFormat,
                  gfx::IntRect aVisibleRect, gfx::IntSize aDisplaySize,
                  Maybe<uint64_t> aDuration, int64_t aTimestamp,
-                 const VideoColorSpaceInit& aColorSpace);
+                 const VideoColorSpaceInternal& aColorSpace);
   VideoFrameData(const VideoFrameData& aData) = default;
 
   const RefPtr<layers::Image> mImage;
@@ -69,7 +75,7 @@ struct VideoFrameData {
   const gfx::IntSize mDisplaySize;
   const Maybe<uint64_t> mDuration;
   const int64_t mTimestamp;
-  const VideoColorSpaceInit mColorSpace;
+  const VideoColorSpaceInternal mColorSpace;
 };
 
 struct VideoFrameSerializedData : VideoFrameData {
@@ -91,7 +97,7 @@ class VideoFrame final : public nsISupports,
              const Maybe<VideoPixelFormat>& aFormat, gfx::IntSize aCodedSize,
              gfx::IntRect aVisibleRect, gfx::IntSize aDisplaySize,
              const Maybe<uint64_t>& aDuration, int64_t aTimestamp,
-             const VideoColorSpaceInit& aColorSpace);
+             const VideoColorSpaceInternal& aColorSpace);
   VideoFrame(nsIGlobalObject* aParent, const VideoFrameSerializedData& aData);
   VideoFrame(const VideoFrame& aOther);
 
@@ -104,7 +110,7 @@ class VideoFrame final : public nsISupports,
   JSObject* WrapObject(JSContext* aCx,
                        JS::Handle<JSObject*> aGivenProto) override;
 
-  static bool PrefEnabled(JSContext* aCx = nullptr, JSObject* aObj = nullptr);
+  static bool PrefEnabled(JSContext* aCx, JSObject* aObj = nullptr);
 
   static already_AddRefed<VideoFrame> Constructor(
       const GlobalObject& aGlobal, HTMLImageElement& aImageElement,
@@ -159,9 +165,9 @@ class VideoFrame final : public nsISupports,
   uint32_t AllocationSize(const VideoFrameCopyToOptions& aOptions,
                           ErrorResult& aRv);
 
-  already_AddRefed<Promise> CopyTo(
-      const MaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer& aDestination,
-      const VideoFrameCopyToOptions& aOptions, ErrorResult& aRv);
+  already_AddRefed<Promise> CopyTo(const AllowSharedBufferSource& aDestination,
+                                   const VideoFrameCopyToOptions& aOptions,
+                                   ErrorResult& aRv);
 
   already_AddRefed<VideoFrame> Clone(ErrorResult& aRv) const;
 
@@ -191,6 +197,11 @@ class VideoFrame final : public nsISupports,
   const gfx::IntRect& NativeVisibleRect() const { return mVisibleRect; }
   already_AddRefed<layers::Image> GetImage() const;
 
+  // Track a WebGPU ExternalTexture as being imported from this video frame.
+  // This ensures it will be correctly expired when the video frame is closed.
+  void TrackWebGPUExternalTexture(
+      WeakPtr<webgpu::ExternalTexture> aExternalTexture);
+
   nsCString ToString() const;
 
  public:
@@ -211,7 +222,7 @@ class VideoFrame final : public nsISupports,
     uint32_t SampleBytes(const Plane& aPlane) const;
     gfx::IntSize SampleSize(const Plane& aPlane) const;
     bool IsValidSize(const gfx::IntSize& aSize) const;
-    size_t ByteCount(const gfx::IntSize& aSize) const;
+    Result<size_t, MediaResult> ByteCount(const gfx::IntSize& aSize) const;
 
    private:
     bool IsYUV() const;
@@ -262,10 +273,14 @@ class VideoFrame final : public nsISupports,
 
   Maybe<uint64_t> mDuration;
   int64_t mTimestamp;
-  VideoColorSpaceInit mColorSpace;
+  VideoColorSpaceInternal mColorSpace;
 
   // The following are used to help monitoring mResource release.
   RefPtr<media::ShutdownWatcher> mShutdownWatcher = nullptr;
+
+  // WebGPU external textures that were imported from this video frame. We must
+  // call `Expire()` on them when the video frame is closed.
+  nsTArray<WeakPtr<webgpu::ExternalTexture>> mWebGPUExternalTextures;
 };
 
 }  // namespace mozilla::dom

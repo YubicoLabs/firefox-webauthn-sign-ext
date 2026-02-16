@@ -12,9 +12,7 @@ Services.scriptloader.loadSubScript(
 
 const asyncStorage = require("resource://devtools/shared/async-storage.js");
 
-Services.prefs.setIntPref("devtools.toolbox.footer.height", 350);
 registerCleanupFunction(async function () {
-  Services.prefs.clearUserPref("devtools.toolbox.footer.height");
   await asyncStorage.removeItem("gridInspectorHostColors");
 });
 
@@ -24,7 +22,7 @@ registerCleanupFunction(async function () {
  *
  * @param {Document} doc
  *        The owner document for the grid inspector.
- * @param {Number} gridCellIndex
+ * @param {number} gridCellIndex
  *        The index (0-based) of the grid cell that should be hovered.
  */
 function synthesizeMouseOverOnGridCell(doc, gridCellIndex = 0) {
@@ -36,5 +34,43 @@ function synthesizeMouseOverOnGridCell(doc, gridCellIndex = 0) {
     gridCell,
     { type: "mouseover" },
     doc.defaultView
+  );
+}
+
+/**
+ * Returns the number of visible grid highlighters
+ *
+ * @param {object} options
+ * @param {boolean} options.isParent: Pass false/true if only the parent/child grid highlighter
+ *                                    should be counted.
+ * @returns {number}
+ */
+function getNumberOfVisibleGridHighlighters({ isParent } = {}) {
+  return SpecialPowers.spawn(
+    gBrowser.selectedBrowser,
+    [isParent],
+    _isParent => {
+      const roots = content.document.getConnectedShadowRoots();
+      return roots.filter(root => {
+        // We want to check that the highlighter canvas is actually visible
+        const gridHighlighterEl = root.querySelector(
+          `#css-grid-root:has(canvas:not([hidden]))`
+        );
+
+        if (!gridHighlighterEl) {
+          return false;
+        }
+
+        if (typeof _isParent === "boolean") {
+          return (
+            gridHighlighterEl.getAttribute("data-is-parent-grid") ===
+            _isParent.toString()
+          );
+        }
+
+        // If isParent wasn't passed, we return all grid highlighters, parent and child.
+        return true;
+      }).length;
+    }
   );
 }

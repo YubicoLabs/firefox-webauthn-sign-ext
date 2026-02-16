@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -49,7 +47,7 @@ def rust_datatypes_filter(value):
     class RustEncoder(json.JSONEncoder):
         def iterencode(self, value):
             if isinstance(value, dict):
-                raise ValueError("RustEncoder doesn't know dicts {}".format(str(value)))
+                raise ValueError(f"RustEncoder doesn't know dicts {str(value)}")
             elif isinstance(value, enum.Enum):
                 yield (value.__class__.__name__ + "::" + util.Camelize(value.name))
             elif isinstance(value, set):
@@ -119,13 +117,11 @@ def type_name(obj):
                 # we always use the `extra` suffix,
                 # because we only expose the new event API
                 suffix = "Extra"
-                return "{}<{}>".format(
-                    class_name(obj.type), util.Camelize(obj.name) + suffix
-                )
+                return f"{class_name(obj.type)}<{util.Camelize(obj.name) + suffix}>"
     generate_structure = getattr(obj, "_generate_structure", [])
     if len(generate_structure):
         generic = util.Camelize(obj.name) + "Object"
-        return "{}<{}>".format(class_name(obj.type), generic)
+        return f"{class_name(obj.type)}<{generic}>"
     return class_name(obj.type)
 
 
@@ -193,6 +189,28 @@ def get_schedule_reverse_map(objs):
     return ping_schedule_reverse_map
 
 
+def test_get_type(metric_type):
+    """
+    Returns the type name returned from the `test_get_value` Rust implementation for a given metric type.
+    """
+    if metric_type == "boolean":
+        return "bool"
+    elif metric_type == "counter":
+        return "i32"
+    elif metric_type in {
+        "custom_distribution",
+        "memory_distribution",
+        "timing_distribution",
+    }:
+        return "DistributionData"
+    elif metric_type == "string":
+        return "String"
+    elif metric_type == "quantity":
+        return "i64"
+    else:
+        return "UNSUPPORTED"
+
+
 def output_rust(objs, output_fd, ping_names_by_app_id, options={}):
     """
     Given a tree of objects, output Rust code to the file-like object `output_fd`.
@@ -217,6 +235,7 @@ def output_rust(objs, output_fd, ping_names_by_app_id, options={}):
         )
         env.filters["camelize"] = util.camelize
         env.filters["Camelize"] = util.Camelize
+        env.filters["test_get_type"] = test_get_type
         for filter_name, filter_func in filters:
             env.filters[filter_name] = filter_func
         return env.get_template(template_name)
@@ -256,6 +275,14 @@ def output_rust(objs, output_fd, ping_names_by_app_id, options={}):
     #   18 -> "test_only::an_object"
     objects_by_id = {}
 
+    # Map from a metric ID to the fully qualified path of the dual_labeled_counter metric in Rust.
+    # Required for the special handling of dual_labeled_counter metric lookups.
+    #
+    # Example:
+    #
+    #   18 -> "test_only::a_dual_labeled_counter"
+    dual_labeled_counters_by_id = {}
+
     # Map from a labeled type (e.g. "counter") to a map from metric ID to the
     # fully qualified path of the labeled metric object in Rust paired with
     # whether the labeled metric has an enum.
@@ -288,6 +315,9 @@ def output_rust(objs, output_fd, ping_names_by_app_id, options={}):
                     continue
                 if metric.type == "object":
                     objects_by_id[get_metric_id(metric)] = full_path
+                    continue
+                if metric.type == "dual_labeled_counter":
+                    dual_labeled_counters_by_id[get_metric_id(metric)] = full_path
                     continue
 
                 if getattr(metric, "labeled", False):
@@ -328,6 +358,7 @@ def output_rust(objs, output_fd, ping_names_by_app_id, options={}):
             extra_args=util.extra_args,
             events_by_id=events_by_id,
             objects_by_id=objects_by_id,
+            dual_labeled_counters_by_id=dual_labeled_counters_by_id,
             labeleds_by_id_by_type=labeleds_by_id_by_type,
             submetric_bit=ID_BITS - ID_SIGNAL_BITS,
             ping_names_by_app_id=ping_names_by_app_id,

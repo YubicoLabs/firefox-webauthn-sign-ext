@@ -6,6 +6,7 @@ package mozilla.components.feature.search.telemetry.incontent
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.Engine
 import mozilla.components.feature.search.telemetry.ExtensionInfo
@@ -38,6 +39,7 @@ import org.mockito.Mockito.verify
 @RunWith(AndroidJUnit4::class)
 class InContentTelemetryTest {
     private lateinit var telemetry: InContentTelemetry
+    private val testDispatcher = StandardTestDispatcher()
 
     fun createMockProviderList(): List<SearchProviderModel> = listOf(
         SearchProviderModel(
@@ -106,17 +108,37 @@ class InContentTelemetryTest {
             ),
             expectedOrganicCodes = emptyList(),
         ),
+        SearchProviderModel(
+            schema = 1671479978127,
+            taggedCodes = listOf("MOZ2", "MOZL", "def"),
+            telemetryId = "bing2",
+            organicCodes = emptyList(),
+            codeParamName = "pc",
+            queryParamNames = listOf("q"),
+            searchPageRegexp = "^https://www\\.bing2\\.com/search",
+            extraAdServersRegexps = listOf("^https://www\\\\.bing2\\\\.com/acli?c?k"),
+            followOnCookies = listOf(
+                SearchProviderCookie(
+                    extraCodeParamName = "",
+                    extraCodePrefixes = emptyList(),
+                    host = "name",
+                    name = "SRCHS",
+                    codeParamName = "PC",
+                ),
+            ),
+            expectedOrganicCodes = emptyList(),
+        ),
     )
 
     @Before
     fun setup() {
-        telemetry = spy(InContentTelemetry())
+        telemetry = spy(InContentTelemetry(testDispatcher))
     }
 
     @Test
     fun `WHEN installWebExtension is called THEN install a properly configured extension`() {
         val engine: Engine = mock()
-        val store: BrowserStore = mock()
+        val store = BrowserStore()
         val extensionCaptor = argumentCaptor<ExtensionInfo>()
 
         runBlocking {
@@ -343,6 +365,50 @@ class InContentTelemetryTest {
         assertEquals(Action.INTERACTION, facts[0].action)
         assertEquals(InContentTelemetry.IN_CONTENT_SEARCH, facts[0].item)
         assertEquals("bing.in-content.sap-follow-on.mozl", facts[0].value)
+    }
+
+    @Test
+    fun `GIVEN a Bing sap-follow-on with cookies AND form param is not in the URL when it is required WHEN trackPartnerUrlTypeMetric is called THEN emit an appropriate IN_CONTENT_SEARCH fact`() {
+        val url = "https://www.bing.com/search?q=aaa"
+        telemetry.providerList = createMockProviderList()
+        val facts = mutableListOf<Fact>()
+        Facts.registerProcessor(
+            object : FactProcessor {
+                override fun process(fact: Fact) {
+                    facts.add(fact)
+                }
+            },
+        )
+
+        telemetry.trackPartnerUrlTypeMetric(url, createCookieList())
+
+        assertEquals(1, facts.size)
+        assertEquals(Component.FEATURE_SEARCH, facts[0].component)
+        assertEquals(Action.INTERACTION, facts[0].action)
+        assertEquals(InContentTelemetry.IN_CONTENT_SEARCH, facts[0].item)
+        assertEquals("bing.in-content.organic.none", facts[0].value)
+    }
+
+    @Test
+    fun `GIVEN a Bing sap-follow-on with cookies AND form param is not required WHEN trackPartnerUrlTypeMetric is called THEN emit an appropriate IN_CONTENT_SEARCH fact`() {
+        val url = "https://www.bing2.com/search?q=aaa"
+        telemetry.providerList = createMockProviderList()
+        val facts = mutableListOf<Fact>()
+        Facts.registerProcessor(
+            object : FactProcessor {
+                override fun process(fact: Fact) {
+                    facts.add(fact)
+                }
+            },
+        )
+
+        telemetry.trackPartnerUrlTypeMetric(url, createCookieList())
+
+        assertEquals(1, facts.size)
+        assertEquals(Component.FEATURE_SEARCH, facts[0].component)
+        assertEquals(Action.INTERACTION, facts[0].action)
+        assertEquals(InContentTelemetry.IN_CONTENT_SEARCH, facts[0].item)
+        assertEquals("bing2.in-content.sap-follow-on.mozl", facts[0].value)
     }
 
     @Test

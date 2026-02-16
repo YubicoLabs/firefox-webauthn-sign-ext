@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsBidiUtils_h__
-#define nsBidiUtils_h__
+#ifndef nsBidiUtils_h_
+#define nsBidiUtils_h_
 
 #include "mozilla/intl/BidiClass.h"
 
@@ -155,12 +155,18 @@ inline bool HasRTLChars(mozilla::Span<const char16_t> aBuffer) {
 #define GET_BIDI_OPTION_NUMERAL(bo) \
   (((bo) >> 8) & 0x0000000F) /* 4 bits for NUMERAL */
 
-#define SET_BIDI_OPTION_DIRECTION(bo, dir) \
-  { (bo) = ((bo) & 0xFFFFFFF0) | (((dir) & 0x0000000F) << 0); }
-#define SET_BIDI_OPTION_TEXTTYPE(bo, tt) \
-  { (bo) = ((bo) & 0xFFFFFF0F) | (((tt) & 0x0000000F) << 4); }
-#define SET_BIDI_OPTION_NUMERAL(bo, num) \
-  { (bo) = ((bo) & 0xFFFFF0FF) | (((num) & 0x0000000F) << 8); }
+#define SET_BIDI_OPTION_DIRECTION(bo, dir)                    \
+  {                                                           \
+    (bo) = ((bo) & 0xFFFFFFF0) | (((dir) & 0x0000000F) << 0); \
+  }
+#define SET_BIDI_OPTION_TEXTTYPE(bo, tt)                     \
+  {                                                          \
+    (bo) = ((bo) & 0xFFFFFF0F) | (((tt) & 0x0000000F) << 4); \
+  }
+#define SET_BIDI_OPTION_NUMERAL(bo, num)                      \
+  {                                                           \
+    (bo) = ((bo) & 0xFFFFF0FF) | (((num) & 0x0000000F) << 8); \
+  }
 
 /* Constants related to the position of numerics in the codepage */
 #define START_HINDI_DIGITS 0x0660
@@ -234,4 +240,4 @@ inline bool HasRTLChars(mozilla::Span<const char16_t> aBuffer) {
 #define UTF32_CHAR_IS_BIDI(c)                                   \
   ((IS_IN_BMP_RTL_BLOCK(c)) || (IS_RTL_PRESENTATION_FORM(c)) || \
    (IS_IN_SMP_RTL_BLOCK(c)))
-#endif /* nsBidiUtils_h__ */
+#endif /* nsBidiUtils_h_ */

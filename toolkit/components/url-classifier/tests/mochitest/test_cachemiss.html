@@ -78,8 +78,9 @@ function reset() {
 // This test has to come before testPositiveCache to ensure gethash server doesn't
 // contain completions.
 function testNegativeCache() {
-  SpecialPowers.DOMWindowUtils.clearStyleSheetCache();
-  SpecialPowers.DOMWindowUtils.clearScriptCache();
+  SpecialPowers.ChromeUtils.clearResourceCache({
+    types: ["stylesheet", "script"],
+  });
   shouldLoad = true;
 
   async function setup() {
@@ -108,8 +109,9 @@ function testNegativeCache() {
 }
 
 function testPositiveCache() {
-  SpecialPowers.DOMWindowUtils.clearStyleSheetCache();
-  SpecialPowers.DOMWindowUtils.clearScriptCache();
+  SpecialPowers.ChromeUtils.clearResourceCache({
+    types: ["stylesheet", "script"],
+  });
   shouldLoad = false;
 
   async function setup() {
@@ -153,13 +155,9 @@ function runTest() {
 
 SimpleTest.waitForExplicitFinish();
 
-// 'network.predictor.enabled' is disabled because if other testcase load
-// evil.js, evil.css ...etc resources, it may cause we load them from cache
-// directly and bypass classifier check
 SpecialPowers.pushPrefEnv({"set": [
   ["browser.safebrowsing.malware.enabled", true],
   ["urlclassifier.malwareTable", "test-malware-simple,test-unwanted-simple"],
-  ["network.predictor.enabled", false],
   ["urlclassifier.gethash.timeout_ms", 30000],
 ]}, runTest);
 

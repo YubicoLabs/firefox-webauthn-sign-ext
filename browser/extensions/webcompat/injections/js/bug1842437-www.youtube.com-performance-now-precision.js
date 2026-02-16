@@ -13,21 +13,23 @@
  * get the same result helped with resolving the issue.
  */
 
-/* globals exportFunction */
+if (!window.__firefoxWebCompatFixBug1756970) {
+  Object.defineProperty(window, "__firefoxWebCompatFixBug1756970", {
+    configurable: false,
+    value: true,
+  });
 
-console.info(
-  "performance.now precision has been modified for compatibility reasons. See https://bugzilla.mozilla.org/show_bug.cgi?id=1756970 for details."
-);
+  console.info(
+    "performance.now precision has been modified for compatibility reasons. See https://bugzilla.mozilla.org/show_bug.cgi?id=1756970 for details."
+  );
 
-const origPerf = performance.wrappedJSObject;
-const origNow = origPerf.now;
+  let counter = 0;
+  let previousVal = 0;
 
-let counter = 0;
-let previousVal = 0;
-
-Object.defineProperty(window.performance.wrappedJSObject, "now", {
-  value: exportFunction(function () {
-    let originalVal = origNow.call(origPerf);
+  const perf = Object.getPrototypeOf(performance);
+  const now = perf.now;
+  perf.now = function () {
+    let originalVal = now.call(this);
     if (originalVal === previousVal) {
       originalVal += 0.00000003 * ++counter;
     } else {
@@ -35,5 +37,5 @@ Object.defineProperty(window.performance.wrappedJSObject, "now", {
       counter = 0;
     }
     return originalVal;
-  }, window),
-});
+  };
+}

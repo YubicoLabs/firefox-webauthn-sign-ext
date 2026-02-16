@@ -4,42 +4,20 @@
 
 package org.mozilla.fenix.search.awesomebar
 
-import android.content.Context
-import androidx.appcompat.content.res.AppCompatResources
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkStatic
+import io.mockk.spyk
 import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.SearchState
 import mozilla.components.browser.state.store.BrowserStore
-import org.junit.After
+import mozilla.components.support.test.mock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
-import org.mozilla.fenix.R
 
 class ShortcutsSuggestionProviderTest {
-
-    private lateinit var context: Context
-
-    @Before
-    fun setup() {
-        mockkStatic(AppCompatResources::class)
-        context = mockk {
-            every { getString(R.string.search_shortcuts_engine_settings) } returns "Search engine settings"
-        }
-
-        every { AppCompatResources.getDrawable(context, R.drawable.mozac_ic_settings_24) } returns null
-    }
-
-    @After
-    fun teardown() {
-        unmockkStatic(AppCompatResources::class)
-    }
 
     @Test
     fun `returns suggestions from search engine provider`() = runTest {
@@ -60,7 +38,7 @@ class ShortcutsSuggestionProviderTest {
                 ),
             ),
         )
-        val provider = ShortcutsSuggestionProvider(store, context, {}, {})
+        val provider = ShortcutsSuggestionProvider(store, mock(), "Search engine settings", {}, {})
 
         val suggestions = provider.onInputChanged("")
 
@@ -94,11 +72,14 @@ class ShortcutsSuggestionProviderTest {
 
         var selectEngine: SearchEngine? = null
         var selectShortcutEngineSettingsChanged = false
-        val provider = ShortcutsSuggestionProvider(
-            store,
-            context,
-            { selectEngine = it },
-            { selectShortcutEngineSettingsChanged = true },
+        val provider = spyk(
+            ShortcutsSuggestionProvider(
+                store,
+                mock(),
+                "Search engine settings",
+                { selectEngine = it },
+                { selectShortcutEngineSettingsChanged = true },
+            ),
         )
 
         val suggestions = provider.onInputChanged("")

@@ -23,9 +23,9 @@ import org.mozilla.fenix.exceptions.viewholders.ExceptionsDeleteButtonViewHolder
 import org.mozilla.fenix.exceptions.viewholders.ExceptionsHeaderViewHolder
 import org.mozilla.fenix.exceptions.viewholders.ExceptionsListItemViewHolder
 import org.mozilla.fenix.ext.components
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
+import org.robolectric.RobolectricTestRunner
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class TrackingProtectionExceptionsAdapterTest {
 
     private lateinit var interactor: TrackingProtectionExceptionsInteractor
@@ -41,7 +41,10 @@ class TrackingProtectionExceptionsAdapterTest {
 
     @Test
     fun `creates correct view holder type`() {
-        every { testContext.components.core.icons } returns BrowserIcons(testContext, mockk(relaxed = true))
+        every { testContext.components.core.icons } returns BrowserIcons(
+            testContext,
+            mockk(relaxed = true),
+        )
         val parent = FrameLayout(context)
         adapter.updateData(listOf(mockk(), mockk()))
         assertEquals(4, adapter.itemCount)

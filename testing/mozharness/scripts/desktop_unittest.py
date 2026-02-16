@@ -47,6 +47,7 @@ SUITE_CATEGORIES = [
 SUITE_DEFAULT_E10S = ["mochitest", "reftest"]
 SUITE_NO_E10S = ["xpcshell"]
 SUITE_REPEATABLE = ["mochitest", "reftest", "xpcshell"]
+SUITE_INSTALL_EXTENSIONS = ["mochitest"]
 
 
 # DesktopUnittest {{{1
@@ -191,6 +192,14 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
                     "action": "store",
                     "dest": "this_chunk",
                     "help": "Number of this chunk",
+                },
+            ],
+            [
+                ["--timeout-factor"],
+                {
+                    "action": "store",
+                    "dest": "timeout_factor",
+                    "help": "Multiplier for test timeout values",
                 },
             ],
             [
@@ -384,6 +393,18 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
                     "Examples: 'plain', 'browser'",
                 },
             ],
+            [
+                ["--install-extension"],
+                {
+                    "action": "append",
+                    "default": [],
+                    "dest": "install_extension",
+                    "help": "Specify one or more extensions to install in the testing profile."
+                    "This is currently only supported for mochitest tests, and is"
+                    "ignored for other types. Paths are relative to the fetches"
+                    "directory.",
+                },
+            ],
         ]
         + copy.deepcopy(testing_config_options)
         + copy.deepcopy(code_coverage_config_options)
@@ -392,13 +413,14 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
     def __init__(self, require_config_file=True):
         # abs_dirs defined already in BaseScript but is here to make pylint happy
         self.abs_dirs = None
-        super(DesktopUnittest, self).__init__(
+        super().__init__(
             config_options=self.config_options,
             all_actions=[
                 "clobber",
                 "download-and-extract",
                 "create-virtualenv",
                 "start-pulseaudio",
+                "unlock-keyring",
                 "install",
                 "stage-files",
                 "run-tests",
@@ -453,7 +475,7 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
 
     # helper methods {{{2
     def _pre_config_lock(self, rw_config):
-        super(DesktopUnittest, self)._pre_config_lock(rw_config)
+        super()._pre_config_lock(rw_config)
         c = self.config
         if not c.get("run_all_suites"):
             return  # configs are valid
@@ -471,7 +493,7 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
     def query_abs_dirs(self):
         if self.abs_dirs:
             return self.abs_dirs
-        abs_dirs = super(DesktopUnittest, self).query_abs_dirs()
+        abs_dirs = super().query_abs_dirs()
 
         c = self.config
         dirs = {}
@@ -696,9 +718,18 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
                     base_cmd.extend(["--repeat=%s" % c.get("repeat")])
                 else:
                     self.log(
-                        "--repeat not supported in {}".format(suite_category),
+                        f"--repeat not supported in {suite_category}",
                         level=WARNING,
                     )
+
+            if suite_category in SUITE_INSTALL_EXTENSIONS and len(
+                c.get("install_extension", [])
+            ):
+                fetches_dir = os.environ.get("MOZ_FETCHES_DIR", '""')
+                base_cmd.extend([
+                    f"--install-extension={os.path.join(fetches_dir, e)}"
+                    for e in c["install_extension"]
+                ])
 
             # do not add --disable fission if we don't have --disable-e10s
             if c["disable_fission"] and suite_category not in [
@@ -738,23 +769,22 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
                             "reftest",
                             "reftest-qr",
                         ]:
-                            base_cmd.extend(
-                                ["--tag={}".format(t) for t in c["test_tags"]]
-                            )
+                            base_cmd.extend([f"--tag={t}" for t in c["test_tags"]])
                         else:
                             self.warning(
                                 "--tag does not currently work with the "
                                 "'{suite_category}' suite."
                             )
                 elif c.get("total_chunks") and c.get("this_chunk"):
-                    base_cmd.extend(
-                        [
-                            "--total-chunks",
-                            c["total_chunks"],
-                            "--this-chunk",
-                            c["this_chunk"],
-                        ]
-                    )
+                    base_cmd.extend([
+                        "--total-chunks",
+                        c["total_chunks"],
+                        "--this-chunk",
+                        c["this_chunk"],
+                    ])
+
+                if c.get("timeout_factor"):
+                    base_cmd.extend(["--timeout-factor", c["timeout_factor"]])
 
             if c["no_random"]:
                 if suite_category == "mochitest":
@@ -813,7 +843,7 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
                 base_cmd.append("--setpref=layout.css.stylo-threads=4")
 
             if c["extra_prefs"]:
-                base_cmd.extend(["--setpref={}".format(p) for p in c["extra_prefs"]])
+                base_cmd.extend([f"--setpref={p}" for p in c["extra_prefs"]])
 
             if c["a11y_checks"]:
                 base_cmd.append("--enable-a11y-checks")
@@ -881,8 +911,8 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
         Otherwise, do not run any suites and return a fatal error.
         """
         c = self.config
-        all_suites = c.get("all_{}_suites".format(category), None)
-        specified_suites = c.get("specified_{}_suites".format(category), None)
+        all_suites = c.get(f"all_{category}_suites", None)
+        specified_suites = c.get(f"specified_{category}_suites", None)
 
         # Bug 1603842 - disallow selection of more than 1 suite at at time
         if specified_suites is None:
@@ -1002,24 +1032,39 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
                 for cat in SUITE_CATEGORIES
                 if self._query_specified_suites(cat) is not None
             ]
-        super(DesktopUnittest, self).download_and_extract(
+        super().download_and_extract(
             extract_dirs=extract_dirs, suite_categories=target_categories
         )
+
+    def unlock_keyring(self):
+        if os.environ.get("NEED_GNOME_KEYRING") == "true":
+            self.log("replacing and unlocking gnome-keyring-daemon")
+            import subprocess
+
+            subprocess.run(
+                [
+                    "gnome-keyring-daemon",
+                    "-r",
+                    "-d",
+                    "--unlock",
+                    "--components=secrets",
+                ],
+                check=True,
+                input=b"\n",
+            )
 
     def start_pulseaudio(self):
         command = []
         # Implies that underlying system is Linux.
         if os.environ.get("NEED_PULSEAUDIO") == "true":
-            command.extend(
-                [
-                    "pulseaudio",
-                    "--daemonize",
-                    "--log-level=4",
-                    "--log-time=1",
-                    "-vvvvv",
-                    "--exit-idle-time=-1",
-                ]
-            )
+            command.extend([
+                "pulseaudio",
+                "--daemonize",
+                "--log-level=4",
+                "--log-time=1",
+                "-vvvvv",
+                "--exit-idle-time=-1",
+            ])
 
             # Only run the initialization for Debian.
             # Ubuntu appears to have an alternate method of starting pulseaudio.
@@ -1044,7 +1089,7 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
     def stage_files(self):
         for category in SUITE_CATEGORIES:
             suites = self._query_specified_suites(category)
-            stage = getattr(self, "_stage_{}".format(category), None)
+            stage = getattr(self, f"_stage_{category}", None)
             if suites and stage:
                 stage(suites)
 
@@ -1275,21 +1320,15 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
 
         def do_gnome_video_recording(suite_name, upload_dir, ev):
             import os
-            import subprocess
 
             import dbus
 
             target_file = os.path.join(
                 upload_dir,
-                "video_{}.webm".format(suite_name),
+                f"video_{suite_name}.webm",
             )
 
-            tmp_file = os.path.join(
-                upload_dir,
-                "video_{}_tmp.webm".format(suite_name),
-            )
-
-            self.info("Recording suite {} to {}".format(suite_name, target_file))
+            self.info(f"Recording suite {suite_name} to {target_file}")
 
             session_bus = dbus.SessionBus()
             session_bus.call_blocking(
@@ -1299,38 +1338,21 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
                 "Screencast",
                 signature="sa{sv}",
                 args=[
-                    tmp_file,
+                    target_file,
                     {"draw-cursor": True, "framerate": 35},
                 ],
             )
 
             ev.wait()
 
-            # Use ffmpeg to add duration headers in the screen recording.
-            try:
-                subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-i",
-                        tmp_file,
-                        "-vcodec",
-                        "copy",
-                        "-acodec",
-                        "copy",
-                        target_file,
-                    ],
-                    check=True,
-                )
-                # If subprocess.run did not raise CalledProcessError, remove
-                # the temporary file.
-                os.remove(tmp_file)
-            except subprocess.CalledProcessError as e:
-                self.error(
-                    f"Error occurred while running ffmpeg: {e.stderr} ({e.returncode})"
-                )
-                # If subprocess.run failed, rename the temporary file to the
-                # expected target file name.
-                os.rename(tmp_file, target_file)
+            session_bus.call_blocking(
+                "org.gnome.Shell.Screencast",
+                "/org/gnome/Shell/Screencast",
+                "org.gnome.Shell.Screencast",
+                "StopScreencast",
+                signature="",
+                args=[],
+            )
 
         def do_macos_video_recording(suite_name, upload_dir, ev):
             import os
@@ -1338,9 +1360,9 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
 
             target_file = os.path.join(
                 upload_dir,
-                "video_{}.mov".format(suite_name),
+                f"video_{suite_name}.mov",
             )
-            self.info("Recording suite {} to {}".format(suite_name, target_file))
+            self.info(f"Recording suite {suite_name} to {target_file}")
 
             process = subprocess.Popen(
                 ["/usr/sbin/screencapture", "-v", "-k", target_file],
@@ -1483,18 +1505,24 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
                     final_cmd = copy.copy(cmd)
                     final_cmd.extend(per_test_args)
 
-                    # Bug 1714406: In test-verify of xpcshell tests on Windows, repeated
-                    # self-tests can trigger https://bugs.python.org/issue37380,
-                    # for python < 3.7; avoid by running xpcshell self-tests only once
-                    # per test-verify run.
-                    if (
-                        (self.verify_enabled or self.per_test_coverage)
-                        and sys.platform.startswith("win")
-                        and sys.version_info < (3, 7)
-                        and "--self-test" in final_cmd
-                    ):
-                        xpcshell_selftests += 1
-                        if xpcshell_selftests > 1:
+                    # Run xpcshell self-tests only once per test-verify run or only in chunk 1.
+                    if "--self-test" in final_cmd:
+                        should_remove_selftest = False
+
+                        # Remove self-test for test-verify runs after the first one
+                        if self.verify_enabled or self.per_test_coverage:
+                            xpcshell_selftests += 1
+                            if xpcshell_selftests > 1:
+                                should_remove_selftest = True
+
+                        # Remove self-test for chunked runs when not in chunk 1
+                        if (
+                            self.config.get("this_chunk")
+                            and int(self.config["this_chunk"]) != 1
+                        ):
+                            should_remove_selftest = True
+
+                        if should_remove_selftest:
                             final_cmd.remove("--self-test")
 
                     final_env = copy.copy(env)
@@ -1517,7 +1545,7 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
                                     finish_video,
                                 ),
                             )
-                            self.info("Starting recording thread {}".format(suite))
+                            self.info(f"Starting recording thread {suite}")
                             video_recording_thread.start()
                         else:
                             self.warning(
@@ -1551,10 +1579,10 @@ class DesktopUnittest(TestingMixin, MercurialScript, MozbaseMixin, CodeCoverageM
                     # 3) checking to see if the return code is in success_codes
 
                     if video_recording_thread:
-                        self.info("Stopping recording thread {}".format(suite))
+                        self.info(f"Stopping recording thread {suite}")
                         finish_video.set()
                         video_recording_thread.join()
-                        self.info("Stopped recording thread {}".format(suite))
+                        self.info(f"Stopped recording thread {suite}")
 
                     success_codes = None
                     tbpl_status, log_level, summary = parser.evaluate_parser(

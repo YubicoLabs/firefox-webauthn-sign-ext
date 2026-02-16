@@ -7,6 +7,7 @@ package org.mozilla.focus.activity
 import android.Manifest
 import android.content.Context
 import android.hardware.camera2.CameraManager
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import kotlinx.coroutines.runBlocking
 import mozilla.components.support.ktx.util.PromptAbuserDetector
@@ -23,10 +24,9 @@ import org.mozilla.focus.helpers.FeatureSettingsHelper
 import org.mozilla.focus.helpers.MainActivityFirstrunTestRule
 import org.mozilla.focus.helpers.MockLocationUpdatesRule
 import org.mozilla.focus.helpers.MockWebServerHelper
-import org.mozilla.focus.helpers.TestAssetHelper.getGenericAsset
+import org.mozilla.focus.helpers.TestAssetHelper.genericAsset
 import org.mozilla.focus.helpers.TestAssetHelper.getMediaTestAsset
 import org.mozilla.focus.helpers.TestHelper.exitToTop
-import org.mozilla.focus.helpers.TestHelper.getTargetContext
 import org.mozilla.focus.helpers.TestHelper.grantAppPermission
 import org.mozilla.focus.helpers.TestHelper.mDevice
 import org.mozilla.focus.helpers.TestHelper.packageName
@@ -38,12 +38,12 @@ class SitePermissionsTest : TestSetup() {
     private lateinit var webServer: MockWebServer
     private val featureSettingsHelper = FeatureSettingsHelper()
 
-    /* Test page created and handled by the Mozilla mobile test-eng team */
+    // Test page created and handled by the Mozilla mobile test-eng team
     private val permissionsPage = "https://mozilla-mobile.github.io/testapp/permissions"
-    private val testPageSubstring = "https://mozilla-mobile.github.io:443"
-    private val cameraManager = getTargetContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    private val permissionsPageHost = "mozilla-mobile.github.io"
+    private val cameraManager = (InstrumentationRegistry.getInstrumentation().targetContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager)
 
-    @get: Rule
+    @get:Rule
     val mActivityTestRule = MainActivityFirstrunTestRule(showFirstRun = false)
 
     @get:Rule
@@ -51,7 +51,7 @@ class SitePermissionsTest : TestSetup() {
         Manifest.permission.ACCESS_COARSE_LOCATION,
     )
 
-    @get: Rule
+    @get:Rule
     val mockLocationUpdatesRule = MockLocationUpdatesRule()
 
     @Before
@@ -101,7 +101,7 @@ class SitePermissionsTest : TestSetup() {
     @SmokeTest
     @Test
     fun blockAudioAutoplayPermissionTest() {
-        val videoPage = getMediaTestAsset(webServer, "videoPage")
+        val videoPage = webServer.getMediaTestAsset("videoPage")
 
         searchScreen {
         }.loadPage(videoPage.url) {
@@ -116,7 +116,7 @@ class SitePermissionsTest : TestSetup() {
     @SmokeTest
     @Test
     fun blockAudioAutoplayPermissionOnMutedVideoTest() {
-        val mutedVideoPage = getMediaTestAsset(webServer, "mutedVideoPage")
+        val mutedVideoPage = webServer.getMediaTestAsset("mutedVideoPage")
 
         searchScreen {
         }.loadPage(mutedVideoPage.url) {
@@ -130,7 +130,7 @@ class SitePermissionsTest : TestSetup() {
     @SmokeTest
     @Test
     fun allowAudioVideoAutoplayPermissionTest() {
-        val videoPage = getMediaTestAsset(webServer, "videoPage")
+        val videoPage = webServer.getMediaTestAsset("videoPage")
 
         homeScreen {
         }.openMainMenu {
@@ -151,8 +151,8 @@ class SitePermissionsTest : TestSetup() {
     @SmokeTest
     @Test
     fun allowAudioVideoAutoplayPermissionOnMutedVideoTest() {
-        val genericPage = getGenericAsset(webServer)
-        val mutedVideoPage = getMediaTestAsset(webServer, "mutedVideoPage")
+        val genericPage = webServer.genericAsset
+        val mutedVideoPage = webServer.getMediaTestAsset("mutedVideoPage")
 
         homeScreen {
         }.openMainMenu {
@@ -176,7 +176,7 @@ class SitePermissionsTest : TestSetup() {
     @SmokeTest
     @Test
     fun blockAudioVideoAutoplayPermissionTest() {
-        val videoPage = getMediaTestAsset(webServer, "videoPage")
+        val videoPage = webServer.getMediaTestAsset("videoPage")
 
         homeScreen {
         }.openMainMenu {
@@ -229,7 +229,7 @@ class SitePermissionsTest : TestSetup() {
         searchScreen {
         }.loadPage(permissionsPage) {
             clickGetLocationButton()
-            verifyLocationPermissionPrompt(testPageSubstring)
+            verifyLocationPermissionPrompt(permissionsPageHost)
             denySitePermissionRequest()
             verifyPageContent("User denied geolocation prompt")
         }
@@ -247,7 +247,7 @@ class SitePermissionsTest : TestSetup() {
         searchScreen {
         }.loadPage(permissionsPage) {
             clickGetLocationButton()
-            verifyLocationPermissionPrompt(testPageSubstring)
+            verifyLocationPermissionPrompt(permissionsPageHost)
             allowSitePermissionRequest()
             verifyPageContent("${mockLocationUpdatesRule.latitude}")
             verifyPageContent("${mockLocationUpdatesRule.longitude}")
@@ -262,7 +262,7 @@ class SitePermissionsTest : TestSetup() {
         }.loadPage(permissionsPage) {
             clickGetCameraButton()
             grantAppPermission()
-            verifyCameraPermissionPrompt(testPageSubstring)
+            verifyCameraPermissionPrompt(permissionsPageHost)
             allowSitePermissionRequest()
             verifyPageContent("Camera allowed")
         }
@@ -276,7 +276,7 @@ class SitePermissionsTest : TestSetup() {
         }.loadPage(permissionsPage) {
             clickGetCameraButton()
             grantAppPermission()
-            verifyCameraPermissionPrompt(testPageSubstring)
+            verifyCameraPermissionPrompt(permissionsPageHost)
             denySitePermissionRequest()
             verifyPageContent("Camera not allowed")
         }

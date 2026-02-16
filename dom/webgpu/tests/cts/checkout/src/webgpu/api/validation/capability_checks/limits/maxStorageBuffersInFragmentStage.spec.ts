@@ -13,7 +13,7 @@ import {
   getPipelineTypeForBindingCombination,
   getPerStageWGSLForBindingCombination,
   LimitsRequest,
-  getStageVisibilityForBinidngCombination,
+  getStageVisibilityForBindingCombination,
   testMaxStorageXXXInYYYStageDeviceCreationWithDependentLimit,
 } from './limit_utils.js';
 
@@ -24,10 +24,7 @@ const kExtraLimits: LimitsRequest = {
   maxBindGroups: 'adapterLimit',
 };
 
-export const { g, description } = makeLimitTestGroup(limit, {
-  // MAINTAINANCE_TODO: remove once this limit is required.
-  limitOptional: true,
-});
+export const { g, description } = makeLimitTestGroup(limit);
 
 function createBindGroupLayout(
   device: GPUDevice,
@@ -169,7 +166,7 @@ g.test('createPipeline,at_over')
           `can not test ${testValue} bindings in same group because maxBindingsPerBindGroup = ${device.limits.maxBindingsPerBindGroup}`
         );
 
-        const visibility = getStageVisibilityForBinidngCombination(bindingCombination);
+        const visibility = getStageVisibilityForBindingCombination(bindingCombination);
         t.skipIfNotEnoughStorageBuffersInStage(visibility, testValue);
 
         const code = getPerStageWGSLForBindingCombination(

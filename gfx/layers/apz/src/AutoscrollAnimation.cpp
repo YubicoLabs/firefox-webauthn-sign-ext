@@ -11,7 +11,6 @@
 #include "AsyncPanZoomController.h"
 #include "APZCTreeManager.h"
 #include "FrameMetrics.h"
-#include "mozilla/Telemetry.h"  // for Telemetry
 
 namespace mozilla {
 namespace layers {
@@ -45,7 +44,7 @@ bool AutoscrollAnimation::DoSample(FrameMetrics& aFrameMetrics,
 
   // The implementation of this function closely mirrors that of its main-
   // thread equivalent, the autoscrollLoop() function in
-  // toolkit/actors/AutoScrollChild.jsm.
+  // toolkit/actors/AutoScrollChild.sys.mjs.
 
   // Avoid long jumps when the browser hangs for more than |maxTimeDelta| ms.
   static const TimeDuration maxTimeDelta = TimeDuration::FromMilliseconds(100);

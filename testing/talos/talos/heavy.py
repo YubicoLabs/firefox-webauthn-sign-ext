@@ -5,6 +5,7 @@
 """
 Downloads Heavy profiles from TaskCluster.
 """
+
 import datetime
 import functools
 import os
@@ -14,6 +15,7 @@ from email.utils import parsedate
 import requests
 from mozlog import get_proxy_logger
 from requests.adapters import HTTPAdapter
+from xdg import xdg_config_home
 
 LOG = get_proxy_logger()
 TC_LINK = (
@@ -22,7 +24,7 @@ TC_LINK = (
 )
 
 
-class ProgressBar(object):
+class ProgressBar:
     def __init__(self, size, template="\r%d%%"):
         self.size = size
         self.current = 0
@@ -65,13 +67,12 @@ def follow_redirects(url, max=3):
 
 
 def _recursive_mtime(path):
-    max = os.path.getmtime(path)
+    max_mtime = os.path.getmtime(path)
     for root, dirs, files in os.walk(path):
         for element in dirs + files:
             age = os.path.getmtime(os.path.join(root, element))
-            if age > max:
-                max = age
-    return max
+            max_mtime = max(max_mtime, age)
+    return max_mtime
 
 
 def profile_age(profile_dir, last_modified=None):
@@ -85,7 +86,10 @@ def profile_age(profile_dir, last_modified=None):
 
 def download_profile(name, profiles_dir=None):
     if profiles_dir is None:
-        profiles_dir = os.path.join(os.path.expanduser("~"), ".mozilla", "profiles")
+        if os.environ.get("MOZ_LEGACY_HOME") == "1":
+            profiles_dir = os.path.join(os.path.expanduser("~"), ".mozilla", "profiles")
+        else:
+            profiles_dir = os.path.join(xdg_config_home(), "mozilla", "profiles")
     profiles_dir = os.path.abspath(profiles_dir)
     if not os.path.exists(profiles_dir):
         os.makedirs(profiles_dir)

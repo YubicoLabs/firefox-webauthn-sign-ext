@@ -9,23 +9,21 @@
 use std::{
     cell::RefCell,
     fmt::{self, Debug},
-    ops::Deref,
+    ops::{Deref, DerefMut},
     rc::Rc,
     time::Duration,
 };
 
-use neqo_common::qwarn;
+use enum_map::EnumMap;
+use neqo_common::{qdebug, Dscp, Ecn};
+use strum::IntoEnumIterator as _;
 
-use crate::{ecn, packet::PacketNumber};
+use crate::{cc::CongestionEvent, ecn, packet};
 
-pub const MAX_PTO_COUNTS: usize = 16;
-
-#[derive(Default, Clone)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
-#[allow(clippy::module_name_repetitions)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct FrameStats {
     pub ack: usize,
-    pub largest_acknowledged: PacketNumber,
+    pub largest_acknowledged: packet::Number,
 
     pub crypto: usize,
     pub stream: usize,
@@ -125,8 +123,7 @@ impl FrameStats {
 }
 
 /// Datagram stats
-#[derive(Default, Clone)]
-#[allow(clippy::module_name_repetitions)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct DatagramStats {
     /// The number of datagrams declared lost.
     pub lost: usize,
@@ -137,10 +134,120 @@ pub struct DatagramStats {
     pub dropped_queue_full: usize,
 }
 
+/// Congestion Control stats
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct CongestionControlStats {
+    /// Total number of congestion events caused by packet loss, total number of
+    /// congestion events caused by ECN-CE marked packets, and number of
+    /// spurious congestion events, where congestion was incorrectly inferred
+    /// due to packets initially considered lost but subsequently acknowledged.
+    /// The latter indicates instances where the congestion control algorithm
+    /// overreacted to perceived losses.
+    pub congestion_events: EnumMap<CongestionEvent, usize>,
+    /// Whether this connection has exited slow start.
+    pub slow_start_exited: bool,
+}
+/// ECN counts by QUIC [`packet::Type`].
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct EcnCount(EnumMap<packet::Type, ecn::Count>);
+
+impl Debug for EcnCount {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (pt, count) in self.0 {
+            // Don't show all-zero rows.
+            if count.is_empty() {
+                continue;
+            }
+            writeln!(f, "      {pt:?} {count:?}")?;
+        }
+        Ok(())
+    }
+}
+
+impl Deref for EcnCount {
+    type Target = EnumMap<packet::Type, ecn::Count>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for EcnCount {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+/// Packet types and numbers of the first ECN mark transition between two marks.
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct EcnTransitions(EnumMap<Ecn, EnumMap<Ecn, Option<(packet::Type, packet::Number)>>>);
+
+impl Deref for EcnTransitions {
+    type Target = EnumMap<Ecn, EnumMap<Ecn, Option<(packet::Type, packet::Number)>>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for EcnTransitions {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Debug for EcnTransitions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for from in Ecn::iter() {
+            // Don't show all-None rows.
+            if self.0[from].iter().all(|(_, v)| v.is_none()) {
+                continue;
+            }
+            write!(f, "      First {from:?} ")?;
+            for to in Ecn::iter() {
+                // Don't show transitions that were not recorded.
+                if let Some(pkt) = self.0[from][to] {
+                    write!(f, "to {to:?} {pkt:?} ")?;
+                }
+            }
+            writeln!(f)?;
+        }
+        Ok(())
+    }
+}
+
+/// Received packet counts by DSCP value.
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct DscpCount(EnumMap<Dscp, usize>);
+
+impl Debug for DscpCount {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (dscp, count) in self.0 {
+            // Don't show zero counts.
+            if count == 0 {
+                continue;
+            }
+            write!(f, "{dscp:?}: {count} ")?;
+        }
+        Ok(())
+    }
+}
+
+impl Deref for DscpCount {
+    type Target = EnumMap<Dscp, usize>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for DscpCount {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 /// Connection statistics
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct Stats {
-    info: String,
+    pub info: String,
 
     /// Total packets received, including all the bad ones.
     pub packets_rx: usize,
@@ -160,14 +267,14 @@ pub struct Stats {
     /// Acknowledgments for packets that contained data that was marked
     /// for retransmission when the PTO timer popped.
     pub pto_ack: usize,
+    /// Number of times we had to drop an unacknowledged ACK range.
+    pub unacked_range_dropped: usize,
     /// Number of PMTUD probes sent.
     pub pmtud_tx: usize,
     /// Number of PMTUD probes ACK'ed.
     pub pmtud_ack: usize,
     /// Number of PMTUD probes lost.
     pub pmtud_lost: usize,
-    /// Number of times a path MTU changed unexpectedly.
-    pub pmtud_change: usize,
     /// MTU of the local interface used for the most recent path.
     pub pmtud_iface_mtu: usize,
     /// Probed PMTU of the current path.
@@ -185,7 +292,7 @@ pub struct Stats {
 
     /// Count PTOs. Single PTOs, 2 PTOs in a row, 3 PTOs in row, etc. are counted
     /// separately.
-    pub pto_counts: [usize; MAX_PTO_COUNTS],
+    pub pto_counts: [usize; Self::MAX_PTO_COUNTS],
 
     /// Count frames received.
     pub frame_rx: FrameStats,
@@ -198,8 +305,13 @@ pub struct Stats {
 
     pub datagram_tx: DatagramStats,
 
+    pub cc: CongestionControlStats,
+
     /// ECN path validation count, indexed by validation outcome.
     pub ecn_path_validation: ecn::ValidationCount,
+    /// ECN counts for outgoing UDP datagrams, recorded locally. For coalesced packets,
+    /// counts increase for all packet types in the coalesced datagram.
+    pub ecn_tx: EcnCount,
     /// ECN counts for outgoing UDP datagrams, returned by remote through QUIC ACKs.
     ///
     /// Note: Given that QUIC ACKs only carry [`Ect0`], [`Ect1`] and [`Ce`], but
@@ -207,23 +319,32 @@ pub struct Stats {
     ///
     /// See also <https://www.rfc-editor.org/rfc/rfc9000.html#section-19.3.2>.
     ///
-    /// [`Ect0`]: neqo_common::tos::IpTosEcn::Ect0
-    /// [`Ect1`]: neqo_common::tos::IpTosEcn::Ect1
-    /// [`Ce`]: neqo_common::tos::IpTosEcn::Ce
-    /// [`NotEct`]: neqo_common::tos::IpTosEcn::NotEct
-    pub ecn_tx: ecn::Count,
-    /// ECN counts for incoming UDP datagrams, read from IP TOS header.
-    pub ecn_rx: ecn::Count,
+    /// [`Ect0`]: neqo_common::tos::Ecn::Ect0
+    /// [`Ect1`]: neqo_common::tos::Ecn::Ect1
+    /// [`Ce`]: neqo_common::tos::Ecn::Ce
+    /// [`NotEct`]: neqo_common::tos::Ecn::NotEct
+    pub ecn_tx_acked: EcnCount,
+    /// ECN counts for incoming UDP datagrams, read from IP TOS header. For coalesced packets,
+    /// counts increase for all packet types in the coalesced datagram.
+    pub ecn_rx: EcnCount,
+    /// Packet numbers of the first observed (received) ECN mark transition between two marks.
+    pub ecn_last_mark: Option<Ecn>,
+    pub ecn_rx_transition: EcnTransitions,
+
+    /// Counters for DSCP values received.
+    pub dscp_rx: DscpCount,
 }
 
 impl Stats {
+    pub const MAX_PTO_COUNTS: usize = 16;
+
     pub fn init(&mut self, info: String) {
         self.info = info;
     }
 
-    pub fn pkt_dropped(&mut self, reason: impl AsRef<str>) {
+    pub fn pkt_dropped<A: AsRef<str>>(&mut self, reason: A) {
         self.dropped_rx += 1;
-        qwarn!(
+        qdebug!(
             "[{}] Dropped received packet: {}; Total: {}",
             self.info,
             reason.as_ref(),
@@ -236,7 +357,7 @@ impl Stats {
     /// When preconditions are violated.
     pub fn add_pto_count(&mut self, count: usize) {
         debug_assert!(count > 0);
-        if count >= MAX_PTO_COUNTS {
+        if count >= Self::MAX_PTO_COUNTS {
             // We can't move this count any further, so stop.
             return;
         }
@@ -258,34 +379,45 @@ impl Debug for Stats {
         )?;
         writeln!(
             f,
-            "  tx: {} lost {} lateack {} ptoack {}",
-            self.packets_tx, self.lost, self.late_ack, self.pto_ack
+            "  tx: {} lost {} lateack {} ptoack {} unackdrop {}",
+            self.packets_tx, self.lost, self.late_ack, self.pto_ack, self.unacked_range_dropped
         )?;
         writeln!(
             f,
-            "  pmtud: {} sent {} acked {} lost {} change {} iface_mtu {} pmtu",
-            self.pmtud_tx,
-            self.pmtud_ack,
-            self.pmtud_lost,
-            self.pmtud_change,
-            self.pmtud_iface_mtu,
-            self.pmtud_pmtu
+            "  cc: ce_loss {} ce_ecn {} ce_spurious {}",
+            self.cc.congestion_events[CongestionEvent::Loss],
+            self.cc.congestion_events[CongestionEvent::Ecn],
+            self.cc.congestion_events[CongestionEvent::Spurious],
+        )?;
+        writeln!(f, "  ss_exit: {}", self.cc.slow_start_exited)?;
+        writeln!(
+            f,
+            "  pmtud: {} sent {} acked {} lost {} iface_mtu {} pmtu",
+            self.pmtud_tx, self.pmtud_ack, self.pmtud_lost, self.pmtud_iface_mtu, self.pmtud_pmtu
         )?;
         writeln!(f, "  resumed: {}", self.resumed)?;
         writeln!(f, "  frames rx:")?;
         self.frame_rx.fmt(f)?;
         writeln!(f, "  frames tx:")?;
         self.frame_tx.fmt(f)?;
+        writeln!(f, "  ecn:\n    tx:")?;
+        self.ecn_tx.fmt(f)?;
+        writeln!(f, "    acked:")?;
+        self.ecn_tx_acked.fmt(f)?;
+        writeln!(f, "    rx:")?;
+        self.ecn_rx.fmt(f)?;
         writeln!(
             f,
-            "  ecn: {:?} for tx {:?} for rx {:?} path validation outcomes",
-            self.ecn_tx, self.ecn_rx, self.ecn_path_validation,
-        )
+            "    path validation outcomes: {:?}",
+            self.ecn_path_validation
+        )?;
+        writeln!(f, "    mark transitions:")?;
+        self.ecn_rx_transition.fmt(f)?;
+        writeln!(f, "  dscp: {:?}", self.dscp_rx)
     }
 }
 
 #[derive(Default, Clone)]
-#[allow(clippy::module_name_repetitions)]
 pub struct StatsCell {
     stats: Rc<RefCell<Stats>>,
 }

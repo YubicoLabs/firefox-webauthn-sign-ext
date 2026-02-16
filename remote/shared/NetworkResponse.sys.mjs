@@ -6,6 +6,8 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   NetworkUtils:
     "resource://devtools/shared/network-observer/NetworkUtils.sys.mjs",
+
+  NetworkDataBytes: "chrome://remote/content/shared/NetworkDataBytes.sys.mjs",
 });
 
 /**
@@ -19,9 +21,10 @@ export class NetworkResponse {
   #encodedBodySize;
   #fromCache;
   #fromServiceWorker;
-  #isCachedCSS;
+  #isCachedResource;
   #isDataURL;
   #headersTransmittedSize;
+  #responseBodyReady;
   #status;
   #statusMessage;
   #totalTransmittedSize;
@@ -36,8 +39,8 @@ export class NetworkResponse {
    *     Whether the response was read from the cache or not.
    * @param {boolean} params.fromServiceWorker
    *     Whether the response is coming from a service worker or not.
-   * @param {boolean} params.isCachedCSS
-   *     Whether the response is coming from a cached css file.
+   * @param {boolean} params.isCachedResource
+   *     Whether the response is served by the stencil (image/CSS/JS) cache.
    * @param {string=} params.rawHeaders
    *     The response's raw (ie potentially compressed) headers
    */
@@ -46,13 +49,14 @@ export class NetworkResponse {
     const {
       fromCache,
       fromServiceWorker,
-      isCachedCSS,
+      isCachedResource,
       rawHeaders = "",
     } = params;
     this.#fromCache = fromCache;
     this.#fromServiceWorker = fromServiceWorker;
-    this.#isCachedCSS = isCachedCSS;
+    this.#isCachedResource = isCachedResource;
     this.#isDataURL = this.#channel instanceof Ci.nsIDataChannel;
+    this.#responseBodyReady = Promise.withResolvers();
     this.#wrappedChannel = ChannelWrapper.get(channel);
 
     this.#decodedBodySize = 0;
@@ -69,7 +73,7 @@ export class NetworkResponse {
     // between responseStarted and responseCompleted.
     this.#status = this.#isDataURL ? 200 : this.#channel.responseStatus;
     this.#statusMessage =
-      this.#isDataURL || this.#isCachedCSS
+      this.#isDataURL || this.#isCachedResource
         ? "OK"
         : this.#channel.responseStatusText;
   }
@@ -98,6 +102,10 @@ export class NetworkResponse {
     return this.#fromServiceWorker;
   }
 
+  get isDataURL() {
+    return this.#isDataURL;
+  }
+
   get mimeType() {
     return this.#getComputedMimeType();
   }
@@ -123,6 +131,21 @@ export class NetworkResponse {
   }
 
   /**
+   * Check if this response will lead to a redirect.
+   */
+  get willRedirect() {
+    // See static helper on nsHttpChannel:WillRedirect
+    // https://searchfox.org/mozilla-central/rev/6b4cb595d05ac38e2cfc493e3b81fe4c97a71f12/netwerk/protocol/http/nsHttpChannel.cpp#283-288
+    const isRedirectStatus =
+      this.#status == 301 ||
+      this.#status == 302 ||
+      this.#status == 303 ||
+      this.#status == 307 ||
+      this.#status == 308;
+    return isRedirectStatus && this.#channel.getResponseHeader("Location");
+  }
+
+  /**
    * Clear a response header from the responses's headers list.
    *
    * @param {string} name
@@ -134,6 +157,39 @@ export class NetworkResponse {
       "", // aValue="" as an empty value
       false // aMerge=false to force clearing the header
     );
+  }
+
+  /**
+   * Returns the NetworkDataBytes instance representing the response body for
+   * this response.
+   *
+   * @returns {NetworkDataBytes}
+   */
+  readAndProcessResponseBody = async () => {
+    const responseContent = await this.#responseBodyReady.promise;
+
+    return new lazy.NetworkDataBytes({
+      getBytesValue: async () => {
+        if (responseContent.isContentEncoded) {
+          return lazy.NetworkUtils.decodeResponseChunks(
+            responseContent.encodedData,
+            {
+              // Should always attempt to decode as UTF-8.
+              charset: "UTF-8",
+              compressionEncodings: responseContent.compressionEncodings,
+              encodedBodySize: responseContent.encodedBodySize,
+              encoding: responseContent.encoding,
+            }
+          );
+        }
+        return responseContent.text;
+      },
+      isBase64: responseContent.encoding === "base64",
+    });
+  };
+
+  setResponseContent(responseContent) {
+    this.#responseBodyReady.resolve(responseContent);
   }
 
   /**
@@ -200,16 +256,18 @@ export class NetworkResponse {
   toJSON() {
     return {
       decodedBodySize: this.decodedBodySize,
-      headers: this.headers,
-      headersTransmittedSize: this.headersTransmittedSize,
       encodedBodySize: this.encodedBodySize,
       fromCache: this.fromCache,
+      headers: this.headers,
+      headersTransmittedSize: this.headersTransmittedSize,
+      isDataURL: this.isDataURL,
       mimeType: this.mimeType,
       protocol: this.protocol,
       serializedURL: this.serializedURL,
       status: this.status,
       statusMessage: this.statusMessage,
       totalTransmittedSize: this.totalTransmittedSize,
+      willRedirect: this.willRedirect,
     };
   }
 
@@ -222,7 +280,7 @@ export class NetworkResponse {
     let mimeType = "";
 
     try {
-      if (this.#isDataURL || this.#isCachedCSS) {
+      if (this.#isDataURL || this.#isCachedResource) {
         mimeType = this.#channel.contentType;
       } else {
         mimeType = this.#wrappedChannel.contentType;

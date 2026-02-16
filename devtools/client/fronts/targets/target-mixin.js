@@ -113,7 +113,7 @@ function TargetMixin(parentClass) {
     }
 
     get targetType() {
-      return this._targetType;
+      return this.targetForm.targetType;
     }
 
     get isTopLevel() {
@@ -125,10 +125,6 @@ function TargetMixin(parentClass) {
       }
 
       return this.targetForm.isTopLevelTarget;
-    }
-
-    setTargetType(type) {
-      this._targetType = type;
     }
 
     setIsTopLevel(isTopLevel) {
@@ -201,8 +197,8 @@ function TargetMixin(parentClass) {
      * Returns a boolean indicating whether or not the specific actor
      * type exists.
      *
-     * @param {String} actorName
-     * @return {Boolean}
+     * @param {string} actorName
+     * @return {boolean}
      */
     hasActor(actorName) {
       if (this.targetForm) {
@@ -215,10 +211,13 @@ function TargetMixin(parentClass) {
      * Returns a trait from the target actor if it exists,
      * if not it will fallback to that on the root actor.
      *
-     * @param {String} traitName
+     * @param {string} traitName
      * @return {Mixed}
      */
     getTrait(traitName) {
+      if (this.isDestroyedOrBeingDestroyed()) {
+        return null;
+      }
       // If the targeted actor exposes traits and has a defined value for this
       // traits, override the root actor traits
       if (this.targetForm.traits && traitName in this.targetForm.traits) {
@@ -501,7 +500,7 @@ function TargetMixin(parentClass) {
      *
      * @param {Error} e
      *        The real error object.
-     * @param {String} targetType
+     * @param {string} targetType
      *        The type of the target front ("worker", "browsing-context", ...)
      */
     logDetachError(e, targetType) {
@@ -555,9 +554,9 @@ function TargetMixin(parentClass) {
     /**
      * Log an error of some kind to the tab's console.
      *
-     * @param {String} text
+     * @param {string} text
      *                 The text to log.
-     * @param {String} category
+     * @param {string} category
      *                 The category of the message.  @see nsIScriptError.
      * @returns {Promise}
      */
@@ -572,9 +571,9 @@ function TargetMixin(parentClass) {
     /**
      * Log a warning of some kind to the tab's console.
      *
-     * @param {String} text
+     * @param {string} text
      *                 The text to log.
-     * @param {String} category
+     * @param {string} category
      *                 The category of the message.  @see nsIScriptError.
      * @returns {Promise}
      */

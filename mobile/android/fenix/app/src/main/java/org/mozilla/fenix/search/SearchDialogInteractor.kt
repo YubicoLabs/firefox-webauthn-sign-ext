@@ -5,6 +5,7 @@
 package org.mozilla.fenix.search
 
 import mozilla.components.browser.state.search.SearchEngine
+import mozilla.components.concept.awesomebar.AwesomeBar.GroupedSuggestion
 import mozilla.components.concept.engine.EngineSession.LoadUrlFlags
 import org.mozilla.fenix.search.awesomebar.AwesomeBarInteractor
 import org.mozilla.fenix.search.toolbar.SearchSelectorMenu
@@ -12,7 +13,7 @@ import org.mozilla.fenix.search.toolbar.ToolbarInteractor
 
 /**
  * Interactor for the search screen
- * Provides implementations for the AwesomeBarView and ToolbarView
+ * Provides implementations for the AwesomeBarView and HomeToolbarView.
  */
 @Suppress("TooManyFunctions")
 class SearchDialogInteractor(
@@ -61,6 +62,10 @@ class SearchDialogInteractor(
 
     override fun onMenuItemTapped(item: SearchSelectorMenu.Item) {
         searchController.handleMenuItemTapped(item)
+    }
+
+    override fun onRemoveHistorySuggestionButtonClicked(suggestion: GroupedSuggestion) {
+        searchController.handleRemoveHistorySuggestionButtonClicked(suggestion)
     }
 
     fun onCameraPermissionsNeeded() {

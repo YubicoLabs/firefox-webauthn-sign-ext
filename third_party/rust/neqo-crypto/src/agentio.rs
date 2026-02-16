@@ -4,9 +4,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "Let's assume the use of `unwrap` was checked when the use of `unsafe` was reviewed."
+)]
+
 use std::{
     cmp::min,
-    fmt, mem,
+    fmt::{self, Display, Formatter},
+    mem,
     ops::Deref,
     os::raw::{c_uint, c_void},
     pin::Pin,
@@ -52,7 +58,6 @@ impl Record {
 
     // Shoves this record into the socket, returns true if blocked.
     pub(crate) fn write(self, fd: *mut ssl::PRFileDesc) -> Res<()> {
-        qtrace!("write {self:?}");
         unsafe {
             ssl::SSL_RecordLayerData(
                 fd,
@@ -66,7 +71,7 @@ impl Record {
 }
 
 impl fmt::Debug for Record {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
             "Record {:?}:{:?} {}",
@@ -95,10 +100,17 @@ impl RecordList {
         len: c_uint,
         arg: *mut c_void,
     ) -> ssl::SECStatus {
-        let records = arg.cast::<Self>().as_mut().unwrap();
-
+        let Ok(epoch) = Epoch::try_from(epoch) else {
+            return ssl::SECFailure;
+        };
+        let Ok(ct) = ContentType::try_from(ct) else {
+            return ssl::SECFailure;
+        };
+        let Some(records) = arg.cast::<Self>().as_mut() else {
+            return ssl::SECFailure;
+        };
         let slice = null_safe_slice(data, len);
-        records.append(epoch, ContentType::try_from(ct).unwrap(), slice);
+        records.append(epoch, ct, slice);
         ssl::SECSuccess
     }
 
@@ -114,7 +126,6 @@ impl RecordList {
 
 impl Deref for RecordList {
     type Target = Vec<Record>;
-    #[must_use]
     fn deref(&self) -> &Vec<Record> {
         &self.records
     }
@@ -132,7 +143,6 @@ impl Iterator for RecordListIter {
 impl IntoIterator for RecordList {
     type Item = Record;
     type IntoIter = RecordListIter;
-    #[must_use]
     fn into_iter(self) -> Self::IntoIter {
         RecordListIter(self.records.into_iter())
     }
@@ -148,12 +158,22 @@ impl Drop for AgentIoInputContext<'_> {
     }
 }
 
+// TODO: Derive Default when MSRV >= 1.88 (Default for raw pointers stabilized in 1.88).
 #[derive(Debug)]
 struct AgentIoInput {
     // input is data that is read by TLS.
     input: *const u8,
     // input_available is how much data is left for reading.
     available: usize,
+}
+
+impl Default for AgentIoInput {
+    fn default() -> Self {
+        Self {
+            input: null(),
+            available: 0,
+        }
+    }
 }
 
 impl AgentIoInput {
@@ -175,7 +195,10 @@ impl AgentIoInput {
             return Err(Error::NoDataAvailable);
         }
 
-        #[allow(clippy::disallowed_methods)] // We just checked if this was empty.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "We just checked if this was empty."
+        )]
         let src = unsafe { std::slice::from_raw_parts(self.input, amount) };
         qtrace!("[{self}] read {}", hex(src));
         let dst = unsafe { std::slice::from_raw_parts_mut(buf, amount) };
@@ -192,13 +215,13 @@ impl AgentIoInput {
     }
 }
 
-impl ::std::fmt::Display for AgentIoInput {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl Display for AgentIoInput {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "AgentIoInput {:p}", self.input)
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AgentIo {
     // input collects the input we might provide to TLS.
     input: AgentIoInput,
@@ -208,16 +231,6 @@ pub struct AgentIo {
 }
 
 impl AgentIo {
-    pub const fn new() -> Self {
-        Self {
-            input: AgentIoInput {
-                input: null(),
-                available: 0,
-            },
-            output: Vec::new(),
-        }
-    }
-
     unsafe fn borrow(fd: &mut PrFd) -> &mut Self {
         (**fd).secret.cast::<Self>().as_mut().unwrap()
     }
@@ -240,8 +253,8 @@ impl AgentIo {
     }
 }
 
-impl ::std::fmt::Display for AgentIo {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl Display for AgentIo {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "AgentIo")
     }
 }
@@ -329,21 +342,29 @@ unsafe extern "C" fn agent_available64(mut fd: PrFd) -> prio::PRInt64 {
         .unwrap_or_else(|_| PR_FAILURE.into())
 }
 
-#[allow(clippy::cast_possible_truncation)]
-unsafe extern "C" fn agent_getname(_fd: PrFd, addr: *mut prio::PRNetAddr) -> PrStatus {
-    let a = addr.as_mut().unwrap();
-    // Cast is safe because prio::PR_AF_INET is 2
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Cast is safe because prio::PR_AF_INET is 2."
+)]
+const unsafe extern "C" fn agent_getname(_fd: PrFd, addr: *mut prio::PRNetAddr) -> PrStatus {
+    let Some(a) = addr.as_mut() else {
+        return PR_FAILURE;
+    };
     a.inet.family = prio::PR_AF_INET as prio::PRUint16;
     a.inet.port = 0;
     a.inet.ip = 0;
     PR_SUCCESS
 }
 
-unsafe extern "C" fn agent_getsockopt(_fd: PrFd, opt: *mut prio::PRSocketOptionData) -> PrStatus {
-    let o = opt.as_mut().unwrap();
-    if o.option == prio::PRSockOption::PR_SockOpt_Nonblocking {
-        o.value.non_blocking = 1;
-        return PR_SUCCESS;
+const unsafe extern "C" fn agent_getsockopt(
+    _fd: PrFd,
+    opt: *mut prio::PRSocketOptionData,
+) -> PrStatus {
+    if let Some(o) = opt.as_mut() {
+        if o.option == prio::PRSockOption::PR_SockOpt_Nonblocking {
+            o.value.non_blocking = 1;
+            return PR_SUCCESS;
+        }
     }
     PR_FAILURE
 }
@@ -386,3 +407,60 @@ pub const METHODS: &prio::PRIOMethods = &prio::PRIOMethods {
     reserved_fn_1: None,
     reserved_fn_0: None,
 };
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use std::ptr::addr_of_mut;
+
+    use super::*;
+
+    #[test]
+    fn ingest_errors() {
+        let mut records = RecordList::default();
+        let data = [0u8];
+        unsafe {
+            assert_eq!(
+                RecordList::ingest(
+                    null_mut(),
+                    999,
+                    0x17,
+                    data.as_ptr(),
+                    1,
+                    addr_of_mut!(records).cast()
+                ),
+                ssl::SECFailure
+            );
+            assert_eq!(
+                RecordList::ingest(null_mut(), 0, 0x17, data.as_ptr(), 1, null_mut()),
+                ssl::SECFailure
+            );
+            // Test invalid content type (value outside u8 range)
+            assert_eq!(
+                RecordList::ingest(
+                    null_mut(),
+                    0,
+                    256,
+                    data.as_ptr(),
+                    1,
+                    addr_of_mut!(records).cast()
+                ),
+                ssl::SECFailure
+            );
+        }
+    }
+
+    #[test]
+    fn formatting() {
+        let record = Record::new(Epoch::ApplicationData, 0x17, &[1, 2, 3]);
+        let dbg = format!("{record:?}");
+        assert_eq!(&dbg[..6], "Record");
+
+        let input = AgentIoInput::default();
+        let disp = format!("{input}");
+        assert_eq!(&disp[..12], "AgentIoInput");
+
+        let io = AgentIo::default();
+        assert_eq!(format!("{io}"), "AgentIo");
+    }
+}

@@ -4,12 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef _SDPENUM_H_
-#define _SDPENUM_H_
+#ifndef SDPENUM_H_
+#define SDPENUM_H_
 
 #include <ostream>
 
 #include "mozilla/Assertions.h"
+#include "mozilla/TypedEnumBits.h"
 
 namespace mozilla::sdp {
 
@@ -46,6 +47,8 @@ enum Direction {
   kSend = 1,
   kRecv = 2
 };
+
+MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(Direction);
 
 inline std::ostream& operator<<(std::ostream& os, sdp::Direction d) {
   switch (d) {

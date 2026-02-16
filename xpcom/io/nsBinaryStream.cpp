@@ -38,9 +38,10 @@
 #include "nsIX509Cert.h"  // for NS_IX509CERT_IID
 
 #include "js/ArrayBuffer.h"  // JS::{GetArrayBuffer{,ByteLength},IsArrayBufferObject}
-#include "js/GCAPI.h"        // JS::AutoCheckCannotGC
-#include "js/RootingAPI.h"  // JS::{Handle,Rooted}
-#include "js/Value.h"       // JS::Value
+#include "js/ArrayBufferMaybeShared.h"  // JS::IsImmutableArrayBufferMaybeShared
+#include "js/GCAPI.h"                   // JS::AutoCheckCannotGC
+#include "js/RootingAPI.h"              // JS::{Handle,Rooted}
+#include "js/Value.h"                   // JS::Value
 
 using mozilla::AsBytes;
 using mozilla::MakeUnique;
@@ -748,11 +749,11 @@ nsBinaryInputStream::ReadString(nsAString& aString) {
     return rv;
   }
 
-  NS_ASSERTION(!closure.mHasCarryoverByte, "some strange stream corruption!");
-
   if (bytesRead != length * sizeof(char16_t)) {
     return NS_ERROR_FAILURE;
   }
+
+  NS_ASSERTION(!closure.mHasCarryoverByte, "some strange stream corruption!");
 
   return NS_OK;
 }
@@ -815,6 +816,10 @@ nsBinaryInputStream::ReadArrayBuffer(uint64_t aLength,
 
   size_t bufferLength = JS::GetArrayBufferByteLength(buffer);
   if (bufferLength < aLength) {
+    return NS_ERROR_FAILURE;
+  }
+
+  if (JS::IsImmutableArrayBufferMaybeShared(buffer)) {
     return NS_ERROR_FAILURE;
   }
 

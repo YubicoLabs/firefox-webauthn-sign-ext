@@ -9,7 +9,9 @@ export function FeatureHighlight({
   message,
   icon,
   toggle,
+  arrowPosition = "",
   position = "top-left",
+  verticalPosition = "",
   title,
   ariaLabel,
   feature = "FEATURE_HIGHLIGHT_DEFAULT",
@@ -19,6 +21,7 @@ export function FeatureHighlight({
   showButtonIcon = true,
   dismissCallback = () => {},
   outsideClickCallback = () => {},
+  modalClassName = "",
 }) {
   const [opened, setOpened] = useState(openedOverride);
   const ref = useRef(null);
@@ -31,9 +34,17 @@ export function FeatureHighlight({
       }
     };
 
+    const handleKeyDown = e => {
+      if (e.key === "Escape") {
+        outsideClickCallback();
+      }
+    };
+
     windowObj.document.addEventListener("click", handleOutsideClick);
+    windowObj.document.addEventListener("keydown", handleKeyDown);
     return () => {
       windowObj.document.removeEventListener("click", handleOutsideClick);
+      windowObj.document.removeEventListener("keydown", handleKeyDown);
     };
   }, [windowObj, outsideClickCallback]);
 
@@ -60,7 +71,7 @@ export function FeatureHighlight({
   const hideButtonClass = showButtonIcon ? `` : `isHidden`;
   const openedClassname = opened ? `opened` : `closed`;
   return (
-    <div ref={ref} className="feature-highlight">
+    <div ref={ref} className={`feature-highlight ${verticalPosition}`}>
       <button
         title={title}
         aria-haspopup="true"
@@ -70,14 +81,19 @@ export function FeatureHighlight({
       >
         {toggle}
       </button>
-      <div className={`feature-highlight-modal ${position} ${openedClassname}`}>
+      <div
+        className={`feature-highlight-modal ${position} ${arrowPosition} ${modalClassName} ${openedClassname}`}
+      >
         <div className="message-icon">{icon}</div>
-        <p>{message}</p>
-        <button
+        <p className="content-wrapper">{message}</p>
+        <moz-button
+          type="icon ghost"
+          size="small"
           data-l10n-id="feature-highlight-dismiss-button"
-          className="icon icon-dismiss"
+          iconsrc="chrome://global/skin/icons/close.svg"
           onClick={onDismissClick}
-        ></button>
+          onKeyDown={onDismissClick}
+        />
       </div>
     </div>
   );

@@ -20,12 +20,6 @@ serviceworker-list-aboutdebugging = Open <a>about:debugging</a> for Service Work
 # Text for the button to unregister a Service Worker. Displayed for active Service Workers.
 serviceworker-worker-unregister = Unregister
 
-# Text for the debug link displayed for an already started Service Worker. Clicking on the
-# link opens a new devtools toolbox for this service worker. The title attribute is only
-# displayed when the link is disabled.
-serviceworker-worker-debug = Debug
-  .title = Only running service workers can be debugged
-
 # Alt text for the image icon displayed inside a debug link for a service worker.
 serviceworker-worker-inspect-icon =
   .alt = Inspect
@@ -139,6 +133,15 @@ sidebar-item-manifest = Manifest
 sidebar-item-service-workers = Service Workers
   .alt = Service Workers Icon
   .title = Service Workers
+
+# Sidebar navigation item for Session History sidebar item section
+sidebar-item-session-history = Session History
+  .alt = Session History Icon
+  .title = Session History
+
+# Entry in the Session History diagram
+session-history-entry-info-button-title =
+  .title = Show session history data
 
 # Text for the ALT and TITLE attributes of the warning icon
 icon-warning =

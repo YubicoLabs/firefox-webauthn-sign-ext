@@ -7,14 +7,6 @@
 #ifndef MOZILLA_TRACKBUFFERSMANAGER_H_
 #define MOZILLA_TRACKBUFFERSMANAGER_H_
 
-#include "mozilla/Atomics.h"
-#include "mozilla/EventTargetCapability.h"
-#include "mozilla/Maybe.h"
-#include "mozilla/Mutex.h"
-#include "mozilla/NotNull.h"
-#include "mozilla/TaskQueue.h"
-#include "mozilla/dom/MediaDebugInfoBinding.h"
-
 #include "MediaContainerType.h"
 #include "MediaData.h"
 #include "MediaDataDemuxer.h"
@@ -23,6 +15,13 @@
 #include "MediaSpan.h"
 #include "SourceBufferTask.h"
 #include "TimeUnits.h"
+#include "mozilla/Atomics.h"
+#include "mozilla/EventTargetCapability.h"
+#include "mozilla/Maybe.h"
+#include "mozilla/Mutex.h"
+#include "mozilla/NotNull.h"
+#include "mozilla/TaskQueue.h"
+#include "mozilla/dom/MediaDebugInfoBinding.h"
 #include "nsTArray.h"
 
 namespace mozilla {
@@ -33,6 +32,10 @@ class MediaByteBuffer;
 class MediaRawData;
 class MediaSourceDemuxer;
 class SourceBufferResource;
+
+namespace dom {
+enum class MediaSourceEndOfStreamError : uint8_t;
+}  // namespace dom
 
 class SourceBufferTaskQueue {
  public:
@@ -131,7 +134,7 @@ class TrackBuffersManager final
   int64_t GetSize() const;
 
   // Indicate that the MediaSource parent object got into "ended" state.
-  void Ended();
+  void SetEnded(const dom::Optional<dom::MediaSourceEndOfStreamError>& aError);
 
   // The parent SourceBuffer is about to be destroyed.
   void Detach();
@@ -150,7 +153,7 @@ class TrackBuffersManager final
   const media::TimeIntervals& Buffered(TrackInfo::TrackType) const;
   const media::TimeUnit& HighestStartTime(TrackInfo::TrackType) const;
   media::TimeIntervals SafeBuffered(TrackInfo::TrackType) const;
-  bool IsEnded() const { return mEnded; }
+  bool HaveAllData() const { return mHaveAllData; }
   uint32_t Evictable(TrackInfo::TrackType aTrack) const;
   media::TimeUnit Seek(TrackInfo::TrackType aTrack,
                        const media::TimeUnit& aTime,
@@ -190,6 +193,9 @@ class TrackBuffersManager final
   using CodedFrameProcessingPromise = MozPromise<bool, MediaResult, true>;
 
   ~TrackBuffersManager();
+  // main thread:
+  void Reopen();
+
   // All following functions run on the taskqueue.
   RefPtr<AppendPromise> DoAppendData(already_AddRefed<MediaByteBuffer> aData,
                                      const SourceBufferAttributes& aAttributes);
@@ -541,8 +547,8 @@ class TrackBuffersManager final
   media::TimeUnit HighestEndTime(
       nsTArray<const media::TimeIntervals*>& aTracks) const;
 
-  // Set to true if mediasource state changed to ended.
-  Atomic<bool> mEnded;
+  // true if endOfStream() has been called without error.
+  Atomic<bool> mHaveAllData{false};
 
   // Global size of this source buffer content.
   Atomic<int64_t> mSizeSourceBuffer;
@@ -568,6 +574,8 @@ class TrackBuffersManager final
   media::TimeIntervals mAudioBufferedRanges;
   // MediaInfo of the first init segment read.
   MediaInfo mInfo;
+  // Set to true if MediaSource readyState has changed to ended.
+  bool mEnded MOZ_GUARDED_BY(mMutex) = false;
   // End mutex protected members.
 
   // EventTargetCapability used to ensure we're running on the task queue

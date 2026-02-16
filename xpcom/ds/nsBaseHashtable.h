@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsBaseHashtable_h__
-#define nsBaseHashtable_h__
+#ifndef nsBaseHashtable_h_
+#define nsBaseHashtable_h_
 
 #include <functional>
 #include <utility>
@@ -287,6 +287,12 @@ class nsBaseHashtable
       nsCycleCollectionTraversalCallback&,
       const nsBaseHashtable<KC, DT, UDT, C>&, const char* aName,
       uint32_t aFlags);
+
+  template <typename KC, typename DT, typename UDT, typename C>
+  friend inline void ImplCycleCollectionTrace(const TraceCallbacks& aCallbacks,
+                                              nsBaseHashtable<KC, DT, UDT, C>&,
+                                              const char* aName,
+                                              void* aClosure);
 
  public:
   typedef typename KeyClass::KeyType KeyType;
@@ -1057,4 +1063,41 @@ inline void ImplCycleCollectionTraverse(
   ImplCycleCollectionTraverse(aCallback, aField.GetData(), aName, aFlags);
 }
 
-#endif  // nsBaseHashtable_h__
+template <class KeyClass, class DataType, class UserDataType, class Converter>
+inline void ImplCycleCollectionTrace(
+    const TraceCallbacks& aCallbacks,
+    nsBaseHashtable<KeyClass, DataType, UserDataType, Converter>& aField,
+    const char* aName, void* aClosure) {
+  ImplCycleCollectionTrace(
+      aCallbacks,
+      static_cast<nsTHashtable<nsBaseHashtableET<KeyClass, DataType>>&>(aField),
+      aName, aClosure);
+}
+
+namespace mozilla::detail {
+template <typename T, typename = void>
+constexpr bool kCanTrace = false;
+
+template <typename T>
+constexpr bool
+    kCanTrace<T, std::void_t<decltype(ImplCycleCollectionTrace(
+                     std::declval<TraceCallbacks>(), std::declval<T&>(),
+                     std::declval<const char*>(), std::declval<void*>()))>> =
+        true;
+}  // namespace mozilla::detail
+
+template <typename KeyClass, typename DataType>
+inline void ImplCycleCollectionTrace(
+    const TraceCallbacks& aCallbacks,
+    nsBaseHashtableET<KeyClass, DataType>& aField, const char* aName,
+    void* aClosure) {
+  static_assert(!mozilla::detail::kCanTrace<KeyClass&>,
+                "Don't use traceable values as KeyClass");
+  static_assert(mozilla::detail::kCanTrace<DataType&>,
+                "Can't trace values of type DataType");
+
+  ImplCycleCollectionTrace(aCallbacks, *aField.GetModifiableData(), aName,
+                           aClosure);
+}
+
+#endif  // nsBaseHashtable_h_

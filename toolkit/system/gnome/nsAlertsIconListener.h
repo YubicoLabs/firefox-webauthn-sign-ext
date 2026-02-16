@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsAlertsIconListener_h__
-#define nsAlertsIconListener_h__
+#ifndef nsAlertsIconListener_h_
+#define nsAlertsIconListener_h_
 
 #include "nsCOMPtr.h"
 #include "nsIAlertsService.h"
@@ -20,25 +20,21 @@ class nsSystemAlertsService;
 
 struct NotifyNotification;
 
-class nsAlertsIconListener : public nsIAlertNotificationImageListener,
-                             public nsIObserver,
-                             public nsSupportsWeakReference {
+class nsAlertsIconListener : public nsISupports {
  public:
   NS_DECL_ISUPPORTS
-  NS_DECL_NSIALERTNOTIFICATIONIMAGELISTENER
-  NS_DECL_NSIOBSERVER
 
   nsAlertsIconListener(nsSystemAlertsService* aBackend,
                        nsIAlertNotification* aAlertNotification,
                        const nsAString& aAlertName);
 
-  nsresult InitAlertAsync(nsIAlertNotification* aAlert,
-                          nsIObserver* aAlertListener);
+  nsresult InitAlert(nsIAlertNotification* aAlert, nsIObserver* aAlertListener);
   nsresult Close();
 
   void SendCallback();
   void SendActionCallback(const nsAString& aActionName);
   void SendClosed();
+  void Disconnect();
 
  protected:
   virtual ~nsAlertsIconListener();
@@ -101,7 +97,7 @@ class nsAlertsIconListener : public nsIAlertNotificationImageListener,
   NotifyNotification* mNotification = nullptr;
   gulong mClosureHandler = 0;
 
-  nsresult ShowAlert(GdkPixbuf* aPixbuf);
+  nsresult ShowAlert(imgIContainer* aImage);
 
   void NotifyFinished();
 };

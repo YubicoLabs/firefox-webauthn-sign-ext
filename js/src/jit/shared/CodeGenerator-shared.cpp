@@ -48,10 +48,12 @@ MacroAssembler& CodeGeneratorShared::ensureMasm(MacroAssembler* masmArg,
 }
 
 CodeGeneratorShared::CodeGeneratorShared(MIRGenerator* gen, LIRGraph* graph,
-                                         MacroAssembler* masmArg)
+                                         MacroAssembler* masmArg,
+                                         const wasm::CodeMetadata* wasmCodeMeta)
     : masm(ensureMasm(masmArg, gen->alloc(), gen->realm)),
       gen(gen),
       graph(*graph),
+      wasmCodeMeta_(wasmCodeMeta),
       current(nullptr),
       recovers_(),
 #ifdef DEBUG
@@ -196,6 +198,10 @@ bool CodeGeneratorShared::generateOutOfLineCode() {
   current = nullptr;
 
   for (OutOfLineCode* ool : outOfLineCode_) {
+    if (gen->shouldCancel("Generate Code (OOL code loop)")) {
+      return false;
+    }
+
     // Add native => bytecode mapping entries for OOL->sites.
     // Not enabled on wasm yet since it doesn't contain bytecode mappings.
     if (!gen->compilingWasm()) {
@@ -436,7 +442,7 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
 
       JSValueType valueType = ValueTypeFromMIRType(type);
 
-      MOZ_DIAGNOSTIC_ASSERT(payload->isMemory() || payload->isRegister());
+      MOZ_DIAGNOSTIC_ASSERT(payload->isMemory() || payload->isAnyRegister());
       if (payload->isMemory()) {
         MOZ_ASSERT_IF(payload->isStackSlot(),
                       payload->toStackSlot()->width() ==
@@ -462,14 +468,15 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
         break;
       }
 
-      MOZ_ASSERT(payload->isMemory() || payload->isFloatReg());
       if (payload->isFloatReg()) {
         alloc = RValueAllocation::Float32(ToFloatRegister(payload));
-      } else {
+      } else if (payload->isMemory()) {
         MOZ_ASSERT_IF(payload->isStackSlot(),
                       payload->toStackSlot()->width() ==
                           LStackSlot::width(LDefinition::TypeFrom(type)));
         alloc = RValueAllocation::Float32(ToStackIndex(payload));
+      } else {
+        MOZ_CRASH("Unexpected payload type.");
       }
       break;
     }
@@ -497,7 +504,6 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
         break;
       }
 
-      MOZ_ASSERT(payload->isMemory() || payload->isGeneralReg());
       if (payload->isGeneralReg()) {
         alloc = RValueAllocation::IntPtr(ToRegister(payload));
       } else if (payload->isStackSlot()) {
@@ -511,7 +517,7 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
           alloc = RValueAllocation::IntPtrInt32(ToStackIndex(payload));
         }
       } else {
-        alloc = RValueAllocation::IntPtr(ToStackIndex(payload));
+        MOZ_CRASH("Unexpected payload type.");
       }
       break;
     }
@@ -555,11 +561,9 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
         alloc = RValueAllocation::Int64Constant(lowIndex, highIndex);
         break;
       }
-      MOZ_ASSERT(payload->isMemory() || payload->isRegister());
 
 #ifdef JS_NUNBOX32
       LAllocation* type = snapshot->typeOfSlot(*allocIndex);
-      MOZ_ASSERT(type->isMemory() || type->isRegister());
 
       MOZ_ASSERT_IF(payload->isStackSlot(),
                     payload->toStackSlot()->width() ==
@@ -568,42 +572,53 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
                     type->toStackSlot()->width() ==
                         LStackSlot::width(LDefinition::GENERAL));
 
-      if (payload->isRegister()) {
-        if (type->isRegister()) {
+      if (payload->isGeneralReg()) {
+        if (type->isGeneralReg()) {
           alloc =
               RValueAllocation::Int64(ToRegister(type), ToRegister(payload));
-        } else {
+        } else if (type->isStackSlot()) {
           alloc =
               RValueAllocation::Int64(ToStackIndex(type), ToRegister(payload));
+        } else {
+          MOZ_CRASH("Unexpected payload type.");
         }
-      } else {
-        if (type->isRegister()) {
+      } else if (payload->isStackSlot()) {
+        if (type->isGeneralReg()) {
           alloc =
               RValueAllocation::Int64(ToRegister(type), ToStackIndex(payload));
-        } else {
+        } else if (type->isStackSlot()) {
           alloc = RValueAllocation::Int64(ToStackIndex(type),
                                           ToStackIndex(payload));
+        } else {
+          MOZ_CRASH("Unexpected payload type.");
         }
+      } else {
+        MOZ_CRASH("Unexpected payload type.");
       }
 #elif JS_PUNBOX64
-      if (payload->isRegister()) {
+      if (payload->isGeneralReg()) {
         alloc = RValueAllocation::Int64(ToRegister(payload));
+      } else if (payload->isStackSlot()) {
+        LStackSlot::Width width = payload->toStackSlot()->width();
+        MOZ_ASSERT(width == LStackSlot::width(LDefinition::GENERAL) ||
+                   width == LStackSlot::width(LDefinition::INT32));
+        if (width == LStackSlot::width(LDefinition::GENERAL)) {
+          alloc = RValueAllocation::Int64(ToStackIndex(payload));
+        } else {
+          alloc = RValueAllocation::Int64Int32(ToStackIndex(payload));
+        }
       } else {
-        MOZ_ASSERT_IF(payload->isStackSlot(),
-                      payload->toStackSlot()->width() ==
-                          LStackSlot::width(LDefinition::GENERAL));
-        alloc = RValueAllocation::Int64(ToStackIndex(payload));
+        MOZ_CRASH("Unexpected payload type.");
       }
 #endif
       break;
     }
-    default: {
-      MOZ_ASSERT(mir->type() == MIRType::Value);
+    case MIRType::Value: {
       LAllocation* payload = snapshot->payloadOfSlot(*allocIndex);
 #ifdef JS_NUNBOX32
       LAllocation* type = snapshot->typeOfSlot(*allocIndex);
-      if (type->isRegister()) {
-        if (payload->isRegister()) {
+      if (type->isGeneralReg()) {
+        if (payload->isGeneralReg()) {
           alloc =
               RValueAllocation::Untyped(ToRegister(type), ToRegister(payload));
         } else {
@@ -611,7 +626,7 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
                                             ToStackIndex(payload));
         }
       } else {
-        if (payload->isRegister()) {
+        if (payload->isGeneralReg()) {
           alloc = RValueAllocation::Untyped(ToStackIndex(type),
                                             ToRegister(payload));
         } else {
@@ -620,7 +635,7 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
         }
       }
 #elif JS_PUNBOX64
-      if (payload->isRegister()) {
+      if (payload->isGeneralReg()) {
         alloc = RValueAllocation::Untyped(ToRegister(payload));
       } else {
         alloc = RValueAllocation::Untyped(ToStackIndex(payload));
@@ -628,6 +643,8 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
 #endif
       break;
     }
+    default:
+      MOZ_CRASH("Unexpected MIR type");
   }
   MOZ_DIAGNOSTIC_ASSERT(alloc.valid());
 
@@ -743,7 +760,7 @@ bool CodeGeneratorShared::createNativeToBytecodeScriptList(
     // Add script from current tree.
     bool found = false;
     for (uint32_t i = 0; i < scripts.length(); i++) {
-      if (scripts[i].script == tree->script()) {
+      if (scripts[i].scriptData.sourceAndExtent.matches(tree->script())) {
         found = true;
         break;
       }
@@ -871,30 +888,8 @@ void CodeGeneratorShared::verifyCompactNativeToBytecodeMap(
     // Ensure native code offset for region falls within jitcode.
     MOZ_ASSERT(entry.nativeOffset() <= code->instructionsSize());
 
-    // Read out script/pc stack and verify.
-    JitcodeRegionEntry::ScriptPcIterator scriptPcIter =
-        entry.scriptPcIterator();
-    while (scriptPcIter.hasMore()) {
-      uint32_t scriptIdx = 0, pcOffset = 0;
-      scriptPcIter.readNext(&scriptIdx, &pcOffset);
-
-      // Ensure scriptIdx refers to a valid script in the list.
-      JSScript* script = scripts[scriptIdx].script;
-
-      // Ensure pcOffset falls within the script.
-      MOZ_ASSERT(pcOffset < script->length());
-    }
-
-    // Obtain the original nativeOffset and pcOffset and script.
+    // Obtain the original nativeOffset.
     uint32_t curNativeOffset = entry.nativeOffset();
-    JSScript* script = nullptr;
-    uint32_t curPcOffset = 0;
-    {
-      uint32_t scriptIdx = 0;
-      scriptPcIter.reset();
-      scriptPcIter.readNext(&scriptIdx, &curPcOffset);
-      script = scripts[scriptIdx].script;
-    }
 
     // Read out nativeDeltas and pcDeltas and verify.
     JitcodeRegionEntry::DeltaIterator deltaIter = entry.deltaIterator();
@@ -904,13 +899,9 @@ void CodeGeneratorShared::verifyCompactNativeToBytecodeMap(
       deltaIter.readNext(&nativeDelta, &pcDelta);
 
       curNativeOffset += nativeDelta;
-      curPcOffset = uint32_t(int32_t(curPcOffset) + pcDelta);
 
       // Ensure that nativeOffset still falls within jitcode after delta.
       MOZ_ASSERT(curNativeOffset <= code->instructionsSize());
-
-      // Ensure that pcOffset still falls within bytecode after delta.
-      MOZ_ASSERT(curPcOffset < script->length());
     }
   }
 #endif  // DEBUG
@@ -1044,7 +1035,7 @@ void CodeGeneratorShared::visitOutOfLineTruncateSlow(
   masm.jump(ool->rejoin());
 }
 
-bool CodeGeneratorShared::omitOverRecursedCheck() const {
+bool CodeGeneratorShared::omitOverRecursedStackCheck() const {
   // If the current function makes no calls (which means it isn't recursive)
   // and it uses only a small amount of stack space, it doesn't need a
   // stack overflow check. Note that the actual number here is somewhat
@@ -1054,18 +1045,15 @@ bool CodeGeneratorShared::omitOverRecursedCheck() const {
          !gen->needsOverrecursedCheck();
 }
 
-void CodeGeneratorShared::emitPreBarrier(Register elements,
-                                         const LAllocation* index) {
-  if (index->isConstant()) {
-    Address address(elements, ToInt32(index) * sizeof(Value));
-    masm.guardedCallPreBarrier(address, MIRType::Value);
-  } else {
-    BaseObjectElementIndex address(elements, ToRegister(index));
-    masm.guardedCallPreBarrier(address, MIRType::Value);
-  }
+bool CodeGeneratorShared::omitOverRecursedInterruptCheck() const {
+  return !gen->needsOverrecursedCheck();
 }
 
 void CodeGeneratorShared::emitPreBarrier(Address address) {
+  masm.guardedCallPreBarrier(address, MIRType::Value);
+}
+
+void CodeGeneratorShared::emitPreBarrier(BaseObjectElementIndex address) {
   masm.guardedCallPreBarrier(address, MIRType::Value);
 }
 

@@ -1,4 +1,5 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -1086,6 +1087,50 @@ addUiaTask(
 );
 
 /**
+ * Test the GetAttributeValue method when backspacing a character at the end of
+ * a document.
+ */
+addUiaTask(
+  `a<input id="input" value="bc">`,
+  async function testTextRangeGetAttributeValueBackspaceAtDocEnd(
+    browser,
+    docAcc
+  ) {
+    const input = findAccessibleChildByID(docAcc, "input");
+    info("Focusing input");
+    let moved = waitForEvent(EVENT_TEXT_CARET_MOVED, input);
+    input.takeFocus();
+    await moved;
+    info("Pressing end");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, input);
+    EventUtils.synthesizeKey("KEY_End");
+    await moved;
+    await runPython(`
+      global doc, range
+      doc = getDocUia()
+      input = findUiaByDomId(doc, "input")
+      text = getUiaPattern(input, "Text")
+      range = text.GetSelection().GetElement(0)
+    `);
+    // `range` is collapsed at the end of the input, after "c".
+    is(
+      await runPython(`range.GetAttributeValue(UIA_IsReadOnlyAttributeId)`),
+      false,
+      "IsReadOnly correct"
+    );
+    info("Backspacing c");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, input);
+    EventUtils.synthesizeKey("KEY_Backspace");
+    await moved;
+    is(
+      await runPython(`range.GetAttributeValue(UIA_IsReadOnlyAttributeId)`),
+      false,
+      "IsReadOnly correct"
+    );
+  }
+);
+
+/**
  * Test the TextRange pattern's Move method.
  */
 addUiaTask(
@@ -1482,7 +1527,9 @@ addUiaTask(
     `);
     is(await runPython(`text.GetSelection().Length`), 0, "No selection");
     info("Focusing textarea");
-    const textarea = findAccessibleChildByID(docAcc, "textarea");
+    const textarea = findAccessibleChildByID(docAcc, "textarea", [
+      nsIAccessibleText,
+    ]);
     let moved = waitForEvent(EVENT_TEXT_CARET_MOVED, textarea);
     textarea.takeFocus();
     await moved;
@@ -1546,6 +1593,36 @@ addUiaTask(
     await definePyVar("range", `text.GetSelection().GetElement(0)`);
     await runPython(`range.ExpandToEnclosingUnit(TextUnit_Line)`);
     is(await runPython(`range.GetText(-1)`), "cd", "range text correct");
+
+    info("Clicking mouse at b");
+    // BrowserTestUtils.synthesizeMouseAtPoint takes coordinates relative to the document.
+    const docX = {};
+    const docY = {};
+    docAcc.getBounds(docX, docY, {}, {});
+    let charX = {};
+    let charY = {};
+    textarea.getCharacterExtents(
+      1,
+      charX,
+      charY,
+      {},
+      {},
+      COORDTYPE_SCREEN_RELATIVE
+    );
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, textarea);
+    await BrowserTestUtils.synthesizeMouseAtPoint(
+      charX.value - docX.value,
+      charY.value - docY.value,
+      {},
+      docAcc.browsingContext
+    );
+    await moved;
+    is(await runPython(`text.GetSelection().Length`), 1, "1 selection");
+    await definePyVar("range", `text.GetSelection().GetElement(0)`);
+    ok(await runPython(`bool(range)`), "Got selection range 0");
+    info("Expanding to character");
+    await runPython(`range.ExpandToEnclosingUnit(TextUnit_Character)`);
+    is(await runPython(`range.GetText(-1)`), "b", "range text correct");
   }
 );
 
@@ -1601,7 +1678,10 @@ addUiaTask(
  * Test the Text pattern's TextSelectionChanged event.
  */
 addUiaTask(
-  `<input id="input" value="abc">`,
+  `
+<input id="input" value="abc">
+<div id="editable" contenteditable role="textbox"><p>de</p><p>f</p></div>
+  `,
   async function testTextTextSelectionChanged(browser) {
     info("Focusing input");
     await setUpWaitForUiaEvent("Text_TextSelectionChanged", "input");
@@ -1624,6 +1704,31 @@ addUiaTask(
     });
     await waitForUiaEvent();
     ok(true, "input got TextSelectionChanged event");
+
+    info("Focusing editable");
+    await setUpWaitForUiaEvent("Text_TextSelectionChanged", "editable");
+    await invokeContentTask(browser, [], () => {
+      content._editable = content.document.getElementById("editable");
+      content._editable.focus();
+    });
+    await waitForUiaEvent();
+    ok(true, "editable got TextSelectionChanged event");
+    info("Moving caret to e");
+    await setUpWaitForUiaEvent("Text_TextSelectionChanged", "editable");
+    await invokeContentTask(browser, [], () => {
+      content._de = content._editable.firstChild.firstChild;
+      content.getSelection().setBaseAndExtent(content._de, 1, content._de, 1);
+    });
+    await waitForUiaEvent();
+    ok(true, "editable got TextSelectionChanged event");
+    info("Selecting ef");
+    await setUpWaitForUiaEvent("Text_TextSelectionChanged", "editable");
+    await invokeContentTask(browser, [], () => {
+      const f = content._editable.children[1].firstChild;
+      content.getSelection().setBaseAndExtent(content._de, 1, f, 1);
+    });
+    await waitForUiaEvent();
+    ok(true, "editable got TextSelectionChanged event");
   }
 );
 
@@ -1631,7 +1736,13 @@ addUiaTask(
  * Test the Text pattern's TextChanged event.
  */
 addUiaTask(
-  `<input id="input" value="abc">`,
+  `
+<input id="input" value="abc">
+<div id="editable" contenteditable role="textbox">
+  <p id="de">de</p>
+  <p>f</p>
+</div>
+  `,
   async function testTextTextChanged(browser) {
     info("Focusing input");
     let moved = waitForEvent(EVENT_TEXT_CARET_MOVED, "input");
@@ -1653,6 +1764,27 @@ addUiaTask(
     });
     await waitForUiaEvent();
     ok(true, "input got TextChanged event");
+
+    info("Focusing editable");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, "de");
+    await invokeContentTask(browser, [], () => {
+      content.document.getElementById("editable").focus();
+    });
+    await moved;
+    info("Deleting a");
+    await setUpWaitForUiaEvent("Text_TextChanged", "editable");
+    await invokeContentTask(browser, [], () => {
+      content.document.execCommand("forwardDelete");
+    });
+    await waitForUiaEvent();
+    ok(true, "editable got TextChanged event");
+    info("Inserting a");
+    await setUpWaitForUiaEvent("Text_TextChanged", "editable");
+    await invokeContentTask(browser, [], () => {
+      content.document.execCommand("insertText", false, "a");
+    });
+    await waitForUiaEvent();
+    ok(true, "editable got TextChanged event");
   }
 );
 
@@ -1980,6 +2112,310 @@ addUiaTask(
 );
 
 /**
+ * Test char bounds with the TextRange pattern's GetBoundingRectangles method.
+ */
+addUiaTask(
+  `<div id="test">abc</div>`,
+  async function testTextRangeGetBoundingRectanglesChar(browser, docAcc) {
+    const testAcc = findAccessibleChildByID(docAcc, "test", [
+      nsIAccessibleText,
+    ]);
+    const charX = {};
+    const charY = {};
+    const charW = {};
+    const charH = {};
+    testAcc.getCharacterExtents(
+      0,
+      charX,
+      charY,
+      charW,
+      charH,
+      COORDTYPE_SCREEN_RELATIVE
+    );
+
+    await runPython(`
+      global doc, docText, testAcc, range
+      doc = getDocUia()
+      docText = getUiaPattern(doc, "Text")
+      testAcc = findUiaByDomId(doc, "test")
+      range = docText.RangeFromChild(testAcc)
+      range.ExpandToEnclosingUnit(TextUnit_Character)
+    `);
+    is(await runPython(`range.GetText(-1)`), "a", "range text correct");
+
+    const uiaRect = await runPython(`range.GetBoundingRectangles()`);
+    is(uiaRect.length, 4, "GetBoundingRectangles returned one rectangle");
+    is(uiaRect[0], charX.value, "UIA char rect X matches core char rect X");
+    is(uiaRect[1], charY.value, "UIA char rect Y matches core char rect Y");
+    is(uiaRect[2], charW.value, "UIA char rect W matches core char rect W");
+    is(uiaRect[3], charH.value, "UIA char rect H matches core char rect H");
+  },
+  { uiaEnabled: true, uiaDisabled: true, chrome: true }
+);
+
+/**
+ * Test special case line bounds with the TextRange pattern's
+ * GetBoundingRectangles method.
+ */
+addUiaTask(
+  `
+<div><span id="line-break" tabindex="-1">ABC<br/></span>DEF</div>
+<p style="width: 1px;"><span id="wrapping" tabindex="-1">ABC</span> DEF</p>
+  `,
+  async function testTextRangeGetBoundingRectanglesLine(browser, docAcc) {
+    const lineBreakAcc = findAccessibleChildByID(docAcc, "line-break", [
+      nsIAccessibleText,
+    ]);
+    const wrappingAcc = findAccessibleChildByID(docAcc, "wrapping", [
+      nsIAccessibleText,
+    ]);
+
+    let lineRects = await runPython(`
+      global doc, docText, testAcc
+      doc = getDocUia()
+      docText = getUiaPattern(doc, "Text")
+      testAcc = findUiaByDomId(doc, "line-break")
+      range = docText.RangeFromChild(testAcc)
+      return range.GetBoundingRectangles()
+    `);
+
+    is(lineRects.length, 4, "GetBoundingRectangles returned one rectangle");
+    const lineBreakLineRect = [
+      lineRects[0],
+      lineRects[1],
+      lineRects[2],
+      lineRects[3],
+    ];
+    testTextBounds(
+      lineBreakAcc,
+      0,
+      -1,
+      lineBreakLineRect,
+      COORDTYPE_SCREEN_RELATIVE
+    );
+
+    lineRects = await runPython(`
+      global doc, docText, testAcc
+      testAcc = findUiaByDomId(doc, "wrapping")
+      range = docText.RangeFromChild(testAcc)
+      return range.GetBoundingRectangles()
+    `);
+    is(lineRects.length, 4, "GetBoundingRectangles returned one rectangle");
+    const wrappingLineRect = [
+      lineRects[0],
+      lineRects[1],
+      lineRects[2],
+      lineRects[3],
+    ];
+    testTextBounds(
+      wrappingAcc,
+      0,
+      -1,
+      wrappingLineRect,
+      COORDTYPE_SCREEN_RELATIVE
+    );
+  },
+  { uiaEnabled: true, uiaDisabled: true, chrome: true }
+);
+
+/**
+ * Test the Text pattern's GetBoundingRectangles method with the caret.
+ */
+addUiaTask(
+  `
+<style>
+  @font-face {
+    font-family: Ahem;
+    src: url(${CURRENT_CONTENT_DIR}e10s/fonts/Ahem.sjs);
+  }
+  textarea {
+    font: 10px/10px Ahem;
+    width: 10px;
+    height: 80px;
+  }
+</style>
+<div id="editable" contenteditable role="textbox">
+  <div id="ce0">a</div>
+  <div id="ce1"><br></div>
+  <div id="ce2">b</div>
+</div>
+<textarea id="textarea">ab
+
+</textarea>
+<input id="empty">
+  `,
+  async function testTextRangeGetBoundingRectanglesCaret(browser, docAcc) {
+    info("Focusing editable");
+    const editable = findAccessibleChildByID(docAcc, "editable");
+    const ce0 = findAccessibleChildByID(docAcc, "ce0");
+    let moved = waitForEvent(EVENT_TEXT_CARET_MOVED, ce0);
+    editable.takeFocus();
+    await moved;
+    await runPython(`
+      global doc, text
+      doc = getDocUia()
+      editable = findUiaByDomId(doc, "editable")
+      text = getUiaPattern(editable, "Text")
+    `);
+    let uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    testTextPos(ce0, 0, [uiaRects[0], uiaRects[1]], COORDTYPE_SCREEN_RELATIVE);
+    let [prevX, prevY] = uiaRects;
+
+    info("ArrowRight to end of line");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, ce0);
+    EventUtils.synthesizeKey("KEY_ArrowRight");
+    await moved;
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    Assert.greater(uiaRects[0], prevX, "x > prevX");
+    is(uiaRects[1], prevY, "y == prevY");
+
+    info("ArrowRight to line feed on blank line");
+    const ce1 = findAccessibleChildByID(docAcc, "ce1");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, ce1);
+    EventUtils.synthesizeKey("KEY_ArrowRight");
+    await moved;
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    testTextPos(ce1, 0, [uiaRects[0], uiaRects[1]], COORDTYPE_SCREEN_RELATIVE);
+
+    info("ArrowRight to b");
+    const ce2 = findAccessibleChildByID(docAcc, "ce2");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, ce2);
+    EventUtils.synthesizeKey("KEY_ArrowRight");
+    await moved;
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    testTextPos(ce2, 0, [uiaRects[0], uiaRects[1]], COORDTYPE_SCREEN_RELATIVE);
+    [prevX, prevY] = uiaRects;
+
+    info("ArrowRight to end of line");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, ce2);
+    EventUtils.synthesizeKey("KEY_ArrowRight");
+    await moved;
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    Assert.greater(uiaRects[0], prevX, "x > prevX");
+    is(uiaRects[1], prevY, "y == prevY");
+
+    info("Focusing textarea");
+    const textarea = findAccessibleChildByID(docAcc, "textarea");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, textarea);
+    textarea.takeFocus();
+    await moved;
+    await runPython(`
+      global text
+      textarea = findUiaByDomId(doc, "textarea")
+      text = getUiaPattern(textarea, "Text")
+    `);
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    testTextPos(
+      textarea,
+      0,
+      [uiaRects[0], uiaRects[1]],
+      COORDTYPE_SCREEN_RELATIVE
+    );
+    [prevX, prevY] = uiaRects;
+
+    info("ArrowRight to end of line");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, textarea);
+    EventUtils.synthesizeKey("KEY_ArrowRight");
+    await moved;
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    Assert.greater(uiaRects[0], prevX, "x > prevX");
+    is(uiaRects[1], prevY, "y == prevY");
+
+    info("ArrowRight to b");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, textarea);
+    EventUtils.synthesizeKey("KEY_ArrowRight");
+    await moved;
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    testTextPos(
+      textarea,
+      1,
+      [uiaRects[0], uiaRects[1]],
+      COORDTYPE_SCREEN_RELATIVE
+    );
+
+    info("ArrowRight to line feed");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, textarea);
+    EventUtils.synthesizeKey("KEY_ArrowRight");
+    await moved;
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    testTextPos(
+      textarea,
+      2,
+      [uiaRects[0], uiaRects[1]],
+      COORDTYPE_SCREEN_RELATIVE
+    );
+
+    info("ArrowRight to line feed on first blank line");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, textarea);
+    EventUtils.synthesizeKey("KEY_ArrowRight");
+    await moved;
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    testTextPos(
+      textarea,
+      3,
+      [uiaRects[0], uiaRects[1]],
+      COORDTYPE_SCREEN_RELATIVE
+    );
+    [prevX, prevY] = uiaRects;
+
+    info("ArrowRight to second blank line (end of textarea)");
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, textarea);
+    EventUtils.synthesizeKey("KEY_ArrowRight");
+    await moved;
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    is(uiaRects[0], prevX, "x == prevX");
+    Assert.greater(uiaRects[1], prevY, "y > prevY");
+
+    info("Focusing empty");
+    const empty = findAccessibleChildByID(docAcc, "empty", [nsIAccessibleText]);
+    moved = waitForEvent(EVENT_TEXT_CARET_MOVED, empty);
+    empty.takeFocus();
+    await moved;
+    await runPython(`
+      global text
+      empty = findUiaByDomId(doc, "empty")
+      text = getUiaPattern(empty, "Text")
+    `);
+    uiaRects = await runPython(
+      `text.GetSelection().GetElement(0).GetBoundingRectangles()`
+    );
+    const caretX = {};
+    const caretY = {};
+    const caretW = {};
+    const caretH = {};
+    empty.getCaretRect(caretX, caretY, caretW, caretH);
+    is(uiaRects[0], caretX.value, "x == caretX");
+    is(uiaRects[1], caretY.value, "y == caretY");
+    is(uiaRects[2], caretW.value, "w == caretW");
+    is(uiaRects[3], caretH.value, "h == caretH");
+  },
+  // The IA2 -> UIA proxy doesn't support this.
+  { uiaEnabled: true, uiaDisabled: false }
+);
+
+/**
  * Test the TextRange pattern's ScrollIntoView method.
  */
 addUiaTask(
@@ -2036,7 +2472,7 @@ addUiaTask(
  */
 addUiaTask(
   `
-<p id="p">ab</p>
+<p id="p">ab<a id="link" href="/">c</a></p>
 <input id="input" type="text" value="ab">
 <div id="contenteditable" contenteditable role="textbox">ab</div>
   `,
@@ -2049,17 +2485,54 @@ addUiaTask(
       doc = getDocUia()
       p = findUiaByDomId(doc, "p")
       textChild = getUiaPattern(p, "TextChild")
-      global range
-      range = textChild.TextRange
+      global pbRange
+      pbRange = textChild.TextRange
       # Encompass "b".
-      range.Move(TextUnit_Character, 1)
+      pbRange.Move(TextUnit_Character, 1)
       # Collapse.
-      range.MoveEndpointByRange(TextPatternRangeEndpoint_End, range, TextPatternRangeEndpoint_Start)
-      range.Select()
+      pbRange.MoveEndpointByRange(TextPatternRangeEndpoint_End, pbRange, TextPatternRangeEndpoint_Start)
+      pbRange.Select()
     `);
     await moved;
     testTextSelectionCount(p, 0);
     is(p.caretOffset, 1, "caret at 1");
+    // When using the IA2 -> UIA proxy, the focus changes when moving the caret,
+    // but this isn't what UIA clients want.
+    if (gIsUiaEnabled) {
+      info("Moving caret to c in link");
+      const link = findAccessibleChildByID(docAcc, "link", [nsIAccessibleText]);
+      moved = waitForEvents({
+        expected: [[EVENT_TEXT_CARET_MOVED, link]],
+        unexpected: [[EVENT_FOCUS, link]],
+      });
+      await runPython(`
+        link = findUiaByDomId(doc, "link")
+        textChild = getUiaPattern(link, "TextChild")
+        range = textChild.TextRange
+        # Collapse to "a".
+        range.MoveEndpointByRange(TextPatternRangeEndpoint_End, range, TextPatternRangeEndpoint_Start)
+        range.Select()
+      `);
+      await moved;
+      testTextSelectionCount(link, 0);
+      is(p.caretOffset, 2, "p caret at 2");
+      is(link.caretOffset, 0, "link caret at 0");
+      info("Focusing link");
+      moved = waitForEvent(EVENT_FOCUS, link);
+      link.takeFocus();
+      await moved;
+      info("Moving caret back to b in p");
+      moved = waitForEvents({
+        expected: [[EVENT_TEXT_CARET_MOVED, p]],
+        unexpected: [[EVENT_FOCUS, docAcc]],
+      });
+      await runPython(`
+        pbRange.Select()
+      `);
+      await moved;
+      testTextSelectionCount(p, 0);
+      is(p.caretOffset, 1, "p caret at 1");
+    }
 
     // <input> and contentEditable should behave the same.
     for (const id of ["input", "contenteditable"]) {
@@ -2361,7 +2834,7 @@ addUiaTask(
   `
 <div id="div">
   <p>line1</p>
-  <p>line2</p>
+  <p><strong id="strong">line</strong>2</p>
   <p style="position: absolute; left: -10000px; width: 1px;">line3</p>
   <p>line4</p>
 </div>
@@ -2428,6 +2901,24 @@ line7</textarea>
       "range 0 text correct"
     );
     // line6 and line7 are scrolled off screen by the textarea.
+
+    await runPython(`
+      strong = findUiaByDomId(doc, "strong")
+      strongLeaf = uiaClient.RawViewWalker.GetFirstChildElement(strong)
+      strongText = getUiaPattern(strongLeaf, "Text")
+      global ranges
+      ranges = strongText.GetVisibleRanges()
+    `);
+    is(
+      await runPython(`ranges.Length`),
+      1,
+      "strong leaf has correct number of visible ranges"
+    );
+    is(
+      await runPython(`ranges.GetElement(0).GetText(-1)`),
+      "line",
+      "range 0 text correct"
+    );
   },
   // The IA2 -> UIA proxy doesn't support GetVisibleRanges.
   { uiaEnabled: true, uiaDisabled: false }
@@ -2437,8 +2928,12 @@ line7</textarea>
  * Test the TextRange pattern's FindText method.
  */
 addUiaTask(
-  `<div id="container"><b>abc</b>TEST<div id="inner">def</div>TEST<p>ghi</p></div>`,
-  async function testTextRangeFromChild() {
+  `
+<div id="container"><b>abc</b>TEST<div id="inner">def</div>TEST<p>ghi</p></div>
+<textarea id="textarea">This is a test.</textarea>
+  `,
+  async function testTextRangeFindText() {
+    info("container tests");
     await runPython(`
       global doc, docText, container, range
       doc = getDocUia()
@@ -2511,6 +3006,50 @@ addUiaTask(
       subrange = range.FindText("test", False, True)
       `);
     is(await runPython(`subrange.GetText(-1)`), "TEST", "range text correct");
+
+    info("textarea tests");
+    await runPython(`
+      global range
+      textarea = findUiaByDomId(doc, "textarea")
+      range = docText.RangeFromChild(textarea)
+    `);
+    is(
+      await runPython(`range.GetText(-1)`),
+      "This is a test.",
+      "doc returned correct range for textarea"
+    );
+
+    info("Finding 'is', searching from the start");
+    await runPython(`
+      global subrange
+      subrange = range.FindText("is", False, False)
+      `);
+    is(await runPython(`subrange.GetText(-1)`), "is", "range text correct");
+    info("Expanding to word");
+    await runPython(`subrange.ExpandToEnclosingUnit(TextUnit_Word)`);
+    is(await runPython(`subrange.GetText(-1)`), "This ", "range text correct");
+
+    info("Creating range for 'is a test.'");
+    await runPython(`
+      global partRange
+      partRange = range.Clone()
+      partRange.MoveEndpointByRange(TextPatternRangeEndpoint_Start, subrange, TextPatternRangeEndpoint_End)
+    `);
+    is(
+      await runPython(`partRange.GetText(-1)`),
+      "is a test.",
+      "range text correct"
+    );
+
+    info("Finding 'is', searching forward in 'is a test.'");
+    await runPython(`
+      global subrange
+      subrange = partRange.FindText("is", False, False)
+    `);
+    is(await runPython(`subrange.GetText(-1)`), "is", "range text correct");
+    info("Expanding to word");
+    await runPython(`subrange.ExpandToEnclosingUnit(TextUnit_Word)`);
+    is(await runPython(`subrange.GetText(-1)`), "is ", "range text correct");
   },
   { uiaEnabled: true, uiaDisabled: true }
 );

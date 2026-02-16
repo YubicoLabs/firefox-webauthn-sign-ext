@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef _WaylandVsyncSource_h_
-#define _WaylandVsyncSource_h_
+#ifndef WaylandVsyncSource_h_
+#define WaylandVsyncSource_h_
 
 #include "base/thread.h"
 #include "mozilla/RefPtr.h"
@@ -49,9 +49,6 @@ class WaylandVsyncSource final : public gfx::VsyncSource {
 
   static Maybe<TimeDuration> GetFastestVsyncRate();
 
-  void EnableVSyncSource();
-  void DisableVSyncSource();
-
   // Regular VSync callback. Runs for visible windows only.
   // aTime = 0 means emulated frame and use current time.
   void VisibleWindowCallback(uint32_t aTime = 0);
@@ -69,6 +66,11 @@ class WaylandVsyncSource final : public gfx::VsyncSource {
   bool IsVsyncEnabled() override;
   void Shutdown() override;
 
+  // Enable/Disable this particular VSync source. Called from widget code
+  // if we know that nsWindow become visible/hidden.
+  void EnableVSyncSource();
+  void DisableVSyncSource();
+
   // We addref/unref this during init so we should not
   // call it from constructor.
   void Init();
@@ -81,6 +83,9 @@ class WaylandVsyncSource final : public gfx::VsyncSource {
   void* GetWindowForLogging() { return mWindow; };
 
   void SetHiddenWindowVSync();
+
+  void SetVSyncEventsStateLocked(const MutexAutoLock& aProofOfLock,
+                                 bool aEnabled);
 
   Mutex mMutex;
 
@@ -102,4 +107,4 @@ class WaylandVsyncSource final : public gfx::VsyncSource {
 
 }  // namespace mozilla
 
-#endif  // _WaylandVsyncSource_h_
+#endif  // WaylandVsyncSource_h_

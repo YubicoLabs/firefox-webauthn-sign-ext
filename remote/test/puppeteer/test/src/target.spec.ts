@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type {ServerResponse} from 'http';
+import type {ServerResponse} from 'node:http';
 
 import expect from 'expect';
 import {type Target, TimeoutError} from 'puppeteer';
@@ -40,6 +40,12 @@ describe('Target', function () {
     expect(allPages).toHaveLength(1);
     expect(allPages).toContain(page);
   });
+
+  it('page should return tab target id', async () => {
+    const {page} = await getTestState();
+    expect(page._tabId.length).toBeGreaterThan(0);
+  });
+
   it('should contain browser target', async () => {
     const {browser} = await getTestState();
 

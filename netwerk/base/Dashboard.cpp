@@ -70,6 +70,21 @@ class HttpData : public nsISupports {
 
 NS_IMPL_ISUPPORTS0(HttpData)
 
+class Http3ConnectionStatsData : public nsISupports {
+  virtual ~Http3ConnectionStatsData() = default;
+
+ public:
+  NS_DECL_THREADSAFE_ISUPPORTS
+
+  Http3ConnectionStatsData() = default;
+
+  nsTArray<Http3ConnectionStatsParams> mData;
+  nsMainThreadPtrHandle<nsINetDashboardCallback> mCallback;
+  nsIEventTarget* mEventTarget{nullptr};
+};
+
+NS_IMPL_ISUPPORTS0(Http3ConnectionStatsData)
+
 class WebSocketRequest : public nsISupports {
   virtual ~WebSocketRequest() = default;
 
@@ -351,27 +366,27 @@ nsresult LookupHelper::ConstructHTTPSRRAnswer(LookupArgument* aArgument) {
         return NS_ERROR_OUT_OF_MEMORY;
       }
 
-      Unused << record->GetPriority(&nextRecord->mPriority);
+      (void)record->GetPriority(&nextRecord->mPriority);
       nsCString name;
-      Unused << record->GetName(name);
+      (void)record->GetName(name);
       CopyASCIItoUTF16(name, nextRecord->mTargetName);
 
       nsTArray<RefPtr<nsISVCParam>> values;
-      Unused << record->GetValues(values);
+      (void)record->GetValues(values);
       if (values.IsEmpty()) {
         continue;
       }
 
       for (const auto& value : values) {
         uint16_t type;
-        Unused << value->GetType(&type);
+        (void)value->GetType(&type);
         switch (type) {
           case SvcParamKeyAlpn: {
             nextRecord->mAlpn.Construct();
             nextRecord->mAlpn.Value().mType = type;
             nsCOMPtr<nsISVCParamAlpn> alpnParam = do_QueryInterface(value);
             nsTArray<nsCString> alpn;
-            Unused << alpnParam->GetAlpn(alpn);
+            (void)alpnParam->GetAlpn(alpn);
             nsAutoCString alpnStr;
             for (const auto& str : alpn) {
               alpnStr.Append(str);
@@ -390,7 +405,7 @@ nsresult LookupHelper::ConstructHTTPSRRAnswer(LookupArgument* aArgument) {
             nextRecord->mPort.Construct();
             nextRecord->mPort.Value().mType = type;
             nsCOMPtr<nsISVCParamPort> portParam = do_QueryInterface(value);
-            Unused << portParam->GetPort(&nextRecord->mPort.Value().mPort);
+            (void)portParam->GetPort(&nextRecord->mPort.Value().mPort);
             break;
           }
           case SvcParamKeyIpv4Hint: {
@@ -398,7 +413,7 @@ nsresult LookupHelper::ConstructHTTPSRRAnswer(LookupArgument* aArgument) {
             nextRecord->mIpv4Hint.Value().mType = type;
             nsCOMPtr<nsISVCParamIPv4Hint> ipv4Param = do_QueryInterface(value);
             nsTArray<RefPtr<nsINetAddr>> ipv4Hint;
-            Unused << ipv4Param->GetIpv4Hint(ipv4Hint);
+            (void)ipv4Param->GetIpv4Hint(ipv4Hint);
             if (!ipv4Hint.IsEmpty()) {
               nextRecord->mIpv4Hint.Value().mAddress.Construct();
               for (const auto& address : ipv4Hint) {
@@ -410,7 +425,7 @@ nsresult LookupHelper::ConstructHTTPSRRAnswer(LookupArgument* aArgument) {
                 }
 
                 nsCString addressASCII;
-                Unused << address->GetAddress(addressASCII);
+                (void)address->GetAddress(addressASCII);
                 CopyASCIItoUTF16(addressASCII, *nextAddress);
               }
             }
@@ -421,7 +436,7 @@ nsresult LookupHelper::ConstructHTTPSRRAnswer(LookupArgument* aArgument) {
             nextRecord->mIpv6Hint.Value().mType = type;
             nsCOMPtr<nsISVCParamIPv6Hint> ipv6Param = do_QueryInterface(value);
             nsTArray<RefPtr<nsINetAddr>> ipv6Hint;
-            Unused << ipv6Param->GetIpv6Hint(ipv6Hint);
+            (void)ipv6Param->GetIpv6Hint(ipv6Hint);
             if (!ipv6Hint.IsEmpty()) {
               nextRecord->mIpv6Hint.Value().mAddress.Construct();
               for (const auto& address : ipv6Hint) {
@@ -433,7 +448,7 @@ nsresult LookupHelper::ConstructHTTPSRRAnswer(LookupArgument* aArgument) {
                 }
 
                 nsCString addressASCII;
-                Unused << address->GetAddress(addressASCII);
+                (void)address->GetAddress(addressASCII);
                 CopyASCIItoUTF16(addressASCII, *nextAddress);
               }
             }
@@ -445,7 +460,7 @@ nsresult LookupHelper::ConstructHTTPSRRAnswer(LookupArgument* aArgument) {
             nsCOMPtr<nsISVCParamEchConfig> echConfigParam =
                 do_QueryInterface(value);
             nsCString echConfigStr;
-            Unused << echConfigParam->GetEchconfig(echConfigStr);
+            (void)echConfigParam->GetEchconfig(echConfigStr);
             CStringToHexString(echConfigStr,
                                nextRecord->mEchConfig.Value().mEchConfig);
             break;
@@ -456,7 +471,7 @@ nsresult LookupHelper::ConstructHTTPSRRAnswer(LookupArgument* aArgument) {
             nsCOMPtr<nsISVCParamODoHConfig> ODoHConfigParam =
                 do_QueryInterface(value);
             nsCString ODoHConfigStr;
-            Unused << ODoHConfigParam->GetODoHConfig(ODoHConfigStr);
+            (void)ODoHConfigParam->GetODoHConfig(ODoHConfigStr);
             CStringToHexString(ODoHConfigStr,
                                nextRecord->mODoHConfig.Value().mODoHConfig);
             break;
@@ -693,6 +708,127 @@ nsresult Dashboard::GetHttpConnections(HttpData* aHttpData) {
   }
 
   httpData->mCallback->OnDashboardDataAvailable(val);
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+Dashboard::RequestHttp3ConnectionStats(nsINetDashboardCallback* aCallback) {
+  RefPtr<Http3ConnectionStatsData> data = new Http3ConnectionStatsData();
+  data->mCallback = new nsMainThreadPtrHolder<nsINetDashboardCallback>(
+      "nsINetDashboardCallback", aCallback, true);
+  data->mEventTarget = GetCurrentSerialEventTarget();
+
+  if (nsIOService::UseSocketProcess()) {
+    if (!gIOService->SocketProcessReady()) {
+      return NS_ERROR_NOT_AVAILABLE;
+    }
+
+    RefPtr<Dashboard> self(this);
+    RefPtr<SocketProcessParent> socketParent =
+        SocketProcessParent::GetSingleton();
+    socketParent->SendGetHttp3ConnectionStatsData()->Then(
+        GetMainThreadSerialEventTarget(), __func__,
+        [self{std::move(self)},
+         data](nsTArray<Http3ConnectionStatsParams>&& params) {
+          data->mData.Assign(std::move(params));
+          self->GetHttp3ConnectionStats(data);
+          data->mEventTarget->Dispatch(
+              NewRunnableMethod<RefPtr<Http3ConnectionStatsData>>(
+                  "net::Dashboard::GetHttp3ConnectionStats", self,
+                  &Dashboard::GetHttp3ConnectionStats, data),
+              NS_DISPATCH_NORMAL);
+        },
+        [self](const mozilla::ipc::ResponseRejectReason) {});
+    return NS_OK;
+  }
+
+  gSocketTransportService->Dispatch(
+      NewRunnableMethod<RefPtr<Http3ConnectionStatsData>>(
+          "net::Dashboard::GetHttp3ConnectionStatsDispatch", this,
+          &Dashboard::GetHttp3ConnectionStatsDispatch, data),
+      NS_DISPATCH_NORMAL);
+  return NS_OK;
+}
+
+nsresult Dashboard::GetHttp3ConnectionStatsDispatch(
+    Http3ConnectionStatsData* aData) {
+  RefPtr<Http3ConnectionStatsData> data = aData;
+  HttpInfo::GetHttp3ConnectionStatsData(&data->mData);
+  data->mEventTarget->Dispatch(
+      NewRunnableMethod<RefPtr<Http3ConnectionStatsData>>(
+          "net::Dashboard::GetHttp3ConnectionStats", this,
+          &Dashboard::GetHttp3ConnectionStats, data),
+      NS_DISPATCH_NORMAL);
+  return NS_OK;
+}
+
+nsresult Dashboard::GetHttp3ConnectionStats(Http3ConnectionStatsData* aData) {
+  RefPtr<Http3ConnectionStatsData> data = aData;
+  AutoSafeJSContext cx;
+
+  mozilla::dom::Http3ConnStatsDict dict;
+  dict.mConnections.Construct();
+
+  using mozilla::dom::Http3ConnectionStatsElement;
+  using mozilla::dom::Http3ConnStats;
+  Sequence<Http3ConnectionStatsElement>& connections =
+      dict.mConnections.Value();
+
+  uint32_t length = data->mData.Length();
+  if (!connections.SetCapacity(length, fallible)) {
+    JS_ReportOutOfMemory(cx);
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  for (uint32_t i = 0; i < data->mData.Length(); i++) {
+    Http3ConnectionStatsElement& connection =
+        *connections.AppendElement(fallible);
+
+    CopyASCIItoUTF16(data->mData[i].host, connection.mHost);
+    connection.mPort = data->mData[i].port;
+
+    connection.mStats.Construct();
+
+    Sequence<Http3ConnStats>& stats = connection.mStats.Value();
+
+    if (!stats.SetCapacity(data->mData[i].stats.Length(), fallible)) {
+      JS_ReportOutOfMemory(cx);
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
+
+    for (uint32_t j = 0; j < data->mData[i].stats.Length(); j++) {
+      Http3ConnStats& info = *stats.AppendElement(fallible);
+      info.mPacketsRx = data->mData[i].stats[j].packetsRx;
+      info.mDupsRx = data->mData[i].stats[j].dupsRx;
+      info.mDroppedRx = data->mData[i].stats[j].droppedRx;
+      info.mSavedDatagrams = data->mData[i].stats[j].savedDatagrams;
+      info.mPacketsTx = data->mData[i].stats[j].packetsTx;
+      info.mLost = data->mData[i].stats[j].lost;
+      info.mLateAck = data->mData[i].stats[j].lateAck;
+      info.mPtoAck = data->mData[i].stats[j].ptoAck;
+      info.mWouldBlockRx = data->mData[i].stats[j].wouldBlockRx;
+      info.mWouldBlockTx = data->mData[i].stats[j].wouldBlockTx;
+      info.mPtoCounts.Construct();
+      Sequence<uint64_t>& ptoCounts = info.mPtoCounts.Value();
+      if (!ptoCounts.SetCapacity(data->mData[i].stats[j].ptoCounts.Length(),
+                                 fallible)) {
+        JS_ReportOutOfMemory(cx);
+        return NS_ERROR_OUT_OF_MEMORY;
+      }
+      for (auto pto : data->mData[i].stats[j].ptoCounts) {
+        uint64_t& element = *ptoCounts.AppendElement(fallible);
+        element = pto;
+      }
+    }
+  }
+
+  JS::Rooted<JS::Value> val(cx);
+  if (!ToJSValue(cx, dict, &val)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  data->mCallback->OnDashboardDataAvailable(val);
 
   return NS_OK;
 }

@@ -40,7 +40,6 @@
 
 #include "mozilla/Atomics.h"
 #include "mozilla/glean/NetwerkMetrics.h"
-#include "mozilla/HashFunctions.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/glean/NetwerkDnsMetrics.h"
 #include "mozilla/DebugOnly.h"
@@ -91,40 +90,6 @@ static const unsigned int NEGATIVE_RECORD_LIFETIME = 60;
 #define ShortIdleTimeoutSeconds 60
 
 using namespace mozilla;
-
-namespace geckoprofiler::markers {
-
-struct HostResolverMarker {
-  static constexpr Span<const char> MarkerTypeName() {
-    return MakeStringSpan("HostResolver");
-  }
-  static void StreamJSONMarkerData(
-      mozilla::baseprofiler::SpliceableJSONWriter& aWriter,
-      const mozilla::ProfilerString8View& aHost,
-      const mozilla::ProfilerString8View& aOriginSuffix, uint16_t aType,
-      uint32_t aFlags) {
-    aWriter.StringProperty("host", aHost);
-    aWriter.StringProperty("originSuffix", aOriginSuffix);
-    aWriter.IntProperty("qtype", aType);
-    aWriter.StringProperty("flags", nsPrintfCString("0x%x", aFlags));
-  }
-  static MarkerSchema MarkerTypeDisplay() {
-    using MS = MarkerSchema;
-    MS schema(MS::Location::MarkerChart, MS::Location::MarkerTable);
-    schema.SetTableLabel("{marker.name} - {marker.data.host}");
-    schema.AddKeyFormatSearchable("host", MS::Format::SanitizedString,
-                                  MS::Searchable::Searchable);
-    schema.AddKeyFormatSearchable("originSuffix", MS::Format::SanitizedString,
-                                  MS::Searchable::Searchable);
-    schema.AddKeyFormat("qtype", MS::Format::Integer);
-    schema.AddKeyFormat("flags", MS::Format::String);
-    return schema;
-  }
-};
-
-}  // namespace geckoprofiler::markers
-
-//----------------------------------------------------------------------------
 
 namespace mozilla::net {
 LazyLogModule gHostResolverLog("nsHostResolver");
@@ -208,8 +173,7 @@ nsresult nsHostResolver::Init() MOZ_NO_THREAD_SAFETY_ANALYSIS {
   // For some reason, the DNSQuery_A API doesn't work on Windows 10.
   // It returns a success code, but no records. We only allow
   // native HTTPS records on Win 11 for now.
-  sNativeHTTPSSupported = StaticPrefs::network_dns_native_https_query_win10() ||
-                          mozilla::IsWin11OrLater();
+  sNativeHTTPSSupported = mozilla::IsWin11OrLater();
 #elif defined(MOZ_WIDGET_ANDROID)
   // android_res_nquery only got added in API level 29
   sNativeHTTPSSupported = jni::GetAPIVersion() >= 29;
@@ -269,10 +233,12 @@ void nsHostResolver::ClearPendingQueue(
 // cache that have 'Resolve' set true but not 'OnQueue' are being resolved
 // right now, so we need to mark them to get re-resolved on completion!
 
-void nsHostResolver::FlushCache(bool aTrrToo) {
+void nsHostResolver::FlushCache(bool aTrrToo, bool aFlushEvictionQueue) {
   MutexAutoLock lock(mLock);
 
-  mQueue.FlushEvictionQ(mRecordDB, lock);
+  if (aFlushEvictionQueue) {
+    mQueue.FlushEvictionQ(mRecordDB, lock);
+  }
 
   // Refresh the cache entries that are resolving RIGHT now, remove the rest.
   for (auto iter = mRecordDB.Iter(); !iter.Done(); iter.Next()) {
@@ -336,7 +302,7 @@ void nsHostResolver::Shutdown() {
     mNCS = nullptr;
   }
 
-  // Shutdown the resolver threads, but with a timeout of 2 seconds (prefable).
+  // Shutdown the resolver threads, but with a timeout of 5 seconds (prefable).
   // If the timeout is exceeded, any stuck threads will be leaked.
   mResolverThreads->ShutdownWithTimeout(
       StaticPrefs::network_dns_resolver_shutdown_timeout_ms());
@@ -425,6 +391,9 @@ already_AddRefed<nsHostRecord> nsHostResolver::InitLoopbackRecord(
                          StaticPrefs::network_dnsCacheExpiration(),
                          StaticPrefs::network_dnsCacheExpirationGracePeriod());
   addrRec->negative = false;
+  // Use the oldest possible timestamp, since the contents of this record never
+  // change.
+  addrRec->mLastUpdate = TimeStamp::ProcessCreation();
 
   *aRv = NS_OK;
   return rec.forget();
@@ -460,6 +429,13 @@ bool nsHostResolver::IsNativeHTTPSEnabled() {
   if (!StaticPrefs::network_dns_native_https_query()) {
     return false;
   }
+#ifdef XP_WIN
+  if (StaticPrefs::network_dns_native_https_query_win10()) {
+    // If this pref is true, we allow resolving HTTPS records.
+    // It might not work, or we might use the HTTPS override records.
+    return true;
+  }
+#endif
   return sNativeHTTPSSupported;
 }
 
@@ -480,8 +456,11 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost,
        flags & nsIDNSService::RESOLVE_REFRESH_CACHE ? " - refresh cache" : "",
        type, this));
 
-  PROFILER_MARKER("nsHostResolver::ResolveHost", NETWORK, {},
-                  HostResolverMarker, host, originSuffix, type, flags);
+  // When this pref is set, we always set the flag, to make sure consumers
+  // that forget to set the flag don't end up being a cache miss.
+  if (StaticPrefs::network_dns_always_ai_canonname()) {
+    flags |= nsIDNSService::RESOLVE_CANONICAL_NAME;
+  }
 
   // ensure that we are working with a valid hostname before proceeding.  see
   // bug 304904 for details.
@@ -618,7 +597,7 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost,
     } else if (!rec->mResolving) {
       result =
           FromUnspecEntry(rec, host, aTrrServer, originSuffix, type, flags, af,
-                          aOriginAttributes.IsPrivateBrowsing(), status);
+                          aOriginAttributes.IsPrivateBrowsing(), status, lock);
       // If this is a by-type request or if no valid record was found
       // in the cache or this is an AF_UNSPEC request, then start a
       // new lookup.
@@ -697,22 +676,19 @@ already_AddRefed<nsHostRecord> nsHostResolver::FromCache(
 
   // put reference to host record on stack...
   RefPtr<nsHostRecord> result = aRec;
-  if (IS_ADDR_TYPE(aType)) {
-    glean::dns::lookup_method.AccumulateSingleSample(METHOD_HIT);
-  }
 
-  // For entries that are in the grace period
-  // or all cached negative entries, use the cache but start a new
-  // lookup in the background
+  // For cached entries that are in the grace period or negative, use the cache
+  // but start a new lookup in the background.
+  //
+  // Also records telemetry for type of cache hit (HIT/NEGATIVE_HIT/RENEWAL).
   ConditionallyRefreshRecord(aRec, aHost, aLock);
 
   if (aRec->negative) {
     LOG(("  Negative cache entry for host [%s].\n",
          nsPromiseFlatCString(aHost).get()));
-    if (IS_ADDR_TYPE(aType)) {
-      glean::dns::lookup_method.AccumulateSingleSample(METHOD_NEGATIVE_HIT);
-    }
     aStatus = NS_ERROR_UNKNOWN_HOST;
+  } else if (StaticPrefs::network_dns_mru_to_tail()) {
+    mQueue.MoveToEvictionQueueTail(aRec, aLock);
   }
 
   return result.forget();
@@ -739,7 +715,8 @@ already_AddRefed<nsHostRecord> nsHostResolver::FromIPLiteral(
 already_AddRefed<nsHostRecord> nsHostResolver::FromUnspecEntry(
     nsHostRecord* aRec, const nsACString& aHost, const nsACString& aTrrServer,
     const nsACString& aOriginSuffix, uint16_t aType,
-    nsIDNSService::DNSFlags aFlags, uint16_t af, bool aPb, nsresult& aStatus) {
+    nsIDNSService::DNSFlags aFlags, uint16_t af, bool aPb, nsresult& aStatus,
+    const MutexAutoLock& aLock) {
   RefPtr<nsHostRecord> result = nullptr;
   // If this is an IPV4 or IPV6 specific request, check if there is
   // an AF_UNSPEC entry we can use. Otherwise, hit the resolver...
@@ -805,7 +782,6 @@ already_AddRefed<nsHostRecord> nsHostResolver::FromUnspecEntry(
         if (aRec->negative) {
           aStatus = NS_ERROR_UNKNOWN_HOST;
         }
-        glean::dns::lookup_method.AccumulateSingleSample(METHOD_HIT);
         ConditionallyRefreshRecord(aRec, aHost, lock);
       } else if (af == PR_AF_INET6) {
         // For AF_INET6, a new lookup means another AF_UNSPEC
@@ -819,6 +795,8 @@ already_AddRefed<nsHostRecord> nsHostResolver::FromUnspecEntry(
         result = aRec;
         aRec->negative = true;
         aStatus = NS_ERROR_UNKNOWN_HOST;
+        // this record has just been marked as negative so we record the
+        // telemetry for it.
         glean::dns::lookup_method.AccumulateSingleSample(METHOD_NEGATIVE_HIT);
       }
     }
@@ -1029,6 +1007,15 @@ nsresult nsHostResolver::NativeLookup(nsHostRecord* aRec,
   MOZ_ASSERT(aRec->IsAddrRecord() || IsNativeHTTPSEnabled());
   mLock.AssertCurrentThreadOwns();
 
+  if (aRec->type == nsIDNSService::RESOLVE_TYPE_HTTPSSVC &&
+      TRRService::Get()->IsExcludedFromTRR(aRec->host)) {
+    // If the host should be excluded from TRR
+    // (meaning it's a local domain or in /etc/hosts)
+    // then we probably shouldn't be using the HTTPS record for it either.
+    // Or otherwise we shouldn't use the record for ECH.
+    return NS_ERROR_UNKNOWN_HOST;
+  }
+
   RefPtr<nsHostRecord> rec(aRec);
 
   rec->mNativeStart = TimeStamp::Now();
@@ -1216,19 +1203,31 @@ nsresult nsHostResolver::NameLookup(nsHostRecord* rec,
 
 nsresult nsHostResolver::ConditionallyRefreshRecord(
     nsHostRecord* rec, const nsACString& host, const MutexAutoLock& aLock) {
-  if ((rec->CheckExpiration(TimeStamp::NowLoRes()) != nsHostRecord::EXP_VALID ||
+  if ((rec->CheckExpiration(TimeStamp::NowLoRes()) == nsHostRecord::EXP_GRACE ||
        rec->negative) &&
       !rec->mResolving && rec->RefreshForNegativeResponse()) {
     LOG(("  Using %s cache entry for host [%s] but starting async renewal.",
          rec->negative ? "negative" : "positive", host.BeginReading()));
     NameLookup(rec, aLock);
 
-    if (rec->IsAddrRecord() && !rec->negative) {
-      // negative entries are constantly being refreshed, only
-      // track positive grace period induced renewals
-      glean::dns::lookup_method.AccumulateSingleSample(METHOD_RENEWAL);
+    if (rec->IsAddrRecord()) {
+      if (!rec->negative) {
+        glean::dns::lookup_method.AccumulateSingleSample(METHOD_RENEWAL);
+      } else {
+        glean::dns::lookup_method.AccumulateSingleSample(METHOD_NEGATIVE_HIT);
+      }
+    }
+  } else if (rec->IsAddrRecord()) {
+    // it could be that the record is negative, but we haven't entered the above
+    // if condition due to the second expression being false. In that case we
+    // need to record the telemetry for the negative record here.
+    if (!rec->negative) {
+      glean::dns::lookup_method.AccumulateSingleSample(METHOD_HIT);
+    } else {
+      glean::dns::lookup_method.AccumulateSingleSample(METHOD_NEGATIVE_HIT);
     }
   }
+
   return NS_OK;
 }
 
@@ -1400,6 +1399,9 @@ bool nsHostResolver::MaybeRetryTRRLookup(
   MOZ_ASSERT(!aAddrRec->mResolving);
   if (!StaticPrefs::network_trr_retry_on_recoverable_errors()) {
     LOG(("nsHostResolver::MaybeRetryTRRLookup retrying with native"));
+
+    // Trigger a confirmation retry, in order to cycle connection if needed
+    TRRService::Get()->RetryTRRConfirm();
     return NS_SUCCEEDED(NativeLookup(aAddrRec, aLock));
   }
 
@@ -1561,11 +1563,13 @@ nsHostResolver::LookupStatus nsHostResolver::CompleteLookupLocked(
   if (!mShutdown) {
     MutexAutoLock lock(addrRec->addr_info_lock);
     RefPtr<AddrInfo> old_addr_info;
-    if (different_rrset(addrRec->addr_info, newRRSet)) {
+    bool isDifferentRRSet = different_rrset(addrRec->addr_info, newRRSet);
+    if (isDifferentRRSet) {
       LOG(("nsHostResolver record %p new gencnt\n", addrRec.get()));
       old_addr_info = addrRec->addr_info;
       addrRec->addr_info = std::move(newRRSet);
       addrRec->addr_info_gencnt++;
+      addrRec->mLastUpdate = TimeStamp::NowLoRes();
     } else {
       if (addrRec->addr_info && newRRSet) {
         auto builder = addrRec->addr_info->Build();
@@ -1605,10 +1609,6 @@ nsHostResolver::LookupStatus nsHostResolver::CompleteLookupLocked(
       LOG(("CompleteLookup: %s has NO address\n", addrRec->host.get()));
     }
   }
-
-  PROFILER_MARKER("nsHostResolver::CompleteLookupLocked", NETWORK, {},
-                  HostResolverMarker, addrRec->host, addrRec->originSuffix,
-                  addrRec->type, addrRec->flags);
 
   // get the list of pending callbacks for this lookup, and notify
   // them that the lookup is complete.
@@ -1724,10 +1724,6 @@ nsHostResolver::LookupStatus nsHostResolver::CompleteLookupByTypeLocked(
     MOZ_ASSERT(aReason != TRRSkippedReason::TRR_UNSET);
     typeRec->RecordReason(aReason);
   }
-
-  PROFILER_MARKER("nsHostResolver::CompleteLookupByTypeLocked", NETWORK, {},
-                  HostResolverMarker, typeRec->host, typeRec->originSuffix,
-                  typeRec->type, typeRec->flags);
 
   mozilla::LinkedList<RefPtr<nsResolveHostCallback>> cbs =
       std::move(typeRec->mCallbacks);

@@ -8,6 +8,7 @@
 const TEST_URI = `data:text/html,<!DOCTYPE html><meta charset=utf8><script>document()</script>`;
 
 add_task(async function () {
+  Services.fog.testResetFOG();
   startTelemetry();
 
   const hud = await openNewTabAndConsole(TEST_URI);
@@ -18,7 +19,7 @@ add_task(async function () {
   await waitFor(() => findErrorMessage(hud, "is not a function"));
   checkErrorDisplayedTelemetry("JSMSG_NOT_FUNCTION", 1);
 
-  await reloadBrowser();
+  await reloadSelectedTab();
 
   info("Reloading the page (and having the same error) increments the sum");
   await waitFor(() => findErrorMessage(hud, "is not a function"));
@@ -53,10 +54,9 @@ add_task(async function () {
 });
 
 function checkErrorDisplayedTelemetry(key, count) {
-  checkTelemetry(
-    "DEVTOOLS_JAVASCRIPT_ERROR_DISPLAYED",
-    key,
-    { 0: 0, 1: count, 2: 0 },
-    "array"
+  is(
+    Glean.devtoolsConsole.javascriptErrorDisplayed[key].testGetValue(),
+    count,
+    `recorded ${key} ${count} times`
   );
 }

@@ -7,6 +7,7 @@
 #ifndef mozilla_IMEStateManager_h_
 #define mozilla_IMEStateManager_h_
 
+#include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/StaticPtr.h"
@@ -15,6 +16,7 @@
 
 class nsIContent;
 class nsINode;
+class nsIURI;
 class nsPresContext;
 
 namespace mozilla {
@@ -167,9 +169,12 @@ class IMEStateManager {
   /**
    * Called when the parent chain of the observing element of IMEContentObserver
    * is changed.
+   *
+   * @param aObserver   The IMEContentObserver which received the notification.
+   * @param aContent    The topmost content which is changed.
    */
   MOZ_CAN_RUN_SCRIPT static void OnParentChainChangedOfObservingElement(
-      IMEContentObserver& aObserver);
+      IMEContentObserver& aObserver, nsIContent& aContent);
 
   /**
    * Called when HTMLEditor updates the root element which is <body> of the
@@ -327,9 +332,6 @@ class IMEStateManager {
   static nsresult NotifyIME(IMEMessage aMessage, nsPresContext* aPresContext,
                             BrowserParent* aBrowserParent = nullptr);
 
-  static nsINode* GetRootEditableNode(const nsPresContext& aPresContext,
-                                      const dom::Element* aElement);
-
   /**
    * Returns active IMEContentObserver but may be nullptr if focused content
    * isn't editable or focus in a remote process.
@@ -357,6 +359,13 @@ class IMEStateManager {
   static IMEState GetNewIMEState(const nsPresContext& aPresContext,
                                  dom::Element* aElement);
 
+  /**
+   * Return a URI which is exposable via the native IME API to the system or
+   * IME.
+   */
+  static already_AddRefed<nsIURI> GetExposableURL(
+      const nsPresContext* aPresContext);
+
   static void EnsureTextCompositionArray();
 
   // XXX Changing this to MOZ_CAN_RUN_SCRIPT requires too many callers to be
@@ -373,8 +382,6 @@ class IMEStateManager {
       const nsPresContext& aPresContext, const dom::Element* aFocusedElement);
 
   static void DestroyIMEContentObserver();
-
-  [[nodiscard]] static bool IsEditable(nsINode* node);
 
   [[nodiscard]] static bool IsIMEObserverNeeded(const IMEState& aState);
 

@@ -6,15 +6,8 @@
 
 #include "mozilla/dom/ProcessIsolation.h"
 
+#include "mozilla/AppShutdown.h"
 #include "mozilla/Assertions.h"
-#include "mozilla/dom/BrowsingContextGroup.h"
-#include "mozilla/dom/CanonicalBrowsingContext.h"
-#include "mozilla/dom/ContentChild.h"
-#include "mozilla/dom/ContentParent.h"
-#include "mozilla/dom/Element.h"
-#include "mozilla/dom/RemoteType.h"
-#include "mozilla/dom/WindowGlobalParent.h"
-#include "mozilla/extensions/WebExtensionPolicy.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/ContentPrincipal.h"
@@ -27,6 +20,14 @@
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_fission.h"
 #include "mozilla/StaticPtr.h"
+#include "mozilla/dom/BrowsingContextGroup.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
+#include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/Element.h"
+#include "mozilla/dom/RemoteType.h"
+#include "mozilla/dom/WindowGlobalParent.h"
+#include "mozilla/extensions/WebExtensionPolicy.h"
 #include "nsAboutProtocolUtils.h"
 #include "nsDocShell.h"
 #include "nsError.h"
@@ -36,8 +37,8 @@
 #include "nsIProtocolHandler.h"
 #include "nsIXULRuntime.h"
 #include "nsNetUtil.h"
-#include "nsServiceManagerUtils.h"
 #include "nsSHistory.h"
+#include "nsServiceManagerUtils.h"
 #include "nsURLHelper.h"
 
 namespace mozilla::dom {
@@ -791,8 +792,7 @@ Result<NavigationIsolationOptions, nsresult> IsolationOptionsForNavigation(
 
   // If the load has any special remote type handling, do so at this point.
   if (behavior != IsolationBehavior::WebContent) {
-    MOZ_TRY_VAR(
-        options.mRemoteType,
+    options.mRemoteType = MOZ_TRY(
         SpecialBehaviorRemoteType(behavior, aCurrentRemoteType, aParentWindow));
 
     if (options.mRemoteType != aCurrentRemoteType &&
@@ -1034,8 +1034,7 @@ Result<WorkerIsolationOptions, nsresult> IsolationOptionsForWorker(
   }
 
   if (behavior != IsolationBehavior::WebContent) {
-    MOZ_TRY_VAR(
-        options.mRemoteType,
+    options.mRemoteType = MOZ_TRY(
         SpecialBehaviorRemoteType(behavior, preferredRemoteType, nullptr));
 
     MOZ_LOG(
@@ -1124,7 +1123,7 @@ void AddHighValuePermission(nsIPrincipal* aResultPrincipal,
   // unix epoch from `TimeStamp`.
   int64_t expirationTime =
       (PR_Now() / PR_USEC_PER_MSEC) + (int64_t(expiration) * PR_MSEC_PER_SEC);
-  Unused << perms->AddFromPrincipal(
+  (void)perms->AddFromPrincipal(
       sitePrincipal, aPermissionType, nsIPermissionManager::ALLOW_ACTION,
       nsIPermissionManager::EXPIRE_TIME, expirationTime);
 }
@@ -1147,6 +1146,135 @@ bool IsIsolateHighValueSiteEnabled() {
          WebContentIsolationStrategy(
              StaticPrefs::fission_webContentIsolationStrategy()) ==
              WebContentIsolationStrategy::IsolateHighValue;
+}
+
+bool ValidatePrincipalCouldPotentiallyBeLoadedBy(
+    nsIPrincipal* aPrincipal, const nsACString& aRemoteType,
+    const EnumSet<ValidatePrincipalOptions>& aOptions) {
+  // Don't bother validating principals from the parent process.
+  if (aRemoteType == NOT_REMOTE_TYPE) {
+    return true;
+  }
+
+  // If there is no principal, only allow it if AllowNullPtr is specified.
+  if (!aPrincipal) {
+    return aOptions.contains(ValidatePrincipalOptions::AllowNullPtr);
+  }
+
+  // We currently do not track relationships between specific null principals
+  // and content processes, so we can not validate much here.
+  if (aPrincipal->GetIsNullPrincipal()) {
+    return true;
+  }
+
+  // If we have a system principal, only allow it if AllowSystem is passed.
+  if (aPrincipal->IsSystemPrincipal()) {
+    return aOptions.contains(ValidatePrincipalOptions::AllowSystem);
+  }
+
+  // Performing checks against the remote type requires the IOService and
+  // ThirdPartyService to be available, check we're not late in shutdown.
+  if (AppShutdown::IsInOrBeyond(ShutdownPhase::XPCOMShutdownFinal)) {
+    return true;
+  }
+
+  // We can load a `resource://` URI in any process. This usually comes up due
+  // to pdf.js and the JSON viewer. See bug 1686200.
+  if (aPrincipal->SchemeIs("resource")) {
+    return true;
+  }
+
+  // Only allow expanded principals if AllowExpanded is passed. Each
+  // sub-principal will be validated independently.
+  if (aPrincipal->GetIsExpandedPrincipal()) {
+    if (!aOptions.contains(ValidatePrincipalOptions::AllowExpanded)) {
+      return false;
+    }
+    // FIXME: There are more constraints on expanded principals in-practice,
+    // such as the structure of extension expanded principals. This may need
+    // to be investigated more in the future.
+    nsCOMPtr<nsIExpandedPrincipal> expandedPrincipal =
+        do_QueryInterface(aPrincipal);
+    const auto& allowList = expandedPrincipal->AllowList();
+    for (const auto& innerPrincipal : allowList) {
+      if (!ValidatePrincipalCouldPotentiallyBeLoadedBy(innerPrincipal,
+                                                       aRemoteType, aOptions)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // A URI with a file:// scheme can never load in a non-file content process
+  // due to sandboxing.
+  if (aPrincipal->SchemeIs("file")) {
+    // If we don't support a separate 'file' process, then we can return here.
+    if (!StaticPrefs::browser_tabs_remote_separateFileUriProcess()) {
+      return true;
+    }
+    return aRemoteType == FILE_REMOTE_TYPE;
+  }
+
+  if (aPrincipal->SchemeIs("about")) {
+    uint32_t flags = 0;
+    nsresult rv = aPrincipal->GetAboutModuleFlags(&flags);
+    // In tests, we can race between about: pages being unregistered, and a
+    // content process unregistering a Blob URL. To be safe here, we fail open
+    // if no about module is present.
+    if (NS_FAILED(rv)) {
+      return false;
+    }
+
+    // Block principals for about: URIs which can't load in this process.
+    if (!(flags & (nsIAboutModule::URI_CAN_LOAD_IN_CHILD |
+                   nsIAboutModule::URI_MUST_LOAD_IN_CHILD))) {
+      return false;
+    }
+    if (flags & nsIAboutModule::URI_MUST_LOAD_IN_EXTENSION_PROCESS) {
+      return aRemoteType == EXTENSION_REMOTE_TYPE;
+    }
+    return true;
+  }
+
+  // Web content can contain extension content frames, so any content process
+  // may send us an extension's principal.
+  // NOTE: We don't check AddonPolicy here, as that can disappear if the add-on
+  // is disabled or uninstalled. As this is a lax check, looking at the scheme
+  // should be sufficient.
+  if (aPrincipal->SchemeIs("moz-extension")) {
+    return true;
+  }
+
+  // If the remote type doesn't have an origin suffix, we can do no further
+  // principal validation with it.
+  int32_t equalIdx = aRemoteType.FindChar('=');
+  if (equalIdx == kNotFound) {
+    return true;
+  }
+
+  // Split out the remote type prefix and the origin suffix.
+  nsDependentCSubstring typePrefix(aRemoteType, 0, equalIdx);
+  nsDependentCSubstring typeOrigin(aRemoteType, equalIdx + 1);
+
+  // Only validate webIsolated and webServiceWorker remote types for now. This
+  // should be expanded in the future.
+  if (typePrefix != FISSION_WEB_REMOTE_TYPE &&
+      typePrefix != SERVICEWORKER_REMOTE_TYPE) {
+    return true;
+  }
+
+  // Trim any OriginAttributes from the origin, as those will not be validated.
+  int32_t suffixIdx = typeOrigin.RFindChar('^');
+  nsDependentCSubstring typeOriginNoSuffix(typeOrigin, 0, suffixIdx);
+
+  // NOTE: Currently every webIsolated remote type is site-origin keyed, meaning
+  // we can unconditionally compare site origins. If this changes in the future,
+  // this logic will need to be updated to reflect that.
+  nsAutoCString siteOriginNoSuffix;
+  if (NS_FAILED(aPrincipal->GetSiteOriginNoSuffix(siteOriginNoSuffix))) {
+    return false;
+  }
+  return siteOriginNoSuffix == typeOriginNoSuffix;
 }
 
 }  // namespace mozilla::dom

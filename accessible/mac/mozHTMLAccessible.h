@@ -5,6 +5,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#ifndef ACCESSIBLE_MAC_MOZHTMLACCESSIBLE_H_
+#define ACCESSIBLE_MAC_MOZHTMLACCESSIBLE_H_
+
 #import "mozAccessible.h"
 
 @interface mozHeadingAccessible : mozAccessible
@@ -42,3 +45,12 @@
 - (NSString*)moxTitle;
 
 @end
+
+@interface MOXLabelAccessible : mozAccessible
+
+// override
+- (NSString*)moxTitle;
+
+@end
+
+#endif  // ACCESSIBLE_MAC_MOZHTMLACCESSIBLE_H_

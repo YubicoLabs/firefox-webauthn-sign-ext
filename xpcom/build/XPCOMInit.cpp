@@ -12,13 +12,9 @@
 #include "mozilla/AbstractThread.h"
 #include "mozilla/AppShutdown.h"
 #include "mozilla/Assertions.h"
-#include "mozilla/Atomics.h"
 #include "mozilla/DebugOnly.h"
-#include "mozilla/Poison.h"
 #include "mozilla/SharedThreadPool.h"
 #include "mozilla/TaskController.h"
-#include "mozilla/Unused.h"
-#include "mozilla/XPCOM.h"
 #include "mozJSModuleLoader.h"
 #include "nsXULAppAPI.h"
 
@@ -95,7 +91,6 @@
 #ifdef MOZ_PHC
 #  include "mozilla/PHCManager.h"
 #endif
-#include "mozilla/UniquePtr.h"
 #include "mozilla/ServoStyleConsts.h"
 
 #include "mozilla/ipc/GeckoChildProcessHost.h"
@@ -107,8 +102,6 @@
 
 #include "jsapi.h"
 #include "js/Initialization.h"
-#include "js/Prefs.h"
-#include "mozilla/StaticPrefs_javascript.h"
 #include "XPCSelfHostedShmem.h"
 
 #include "gfxPlatform.h"
@@ -127,7 +120,6 @@ namespace {
 static AtExitManager* sExitManager;
 static MessageLoop* sMessageLoop;
 static bool sCommandLineWasInitialized;
-static IOThreadParent* sIOThread;
 static mozilla::BackgroundHangMonitor* sMainHangMonitor;
 
 } /* anonymous namespace */
@@ -227,30 +219,6 @@ class OggReporter final : public nsIMemoryReporter,
 
 NS_IMPL_ISUPPORTS(OggReporter, nsIMemoryReporter)
 
-static bool sInitializedJS = false;
-
-static void InitializeJS() {
-#if defined(ENABLE_WASM_SIMD) && \
-    (defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86))
-  // Update static engine preferences, such as AVX, before
-  // `JS_InitWithFailureDiagnostic` is called.
-  JS::SetAVXEnabled(mozilla::StaticPrefs::javascript_options_wasm_simd_avx());
-#endif
-
-  if (XRE_IsParentProcess() &&
-      mozilla::StaticPrefs::javascript_options_main_process_disable_jit()) {
-    JS::DisableJitBackend();
-  }
-
-  // Set all JS::Prefs.
-  SET_JS_PREFS_FROM_BROWSER_PREFS;
-
-  const char* jsInitFailureReason = JS_InitWithFailureDiagnostic();
-  if (jsInitFailureReason) {
-    MOZ_CRASH_UNSAFE(jsInitFailureReason);
-  }
-}
-
 #define XPCOM_INIT_FATAL(message, res) \
   if (XRE_IsParentProcess()) {         \
     return res;                        \
@@ -314,13 +282,6 @@ NS_InitXPCOM(nsIServiceManager** aResult, nsIFile* aBinDirectory,
     messageLoop->set_thread_name("Gecko_Child");
     messageLoop->set_hang_timeouts(128, 8192);
   }
-
-  // Start the IPC I/O thread in the parent process. We'll have already started
-  // the IPC I/O thread if we're in a content process.
-  if (XRE_IsParentProcess()) {
-    sIOThread = new IOThreadParent();
-  }
-  MOZ_ASSERT(mozilla::ipc::IOThread::Get(), "An IOThread has been started");
 
   // Establish the main thread here.
   rv = nsThreadManager::get().Init();
@@ -450,10 +411,6 @@ NS_InitXPCOM(nsIServiceManager** aResult, nsIFile* aBinDirectory,
       OggReporter::CountingMalloc, OggReporter::CountingCalloc,
       OggReporter::CountingRealloc, OggReporter::CountingFree);
 
-  // Initialize the JS engine.
-  InitializeJS();
-  sInitializedJS = true;
-
   rv = nsComponentManagerImpl::gComponentManager->Init();
   if (NS_FAILED(rv)) {
     NS_RELEASE(nsComponentManagerImpl::gComponentManager);
@@ -479,11 +436,6 @@ NS_InitXPCOM(nsIServiceManager** aResult, nsIFile* aBinDirectory,
   // add any services listed in the "xpcom-directory-providers" category
   // to the directory service.
   nsDirectoryService::gService->RegisterCategoryProviders();
-
-  // Now that both the profiler and directory services have been started
-  // we can find the download directory, where the profiler can write
-  // profiles if necessary
-  profiler_lookup_async_signal_dump_directory();
 
   // Init mozilla::SharedThreadPool (which needs the service manager).
   mozilla::SharedThreadPool::InitStatics();
@@ -635,7 +587,7 @@ nsresult ShutdownXPCOM(nsIServiceManager* aServMgr) {
 
     // We want the service manager to be the subject of notifications
     nsCOMPtr<nsIServiceManager> mgr;
-    Unused << NS_GetServiceManager(getter_AddRefs(mgr));
+    (void)NS_GetServiceManager(getter_AddRefs(mgr));
     MOZ_DIAGNOSTIC_ASSERT(mgr != nullptr, "Service manager not present!");
     mozilla::AppShutdown::AdvanceShutdownPhase(
         mozilla::ShutdownPhase::XPCOMShutdown, nullptr, do_QueryInterface(mgr));
@@ -728,6 +680,8 @@ nsresult ShutdownXPCOM(nsIServiceManager* aServMgr) {
   // profiling purposes.
   PROFILER_CLEAR_JS_CONTEXT();
 
+  mozilla::dom::SharedScriptCache::PrepareForLastCC();
+
   bool shutdownCollect;
 #ifdef NS_FREE_PERMANENT_DATA
   shutdownCollect = true;
@@ -753,12 +707,6 @@ nsresult ShutdownXPCOM(nsIServiceManager* aServMgr) {
     NS_ASSERTION(NS_SUCCEEDED(rv.value), "Component Manager shutdown failed.");
   } else {
     NS_WARNING("Component Manager was never created ...");
-  }
-
-  if (sInitializedJS) {
-    // Shut down the JS engine.
-    JS_ShutDown();
-    sInitializedJS = false;
   }
 
   mozilla::ScriptPreloader::DeleteCacheDataSingleton();
@@ -822,8 +770,7 @@ nsresult ShutdownXPCOM(nsIServiceManager* aServMgr) {
 
   NS_IF_RELEASE(gDebug);
 
-  delete sIOThread;
-  sIOThread = nullptr;
+  mozilla::ipc::IOThread::Shutdown();
 
   delete sMessageLoop;
   sMessageLoop = nullptr;

@@ -14,6 +14,7 @@
 #include "mozilla/SMILTypes.h"
 #include "mozilla/SMILValue.h"
 #include "nsAttrValue.h"
+#include "nsContentUtils.h"
 #include "nsGkAtoms.h"
 #include "nsString.h"
 #include "nsTArray.h"
@@ -37,14 +38,13 @@ class SVGAnimationElement;
 //
 class SMILAnimationFunction {
  public:
-  SMILAnimationFunction();
+  SMILAnimationFunction() = default;
 
   /*
    * Sets the owning animation element which this class uses to query attribute
    * values and compare document positions.
    */
-  void SetAnimationElement(
-      mozilla::dom::SVGAnimationElement* aAnimationElement);
+  void SetAnimationElement(dom::SVGAnimationElement* aAnimationElement);
 
   bool HasSameAnimationElement(const SMILAnimationFunction* aOther) const {
     return aOther && aOther->mAnimationElement == mAnimationElement;
@@ -136,12 +136,12 @@ class SMILAnimationFunction {
    * sandwich -- higher priority animations are applied on top of lower
    * priority animations.
    *
-   * @return  -1 if this animation has lower priority or 1 if this animation has
-   *          higher priority
-   *
-   * This method should never return any other value, including 0.
+   * @return a value < 0 if this animation has lower priority or > 0 if this
+   *         animation has higher priority. Returns 0 if the elements are the
+   *         same.
    */
-  int8_t CompareTo(const SMILAnimationFunction* aOther) const;
+  int32_t CompareTo(const SMILAnimationFunction* aOther,
+                    nsContentUtils::NodeIndexCache& aCache) const;
 
   /*
    * The following methods are provided so that the compositor can optimize its
@@ -162,7 +162,7 @@ class SMILAnimationFunction {
      * - This function does not assume that our SMILValues (by/from/to/values)
      * have already been parsed.
      */
-    return (mIsActive || mIsFrozen);
+    return mIsActive || mIsFrozen;
   }
 
   /**
@@ -248,16 +248,19 @@ class SMILAnimationFunction {
   }
 
   // Comparator utility class, used for sorting SMILAnimationFunctions
-  class Comparator {
+  class MOZ_STACK_CLASS Comparator final {
    public:
     bool Equals(const SMILAnimationFunction* aElem1,
                 const SMILAnimationFunction* aElem2) const {
-      return (aElem1->CompareTo(aElem2) == 0);
+      return aElem1->CompareTo(aElem2, mCache) == 0;
     }
     bool LessThan(const SMILAnimationFunction* aElem1,
                   const SMILAnimationFunction* aElem2) const {
-      return (aElem1->CompareTo(aElem2) < 0);
+      return aElem1->CompareTo(aElem2, mCache) < 0;
     }
+
+   private:
+    mutable nsContentUtils::NodeIndexCache mCache;
   };
 
  protected:
@@ -265,12 +268,7 @@ class SMILAnimationFunction {
   using SMILValueArray = FallibleTArray<SMILValue>;
 
   // Types
-  enum SMILCalcMode : uint8_t {
-    CALC_LINEAR,
-    CALC_DISCRETE,
-    CALC_PACED,
-    CALC_SPLINE
-  };
+  enum class SMILCalcMode : uint8_t { Linear, Discrete, Paced, Spline };
 
   // Used for sorting SMILAnimationFunctions
   SMILTime GetBeginTime() const { return mBeginTime; }
@@ -310,9 +308,10 @@ class SMILAnimationFunction {
 
   /**
    * Adjust the simple progress, that is, the point within the simple duration,
-   * by applying any keyTimes.
+   * by applying any keyTimes and number of values.
    */
-  double ScaleSimpleProgress(double aProgress, SMILCalcMode aCalcMode);
+  double ScaleSimpleProgress(double aProgress, SMILCalcMode aCalcMode,
+                             double aValueMultiplier);
   /**
    * Adjust the progress within an interval, that is, between two animation
    * values, by applying any keySplines.
@@ -357,51 +356,63 @@ class SMILAnimationFunction {
     return !IsToAnimation() && (GetAdditive() || isByAnimation);
   }
 
-  // Setters for error flags
-  // These correspond to bit-indices in mErrorFlags, for tracking parse errors
-  // in these attributes, when those parse errors should block us from doing
-  // animation.
-  enum AnimationAttributeIdx {
-    BF_ACCUMULATE = 0,
-    BF_ADDITIVE = 1,
-    BF_CALC_MODE = 2,
-    BF_KEY_TIMES = 3,
-    BF_KEY_SPLINES = 4,
-    BF_KEY_POINTS = 5  // <animateMotion> only
+  // For tracking parse errors in these attributes, when those parse errors
+  // should block us from doing animation.
+  enum class ErrorFlag : uint8_t {
+    Accumulate,
+    Additive,
+    CalcMode,
+    KeyTimes,
+    KeySplines,
+    KeyPoints  // <animateMotion> only
   };
+  using ErrorFlags = EnumSet<ErrorFlag>;
 
   inline void SetAccumulateErrorFlag(bool aNewValue) {
-    SetErrorFlag(BF_ACCUMULATE, aNewValue);
+    SetErrorFlag(ErrorFlag::Accumulate, aNewValue);
   }
   inline void SetAdditiveErrorFlag(bool aNewValue) {
-    SetErrorFlag(BF_ADDITIVE, aNewValue);
+    SetErrorFlag(ErrorFlag::Additive, aNewValue);
   }
   inline void SetCalcModeErrorFlag(bool aNewValue) {
-    SetErrorFlag(BF_CALC_MODE, aNewValue);
+    SetErrorFlag(ErrorFlag::CalcMode, aNewValue);
   }
   inline void SetKeyTimesErrorFlag(bool aNewValue) {
-    SetErrorFlag(BF_KEY_TIMES, aNewValue);
+    SetErrorFlag(ErrorFlag::KeyTimes, aNewValue);
   }
   inline void SetKeySplinesErrorFlag(bool aNewValue) {
-    SetErrorFlag(BF_KEY_SPLINES, aNewValue);
+    SetErrorFlag(ErrorFlag::KeySplines, aNewValue);
   }
   inline void SetKeyPointsErrorFlag(bool aNewValue) {
-    SetErrorFlag(BF_KEY_POINTS, aNewValue);
+    SetErrorFlag(ErrorFlag::KeyPoints, aNewValue);
   }
-  inline void SetErrorFlag(AnimationAttributeIdx aField, bool aValue) {
+  inline void SetErrorFlag(ErrorFlag aField, bool aValue) {
     if (aValue) {
-      mErrorFlags |= (0x01 << aField);
+      mErrorFlags += aField;
     } else {
-      mErrorFlags &= ~(0x01 << aField);
+      mErrorFlags -= aField;
     }
   }
 
   // Members
   // -------
 
-  static nsAttrValue::EnumTable sAdditiveTable[];
-  static nsAttrValue::EnumTable sCalcModeTable[];
-  static nsAttrValue::EnumTable sAccumulateTable[];
+  static constexpr nsAttrValue::EnumTableEntry sAdditiveTable[] = {
+      {"replace", false},
+      {"sum", true},
+  };
+
+  static constexpr nsAttrValue::EnumTableEntry sAccumulateTable[] = {
+      {"none", false},
+      {"sum", true},
+  };
+
+  static constexpr nsAttrValue::EnumTableEntry sCalcModeTable[] = {
+      {"linear", SMILCalcMode::Linear},
+      {"discrete", SMILCalcMode::Discrete},
+      {"paced", SMILCalcMode::Paced},
+      {"spline", SMILCalcMode::Spline},
+  };
 
   FallibleTArray<double> mKeyTimes;
   FallibleTArray<SMILKeySpline> mKeySplines;
@@ -411,36 +422,37 @@ class SMILAnimationFunction {
   // instructed by the compositor. This allows us to apply the result directly
   // to the animation value and allows the compositor to filter out functions
   // that it determines will not contribute to the final result.
-  SMILTime mSampleTime;  // sample time within simple dur
+  SMILTime mSampleTime = -1;  // sample time within simple dur
   SMILTimeValue mSimpleDuration;
-  uint32_t mRepeatIteration;
 
-  SMILTime mBeginTime;  // document time
+  SMILTime mBeginTime = std::numeric_limits<SMILTime>::min();  // document time
 
   // The owning animation element. This is used for sorting based on document
   // position and for fetching attribute values stored in the element.
   // Raw pointer is OK here, because this SMILAnimationFunction can't outlive
   // its owning animation element.
-  mozilla::dom::SVGAnimationElement* mAnimationElement;
-
-  // Which attributes have been set but have had errors. This is not used for
-  // all attributes but only those which have specified error behaviour
-  // associated with them.
-  uint16_t mErrorFlags;
+  dom::SVGAnimationElement* mAnimationElement = nullptr;
 
   // Allows us to check whether an animation function has changed target from
   // sample to sample (because if neither target nor animated value have
   // changed, we don't have to do anything).
   SMILWeakTargetIdentifier mLastTarget;
 
+  uint32_t mRepeatIteration = 0;
+
+  // Which attributes have been set but have had errors. This is not used for
+  // all attributes but only those which have specified error behaviour
+  // associated with them.
+  ErrorFlags mErrorFlags;
+
   // Boolean flags
-  bool mIsActive : 1;
-  bool mIsFrozen : 1;
-  bool mLastValue : 1;
-  bool mHasChanged : 1;
-  bool mValueNeedsReparsingEverySample : 1;
-  bool mPrevSampleWasSingleValueAnimation : 1;
-  bool mWasSkippedInPrevSample : 1;
+  bool mIsActive : 1 = false;
+  bool mIsFrozen : 1 = false;
+  bool mLastValue : 1 = false;
+  bool mHasChanged : 1 = true;
+  bool mValueNeedsReparsingEverySample : 1 = false;
+  bool mPrevSampleWasSingleValueAnimation : 1 = false;
+  bool mWasSkippedInPrevSample : 1 = false;
 };
 
 }  // namespace mozilla

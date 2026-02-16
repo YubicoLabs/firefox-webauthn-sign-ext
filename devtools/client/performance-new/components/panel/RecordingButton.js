@@ -9,7 +9,7 @@
  */
 
 /**
- * @typedef {Object} StateProps
+ * @typedef {object} StateProps
  * @property {RecordingState} recordingState
  * @property {boolean | null} isSupportedPlatform
  * @property {boolean} recordingUnexpectedlyStopped
@@ -17,17 +17,16 @@
  */
 
 /**
- * @typedef {Object} OwnProps
+ * @typedef {object} OwnProps
  * @property {import("../../@types/perf").OnProfileReceived} onProfileReceived
  * @property {import("../../@types/perf").PerfFront} perfFront
  */
 
 /**
- * @typedef {Object} ThunkDispatchProps
+ * @typedef {object} ThunkDispatchProps
  * @property {typeof actions.startRecording} startRecording
  * @property {typeof actions.getProfileAndStopProfiler} getProfileAndStopProfiler
  * @property {typeof actions.stopProfilerAndDiscardProfile} stopProfilerAndDiscardProfile
-
  */
 
 /**
@@ -41,8 +40,9 @@
 "use strict";
 
 const {
+  createFactory,
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const {
   div,
   button,
@@ -54,8 +54,7 @@ const {
 } = require("resource://devtools/client/shared/vendor/react-redux.js");
 const actions = require("resource://devtools/client/performance-new/store/actions.js");
 const selectors = require("resource://devtools/client/performance-new/store/selectors.js");
-const React = require("resource://devtools/client/shared/vendor/react.js");
-const Localized = React.createFactory(
+const Localized = createFactory(
   require("resource://devtools/client/shared/vendor/fluent-react.js").Localized
 );
 
@@ -64,7 +63,7 @@ const Localized = React.createFactory(
  * is only responsible for the actual act of stopping and starting recordings. It
  * also reacts to the changes of the recording state from external changes.
  *
- * @extends {React.PureComponent<Props>}
+ * @augments {React.PureComponent<Props>}
  */
 class RecordingButton extends PureComponent {
   _onStartButtonClick = () => {
@@ -75,8 +74,14 @@ class RecordingButton extends PureComponent {
   _onCaptureButtonClick = async () => {
     const { getProfileAndStopProfiler, onProfileReceived, perfFront } =
       this.props;
-    const profile = await getProfileAndStopProfiler(perfFront);
-    onProfileReceived(profile);
+    try {
+      const profileAndAdditionalInformation =
+        await getProfileAndStopProfiler(perfFront);
+      onProfileReceived(profileAndAdditionalInformation);
+    } catch (e) {
+      const assertedError = /** @type {Error | string} */ (e);
+      onProfileReceived(null, assertedError);
+    }
   };
 
   _onStopButtonClick = () => {

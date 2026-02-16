@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsHostRecord_h__
-#define nsHostRecord_h__
+#ifndef nsHostRecord_h_
+#define nsHostRecord_h_
 
 #include "mozilla/AtomicBitfields.h"
 #include "mozilla/DataMutex.h"
@@ -187,6 +187,8 @@ class nsHostRecord : public mozilla::LinkedListElement<RefPtr<nsHostRecord>>,
   // true if pending and on the queue (not yet given to getaddrinfo())
   bool onQueue() { return LoadNative() && isInList(); }
 
+  mozilla::TimeStamp mLastUpdate = mozilla::TimeStamp::NowLoRes();
+
   // When the record began being valid. Used mainly for bookkeeping.
   mozilla::TimeStamp mValidStart;
 
@@ -259,18 +261,14 @@ class nsHostRecord : public mozilla::LinkedListElement<RefPtr<nsHostRecord>>,
 };
 
 // b020e996-f6ab-45e5-9bf5-1da71dd0053a
-#define ADDRHOSTRECORD_IID                           \
-  {                                                  \
-    0xb020e996, 0xf6ab, 0x45e5, {                    \
-      0x9b, 0xf5, 0x1d, 0xa7, 0x1d, 0xd0, 0x05, 0x3a \
-    }                                                \
-  }
+#define ADDRHOSTRECORD_IID \
+  {0xb020e996, 0xf6ab, 0x45e5, {0x9b, 0xf5, 0x1d, 0xa7, 0x1d, 0xd0, 0x05, 0x3a}}
 
 class AddrHostRecord final : public nsHostRecord {
   using Mutex = mozilla::Mutex;
 
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(ADDRHOSTRECORD_IID)
+  NS_INLINE_DECL_STATIC_IID(ADDRHOSTRECORD_IID)
   NS_DECL_ISUPPORTS_INHERITED
 
   /* a fully resolved host record has either a non-null |addr_info| or |addr|
@@ -307,6 +305,7 @@ class AddrHostRecord final : public nsHostRecord {
   nsITRRSkipReason::value TrrSkipReason() const { return mTRRSkippedReason; }
 
   nsresult GetTtl(uint32_t* aResult);
+  nsresult GetLastUpdate(mozilla::TimeStamp* aLastUpdate);
 
  private:
   friend class nsHostResolver;
@@ -354,22 +353,16 @@ class AddrHostRecord final : public nsHostRecord {
   nsTArray<nsCString> mUnusableItems;
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(AddrHostRecord, ADDRHOSTRECORD_IID)
-
 // 77b786a7-04be-44f2-987c-ab8aa96676e0
-#define TYPEHOSTRECORD_IID                           \
-  {                                                  \
-    0x77b786a7, 0x04be, 0x44f2, {                    \
-      0x98, 0x7c, 0xab, 0x8a, 0xa9, 0x66, 0x76, 0xe0 \
-    }                                                \
-  }
+#define TYPEHOSTRECORD_IID \
+  {0x77b786a7, 0x04be, 0x44f2, {0x98, 0x7c, 0xab, 0x8a, 0xa9, 0x66, 0x76, 0xe0}}
 
 class TypeHostRecord final : public nsHostRecord,
                              public nsIDNSTXTRecord,
                              public nsIDNSHTTPSSVCRecord,
                              public mozilla::net::DNSHTTPSSVCRecordBase {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(TYPEHOSTRECORD_IID)
+  NS_INLINE_DECL_STATIC_IID(TYPEHOSTRECORD_IID)
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSIDNSTXTRECORD
   NS_DECL_NSIDNSHTTPSSVCRECORD
@@ -402,8 +395,6 @@ class TypeHostRecord final : public nsHostRecord,
   bool mAllRecordsExcluded = false;
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(TypeHostRecord, TYPEHOSTRECORD_IID)
-
 static inline bool IsHighPriority(nsIDNSService::DNSFlags flags) {
   return !(flags & (nsHostRecord::DNS_PRIORITY_LOW |
                     nsHostRecord::DNS_PRIORITY_MEDIUM));
@@ -417,4 +408,4 @@ static inline bool IsLowPriority(nsIDNSService::DNSFlags flags) {
   return flags & nsHostRecord::DNS_PRIORITY_LOW;
 }
 
-#endif  // nsHostRecord_h__
+#endif  // nsHostRecord_h_

@@ -11,6 +11,7 @@
 #include <VideoToolbox/VideoToolbox.h>
 
 #include "PlatformEncoderModule.h"
+#include "apple/AppleUtils.h"
 
 namespace mozilla {
 
@@ -37,15 +38,18 @@ class AppleVTEncoder final : public MediaDataEncoder {
 
   RefPtr<InitPromise> Init() override;
   RefPtr<EncodePromise> Encode(const MediaData* aSample) override;
+  RefPtr<EncodePromise> Encode(nsTArray<RefPtr<MediaData>>&& aSamples) override;
   RefPtr<ReconfigurationPromise> Reconfigure(
       const RefPtr<const EncoderConfigurationChangeList>& aConfigurationChanges)
       override;
   RefPtr<EncodePromise> Drain() override;
   RefPtr<ShutdownPromise> Shutdown() override;
   RefPtr<GenericPromise> SetBitrate(uint32_t aBitsPerSec) override;
+  bool IsHardwareAccelerated(nsACString& aFailureReason) const override {
+    return mIsHardwareAccelerated;
+  }
 
   nsCString GetDescriptionName() const override {
-    MOZ_ASSERT(mSession);
     return mIsHardwareAccelerated ? "apple hardware VT encoder"_ns
                                   : "apple software VT encoder"_ns;
   }
@@ -67,10 +71,25 @@ class AppleVTEncoder final : public MediaDataEncoder {
   RefPtr<EncodePromise> ProcessDrain();
   RefPtr<ShutdownPromise> ProcessShutdown();
 
-  CFDictionaryRef BuildSourceImageBufferAttributes();
+  void InvalidateSessionIfNeeded();
+  MediaResult InitSession();
+  CFDictionaryRef BuildSourceImageBufferAttributes(OSType aPixelFormat);
   CVPixelBufferRef CreateCVPixelBuffer(layers::Image* aSource);
   bool WriteExtraData(MediaRawData* aDst, CMSampleBufferRef aSrc,
                       const bool aAsAnnexB);
+
+  bool SetAverageBitrate(uint32_t aBitsPerSec);
+  bool SetConstantBitrate(uint32_t aBitsPerSec);
+  bool SetBitrateAndMode(BitrateMode aBitrateMode, uint32_t aBitsPerSec);
+  bool SetFrameRate(int64_t aFPS);
+  bool SetRealtime(bool aEnabled);
+  bool SetProfileLevel(H264_PROFILE aValue);
+  bool IsSettingColorSpaceSupported() const;
+  MediaResult SetColorSpace(const EncoderConfig::SampleFormat& aFormat);
+
+  void EncodeNextSample(nsTArray<RefPtr<MediaData>>&& aInputs,
+                        MediaDataEncoder::EncodedData&& aOutputs);
+
   void AssertOnTaskQueue() { MOZ_ASSERT(mTaskQueue->IsCurrentThreadIn()); }
 
   EncoderConfig mConfig;
@@ -80,15 +99,15 @@ class AppleVTEncoder final : public MediaDataEncoder {
   EncodedData mEncodedData;
   // Accessed only in mTaskQueue.
   MozPromiseHolder<EncodePromise> mEncodePromise;
+  MozPromiseHolder<EncodePromise> mEncodeBatchPromise;
+  MozPromiseRequestHolder<EncodePromise> mEncodeBatchRequest;
   RefPtr<MediaByteBuffer> mAvcc;  // Stores latest avcC data.
   MediaResult mError;
 
   // Written by Init() but used only in task queue.
-  VTCompressionSessionRef mSession;
+  AutoCFTypeRef<VTCompressionSessionRef> mSession;
   // Can be accessed on any thread, but only written on during init.
   Atomic<bool> mIsHardwareAccelerated;
-  // Written during init and shutdown.
-  Atomic<bool> mInited;
   // Accessed only in mTaskQueue. Used for for OS versions < 11.
   nsCOMPtr<nsITimer> mTimer;
 };

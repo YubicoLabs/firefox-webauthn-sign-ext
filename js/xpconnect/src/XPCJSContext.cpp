@@ -6,7 +6,6 @@
 
 /* Per JSContext object */
 
-#include "mozilla/MemoryReporting.h"
 #include "mozilla/UniquePtr.h"
 
 #include "xpcprivate.h"
@@ -18,6 +17,7 @@
 #include "mozJSModuleLoader.h"
 #include "nsNetUtil.h"
 #include "nsThreadUtils.h"
+#include "ExecutionTracerIntegration.h"
 
 #include "nsIObserverService.h"
 #include "nsIDebug2.h"
@@ -25,7 +25,6 @@
 #include "nsPrintfCString.h"
 #include "mozilla/AppShutdown.h"
 #include "mozilla/Preferences.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/MemoryTelemetry.h"
 #include "mozilla/Services.h"
 #ifdef FUZZING
@@ -42,16 +41,19 @@
 #include "nsCCUncollectableMarker.h"
 #include "nsCycleCollectionNoteRootCallback.h"
 #include "nsCycleCollector.h"
+#include "nsINode.h"
 #include "nsJSEnvironment.h"
 #include "jsapi.h"
 #include "js/ArrayBuffer.h"
 #include "js/ContextOptions.h"
+#include "js/DOMEventDispatch.h"
 #include "js/experimental/LoggingInterface.h"
 #include "js/HelperThreadAPI.h"
 #include "js/Initialization.h"
 #include "js/MemoryMetrics.h"
 #include "js/Prefs.h"
 #include "js/WasmFeatures.h"
+#include "fmt/format.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/Document.h"
@@ -60,15 +62,14 @@
 #include "mozilla/dom/WindowBinding.h"
 #include "mozilla/dom/WakeLockBinding.h"
 #include "mozilla/extensions/WebExtensionPolicy.h"
+#include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/ProcessHangMonitor.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/SystemPrincipal.h"
 #include "mozilla/TaskController.h"
-#include "mozilla/ThreadLocal.h"
 #include "mozilla/UniquePtrExtensions.h"
-#include "mozilla/Unused.h"
 #include "AccessCheck.h"
 #include "nsGlobalWindowInner.h"
 #include "nsAboutProtocolUtils.h"
@@ -94,6 +95,50 @@ using namespace mozilla;
 using namespace mozilla::dom;
 using namespace xpc;
 using namespace JS;
+
+// Callback for JIT trace events to dispatch DOM events to global target
+static void DispatchJitEventToDOM(JSContext* cx, const char* eventType) {
+  // Check if test interfaces are enabled
+  if (!StaticPrefs::dom_expose_test_interfaces()) {
+    return;
+  }
+
+  if (!cx) {
+    return;
+  }
+
+  // Get the global object from the context
+  JSObject* globalObj = JS::CurrentGlobalOrNull(cx);
+  if (!globalObj) {
+    return;
+  }
+
+  nsIGlobalObject* global = xpc::NativeGlobal(globalObj);
+  if (!global) {
+    return;
+  }
+
+  nsCOMPtr<nsPIDOMWindowInner> window = do_QueryInterface(global);
+  if (!window) {
+    return;
+  }
+
+  mozilla::dom::Document* doc = window->GetDoc();
+  if (!doc) {
+    return;
+  }
+
+  nsCOMPtr<nsINode> target = doc;
+  if (!target) {
+    return;
+  }
+
+  // Convert event type to nsString and dispatch to document
+  NS_ConvertUTF8toUTF16 eventTypeStr(eventType);
+  RefPtr<AsyncEventDispatcher> dispatcher = new AsyncEventDispatcher(
+      target, eventTypeStr, CanBubble::eYes, ChromeOnlyDispatch::eNo);
+  dispatcher->PostDOMEvent();
+}
 
 // We will clamp to reasonable values if this isn't set.
 #if !defined(PTHREAD_STACK_MIN)
@@ -159,7 +204,7 @@ class Watchdog {
       // instantiate a new service, and even when it is, we don't want fault in
       // extra pages if we can avoid it.
       nsCOMPtr<nsIDebug2> dbg = do_GetService("@mozilla.org/xpcom/debug;1");
-      Unused << dbg;
+      (void)dbg;
     }
 
     {
@@ -480,7 +525,7 @@ static void WatchdogMain(void* arg) {
   AUTO_PROFILER_REGISTER_THREAD("JS Watchdog");
   // Create an nsThread wrapper for the thread and register it with the thread
   // manager.
-  Unused << NS_GetCurrentThread();
+  (void)NS_GetCurrentThread();
   NS_SetCurrentThreadName("JS Watchdog");
 
   Watchdog* self = static_cast<Watchdog*>(arg);
@@ -741,9 +786,9 @@ bool XPCJSContext::InterruptCallback(JSContext* cx) {
 
   // Accumulate slow script invokation delay.
   if (!chrome && !self->mTimeoutAccumulated) {
-    uint32_t delay = uint32_t(self->mSlowScriptActualWait.ToMilliseconds() -
-                              (limit * 1000.0));
-    Telemetry::Accumulate(Telemetry::SLOW_SCRIPT_NOTIFY_DELAY, delay);
+    TimeDuration delay =
+        self->mSlowScriptActualWait - TimeDuration::FromSeconds(limit);
+    glean::slow_script_warning::notify_delay.AccumulateRawDuration(delay);
     self->mTimeoutAccumulated = true;
   }
 
@@ -792,8 +837,6 @@ void xpc::SetPrefableRealmOptions(JS::RealmOptions& options) {
 
 void xpc::SetPrefableCompileOptions(JS::PrefableCompileOptions& options) {
   options.setSourcePragmas(StaticPrefs::javascript_options_source_pragmas())
-      .setImportAttributes(
-          StaticPrefs::javascript_options_experimental_import_attributes())
       .setAsmJS(StaticPrefs::javascript_options_asmjs())
       .setThrowOnAsmJSValidationFailure(
           StaticPrefs::javascript_options_throw_on_asmjs_validation_failure());
@@ -810,16 +853,12 @@ void xpc::SetPrefableContextOptions(JS::ContextOptions& options) {
       .setWasmIon(Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_optimizingjit"))
       .setWasmBaseline(
           Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_baselinejit"))
-      .setWasmVerbose(Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_verbose"))
       .setAsyncStack(Preferences::GetBool(JS_OPTIONS_DOT_STR "asyncstack"))
       .setAsyncStackCaptureDebuggeeOnly(Preferences::GetBool(
           JS_OPTIONS_DOT_STR "asyncstack_capture_debuggee_only"));
 
   SetPrefableCompileOptions(options.compileOptions());
 }
-
-// Mirrored value of javascript.options.self_hosted.use_shared_memory.
-static bool sSelfHostedUseSharedMemory = false;
 
 static void LoadStartupJSPrefs(XPCJSContext* xpccx) {
   // Prefs that require a restart are handled here. This includes the
@@ -828,8 +867,8 @@ static void LoadStartupJSPrefs(XPCJSContext* xpccx) {
   //
   // 'Live' prefs are handled by ReloadPrefsCallback below.
 
-  // Note: JS::Prefs are set earlier in startup, in InitializeJS in
-  // XPCOMInit.cpp.
+  // Note: JS::Prefs are set earlier in startup, in InitJSEngine in
+  // nsXPConnect.cpp.
 
   JSContext* cx = xpccx->Context();
 
@@ -859,7 +898,7 @@ static void LoadStartupJSPrefs(XPCJSContext* xpccx) {
     JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_NATIVE_REGEXP_ENABLE,
                                   false);
     JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_JIT_HINTS_ENABLE, false);
-    sSelfHostedUseSharedMemory = false;
+    xpc::SelfHostedShmem::SetSelfHostedUseSharedMemory(false);
   } else {
     JS_SetGlobalJitCompilerOption(
         cx, JSJITCOMPILER_BASELINE_ENABLE,
@@ -880,16 +919,16 @@ static void LoadStartupJSPrefs(XPCJSContext* xpccx) {
         XRE_IsContentProcess()
             ? StaticPrefs::javascript_options_jithints_DoNotUseDirectly()
             : false);
-    sSelfHostedUseSharedMemory = StaticPrefs::
-        javascript_options_self_hosted_use_shared_memory_DoNotUseDirectly();
+    xpc::SelfHostedShmem::SetSelfHostedUseSharedMemory(
+        StaticPrefs::
+            javascript_options_self_hosted_use_shared_memory_DoNotUseDirectly());
   }
 
-#ifdef NIGHTLY_BUILD
-  JS_SetOffthreadBaselineCompilationEnabled(
-      cx,
-      StaticPrefs::
-          javascript_options_experimental_baselinejit_offthread_compilation_DoNotUseDirectly());
-#endif
+  uint32_t strategyIndex = StaticPrefs::
+      javascript_options_baselinejit_offthread_compilation_strategy();
+  bool onDemandOMTBaselineEnabled = strategyIndex == 1 || strategyIndex == 3;
+  JS_SetOffthreadBaselineCompilationEnabled(cx, onDemandOMTBaselineEnabled);
+
   JS_SetOffthreadIonCompilationEnabled(
       cx, StaticPrefs::
               javascript_options_ion_offthread_compilation_DoNotUseDirectly());
@@ -977,15 +1016,6 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
   auto& contextOptions = JS::ContextOptionsRef(cx);
   SetPrefableContextOptions(contextOptions);
 
-  JS_SetGlobalJitCompilerOption(
-      cx, JSJITCOMPILER_REGEXP_DUPLICATE_NAMED_GROUPS,
-      StaticPrefs::
-          javascript_options_experimental_regexp_duplicate_named_groups());
-
-  JS_SetGlobalJitCompilerOption(
-      cx, JSJITCOMPILER_REGEXP_MODIFIERS,
-      StaticPrefs::javascript_options_experimental_regexp_modifiers());
-
   // Set options not shared with workers.
   contextOptions
       .setThrowOnDebuggeeWouldRun(Preferences::GetBool(
@@ -1002,8 +1032,12 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
     }
   }
 
-  JS_SetParallelParsingEnabled(
-      cx, StaticPrefs::javascript_options_parallel_parsing());
+  // Set up the callback for DOM event dispatch
+  if (StaticPrefs::dom_expose_test_interfaces()) {
+    JS::SetDispatchDOMEventCallback(cx, DispatchJitEventToDOM);
+  } else {
+    JS::SetDispatchDOMEventCallback(cx, nullptr);
+  }
 }
 
 XPCJSContext::~XPCJSContext() {
@@ -1182,13 +1216,20 @@ static void LogPrintVA(JS::OpaqueLogger aLogger, mozilla::LogLevel level,
   logmod->Printv(level, aFmt, ap);
 }
 
+static void LogPrintFMT(JS::OpaqueLogger aLogger, mozilla::LogLevel level,
+                        fmt::string_view fmt, fmt::format_args args) {
+  LogModule* logmod = static_cast<LogModule*>(aLogger);
+
+  logmod->PrintvFmt(level, fmt, args);
+}
+
 static AtomicLogLevel& GetLevelRef(JS::OpaqueLogger aLogger) {
   LogModule* logmod = static_cast<LogModule*>(aLogger);
   return logmod->LevelRef();
 }
 
 static JS::LoggingInterface loggingInterface = {GetLoggerByName, LogPrintVA,
-                                                GetLevelRef};
+                                                LogPrintFMT, GetLevelRef};
 
 nsresult XPCJSContext::Initialize() {
   if (StaticPrefs::javascript_options_external_thread_pool_DoNotUseDirectly()) {
@@ -1371,7 +1412,8 @@ nsresult XPCJSContext::Initialize() {
   // in startupcache. Only the parent process may initialize the data.
   auto& shm = xpc::SelfHostedShmem::GetSingleton();
   JS::SelfHostedWriter writer = nullptr;
-  if (XRE_IsParentProcess() && sSelfHostedUseSharedMemory) {
+  if (XRE_IsParentProcess() &&
+      xpc::SelfHostedShmem::SelfHostedUseSharedMemory()) {
     // Check the startup cache for a copy of the bytecode.
     if (auto* sc = scache::StartupCache::GetSingleton()) {
       const char* buf = nullptr;
@@ -1398,6 +1440,10 @@ nsresult XPCJSContext::Initialize() {
     // Failed to execute self-hosted JavaScript! Uh oh.
     MOZ_CRASH("InitSelfHostedCode failed");
   }
+
+#ifdef MOZ_EXECUTION_TRACING
+  JS_SetCustomObjectSummaryCallback(cx, ExecutionTracerIntegration::Callback);
+#endif
 
   MOZ_RELEASE_ASSERT(Runtime()->InitializeStrings(cx),
                      "InitializeStrings failed");

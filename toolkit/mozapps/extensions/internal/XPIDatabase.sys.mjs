@@ -10,8 +10,6 @@
  * add code here or elsewhere.
  */
 
-/* eslint "valid-jsdoc": [2, {requireReturn: false, requireReturnDescription: false, prefer: {return: "returns"}}] */
-
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 import { XPIExports } from "resource://gre/modules/addons/XPIExports.sys.mjs";
@@ -32,61 +30,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   QuarantinedDomains: "resource://gre/modules/ExtensionPermissions.sys.mjs",
   ExtensionPermissions: "resource://gre/modules/ExtensionPermissions.sys.mjs",
 });
-
-// WARNING: BuiltInThemes.sys.mjs may be provided by the host application (e.g.
-// Firefox), or it might not exist at all. Use with caution, as we don't
-// want things to completely fail if that module can't be loaded.
-ChromeUtils.defineLazyGetter(lazy, "BuiltInThemes", () => {
-  try {
-    let { BuiltInThemes } = ChromeUtils.importESModule(
-      "resource:///modules/BuiltInThemes.sys.mjs"
-    );
-    return BuiltInThemes;
-  } catch (e) {
-    Cu.reportError(`Unable to load BuiltInThemes.sys.mjs: ${e}`);
-  }
-  return undefined;
-});
-
-// A set of helpers to account from a single place that in some builds
-// (e.g. GeckoView and Thunderbird) the BuiltInThemes module may either
-// not be bundled at all or not be exposing the same methods provided
-// by the module as defined in Firefox Desktop.
-export const BuiltInThemesHelpers = {
-  getLocalizedColorwayGroupName(addonId) {
-    return lazy.BuiltInThemes?.getLocalizedColorwayGroupName?.(addonId);
-  },
-
-  getLocalizedColorwayDescription(addonId) {
-    return lazy.BuiltInThemes?.getLocalizedColorwayGroupDescription?.(addonId);
-  },
-
-  isActiveTheme(addonId) {
-    return lazy.BuiltInThemes?.isActiveTheme?.(addonId);
-  },
-
-  isRetainedExpiredTheme(addonId) {
-    return lazy.BuiltInThemes?.isRetainedExpiredTheme?.(addonId);
-  },
-
-  themeIsExpired(addonId) {
-    return lazy.BuiltInThemes?.themeIsExpired?.(addonId);
-  },
-
-  // Helper function called form XPInstall.sys.mjs to remove from the retained
-  // themes list the built-in colorways theme that have been migrated to a non
-  // built-in.
-  unretainMigratedColorwayTheme(addonId) {
-    lazy.BuiltInThemes?.unretainMigratedColorwayTheme?.(addonId);
-  },
-};
-
-XPCOMUtils.defineLazyPreferenceGetter(
-  BuiltInThemesHelpers,
-  "isColorwayMigrationEnabled",
-  "browser.theme.colorway-migration",
-  false
-);
 
 // A temporary hidden pref just meant to be used as a last resort, in case
 // we need to force-disable the "per-addon quarantined domains user controls"
@@ -130,7 +73,6 @@ const TOOLKIT_ID = "toolkit@mozilla.org";
 
 const KEY_APP_SYSTEM_ADDONS = "app-system-addons";
 const KEY_APP_SYSTEM_BUILTINS = "app-builtin-addons";
-const KEY_APP_SYSTEM_DEFAULTS = "app-system-defaults";
 const KEY_APP_SYSTEM_PROFILE = "app-system-profile";
 const KEY_APP_BUILTINS = "app-builtin";
 const KEY_APP_SYSTEM_LOCAL = "app-system-local";
@@ -217,8 +159,6 @@ const SIGNED_TYPES = new Set(["extension", "locale", "theme"]);
 // Time to wait before async save of XPI JSON database, in milliseconds
 const ASYNC_SAVE_DELAY_MS = 20;
 
-const l10n = new Localization(["browser/appExtensionFields.ftl"], true);
-
 /**
  * Schedules an idle task, and returns a promise which resolves to an
  * IdleDeadline when an idle slice is available. The caller should
@@ -286,7 +226,7 @@ async function getRepositoryAddon(aAddon) {
  *        An array of properties to be copied
  * @param {object?} [aTarget]
  *        An optional target object to copy the properties to
- * @returns {Object}
+ * @returns {object}
  *        The object that the properties were copied onto
  */
 function copyProperties(aObject, aProperties, aTarget) {
@@ -306,8 +246,6 @@ const wrapperMap = new WeakMap();
 let addonFor = wrapper => wrapperMap.get(wrapper);
 
 const EMPTY_ARRAY = Object.freeze([]);
-
-let AddonWrapper;
 
 /**
  * The AddonInternal is an internal only representation of add-ons. It
@@ -406,9 +344,9 @@ export class AddonInternal {
    * SitePermission addons are a special case, where the triggering install site may be a subdomain
    * of a valid xpi origin.
    *
-   * @param {Object}  origins             Object containing URIs related to install.
-   * @params {nsIURI} origins.installFrom The nsIURI of the website that has triggered the install flow.
-   * @params {nsIURI} origins.source      The nsIURI where the xpi is hosted.
+   * @param {object} origins             Object containing URIs related to install.
+   * @param {nsIURI} origins.installFrom The nsIURI of the website that has triggered the install flow.
+   * @param {nsIURI} origins.source      The nsIURI where the xpi is hosted.
    * @returns {boolean}
    */
   validInstallOrigins({ installFrom, source }) {
@@ -519,7 +457,6 @@ export class AddonInternal {
         return this.signedState == lazy.AddonManager.SIGNEDSTATE_SYSTEM;
 
       case KEY_APP_SYSTEM_BUILTINS:
-      case KEY_APP_SYSTEM_DEFAULTS:
       case KEY_APP_BUILTINS:
       case KEY_APP_TEMPORARY:
         // Temporary and built-in add-ons do not require signing.
@@ -822,7 +759,7 @@ export class AddonInternal {
    * This method reads particular properties of that metadata that may be newer
    * than that in the extension manifest, like compatibility information.
    *
-   * @param {Object} aObj
+   * @param {object} aObj
    *        A JS object containing the cached metadata
    */
   importMetadata(aObj) {
@@ -892,21 +829,6 @@ export class AddonInternal {
       if (!isSystem && !this.location.isLinkedAddon(this.id)) {
         permissions |= lazy.AddonManager.PERM_CAN_UPGRADE;
       }
-      // Allow active and retained colorways builtin themes to be updated to
-      // the same theme hosted on AMO (the PERM_CAN_UPGRADE permission will
-      // ensure we will be asking AMO for an update, then the AMO addon xpi
-      // will be installed in the profile location, overridden in the
-      // `createUpdate` defined in `XPIInstall.sys.mjs` and called from
-      // `UpdateChecker` `onUpdateCheckComplete` method).
-      if (
-        this.isBuiltinColorwayTheme &&
-        BuiltInThemesHelpers.isColorwayMigrationEnabled &&
-        BuiltInThemesHelpers.themeIsExpired(this.id) &&
-        (BuiltInThemesHelpers.isActiveTheme(this.id) ||
-          BuiltInThemesHelpers.isRetainedExpiredTheme(this.id))
-      ) {
-        permissions |= lazy.AddonManager.PERM_CAN_UPGRADE;
-      }
     }
 
     // We allow uninstall of legacy sideloaded extensions, even when in locked locations,
@@ -956,7 +878,7 @@ export class AddonInternal {
  * @param {AddonInternal} aAddon
  *        The add-on object to wrap.
  */
-AddonWrapper = class {
+export class AddonWrapper {
   constructor(aAddon) {
     wrapperMap.set(this, aAddon);
   }
@@ -1448,11 +1370,17 @@ AddonWrapper = class {
   /**
    * Returns true if the addon is configured to be installed
    * by enterprise policy.
+   *
+   * Should be kept in sync with Extension.sys.mjs
    */
   get isInstalledByEnterprisePolicy() {
     const policySettings = Services.policies?.getExtensionSettings(this.id);
-    return ["force_installed", "normal_installed"].includes(
-      policySettings?.installation_mode
+    const legacyLockedSettings =
+      Services.policies?.getActivePolicies()?.Extensions?.Locked ?? [];
+    return (
+      ["force_installed", "normal_installed"].includes(
+        policySettings?.installation_mode
+      ) || legacyLockedSettings.includes(this.id)
     );
   }
 
@@ -1490,6 +1418,12 @@ AddonWrapper = class {
     let perms = {
       origins: required.origins.concat(requested?.origins ?? []),
       permissions: required.permissions.concat(requested?.permissions ?? []),
+      data_collection: [
+        // These fields can be missing if read from extensions.json that was
+        // generated before support for data_collection was introduced.
+        ...(required?.data_collection ?? []),
+        ...(requested?.data_collection ?? []),
+      ],
     };
     return perms;
   }
@@ -1515,6 +1449,13 @@ AddonWrapper = class {
 
     // De-dup the normalized host permission patterns.
     return [...new Set(origins)];
+  }
+
+  get hasDataCollectionPermissions() {
+    return !!(
+      this.installPermissions?.data_collection?.length ||
+      this.optionalPermissions?.data_collection?.length
+    );
   }
 
   isCompatibleWith(aAppVersion, aPlatformVersion) {
@@ -1596,7 +1537,7 @@ AddonWrapper = class {
     }
     return url;
   }
-};
+}
 
 function chooseValue(aAddon, aObj, aProp) {
   let repositoryAddon = aAddon._repositoryAddon;
@@ -1732,53 +1673,23 @@ const updatedAddonFluentIds = new Map([
     ) {
       // Built-in themes are localized with Fluent instead of the WebExtension API.
       let addonIdPrefix = addon.id.replace("@mozilla.org", "");
-      const colorwaySuffix = "colorway";
-      if (addonIdPrefix.endsWith(colorwaySuffix)) {
-        // FIXME: Depending on BuiltInThemes here is sort of a hack. Bug 1733466
-        // would provide a more generalized way of doing this.
-        if (aProp == "description") {
-          return BuiltInThemesHelpers.getLocalizedColorwayDescription(addon.id);
-        }
-        // Colorway collections are usually divided into and presented as
-        // "groups". A group either contains closely related colorways, e.g.
-        // stemming from the same base color but with different intensities, or
-        // if the current collection doesn't have intensities, each colorway is
-        // their own group. Colorway names combine the group name with an
-        // intensity. Their ids have the format
-        // {colorwayGroup}-{intensity}-colorway@mozilla.org or
-        // {colorwayGroupName}-colorway@mozilla.org). L10n for colorway group
-        // names is optional and falls back on the unlocalized name from the
-        // theme's manifest. The intensity part, if present, must be localized.
-        let localizedColorwayGroupName =
-          BuiltInThemesHelpers.getLocalizedColorwayGroupName(addon.id);
-        let [colorwayGroupName, intensity] = addonIdPrefix.split("-", 2);
-        if (intensity == colorwaySuffix) {
-          // This theme doesn't have an intensity.
-          return localizedColorwayGroupName || addon.defaultLocale.name;
-        }
-        // We're not using toLocaleUpperCase because these color names are
-        // always in English.
-        colorwayGroupName =
-          localizedColorwayGroupName ||
-          colorwayGroupName[0].toUpperCase() + colorwayGroupName.slice(1);
-        let defaultFluentId = `extension-colorways-${intensity}-name`;
-        let fluentId =
-          updatedAddonFluentIds.get(defaultFluentId) || defaultFluentId;
-        [formattedMessage] = l10n.formatMessagesSync([
-          {
-            id: fluentId,
-            args: {
-              "colorway-name": colorwayGroupName,
-            },
-          },
-        ]);
-      } else {
-        let defaultFluentId = `extension-${addonIdPrefix}-${aProp}`;
-        let fluentId =
-          updatedAddonFluentIds.get(defaultFluentId) || defaultFluentId;
+      let defaultFluentId = `extension-${addonIdPrefix}-${aProp}`;
+      let fluentId =
+        updatedAddonFluentIds.get(defaultFluentId) || defaultFluentId;
+      try {
+        const l10n = new Localization(["browser/appExtensionFields.ftl"], true);
         [formattedMessage] = l10n.formatMessagesSync([{ id: fluentId }]);
+      } catch (e) {
+        // Log a warning when no fluent string was found, but fallback to the value set
+        // in the manifest field or values got from AMO and stored in the AddonRepository.
+        logger.warn(
+          `Failed to format fluent localized string for "${addon.id}" AddonWrapper property ${aProp}`,
+          e
+        );
       }
+    }
 
+    if (formattedMessage) {
       return formattedMessage.value;
     }
 
@@ -1942,10 +1853,9 @@ export const XPIDatabase = {
       // use an Error here so we get a stack trace.
       let err = new Error("XPI database modified after shutdown began");
       logger.warn(err);
-      lazy.AddonManagerPrivate.recordSimpleMeasure(
-        "XPIDB_late_stack",
-        Log.stackTrace(err)
-      );
+      const stack = Log.stackTrace(err);
+      lazy.AddonManagerPrivate.recordSimpleMeasure("XPIDB_late_stack", stack);
+      Glean.xpiDatabase.lateStack.set(stack);
     }
 
     if (!this._saveTask) {
@@ -1971,7 +1881,7 @@ export const XPIDatabase = {
    * Converts the current internal state of the XPI addon database to
    * a JSON.stringify()-ready structure
    *
-   * @returns {Object}
+   * @returns {object}
    */
   toJSON() {
     if (!this.addonDB) {
@@ -2001,10 +1911,9 @@ export const XPIDatabase = {
   syncLoadDB(aRebuildOnError) {
     let err = new Error("Synchronously loading the add-ons database");
     logger.debug(err.message);
-    lazy.AddonManagerPrivate.recordSimpleMeasure(
-      "XPIDB_sync_stack",
-      Log.stackTrace(err)
-    );
+    const stack = Log.stackTrace(err);
+    lazy.AddonManagerPrivate.recordSimpleMeasure("XPIDB_sync_stack", stack);
+    Glean.xpiDatabase.syncStack.set(stack);
     try {
       this.syncLoadingDB = true;
       XPIExports.XPIInternal.awaitPromise(this.asyncLoadDB(aRebuildOnError));
@@ -2015,6 +1924,7 @@ export const XPIDatabase = {
 
   _recordStartupError(reason) {
     lazy.AddonManagerPrivate.recordSimpleMeasure("XPIDB_startupError", reason);
+    Glean.xpiDatabase.startupError.set(reason);
   },
 
   /**
@@ -2026,8 +1936,10 @@ export const XPIDatabase = {
    *        If true, synchronously reconstruct the database from installed add-ons
    */
   async parseDB(aInputAddons, aRebuildOnError) {
+    let timerId;
     try {
       let parseTimer = lazy.AddonManagerPrivate.simpleTimer("XPIDB_parseDB_MS");
+      timerId = Glean.xpiDatabase.parses.start();
 
       if (!("schemaVersion" in aInputAddons) || !("addons" in aInputAddons)) {
         let error = new Error("Bad JSON file contents");
@@ -2087,11 +1999,15 @@ export const XPIDatabase = {
         }
       });
 
+      Glean.xpiDatabase.parses.stopAndAccumulate(timerId);
       parseTimer.done();
       this.addonDB = addonDB;
       logger.debug("Successfully read XPI database");
       this.initialized = true;
     } catch (e) {
+      if (timerId) {
+        Glean.xpiDatabase.parses.cancel(timerId);
+      }
       if (e.name == "SyntaxError") {
         logger.error("Syntax error parsing saved XPI JSON data");
         this._recordStartupError("syntax");
@@ -2138,10 +2054,9 @@ export const XPIDatabase = {
         "XPIDatabase.asyncLoadDB attempt after XPIProvider shutdown."
       );
       logger.warn("Fail to load AddonDB: ${error}", { error: err });
-      lazy.AddonManagerPrivate.recordSimpleMeasure(
-        "XPIDB_late_load",
-        Log.stackTrace(err)
-      );
+      const stack = Log.stackTrace(err);
+      lazy.AddonManagerPrivate.recordSimpleMeasure("XPIDB_late_load", stack);
+      Glean.xpiDatabase.lateLoad.set(stack);
       this._dbPromise = Promise.reject(err);
 
       XPIExports.XPIInternal.resolveDBReady(this._dbPromise);
@@ -2184,7 +2099,12 @@ export const XPIDatabase = {
 
   timeRebuildDatabase(timerName, rebuildOnError) {
     lazy.AddonManagerPrivate.recordTiming(timerName, () => {
-      return this.rebuildDatabase(rebuildOnError);
+      const timerId = Glean.xpiDatabase.rebuilds[timerName].start();
+      try {
+        return this.rebuildDatabase(rebuildOnError);
+      } finally {
+        Glean.xpiDatabase.rebuilds[timerName].stopAndAccumulate(timerId);
+      }
     });
   },
 
@@ -2975,7 +2895,7 @@ export const XPIDatabase = {
    *
    * @param {AddonInternal} aAddon
    *        The AddonInternal being updated
-   * @param {Object} aProperties
+   * @param {object} aProperties
    *        A dictionary of properties to set
    */
   setAddonProperties(aAddon, aProperties) {
@@ -3056,7 +2976,7 @@ export const XPIDatabase = {
    *
    * @param {AddonInternal} aAddon
    *        The AddonInternal to update
-   * @param {Object} properties - Properties to set on the addon
+   * @param {object} properties - Properties to set on the addon
    * @param {boolean?} [properties.userDisabled]
    *        Value for the userDisabled property. If undefined the value will
    *        not change
@@ -3261,26 +3181,29 @@ export const XPIDatabaseReconcile = {
    * Returns a map of ID -> add-on. When the same add-on ID exists in multiple
    * install locations the highest priority location is chosen.
    *
-   * @param {Map<String, AddonInternal>} addonMap
+   * @param {Map<string, AddonInternal>} addonMap
    *        The add-on map to flatten.
-   * @param {string?} [hideLocation]
-   *        An optional location from which to hide any add-ons.
+   * @param {function(string, string): boolean} [hideAddonCb]
+   *        An optional callback used to determine if any of the addons
+   *        in addonMap should be hidden based on their location name and
+   *        addon id (e.g. system addons that are determined to be invalid
+   *        by XPIDatabaseReconcile.processFileChanges are disabled through
+   *        this callback).
    * @returns {Map<string, AddonInternal>}
    */
-  flattenByID(addonMap, hideLocation) {
+  flattenByID(addonMap, hideAddonCb) {
     let map = new Map();
 
     for (let loc of XPIExports.XPIInternal.XPIStates.locations()) {
-      if (loc.name == hideLocation) {
-        continue;
-      }
-
       let locationMap = addonMap.get(loc.name);
       if (!locationMap) {
         continue;
       }
 
       for (let [id, addon] of locationMap) {
+        if (hideAddonCb?.(loc.name, id)) {
+          continue;
+        }
         if (!map.has(id)) {
           map.set(id, addon);
         }
@@ -3293,7 +3216,7 @@ export const XPIDatabaseReconcile = {
   /**
    * Finds the visible add-ons from the map.
    *
-   * @param {Map<String, AddonInternal>} addonMap
+   * @param {Map<string, AddonInternal>} addonMap
    *        The add-on map to filter.
    * @returns {Map<string, AddonInternal>}
    */
@@ -3690,7 +3613,6 @@ export const XPIDatabaseReconcile = {
   isAppBundledLocation(location) {
     return (
       location.name == KEY_APP_GLOBAL ||
-      location.name == KEY_APP_SYSTEM_DEFAULTS ||
       location.name == KEY_APP_BUILTINS ||
       location.name == KEY_APP_SYSTEM_BUILTINS
     );
@@ -3706,7 +3628,6 @@ export const XPIDatabaseReconcile = {
    */
   isSystemAddonLocation(location) {
     return (
-      location.name === KEY_APP_SYSTEM_DEFAULTS ||
       location.name === KEY_APP_SYSTEM_ADDONS ||
       location.name === KEY_APP_SYSTEM_BUILTINS
     );
@@ -3794,7 +3715,7 @@ export const XPIDatabaseReconcile = {
    * Always called after XPIDatabase.sys.mjs and extensions.json have been
    * loaded.
    *
-   * @param {Object} aManifests
+   * @param {object} aManifests
    *        A dictionary of cached AddonInstalls for add-ons that have been
    *        installed
    * @param {boolean} aUpdateCompatibility
@@ -3897,26 +3818,31 @@ export const XPIDatabaseReconcile = {
     }
 
     // Validate the updated system add-ons
-    let hideLocation;
+    let hideAddonCb;
     {
       let systemAddonLocation = XPIExports.XPIInternal.XPIStates.getLocation(
         KEY_APP_SYSTEM_ADDONS
       );
       let addons = currentAddons.get(systemAddonLocation.name);
-
-      if (!systemAddonLocation.installer.isValid(addons)) {
-        // Hide the system add-on updates if any are invalid.
+      let invalidAddonIds =
+        systemAddonLocation.installer.getInvalidAddonIds(addons);
+      if (invalidAddonIds?.length) {
         logger.info(
-          "One or more updated system add-ons invalid, falling back to defaults."
+          `Detected invalid system-signed addons to be disabled: ${invalidAddonIds.join(", ")}`
         );
-        hideLocation = systemAddonLocation.name;
+        // Set the callback passed to flattenByID, this callback
+        // should return true if both the location name and addon id
+        // match one that should be disabled.
+        hideAddonCb = (locName, addonId) =>
+          locName === systemAddonLocation.name &&
+          invalidAddonIds?.includes(addonId);
       }
     }
 
     // Apply startup changes to any currently-visible add-ons, and
     // uninstall any which were previously visible, but aren't anymore.
     let previousVisible = this.getVisibleAddons(previousAddons);
-    let currentVisible = this.flattenByID(currentAddons, hideLocation);
+    let currentVisible = this.flattenByID(currentAddons, hideAddonCb);
 
     for (let addon of XPIDatabase.orphanedAddons.splice(0)) {
       if (addon.visible) {

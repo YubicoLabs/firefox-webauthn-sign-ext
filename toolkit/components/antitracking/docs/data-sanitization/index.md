@@ -23,7 +23,7 @@ All browsers allow fine grained control over website cookies and storages via th
 
 This is a browser UX feature and is therefore not standardized. It is not part of the web platform.
 
-There is a standardized HTTP header that sites can send to clear associated browser cache, cookies and storage: [Clear-Site-Data](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Clear-Site-Data). However, Firefox no longer allows sites to clear caches via the header since [Bug 1671182](https://bugzilla.mozilla.org/show_bug.cgi?id=1671182).
+There is a standardized HTTP header that sites can send to clear associated browser cache, cookies and storage: [Clear-Site-Data](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Clear-Site-Data). However, Firefox no longer allows sites to clear caches via the header since [Bug 1671182](https://bugzilla.mozilla.org/show_bug.cgi?id=1671182).
 
 ### How does it fit into our vision of “Zero Privacy Leaks?”
 
@@ -134,7 +134,6 @@ flowchart TD
 	- Passwords (See [Bug 702925](https://bugzilla.mozilla.org/show_bug.cgi?id=702925))
 	- Permissions
 	- Content preferences (e.g. page zoom level)
-	- Predictor network data
 	- Reports (Reporting API)
 	- Client-Auth-Remember flag, Certificate exceptions
 	- Does **not** clear bookmarks
@@ -165,7 +164,7 @@ flowchart TD
 - Allows users to clear storage for specific sites, or all sites
 -  \[With TCP\] Also clears data of any third-party sites embedded under the top level base domain
 - Collects list of sites via [SiteDataManager.getSites](https://searchfox.org/mozilla-central/rev/6b8a3f804789fb865f42af54e9d2fef9dd3ec74d/browser/modules/SiteDataManager.sys.mjs#437)
-- Before removal, prompts via SiteDataManger.promptSiteDataRemoval
+- Before removal, prompts via SiteDataManager.promptSiteDataRemoval
 - On removal calls SiteDataManager.removeAll() if all sites have been selected or SiteDataManager.remove() passing a list of sites to be removed.
 - Source
 	-  [siteDataSettings.xhtml](https://searchfox.org/mozilla-central/rev/fbb1e8462ad82b0e76b5c13dd0d6280cfb69e68d/browser/components/preferences/dialogs/siteDataSettings.xhtml)

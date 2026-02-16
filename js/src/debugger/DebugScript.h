@@ -88,9 +88,11 @@ class DebugScript {
   void delete_(JS::GCContext* gcx, DebugScriptObject* owner);
 
   static DebugScript* get(JSScript* script);
+  static DebugScript* getUnbarriered(JSScript* script);
   static DebugScript* getOrCreate(JSContext* cx, HandleScript script);
 
  public:
+  static bool hasBreakpointSite(JSScript* script, jsbytecode* pc);
   static JSBreakpointSite* getBreakpointSite(JSScript* script, jsbytecode* pc);
   static JSBreakpointSite* getOrCreateBreakpointSite(JSContext* cx,
                                                      HandleScript script,
@@ -151,9 +153,9 @@ class DebugScriptObject : public NativeObject {
 
 // A weak map from JSScripts to DebugScriptObjects.
 class DebugScriptMap
-    : public WeakMap<HeapPtr<JSScript*>, HeapPtr<DebugScriptObject*>> {
+    : public WeakMap<JSScript*, DebugScriptObject*, ZoneAllocPolicy> {
  public:
-  explicit DebugScriptMap(JSContext* cx) : WeakMap(cx) {}
+  explicit DebugScriptMap(JSContext* cx);
 };
 
 } /* namespace js */

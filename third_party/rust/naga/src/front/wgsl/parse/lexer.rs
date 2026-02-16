@@ -1,28 +1,95 @@
-use super::{number::consume_number, Error, ExpectedToken};
+use super::{number::consume_number, Error, ExpectedToken, Result};
 use crate::front::wgsl::error::NumberError;
-use crate::front::wgsl::parse::directive::enable_extension::EnableExtensions;
-use crate::front::wgsl::parse::{conv, Number};
-use crate::front::wgsl::Scalar;
+use crate::front::wgsl::parse::directive::enable_extension::{
+    EnableExtensions, ImplementedEnableExtension,
+};
+use crate::front::wgsl::parse::Number;
 use crate::Span;
 
-type TokenSpan<'a> = (Token<'a>, Span);
+use alloc::{boxed::Box, vec::Vec};
+
+pub type TokenSpan<'a> = (Token<'a>, Span);
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Token<'a> {
+    /// A separator character: `:;,`, and `.` when not part of a numeric
+    /// literal.
     Separator(char),
+
+    /// A parenthesis-like character: `()[]{}`, and also `<>`.
+    ///
+    /// Note that `<>` representing template argument brackets are distinguished
+    /// using WGSL's [template list discovery algorithm][tlda], and are returned
+    /// as [`Token::TemplateArgsStart`] and [`Token::TemplateArgsEnd`]. That is,
+    /// we use `Paren` for `<>` when they are *not* parens.
+    ///
+    /// [tlda]: https://gpuweb.github.io/gpuweb/wgsl/#template-list-discovery
     Paren(char),
+
+    /// The attribute introduction character `@`.
     Attribute,
-    Number(Result<Number, NumberError>),
+
+    /// A numeric literal, either integral or floating-point, including any
+    /// type suffix.
+    Number(core::result::Result<Number, NumberError>),
+
+    /// An identifier, possibly a reserved word.
     Word(&'a str),
+
+    /// A miscellaneous single-character operator, like an arithmetic unary or
+    /// binary operator. This includes `=`, for assignment and initialization.
     Operation(char),
+
+    /// Certain multi-character logical operators: `!=`, `==`, `&&`,
+    /// `||`, `<=` and `>=`. The value gives the operator's first
+    /// character.
+    ///
+    /// For `<` and `>` operators, see [`Token::Paren`].
     LogicalOperation(char),
+
+    /// A shift operator: `>>` or `<<`.
     ShiftOperation(char),
+
+    /// A compound assignment operator like `+=`.
+    ///
+    /// When the given character is `<` or `>`, those represent the left shift
+    /// and right shift assignment operators, `<<=` and `>>=`.
     AssignmentOperation(char),
+
+    /// The `++` operator.
     IncrementOperation,
+
+    /// The `--` operator.
     DecrementOperation,
+
+    /// The `->` token.
     Arrow,
+
+    /// A `<` representing the start of a template argument list, according to
+    /// WGSL's [template list discovery algorithm][tlda].
+    ///
+    /// [tlda]: https://gpuweb.github.io/gpuweb/wgsl/#template-list-discovery
+    TemplateArgsStart,
+
+    /// A `>` representing the end of a template argument list, according to
+    /// WGSL's [template list discovery algorithm][tlda].
+    ///
+    /// [tlda]: https://gpuweb.github.io/gpuweb/wgsl/#template-list-discovery
+    TemplateArgsEnd,
+
+    /// A character that does not represent a legal WGSL token.
     Unknown(char),
+
+    /// Comment or whitespace.
     Trivia,
+
+    /// A doc comment, beginning with `///` or `/**`.
+    DocComment(&'a str),
+
+    /// A module-level doc comment, beginning with `//!` or `/*!`.
+    ModuleDocComment(&'a str),
+
+    /// The end of the input.
     End,
 }
 
@@ -31,22 +98,167 @@ fn consume_any(input: &str, what: impl Fn(char) -> bool) -> (&str, &str) {
     input.split_at(pos)
 }
 
+struct UnclosedCandidate {
+    index: usize,
+    depth: usize,
+}
+
+/// Produce at least one token, distinguishing [template lists] from other uses
+/// of `<` and `>`.
+///
+/// Consume one or more tokens from `input` and store them in `tokens`, updating
+/// `input` to refer to the remaining text. Apply WGSL's [template list
+/// discovery algorithm] to decide what sort of tokens `<` and `>` characters in
+/// the input actually represent.
+///
+/// Store the tokens in `tokens` in the *reverse* of the order they appear in
+/// the text, such that the caller can pop from the end of the vector to see the
+/// tokens in textual order.
+///
+/// The `tokens` vector must be empty on entry. The idea is for the caller to
+/// use it as a buffer of unconsumed tokens, and call this function to refill it
+/// when it's empty.
+///
+/// The `source` argument must be the whole original source code, used to
+/// compute spans.
+///
+/// If `ignore_doc_comments` is true, then doc comments are returned as
+/// [`Token::Trivia`], like ordinary comments.
+///
+/// [template lists]: https://gpuweb.github.io/gpuweb/wgsl/#template-lists-sec
+/// [template list discovery algorithm]: https://gpuweb.github.io/gpuweb/wgsl/#template-list-discovery
+fn discover_template_lists<'a>(
+    tokens: &mut Vec<(TokenSpan<'a>, &'a str)>,
+    source: &'a str,
+    mut input: &'a str,
+    ignore_doc_comments: bool,
+) {
+    assert!(tokens.is_empty());
+
+    let mut looking_for_template_start = false;
+    let mut pending: Vec<UnclosedCandidate> = Vec::new();
+
+    // Current nesting depth of `()` and `[]` brackets. (`{}` brackets
+    // exit all template list processing.)
+    let mut depth = 0;
+
+    fn pop_until(pending: &mut Vec<UnclosedCandidate>, depth: usize) {
+        while pending
+            .last()
+            .map(|candidate| candidate.depth >= depth)
+            .unwrap_or(false)
+        {
+            pending.pop();
+        }
+    }
+
+    loop {
+        // Decide whether `consume_token` should treat a `>` character as
+        // `TemplateArgsEnd`, without considering the characters that follow.
+        //
+        // This condition matches the one that determines whether the spec's
+        // template list discovery algorithm looks past a `>` character for a
+        // `=`. By passing this flag to `consume_token`, we ensure it follows
+        // that behavior.
+        let waiting_for_template_end = pending
+            .last()
+            .is_some_and(|candidate| candidate.depth == depth);
+
+        // Ask `consume_token` for the next token and add it to `tokens`, along
+        // with its span.
+        //
+        // This means that `<` enters the buffer as `Token::Paren('<')`, the
+        // ordinary comparison operator. We'll change that to
+        // `Token::TemplateArgsStart` later if appropriate.
+        let (token, rest) = consume_token(input, waiting_for_template_end, ignore_doc_comments);
+        let span = Span::from(source.len() - input.len()..source.len() - rest.len());
+        tokens.push(((token, span), rest));
+        input = rest;
+
+        // Since `consume_token` treats `<<=`, `<<` and `<=` as operators, not
+        // `Token::Paren`, that takes care of the WGSL algorithm's post-'<' lookahead
+        // for us.
+        match token {
+            Token::Word(_) => {
+                looking_for_template_start = true;
+                continue;
+            }
+            Token::Trivia | Token::DocComment(_) | Token::ModuleDocComment(_)
+                if looking_for_template_start =>
+            {
+                continue;
+            }
+            Token::Paren('<') if looking_for_template_start => {
+                pending.push(UnclosedCandidate {
+                    index: tokens.len() - 1,
+                    depth,
+                });
+            }
+            Token::TemplateArgsEnd => {
+                // The `consume_token` function only returns `TemplateArgsEnd`
+                // if `waiting_for_template_end` is true, so we know `pending`
+                // has a top entry at the appropriate depth.
+                //
+                // Find the matching `<` token and change its type to
+                // `TemplateArgsStart`.
+                let candidate = pending.pop().unwrap();
+                let &mut ((ref mut token, _), _) = tokens.get_mut(candidate.index).unwrap();
+                *token = Token::TemplateArgsStart;
+            }
+            Token::Paren('(' | '[') => {
+                depth += 1;
+            }
+            Token::Paren(')' | ']') => {
+                pop_until(&mut pending, depth);
+                depth = depth.saturating_sub(1);
+            }
+            Token::Operation('=') | Token::Separator(':' | ';') | Token::Paren('{') => {
+                pending.clear();
+                depth = 0;
+            }
+            Token::LogicalOperation('&') | Token::LogicalOperation('|') => {
+                pop_until(&mut pending, depth);
+            }
+            Token::End => break,
+            _ => {}
+        }
+
+        looking_for_template_start = false;
+
+        // The WGSL spec's template list discovery algorithm processes the
+        // entire source at once, but Naga would rather limit its lookahead to
+        // the actual text that could possibly be a template parameter list.
+        // This is usually less than a line.
+        if pending.is_empty() {
+            break;
+        }
+    }
+
+    tokens.reverse();
+}
+
 /// Return the token at the start of `input`.
 ///
-/// If `generic` is `false`, then the bit shift operators `>>` or `<<`
-/// are valid lookahead tokens for the current parser state (see [§3.1
-/// Parsing] in the WGSL specification). In other words:
+/// The `waiting_for_template_end` flag enables some special handling to help out
+/// `discover_template_lists`:
 ///
-/// -   If `generic` is `true`, then we are expecting an angle bracket
-///     around a generic type parameter, like the `<` and `>` in
-///     `vec3<f32>`, so interpret `<` and `>` as `Token::Paren` tokens,
-///     even if they're part of `<<` or `>>` sequences.
+/// - If `waiting_for_template_end` is `true`, then return text starting with
+///   '>` as [`Token::TemplateArgsEnd`] and consume only the `>` character,
+///   regardless of what characters follow it. This is required by the [template
+///   list discovery algorithm][tlda] when the `>` would end a template argument list.
 ///
-/// -   Otherwise, interpret `<<` and `>>` as shift operators:
-///     `Token::LogicalOperation` tokens.
+/// - If `waiting_for_template_end` is false, recognize multi-character tokens
+///   beginning with `>` as usual.
 ///
-/// [§3.1 Parsing]: https://gpuweb.github.io/gpuweb/wgsl/#parsing
-fn consume_token(input: &str, generic: bool) -> (Token<'_>, &str) {
+/// If `ignore_doc_comments` is true, then doc comments are returned as
+/// [`Token::Trivia`], like ordinary comments.
+///
+/// [tlda]: https://gpuweb.github.io/gpuweb/wgsl/#template-list-discovery
+fn consume_token(
+    input: &str,
+    waiting_for_template_end: bool,
+    ignore_doc_comments: bool,
+) -> (Token<'_>, &str) {
     let mut chars = input.chars();
     let cur = match chars.next() {
         Some(c) => c,
@@ -65,9 +277,12 @@ fn consume_token(input: &str, generic: bool) -> (Token<'_>, &str) {
         '(' | ')' | '{' | '}' | '[' | ']' => (Token::Paren(cur), chars.as_str()),
         '<' | '>' => {
             let og_chars = chars.as_str();
+            if cur == '>' && waiting_for_template_end {
+                return (Token::TemplateArgsEnd, og_chars);
+            }
             match chars.next() {
-                Some('=') if !generic => (Token::LogicalOperation(cur), chars.as_str()),
-                Some(c) if c == cur && !generic => {
+                Some('=') => (Token::LogicalOperation(cur), chars.as_str()),
+                Some(c) if c == cur => {
                     let og_chars = chars.as_str();
                     match chars.next() {
                         Some('=') => (Token::AssignmentOperation(cur), chars.as_str()),
@@ -82,12 +297,37 @@ fn consume_token(input: &str, generic: bool) -> (Token<'_>, &str) {
             let og_chars = chars.as_str();
             match chars.next() {
                 Some('/') => {
-                    let _ = chars.position(is_comment_end);
-                    (Token::Trivia, chars.as_str())
+                    let mut input_chars = input.char_indices();
+                    let doc_comment_end = input_chars
+                        .find_map(|(index, c)| is_comment_end(c).then_some(index))
+                        .unwrap_or(input.len());
+                    let token = match chars.next() {
+                        Some('/') if !ignore_doc_comments => {
+                            Token::DocComment(&input[..doc_comment_end])
+                        }
+                        Some('!') if !ignore_doc_comments => {
+                            Token::ModuleDocComment(&input[..doc_comment_end])
+                        }
+                        _ => Token::Trivia,
+                    };
+                    (token, input_chars.as_str())
                 }
                 Some('*') => {
+                    let next_c = chars.next();
+
+                    enum CommentType {
+                        Doc,
+                        ModuleDoc,
+                        Normal,
+                    }
+                    let comment_type = match next_c {
+                        Some('*') if !ignore_doc_comments => CommentType::Doc,
+                        Some('!') if !ignore_doc_comments => CommentType::ModuleDoc,
+                        _ => CommentType::Normal,
+                    };
+
                     let mut depth = 1;
-                    let mut prev = None;
+                    let mut prev = next_c;
 
                     for c in &mut chars {
                         match (prev, c) {
@@ -95,7 +335,19 @@ fn consume_token(input: &str, generic: bool) -> (Token<'_>, &str) {
                                 prev = None;
                                 depth -= 1;
                                 if depth == 0 {
-                                    return (Token::Trivia, chars.as_str());
+                                    let rest = chars.as_str();
+                                    let token = match comment_type {
+                                        CommentType::Doc => {
+                                            let doc_comment_end = input.len() - rest.len();
+                                            Token::DocComment(&input[..doc_comment_end])
+                                        }
+                                        CommentType::ModuleDoc => {
+                                            let doc_comment_end = input.len() - rest.len();
+                                            Token::ModuleDocComment(&input[..doc_comment_end])
+                                        }
+                                        CommentType::Normal => Token::Trivia,
+                                    };
+                                    return (token, rest);
                                 }
                             }
                             (Some('/'), '*') => {
@@ -168,6 +420,7 @@ fn consume_token(input: &str, generic: bool) -> (Token<'_>, &str) {
 
 /// Returns whether or not a char is a comment end
 /// (Unicode Pattern_White_Space excluding U+0020, U+0009, U+200E and U+200F)
+/// <https://www.w3.org/TR/WGSL/#line-break>
 const fn is_comment_end(c: char) -> bool {
     match c {
         '\u{000a}'..='\u{000d}' | '\u{0085}' | '\u{2028}' | '\u{2029}' => true,
@@ -199,7 +452,6 @@ fn is_word_part(c: char) -> bool {
     unicode_ident::is_xid_continue(c)
 }
 
-#[derive(Clone)]
 pub(in crate::front::wgsl) struct Lexer<'a> {
     /// The remaining unconsumed input.
     input: &'a str,
@@ -218,17 +470,54 @@ pub(in crate::front::wgsl) struct Lexer<'a> {
     /// statements.
     last_end_offset: usize,
 
-    #[allow(dead_code)]
+    /// A stack of unconsumed tokens to which template list discovery has been
+    /// applied.
+    ///
+    /// This is a stack: the next token is at the *end* of the vector, not the
+    /// start. So tokens appear here in the reverse of the order they appear in
+    /// the source.
+    ///
+    /// This doesn't contain the whole source, only those tokens produced by
+    /// [`discover_template_lists`]'s look-ahead, or that have been produced by
+    /// other look-ahead functions like `peek` and `next_if`. When this is empty,
+    /// we call [`discover_template_lists`] to get more.
+    tokens: Vec<(TokenSpan<'a>, &'a str)>,
+
+    /// Whether or not to ignore doc comments.
+    /// If `true`, doc comments are treated as [`Token::Trivia`].
+    ignore_doc_comments: bool,
+
+    /// The set of [enable-extensions] present in the module, determined in a pre-pass.
+    ///
+    /// [enable-extensions]: https://gpuweb.github.io/gpuweb/wgsl/#enable-extensions-sec
     pub(in crate::front::wgsl) enable_extensions: EnableExtensions,
 }
 
 impl<'a> Lexer<'a> {
-    pub(in crate::front::wgsl) const fn new(input: &'a str) -> Self {
+    pub(in crate::front::wgsl) const fn new(input: &'a str, ignore_doc_comments: bool) -> Self {
         Lexer {
             input,
             source: input,
             last_end_offset: 0,
+            tokens: Vec::new(),
             enable_extensions: EnableExtensions::empty(),
+            ignore_doc_comments,
+        }
+    }
+
+    /// Check that `extension` is enabled in `self`.
+    pub(in crate::front::wgsl) fn require_enable_extension(
+        &self,
+        extension: ImplementedEnableExtension,
+        span: Span,
+    ) -> Result<'static, ()> {
+        if self.enable_extensions.contains(extension) {
+            Ok(())
+        } else {
+            Err(Box::new(Error::EnableExtensionNotEnabled {
+                kind: extension.into(),
+                span,
+            }))
         }
     }
 
@@ -243,8 +532,8 @@ impl<'a> Lexer<'a> {
     #[inline]
     pub fn capture_span<T, E>(
         &mut self,
-        inner: impl FnOnce(&mut Self) -> Result<T, E>,
-    ) -> Result<(T, Span), E> {
+        inner: impl FnOnce(&mut Self) -> core::result::Result<T, E>,
+    ) -> core::result::Result<(T, Span), E> {
         let start = self.current_byte_offset();
         let res = inner(self)?;
         let end = self.current_byte_offset();
@@ -254,7 +543,7 @@ impl<'a> Lexer<'a> {
     pub(in crate::front::wgsl) fn start_byte_offset(&mut self) -> usize {
         loop {
             // Eat all trivia because `next` doesn't eat trailing trivia.
-            let (token, rest) = consume_token(self.input, false);
+            let (token, rest) = consume_token(self.input, false, true);
             if let Token::Trivia = token {
                 self.input = rest;
             } else {
@@ -263,11 +552,38 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn peek_token_and_rest(&mut self) -> (TokenSpan<'a>, &'a str) {
-        let mut cloned = self.clone();
-        let token = cloned.next();
-        let rest = cloned.input;
-        (token, rest)
+    /// Collect all module doc comments until a non doc token is found.
+    pub(in crate::front::wgsl) fn accumulate_module_doc_comments(&mut self) -> Vec<&'a str> {
+        let mut doc_comments = Vec::new();
+        loop {
+            // ignore blankspace
+            self.input = consume_any(self.input, is_blankspace).1;
+
+            let (token, rest) = consume_token(self.input, false, self.ignore_doc_comments);
+            if let Token::ModuleDocComment(doc_comment) = token {
+                self.input = rest;
+                doc_comments.push(doc_comment);
+            } else {
+                return doc_comments;
+            }
+        }
+    }
+
+    /// Collect all doc comments until a non doc token is found.
+    pub(in crate::front::wgsl) fn accumulate_doc_comments(&mut self) -> Vec<&'a str> {
+        let mut doc_comments = Vec::new();
+        loop {
+            // ignore blankspace
+            self.input = consume_any(self.input, is_blankspace).1;
+
+            let (token, rest) = consume_token(self.input, false, self.ignore_doc_comments);
+            if let Token::DocComment(doc_comment) = token {
+                self.input = rest;
+                doc_comments.push(doc_comment);
+            } else {
+                return doc_comments;
+            }
+        }
     }
 
     const fn current_byte_offset(&self) -> usize {
@@ -277,6 +593,9 @@ impl<'a> Lexer<'a> {
     pub(in crate::front::wgsl) fn span_from(&self, offset: usize) -> Span {
         Span::from(offset..self.last_end_offset)
     }
+    pub(in crate::front::wgsl) fn span_with_start(&self, span: Span) -> Span {
+        span.until(&Span::from(0..self.last_end_offset))
+    }
 
     /// Return the next non-whitespace token from `self`.
     ///
@@ -284,201 +603,117 @@ impl<'a> Lexer<'a> {
     /// occur, but not angle brackets.
     #[must_use]
     pub(in crate::front::wgsl) fn next(&mut self) -> TokenSpan<'a> {
-        self.next_impl(false)
-    }
-
-    /// Return the next non-whitespace token from `self`.
-    ///
-    /// Assume we are in a parse state where angle brackets may occur,
-    /// but not bit shift operators.
-    #[must_use]
-    pub(in crate::front::wgsl) fn next_generic(&mut self) -> TokenSpan<'a> {
         self.next_impl(true)
     }
 
+    #[cfg(test)]
+    pub fn next_with_unignored_doc_comments(&mut self) -> TokenSpan<'a> {
+        self.next_impl(false)
+    }
+
     /// Return the next non-whitespace token from `self`, with a span.
-    ///
-    /// See [`consume_token`] for the meaning of `generic`.
-    fn next_impl(&mut self, generic: bool) -> TokenSpan<'a> {
-        let mut start_byte_offset = self.current_byte_offset();
+    fn next_impl(&mut self, ignore_doc_comments: bool) -> TokenSpan<'a> {
         loop {
-            let (token, rest) = consume_token(self.input, generic);
+            if self.tokens.is_empty() {
+                discover_template_lists(
+                    &mut self.tokens,
+                    self.source,
+                    self.input,
+                    ignore_doc_comments || self.ignore_doc_comments,
+                );
+            }
+            assert!(!self.tokens.is_empty());
+            let (token, rest) = self.tokens.pop().unwrap();
+
             self.input = rest;
-            match token {
-                Token::Trivia => start_byte_offset = self.current_byte_offset(),
-                _ => {
-                    self.last_end_offset = self.current_byte_offset();
-                    return (token, self.span_from(start_byte_offset));
-                }
+            self.last_end_offset = self.current_byte_offset();
+
+            match token.0 {
+                Token::Trivia => {}
+                _ => return token,
             }
         }
     }
 
     #[must_use]
     pub(in crate::front::wgsl) fn peek(&mut self) -> TokenSpan<'a> {
-        let (token, _) = self.peek_token_and_rest();
+        let input = self.input;
+        let last_end_offset = self.last_end_offset;
+        let token = self.next();
+        self.tokens.push((token, self.input));
+        self.input = input;
+        self.last_end_offset = last_end_offset;
         token
     }
 
-    pub(in crate::front::wgsl) fn expect_span(
-        &mut self,
-        expected: Token<'a>,
-    ) -> Result<Span, Error<'a>> {
-        let next = self.next();
-        if next.0 == expected {
-            Ok(next.1)
-        } else {
-            Err(Error::Unexpected(next.1, ExpectedToken::Token(expected)))
-        }
-    }
-
-    pub(in crate::front::wgsl) fn expect(&mut self, expected: Token<'a>) -> Result<(), Error<'a>> {
-        self.expect_span(expected)?;
-        Ok(())
-    }
-
-    pub(in crate::front::wgsl) fn expect_generic_paren(
-        &mut self,
-        expected: char,
-    ) -> Result<(), Error<'a>> {
-        let next = self.next_generic();
-        if next.0 == Token::Paren(expected) {
-            Ok(())
-        } else {
-            Err(Error::Unexpected(
-                next.1,
-                ExpectedToken::Token(Token::Paren(expected)),
-            ))
-        }
-    }
-
-    pub(in crate::front::wgsl) fn end_of_generic_arguments(&mut self) -> bool {
-        self.skip(Token::Separator(',')) && self.peek().0 != Token::Paren('>')
-    }
-
-    /// If the next token matches it is skipped and true is returned
-    pub(in crate::front::wgsl) fn skip(&mut self, what: Token<'_>) -> bool {
-        let (peeked_token, rest) = self.peek_token_and_rest();
-        if peeked_token.0 == what {
-            self.input = rest;
+    /// If the next token matches it's consumed and true is returned
+    pub(in crate::front::wgsl) fn next_if(&mut self, what: Token<'_>) -> bool {
+        let input = self.input;
+        let last_end_offset = self.last_end_offset;
+        let token = self.next();
+        if token.0 == what {
             true
         } else {
+            self.tokens.push((token, self.input));
+            self.input = input;
+            self.last_end_offset = last_end_offset;
             false
         }
     }
 
-    pub(in crate::front::wgsl) fn next_ident_with_span(
-        &mut self,
-    ) -> Result<(&'a str, Span), Error<'a>> {
+    pub(in crate::front::wgsl) fn expect_span(&mut self, expected: Token<'a>) -> Result<'a, Span> {
+        let next = self.next();
+        if next.0 == expected {
+            Ok(next.1)
+        } else {
+            Err(Box::new(Error::Unexpected(
+                next.1,
+                ExpectedToken::Token(expected),
+            )))
+        }
+    }
+
+    pub(in crate::front::wgsl) fn expect(&mut self, expected: Token<'a>) -> Result<'a, ()> {
+        self.expect_span(expected)?;
+        Ok(())
+    }
+
+    pub(in crate::front::wgsl) fn next_ident_with_span(&mut self) -> Result<'a, (&'a str, Span)> {
         match self.next() {
-            (Token::Word(word), span) => Self::word_as_ident_with_span(word, span),
-            other => Err(Error::Unexpected(other.1, ExpectedToken::Identifier)),
+            (Token::Word("_"), span) => Err(Box::new(Error::InvalidIdentifierUnderscore(span))),
+            (Token::Word(word), span) => {
+                if word.starts_with("__") {
+                    Err(Box::new(Error::ReservedIdentifierPrefix(span)))
+                } else {
+                    Ok((word, span))
+                }
+            }
+            (_, span) => Err(Box::new(Error::Unexpected(span, ExpectedToken::Identifier))),
         }
     }
 
-    pub(in crate::front::wgsl) fn peek_ident_with_span(
-        &mut self,
-    ) -> Result<(&'a str, Span), Error<'a>> {
-        match self.peek() {
-            (Token::Word(word), span) => Self::word_as_ident_with_span(word, span),
-            other => Err(Error::Unexpected(other.1, ExpectedToken::Identifier)),
-        }
-    }
-
-    fn word_as_ident_with_span(word: &'a str, span: Span) -> Result<(&'a str, Span), Error<'a>> {
-        match word {
-            "_" => Err(Error::InvalidIdentifierUnderscore(span)),
-            word if word.starts_with("__") => Err(Error::ReservedIdentifierPrefix(span)),
-            word => Ok((word, span)),
-        }
-    }
-
-    pub(in crate::front::wgsl) fn next_ident(
-        &mut self,
-    ) -> Result<super::ast::Ident<'a>, Error<'a>> {
+    pub(in crate::front::wgsl) fn next_ident(&mut self) -> Result<'a, super::ast::Ident<'a>> {
         self.next_ident_with_span()
             .and_then(|(word, span)| Self::word_as_ident(word, span))
             .map(|(name, span)| super::ast::Ident { name, span })
     }
 
-    fn word_as_ident(word: &'a str, span: Span) -> Result<(&'a str, Span), Error<'a>> {
+    fn word_as_ident(word: &'a str, span: Span) -> Result<'a, (&'a str, Span)> {
         if crate::keywords::wgsl::RESERVED.contains(&word) {
-            Err(Error::ReservedKeyword(span))
+            Err(Box::new(Error::ReservedKeyword(span)))
         } else {
             Ok((word, span))
         }
     }
 
-    /// Parses a generic scalar type, for example `<f32>`.
-    pub(in crate::front::wgsl) fn next_scalar_generic(&mut self) -> Result<Scalar, Error<'a>> {
-        self.expect_generic_paren('<')?;
-        let pair = match self.next() {
-            (Token::Word(word), span) => {
-                conv::get_scalar_type(word).ok_or(Error::UnknownScalarType(span))
-            }
-            (_, span) => Err(Error::UnknownScalarType(span)),
-        }?;
-        self.expect_generic_paren('>')?;
-        Ok(pair)
-    }
-
-    /// Parses a generic scalar type, for example `<f32>`.
-    ///
-    /// Returns the span covering the inner type, excluding the brackets.
-    pub(in crate::front::wgsl) fn next_scalar_generic_with_span(
-        &mut self,
-    ) -> Result<(Scalar, Span), Error<'a>> {
-        self.expect_generic_paren('<')?;
-        let pair = match self.next() {
-            (Token::Word(word), span) => conv::get_scalar_type(word)
-                .map(|scalar| (scalar, span))
-                .ok_or(Error::UnknownScalarType(span)),
-            (_, span) => Err(Error::UnknownScalarType(span)),
-        }?;
-        self.expect_generic_paren('>')?;
-        Ok(pair)
-    }
-
-    pub(in crate::front::wgsl) fn next_storage_access(
-        &mut self,
-    ) -> Result<crate::StorageAccess, Error<'a>> {
-        let (ident, span) = self.next_ident_with_span()?;
-        match ident {
-            "read" => Ok(crate::StorageAccess::LOAD),
-            "write" => Ok(crate::StorageAccess::STORE),
-            "read_write" => Ok(crate::StorageAccess::LOAD | crate::StorageAccess::STORE),
-            "atomic" => Ok(crate::StorageAccess::ATOMIC
-                | crate::StorageAccess::LOAD
-                | crate::StorageAccess::STORE),
-            _ => Err(Error::UnknownAccess(span)),
-        }
-    }
-
-    pub(in crate::front::wgsl) fn next_format_generic(
-        &mut self,
-    ) -> Result<(crate::StorageFormat, crate::StorageAccess), Error<'a>> {
-        self.expect(Token::Paren('<'))?;
-        let (ident, ident_span) = self.next_ident_with_span()?;
-        let format = conv::map_storage_format(ident, ident_span)?;
-        self.expect(Token::Separator(','))?;
-        let access = self.next_storage_access()?;
-        self.expect(Token::Paren('>'))?;
-        Ok((format, access))
-    }
-
-    pub(in crate::front::wgsl) fn open_arguments(&mut self) -> Result<(), Error<'a>> {
+    pub(in crate::front::wgsl) fn open_arguments(&mut self) -> Result<'a, ()> {
         self.expect(Token::Paren('('))
     }
 
-    pub(in crate::front::wgsl) fn close_arguments(&mut self) -> Result<(), Error<'a>> {
-        let _ = self.skip(Token::Separator(','));
-        self.expect(Token::Paren(')'))
-    }
-
-    pub(in crate::front::wgsl) fn next_argument(&mut self) -> Result<bool, Error<'a>> {
+    pub(in crate::front::wgsl) fn next_argument(&mut self) -> Result<'a, bool> {
         let paren = Token::Paren(')');
-        if self.skip(Token::Separator(',')) {
-            Ok(!self.skip(paren))
+        if self.next_if(Token::Separator(',')) {
+            Ok(!self.next_if(paren))
         } else {
             self.expect(paren).map(|()| false)
         }
@@ -488,15 +723,38 @@ impl<'a> Lexer<'a> {
 #[cfg(test)]
 #[track_caller]
 fn sub_test(source: &str, expected_tokens: &[Token]) {
-    let mut lex = Lexer::new(source);
+    sub_test_with(true, source, expected_tokens);
+}
+
+#[cfg(test)]
+#[track_caller]
+fn sub_test_with_and_without_doc_comments(source: &str, expected_tokens: &[Token]) {
+    sub_test_with(false, source, expected_tokens);
+    sub_test_with(
+        true,
+        source,
+        expected_tokens
+            .iter()
+            .filter(|v| !matches!(**v, Token::DocComment(_) | Token::ModuleDocComment(_)))
+            .cloned()
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
+}
+
+#[cfg(test)]
+#[track_caller]
+fn sub_test_with(ignore_doc_comments: bool, source: &str, expected_tokens: &[Token]) {
+    let mut lex = Lexer::new(source, ignore_doc_comments);
     for &token in expected_tokens {
-        assert_eq!(lex.next().0, token);
+        assert_eq!(lex.next_with_unignored_doc_comments().0, token);
     }
     assert_eq!(lex.next().0, Token::End);
 }
 
 #[test]
 fn test_numbers() {
+    use half::f16;
     // WGSL spec examples //
 
     // decimal integer
@@ -521,14 +779,16 @@ fn test_numbers() {
             Token::Number(Ok(Number::AbstractFloat(0.01))),
             Token::Number(Ok(Number::AbstractFloat(12.34))),
             Token::Number(Ok(Number::F32(0.))),
-            Token::Number(Err(NumberError::UnimplementedF16)),
+            Token::Number(Ok(Number::F16(f16::from_f32(0.)))),
             Token::Number(Ok(Number::AbstractFloat(0.001))),
             Token::Number(Ok(Number::AbstractFloat(43.75))),
             Token::Number(Ok(Number::F32(16.))),
             Token::Number(Ok(Number::AbstractFloat(0.1875))),
-            Token::Number(Err(NumberError::UnimplementedF16)),
+            // https://github.com/gfx-rs/wgpu/issues/7046
+            Token::Number(Err(NumberError::NotRepresentable)), // Should be 0.75
             Token::Number(Ok(Number::AbstractFloat(0.12109375))),
-            Token::Number(Err(NumberError::UnimplementedF16)),
+            // https://github.com/gfx-rs/wgpu/issues/7046
+            Token::Number(Err(NumberError::NotRepresentable)), // Should be 12.5
         ],
     );
 
@@ -706,11 +966,13 @@ fn test_tokens() {
     sub_test("No¾", &[Token::Word("No"), Token::Unknown('¾')]);
     sub_test("No好", &[Token::Word("No好")]);
     sub_test("_No", &[Token::Word("_No")]);
-    sub_test(
+
+    sub_test_with_and_without_doc_comments(
         "*/*/***/*//=/*****//",
         &[
             Token::Operation('*'),
             Token::AssignmentOperation('/'),
+            Token::DocComment("/*****/"),
             Token::Operation('/'),
         ],
     );
@@ -745,15 +1007,15 @@ fn test_variable_decl() {
             Token::Number(Ok(Number::AbstractInt(0))),
             Token::Paren(')'),
             Token::Word("var"),
-            Token::Paren('<'),
+            Token::TemplateArgsStart,
             Token::Word("uniform"),
-            Token::Paren('>'),
+            Token::TemplateArgsEnd,
             Token::Word("texture"),
             Token::Separator(':'),
             Token::Word("texture_multisampled_2d"),
-            Token::Paren('<'),
+            Token::TemplateArgsStart,
             Token::Word("f32"),
-            Token::Paren('>'),
+            Token::TemplateArgsEnd,
             Token::Separator(';'),
         ],
     );
@@ -761,18 +1023,250 @@ fn test_variable_decl() {
         "var<storage,read_write> buffer: array<u32>;",
         &[
             Token::Word("var"),
-            Token::Paren('<'),
+            Token::TemplateArgsStart,
             Token::Word("storage"),
             Token::Separator(','),
             Token::Word("read_write"),
-            Token::Paren('>'),
+            Token::TemplateArgsEnd,
             Token::Word("buffer"),
             Token::Separator(':'),
             Token::Word("array"),
-            Token::Paren('<'),
+            Token::TemplateArgsStart,
             Token::Word("u32"),
-            Token::Paren('>'),
+            Token::TemplateArgsEnd,
             Token::Separator(';'),
+        ],
+    );
+}
+
+#[test]
+fn test_template_list() {
+    sub_test(
+        "A<B||C>D",
+        &[
+            Token::Word("A"),
+            Token::Paren('<'),
+            Token::Word("B"),
+            Token::LogicalOperation('|'),
+            Token::Word("C"),
+            Token::Paren('>'),
+            Token::Word("D"),
+        ],
+    );
+    sub_test(
+        "A(B<C,D>(E))",
+        &[
+            Token::Word("A"),
+            Token::Paren('('),
+            Token::Word("B"),
+            Token::TemplateArgsStart,
+            Token::Word("C"),
+            Token::Separator(','),
+            Token::Word("D"),
+            Token::TemplateArgsEnd,
+            Token::Paren('('),
+            Token::Word("E"),
+            Token::Paren(')'),
+            Token::Paren(')'),
+        ],
+    );
+    sub_test(
+        "array<i32,select(2,3,A>B)>",
+        &[
+            Token::Word("array"),
+            Token::TemplateArgsStart,
+            Token::Word("i32"),
+            Token::Separator(','),
+            Token::Word("select"),
+            Token::Paren('('),
+            Token::Number(Ok(Number::AbstractInt(2))),
+            Token::Separator(','),
+            Token::Number(Ok(Number::AbstractInt(3))),
+            Token::Separator(','),
+            Token::Word("A"),
+            Token::Paren('>'),
+            Token::Word("B"),
+            Token::Paren(')'),
+            Token::TemplateArgsEnd,
+        ],
+    );
+    sub_test(
+        "A[B<C]>D",
+        &[
+            Token::Word("A"),
+            Token::Paren('['),
+            Token::Word("B"),
+            Token::Paren('<'),
+            Token::Word("C"),
+            Token::Paren(']'),
+            Token::Paren('>'),
+            Token::Word("D"),
+        ],
+    );
+    sub_test(
+        "A<B<<C>",
+        &[
+            Token::Word("A"),
+            Token::TemplateArgsStart,
+            Token::Word("B"),
+            Token::ShiftOperation('<'),
+            Token::Word("C"),
+            Token::TemplateArgsEnd,
+        ],
+    );
+    sub_test(
+        "A<(B>=C)>",
+        &[
+            Token::Word("A"),
+            Token::TemplateArgsStart,
+            Token::Paren('('),
+            Token::Word("B"),
+            Token::LogicalOperation('>'),
+            Token::Word("C"),
+            Token::Paren(')'),
+            Token::TemplateArgsEnd,
+        ],
+    );
+    sub_test(
+        "A<B>=C>",
+        &[
+            Token::Word("A"),
+            Token::TemplateArgsStart,
+            Token::Word("B"),
+            Token::TemplateArgsEnd,
+            Token::Operation('='),
+            Token::Word("C"),
+            Token::Paren('>'),
+        ],
+    );
+}
+
+#[test]
+fn test_comments() {
+    sub_test("// Single comment", &[]);
+
+    sub_test(
+        "/* multi
+    line
+    comment */",
+        &[],
+    );
+    sub_test(
+        "/* multi
+    line
+    comment */
+    // and another",
+        &[],
+    );
+}
+
+#[test]
+fn test_doc_comments() {
+    sub_test_with_and_without_doc_comments(
+        "/// Single comment",
+        &[Token::DocComment("/// Single comment")],
+    );
+
+    sub_test_with_and_without_doc_comments(
+        "/** multi
+    line
+    comment */",
+        &[Token::DocComment(
+            "/** multi
+    line
+    comment */",
+        )],
+    );
+    sub_test_with_and_without_doc_comments(
+        "/** multi
+    line
+    comment */
+    /// and another",
+        &[
+            Token::DocComment(
+                "/** multi
+    line
+    comment */",
+            ),
+            Token::DocComment("/// and another"),
+        ],
+    );
+}
+
+#[test]
+fn test_doc_comment_nested() {
+    sub_test_with_and_without_doc_comments(
+        "/**
+    a comment with nested one /**
+        nested comment
+    */
+    */
+    const a : i32 = 2;",
+        &[
+            Token::DocComment(
+                "/**
+    a comment with nested one /**
+        nested comment
+    */
+    */",
+            ),
+            Token::Word("const"),
+            Token::Word("a"),
+            Token::Separator(':'),
+            Token::Word("i32"),
+            Token::Operation('='),
+            Token::Number(Ok(Number::AbstractInt(2))),
+            Token::Separator(';'),
+        ],
+    );
+}
+
+#[test]
+fn test_doc_comment_long_character() {
+    sub_test_with_and_without_doc_comments(
+        "/// π/2
+        ///     D(𝐡) = ───────────────────────────────────────────────────
+///            παₜα_b((𝐡 ⋅ 𝐭)² / αₜ²) + (𝐡 ⋅ 𝐛)² / α_b² +`
+    const a : i32 = 2;",
+        &[
+            Token::DocComment("/// π/2"),
+            Token::DocComment("///     D(𝐡) = ───────────────────────────────────────────────────"),
+            Token::DocComment("///            παₜα_b((𝐡 ⋅ 𝐭)² / αₜ²) + (𝐡 ⋅ 𝐛)² / α_b² +`"),
+            Token::Word("const"),
+            Token::Word("a"),
+            Token::Separator(':'),
+            Token::Word("i32"),
+            Token::Operation('='),
+            Token::Number(Ok(Number::AbstractInt(2))),
+            Token::Separator(';'),
+        ],
+    );
+}
+
+#[test]
+fn test_doc_comments_module() {
+    sub_test_with_and_without_doc_comments(
+        "//! Comment Module
+        //! Another one.
+        /*! Different module comment */
+        /// Trying to break module comment
+        // Trying to break module comment again
+        //! After a regular comment is ok.
+        /*! Different module comment again */
+
+        //! After a break is supported.
+        const
+        //! After anything else is not.",
+        &[
+            Token::ModuleDocComment("//! Comment Module"),
+            Token::ModuleDocComment("//! Another one."),
+            Token::ModuleDocComment("/*! Different module comment */"),
+            Token::DocComment("/// Trying to break module comment"),
+            Token::ModuleDocComment("//! After a regular comment is ok."),
+            Token::ModuleDocComment("/*! Different module comment again */"),
+            Token::ModuleDocComment("//! After a break is supported."),
+            Token::Word("const"),
+            Token::ModuleDocComment("//! After anything else is not."),
         ],
     );
 }

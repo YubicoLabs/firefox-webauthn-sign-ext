@@ -1,5 +1,4 @@
 #!/usr/bin/python3 -u
-# -*- coding: utf-8 -*-
 
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -135,7 +134,7 @@ def fetch_chromedriver(platform, revision, chromium_dir):
     cd_path = None
     for dirpath, _, filenames in os.walk(tmppath):
         for filename in filenames:
-            if filename == "chromedriver" or filename == "chromedriver.exe":
+            if filename in {"chromedriver", "chromedriver.exe"}:
                 cd_path = os.path.join(dirpath, filename)
                 break
         if cd_path is not None:

@@ -6,22 +6,18 @@
 
 // Congestion control
 
-#![allow(clippy::module_name_repetitions)]
+use std::time::{Duration, Instant};
 
-use std::{
-    fmt::{self, Display},
-    time::{Duration, Instant},
-};
-
-use neqo_common::{qdebug, qlog::NeqoQlog};
+use neqo_common::{qdebug, qlog::Qlog};
 
 use crate::{
     cc::{ClassicCongestionControl, CongestionControl, CongestionControlAlgorithm, Cubic, NewReno},
     pace::Pacer,
     pmtud::Pmtud,
-    recovery::SentPacket,
+    recovery::sent,
     rtt::RttEstimate,
-    Stats,
+    stats::CongestionControlStats,
+    ConnectionParameters, Stats,
 };
 
 /// The number of packets we allow to burst from the pacer.
@@ -33,23 +29,12 @@ pub struct PacketSender {
     pacer: Pacer,
 }
 
-impl Display for PacketSender {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.cc, self.pacer)
-    }
-}
-
 impl PacketSender {
     #[must_use]
-    pub fn new(
-        alg: CongestionControlAlgorithm,
-        pacing_enabled: bool,
-        pmtud: Pmtud,
-        now: Instant,
-    ) -> Self {
+    pub fn new(conn_params: &ConnectionParameters, pmtud: Pmtud, now: Instant) -> Self {
         let mtu = pmtud.plpmtu();
         Self {
-            cc: match alg {
+            cc: match conn_params.get_cc_algorithm() {
                 CongestionControlAlgorithm::NewReno => {
                     Box::new(ClassicCongestionControl::new(NewReno::default(), pmtud))
                 }
@@ -57,11 +42,16 @@ impl PacketSender {
                     Box::new(ClassicCongestionControl::new(Cubic::default(), pmtud))
                 }
             },
-            pacer: Pacer::new(pacing_enabled, now, mtu * PACING_BURST_SIZE, mtu),
+            pacer: Pacer::new(
+                conn_params.pacing_enabled(),
+                now,
+                mtu * PACING_BURST_SIZE,
+                mtu,
+            ),
         }
     }
 
-    pub fn set_qlog(&mut self, qlog: NeqoQlog) {
+    pub fn set_qlog(&mut self, qlog: Qlog) {
         self.cc.set_qlog(qlog);
     }
 
@@ -102,12 +92,13 @@ impl PacketSender {
 
     pub fn on_packets_acked(
         &mut self,
-        acked_pkts: &[SentPacket],
+        acked_pkts: &[sent::Packet],
         rtt_est: &RttEstimate,
         now: Instant,
         stats: &mut Stats,
     ) {
-        self.cc.on_packets_acked(acked_pkts, rtt_est, now);
+        self.cc
+            .on_packets_acked(acked_pkts, rtt_est, now, &mut stats.cc);
         self.pmtud_mut().on_packets_acked(acked_pkts, now, stats);
         self.maybe_update_pacer_mtu();
     }
@@ -118,7 +109,7 @@ impl PacketSender {
         first_rtt_sample_time: Option<Instant>,
         prev_largest_acked_sent: Option<Instant>,
         pto: Duration,
-        lost_packets: &[SentPacket],
+        lost_packets: &[sent::Packet],
         stats: &mut Stats,
         now: Instant,
     ) -> bool {
@@ -128,6 +119,7 @@ impl PacketSender {
             pto,
             lost_packets,
             now,
+            &mut stats.cc,
         );
         // Call below may change the size of MTU probes, so it needs to happen after the CC
         // reaction above, which needs to ignore probes based on their size.
@@ -137,11 +129,16 @@ impl PacketSender {
     }
 
     /// Called when ECN CE mark received.  Returns true if the congestion window was reduced.
-    pub fn on_ecn_ce_received(&mut self, largest_acked_pkt: &SentPacket, now: Instant) -> bool {
-        self.cc.on_ecn_ce_received(largest_acked_pkt, now)
+    pub fn on_ecn_ce_received(
+        &mut self,
+        largest_acked_pkt: &sent::Packet,
+        now: Instant,
+        cc_stats: &mut CongestionControlStats,
+    ) -> bool {
+        self.cc.on_ecn_ce_received(largest_acked_pkt, now, cc_stats)
     }
 
-    pub fn discard(&mut self, pkt: &SentPacket, now: Instant) {
+    pub fn discard(&mut self, pkt: &sent::Packet, now: Instant) {
         self.cc.discard(pkt, now);
     }
 
@@ -151,7 +148,7 @@ impl PacketSender {
         self.cc.discard_in_flight(now);
     }
 
-    pub fn on_packet_sent(&mut self, pkt: &SentPacket, rtt: Duration, now: Instant) {
+    pub fn on_packet_sent(&mut self, pkt: &sent::Packet, rtt: Duration, now: Instant) {
         self.pacer
             .spend(pkt.time_sent(), rtt, self.cc.cwnd(), pkt.len());
         self.cc.on_packet_sent(pkt, now);

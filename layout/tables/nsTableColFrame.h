@@ -2,16 +2,15 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-#ifndef nsTableColFrame_h__
-#define nsTableColFrame_h__
+#ifndef nsTableColFrame_h_
+#define nsTableColFrame_h_
 
-#include "mozilla/Attributes.h"
 #include "celldata.h"
-#include "nscore.h"
+#include "mozilla/WritingModes.h"
 #include "nsContainerFrame.h"
 #include "nsTArray.h"
 #include "nsTableColGroupFrame.h"
-#include "mozilla/WritingModes.h"
+#include "nscore.h"
 
 namespace mozilla {
 class PresShell;

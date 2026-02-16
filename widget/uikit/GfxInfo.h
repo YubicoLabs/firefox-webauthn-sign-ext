@@ -5,14 +5,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __mozilla_widget_GfxInfo_h__
-#define __mozilla_widget_GfxInfo_h__
+#ifndef _mozilla_widget_GfxInfo_h_
+#define _mozilla_widget_GfxInfo_h_
 
 #include "GfxInfoBase.h"
 #include "GfxDriverInfo.h"
 
 #include "nsString.h"
-#include "mozilla/UniquePtr.h"
 
 namespace mozilla {
 
@@ -33,7 +32,6 @@ class GfxInfo : public GfxInfoBase {
 
   // We only declare the subset of nsIGfxInfo that we actually implement. The
   // rest is brought forward from GfxInfoBase.
-  NS_IMETHOD GetD2DEnabled(bool* aD2DEnabled) override;
   NS_IMETHOD GetDWriteEnabled(bool* aDWriteEnabled) override;
   NS_IMETHOD GetEmbeddedInFirefoxReality(
       bool* aEmbeddedInFirefoxReality) override;
@@ -68,19 +66,24 @@ class GfxInfo : public GfxInfoBase {
 
 #ifdef DEBUG
   NS_DECL_ISUPPORTS_INHERITED
-  NS_DECL_NSIGFXINFODEBUG
+
+  NS_IMETHOD SpoofVendorID(const nsAString& aVendorID) override;
+  NS_IMETHOD SpoofDeviceID(const nsAString& aDeviceID) override;
+  NS_IMETHOD SpoofDriverVersion(const nsAString& aDriverVersion) override;
+  NS_IMETHOD SpoofOSVersion(uint32_t aVersion) override;
+  NS_IMETHOD SpoofOSVersionEx(uint32_t aMajor, uint32_t aMinor, uint32_t aBuild,
+                              uint32_t aRevision) override;
 #endif
 
  protected:
-  nsresult GetFeatureStatusImpl(int32_t aFeature, int32_t* aStatus,
-                                nsAString& aSuggestedDriverVersion,
-                                const nsTArray<GfxDriverInfo>& aDriverInfo,
-                                nsACString& aFailureId,
-                                OperatingSystem* aOS = nullptr) override;
-  const nsTArray<GfxDriverInfo>& GetGfxDriverInfo() override;
+  nsresult GetFeatureStatusImpl(
+      int32_t aFeature, int32_t* aStatus, nsAString& aSuggestedDriverVersion,
+      const nsTArray<RefPtr<GfxDriverInfo>>& aDriverInfo,
+      nsACString& aFailureId, OperatingSystem* aOS = nullptr) override;
+  const nsTArray<RefPtr<GfxDriverInfo>>& GetGfxDriverInfo() override;
 };
 
 }  // namespace widget
 }  // namespace mozilla
 
-#endif /* __mozilla_widget_GfxInfo_h__ */
+#endif /* _mozilla_widget_GfxInfo_h_ */

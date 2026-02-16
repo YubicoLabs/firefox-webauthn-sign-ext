@@ -5,20 +5,20 @@
 package org.mozilla.fenix.intent
 
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import junit.framework.TestCase
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.BuildConfig
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
+import org.robolectric.RobolectricTestRunner
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class ExternalDeepLinkIntentProcessorTest : TestCase() {
 
     @Test
     fun `GIVEN a deeplink intent WHEN processing the intent THEN add the extra flags`() {
         val processor = ExternalDeepLinkIntentProcessor()
-        val uri = Uri.parse(BuildConfig.DEEP_LINK_SCHEME + "://settings_wallpapers")
+        val uri = "${BuildConfig.DEEP_LINK_SCHEME}://settings_wallpapers".toUri()
         val intent = Intent("", uri)
 
         val result = processor.process(intent)

@@ -1,52 +1,66 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
-const { ExperimentAPI } = ChromeUtils.importESModule(
-  "resource://nimbus/ExperimentAPI.sys.mjs"
-);
 const { FirefoxLabs } = ChromeUtils.importESModule(
   "resource://nimbus/FirefoxLabs.sys.mjs"
 );
 
-add_setup(function () {
-  do_get_profile();
-});
-
-function setupTest({ recipes }) {
-  const sandbox = sinon.createSandbox();
-  const loader = ExperimentFakes.rsLoader();
-  const manager = loader.manager;
-
-  sandbox.stub(ExperimentAPI, "_manager").get(() => manager);
-  sandbox.stub(ExperimentAPI, "_rsLoader").get(() => loader);
-
-  if (Array.isArray(recipes)) {
-    sandbox
-      .stub(loader.remoteSettingsClients.experiments, "get")
-      .resolves(recipes);
-  }
-
-  return {
-    sandbox,
-    loader,
-    manager,
-    async cleanup() {
-      await assertEmptyStore(manager.store);
-
-      ExperimentAPI._resetForTests();
-      sandbox.restore();
-    },
-  };
+function setupTest({ ...ctx }) {
+  return NimbusTestUtils.setupTest({ ...ctx, clearTelemetry: true });
 }
 
+add_setup(function () {
+  Services.fog.initializeFOG();
+});
+
 add_task(async function test_all() {
-  const { sandbox, manager, cleanup } = setupTest({
-    recipes: [
-      ExperimentFakes.recipe("opt-in-rollout", {
-        bucketConfig: {
-          ...ExperimentFakes.recipe.bucketConfig,
-          count: 1000,
-        },
+  // This recipe conflicts with `feature-conflict`, defined below.
+  const preexisting = NimbusTestUtils.factories.recipe.withFeatureConfig(
+    "preexisting-rollout",
+    { featureId: "nimbus-qa-1" },
+    { isRollout: true }
+  );
+
+  const alreadyEnrolled = NimbusTestUtils.factories.recipe.withFeatureConfig(
+    "already-enrolled-opt-in",
+    { featureId: "nimbus-qa-2" },
+    {
+      isRollout: true,
+      isFirefoxLabsOptIn: true,
+      firefoxLabsTitle: "title",
+      firefoxLabsDescription: "description",
+      firefoxLabsDescriptionLinks: null,
+      firefoxLabsGroup: "group",
+      requiresRestart: false,
+    }
+  );
+
+  const preexistingPaused = NimbusTestUtils.factories.recipe.withFeatureConfig(
+    "preexisting-paused",
+    { featureId: "no-feature-firefox-desktop" },
+    {
+      isRollout: true,
+      isEnrollmentPaused: true,
+      isFirefoxLabsOptIn: true,
+      firefoxLabsTitle: "true",
+      firefoxLabsDescription: "description",
+      firefoxLabsDescriptionLinks: null,
+      firefoxLabsGroup: "group",
+      requiresRestart: false,
+    }
+  );
+
+  const { cleanup } = await setupTest({
+    init: false,
+    storePath: await NimbusTestUtils.createStoreWith(async store => {
+      await NimbusTestUtils.addEnrollmentForRecipe(preexisting, { store });
+      await NimbusTestUtils.addEnrollmentForRecipe(alreadyEnrolled, { store });
+      await NimbusTestUtils.addEnrollmentForRecipe(preexistingPaused, {
+        store,
+      });
+    }),
+    experiments: [
+      NimbusTestUtils.factories.recipe("opt-in-rollout", {
         isRollout: true,
         isFirefoxLabsOptIn: true,
         firefoxLabsTitle: "title",
@@ -55,14 +69,10 @@ add_task(async function test_all() {
         firefoxLabsGroup: "group",
         requiresRestart: false,
       }),
-      ExperimentFakes.recipe("opt-in-experiment", {
-        bucketConfig: {
-          ...ExperimentFakes.recipe.bucketConfig,
-          count: 1000,
-        },
+      NimbusTestUtils.factories.recipe("opt-in-experiment", {
         branches: [
           {
-            ...ExperimentFakes.recipe.branches[0],
+            ...NimbusTestUtils.factories.recipe.branches[0],
             firefoxLabsTitle: "title",
           },
         ],
@@ -73,11 +83,7 @@ add_task(async function test_all() {
         firefoxLabsGroup: "group",
         requiresRestart: false,
       }),
-      ExperimentFakes.recipe("targeting-fail", {
-        bucketConfig: {
-          ...ExperimentFakes.recipe.bucketConfig,
-          count: 1000,
-        },
+      NimbusTestUtils.factories.recipe("targeting-fail", {
         targeting: "false",
         isRollout: true,
         isFirefoxLabsOptIn: true,
@@ -87,9 +93,9 @@ add_task(async function test_all() {
         firefoxLabsGroup: "group",
         requiresRestart: false,
       }),
-      ExperimentFakes.recipe("bucketing-fail", {
+      NimbusTestUtils.factories.recipe("bucketing-fail", {
         bucketConfig: {
-          ...ExperimentFakes.recipe.bucketConfig,
+          ...NimbusTestUtils.factories.recipe.bucketConfig,
           count: 0,
         },
         isRollout: true,
@@ -100,57 +106,110 @@ add_task(async function test_all() {
         firefoxLabsGroup: "group",
         requiresRestart: false,
       }),
-      ExperimentFakes.recipe("experiment"),
-      ExperimentFakes.recipe("rollout", { isRollout: true }),
+      NimbusTestUtils.factories.recipe.withFeatureConfig(
+        "feature-does-not-exist",
+        { featureId: "bogus" },
+        {
+          isFirefoxLabsOptIn: true,
+          firefoxLabsTitle: "title",
+          firefoxLabsDescription: "description",
+          firefoxLabsDescriptionLinks: null,
+          firefoxLabsGroup: "group",
+          requiresRestart: false,
+        }
+      ),
+      NimbusTestUtils.factories.recipe.withFeatureConfig(
+        "feature-conflict",
+        { featureId: "nimbus-qa-1" },
+        { isRollout: true }
+      ),
+      NimbusTestUtils.factories.recipe.withFeatureConfig("experiment", {
+        featureId: "no-feature-firefox-desktop",
+      }),
+      NimbusTestUtils.factories.recipe.withFeatureConfig(
+        "rollout",
+        { featureId: "no-feature-firefox-desktop" },
+        { isRollout: true }
+      ),
+      NimbusTestUtils.factories.recipe.withFeatureConfig(
+        "paused",
+        { featureId: "no-feature-firefox-desktop" },
+        {
+          isRollout: true,
+          isEnrollmentPaused: true,
+          isFirefoxLabsOptIn: true,
+          firefoxLabsTitle: "title",
+          firefoxLabsDescription: "description",
+          firefoxLabsDescriptionLinks: null,
+          firefoxLabsGroup: "group",
+          requiresRestart: false,
+        }
+      ),
+      preexisting, // Prevent unenrollment.
+      preexistingPaused,
+      alreadyEnrolled,
     ],
+    migrationState: NimbusTestUtils.migrationState.LATEST,
   });
 
-  // Stub out enrollment because we don't care.
-  sandbox.stub(manager, "enroll");
-
   await ExperimentAPI.init();
-  await ExperimentAPI.ready();
 
   const labs = await FirefoxLabs.create();
   const availableSlugs = Array.from(labs.all(), recipe => recipe.slug).sort();
 
   Assert.deepEqual(
     availableSlugs,
-    ["opt-in-rollout", "opt-in-experiment"].sort(),
+    [
+      "opt-in-rollout",
+      "opt-in-experiment",
+      "already-enrolled-opt-in",
+      "preexisting-paused",
+    ].sort(),
     "Should return all opt in recipes that match targeting and bucketing"
   );
+
+  await NimbusTestUtils.cleanupManager([
+    "already-enrolled-opt-in",
+    "experiment",
+    "rollout",
+    "preexisting-rollout",
+    "preexisting-paused",
+  ]);
 
   await cleanup();
 });
 
 add_task(async function test_enroll() {
-  const recipe = ExperimentFakes.recipe("opt-in", {
-    bucketConfig: {
-      ...ExperimentFakes.recipe.bucketConfig,
-      count: 1000,
-    },
-    branches: [
-      {
-        slug: "control",
-        ratio: 1,
-        features: [{ featureId: "nimbus-qa-1", value: {} }],
+  Services.fog.applyServerKnobsConfig(
+    JSON.stringify({
+      metrics_enabled: {
+        "nimbus_events.enrollment_status": true,
       },
-    ],
-    isRollout: true,
-    isFirefoxLabsOptIn: true,
-    firefoxLabsTitle: "placeholder",
-    firefoxLabsDescription: "placeholder",
-    firefoxLabsDescriptionLinks: null,
-    firefoxLabsGroup: "placeholder",
-    requiresRestart: false,
-  });
+    })
+  );
 
-  const { sandbox, manager, cleanup } = setupTest({ recipes: [recipe] });
+  const recipe = NimbusTestUtils.factories.recipe.withFeatureConfig(
+    "opt-in",
+    { featureId: "nimbus-qa-1" },
+    {
+      isRollout: true,
+      isFirefoxLabsOptIn: true,
+      firefoxLabsTitle: "placeholder",
+      firefoxLabsDescription: "placeholder",
+      firefoxLabsDescriptionLinks: null,
+      firefoxLabsGroup: "placeholder",
+      requiresRestart: false,
+    }
+  );
+
+  const { sandbox, manager, cleanup } = await setupTest({
+    experiments: [recipe],
+    init: false,
+  });
 
   const enrollSpy = sandbox.spy(manager, "enroll");
 
   await ExperimentAPI.init();
-  await ExperimentAPI.ready();
 
   const labs = await FirefoxLabs.create();
 
@@ -184,6 +243,20 @@ add_task(async function test_enroll() {
     "ExperimentManager.enroll called"
   );
 
+  Assert.deepEqual(
+    Glean.nimbusEvents.enrollmentStatus
+      .testGetValue("nimbus-targeting-context")
+      ?.map(ev => ev.extra),
+    [
+      {
+        slug: recipe.slug,
+        branch: "control",
+        status: "Enrolled",
+        reason: "OptIn",
+      },
+    ]
+  );
+
   Assert.ok(manager.store.get(recipe.slug)?.active, "Active enrollment exists");
 
   labs.unenroll(recipe.slug);
@@ -192,33 +265,23 @@ add_task(async function test_enroll() {
 });
 
 add_task(async function test_reenroll() {
-  const recipe = ExperimentFakes.recipe("opt-in", {
-    bucketConfig: {
-      ...ExperimentFakes.recipe.bucketConfig,
-      count: 1000,
-    },
-    branches: [
-      {
-        ...ExperimentFakes.recipe.branches[0],
-        slug: "control",
-      },
-    ],
+  const recipe = NimbusTestUtils.factories.recipe("opt-in", {
     isFirefoxLabsOptIn: true,
     firefoxLabsTitle: "placeholder",
     firefoxLabsDescription: "placeholder",
     firefoxLabsDescriptionLinks: null,
     firefoxLabsGroup: "placeholder",
     requiresRestart: false,
+    isRollout: true,
   });
 
-  const { manager, cleanup } = setupTest({ recipes: [recipe] });
+  const { manager, cleanup } = await setupTest({ experiments: [recipe] });
 
-  await ExperimentAPI.init();
-  await ExperimentAPI.ready();
   const labs = await FirefoxLabs.create();
 
-  Assert.ok(
-    typeof manager.store.get(recipe.slug) === "undefined",
+  Assert.strictEqual(
+    typeof manager.store.get(recipe.slug),
+    "undefined",
     `No enrollment for ${recipe.slug}`
   );
 
@@ -229,14 +292,16 @@ add_task(async function test_reenroll() {
   );
 
   labs.unenroll(recipe.slug);
-  Assert.ok(
-    manager.store.get(recipe.slug)?.active === false,
+  Assert.strictEqual(
+    manager.store.get(recipe.slug)?.active,
+    false,
     `Inactive enrollment for ${recipe.slug}`
   );
 
   await ExperimentAPI._rsLoader.updateRecipes();
-  Assert.ok(
-    manager.store.get(recipe.slug)?.active === false,
+  Assert.strictEqual(
+    manager.store.get(recipe.slug)?.active,
+    false,
     `Inactive enrollment for ${recipe.slug} after updateRecipes()`
   );
 
@@ -252,62 +317,43 @@ add_task(async function test_reenroll() {
 });
 
 add_task(async function test_unenroll() {
-  const { manager, cleanup } = setupTest({
-    recipes: [
-      ExperimentFakes.recipe("rollout", {
-        bucketConfig: {
-          ...ExperimentFakes.recipe.bucketConfig,
-          count: 1000,
-        },
-        isRollout: true,
-        branches: [
-          {
-            slug: "control",
-            ratio: 1,
-            features: [
-              {
-                featureId: "nimbus-qa-1",
-                value: {},
-              },
-            ],
-          },
-        ],
-      }),
-      ExperimentFakes.recipe("opt-in", {
-        bucketConfig: {
-          ...ExperimentFakes.recipe.bucketConfig,
-          count: 1000,
-        },
-        isRollout: true,
-        branches: [
-          {
-            slug: "control",
-            ratio: 1,
-            features: [
-              {
-                featureId: "nimbus-qa-2",
-                value: {},
-              },
-            ],
-          },
-        ],
-        isFirefoxLabsOptIn: true,
-        firefoxLabsTitle: "title",
-        firefoxLabsDescription: "description",
-        firefoxLabsDescriptionLinks: null,
-        firefoxLabsGroup: "group",
-        requiresRestart: false,
-      }),
+  Services.fog.applyServerKnobsConfig(
+    JSON.stringify({
+      metrics_enabled: {
+        "nimbus_events.enrollment_status": true,
+      },
+    })
+  );
+
+  const { manager, cleanup } = await setupTest({
+    experiments: [
+      NimbusTestUtils.factories.recipe.withFeatureConfig(
+        "rollout",
+        { featureId: "nimbus-qa-1" },
+        { isRollout: true }
+      ),
+      NimbusTestUtils.factories.recipe.withFeatureConfig(
+        "opt-in",
+        { featureId: "nimbus-qa-2" },
+        {
+          isRollout: true,
+          isFirefoxLabsOptIn: true,
+          firefoxLabsTitle: "title",
+          firefoxLabsDescription: "description",
+          firefoxLabsDescriptionLinks: null,
+          firefoxLabsGroup: "group",
+          requiresRestart: false,
+        }
+      ),
     ],
   });
 
-  await ExperimentAPI.init();
-  await ExperimentAPI.ready();
   const labs = await FirefoxLabs.create();
 
   Assert.ok(manager.store.get("rollout")?.active, "Enrolled in rollout");
-  Assert.ok(
-    typeof manager.store.get("opt-in") === "undefined",
+  Assert.strictEqual(
+    typeof manager.store.get("opt-in"),
+    "undefined",
     "Did not enroll in rollout"
   );
 
@@ -330,6 +376,79 @@ add_task(async function test_unenroll() {
   // Should not throw.
   labs.unenroll("opt-in");
 
+  Assert.deepEqual(
+    Glean.nimbusEvents.enrollmentStatus
+      .testGetValue("nimbus-targeting-context")
+      ?.map(ev => ev.extra),
+    [
+      {
+        status: "Enrolled",
+        slug: "opt-in",
+        reason: "OptIn",
+        branch: "control",
+      },
+      {
+        branch: "control",
+        reason: "OptOut",
+        slug: "opt-in",
+        status: "Disqualified",
+      },
+    ]
+  );
+
   manager.unenroll("rollout");
+  await cleanup();
+});
+
+add_task(async function test_reenroll_quickly() {
+  const { cleanup } = await setupTest({
+    experiments: [
+      NimbusTestUtils.factories.recipe.withFeatureConfig(
+        "optin",
+        { featureId: "nimbus-qa-2" },
+        {
+          isRollout: true,
+          isFirefoxLabsOptIn: true,
+          firefoxLabsTitle: "title",
+          firefoxLabsDescription: "description",
+          firefoxLabsDescriptionLinks: null,
+          firefoxLabsGroup: "group",
+          requiresRestart: false,
+        }
+      ),
+    ],
+  });
+
+  const labs = await FirefoxLabs.create();
+
+  Assert.equal(
+    await NimbusTestUtils.queryEnrollment("optin"),
+    null,
+    "Enrollment does not exist"
+  );
+
+  info("Enrolling in optin");
+  await labs.enroll("optin", "control");
+  await NimbusTestUtils.flushStore();
+
+  {
+    const enrollment = await NimbusTestUtils.queryEnrollment("optin");
+    Assert.ok(enrollment, "Enrollment exists in database");
+    Assert.ok(enrollment.active, "Enrollment is active");
+  }
+
+  info("Unenrolling and re-enrolling");
+  labs.unenroll("optin");
+  await labs.enroll("optin", "control");
+  await NimbusTestUtils.flushStore();
+
+  {
+    const enrollment = await NimbusTestUtils.queryEnrollment("optin");
+    Assert.ok(enrollment, "Enrollment exists in database");
+    Assert.ok(enrollment.active, "Enrollment is active");
+  }
+
+  labs.unenroll("optin");
+
   await cleanup();
 });

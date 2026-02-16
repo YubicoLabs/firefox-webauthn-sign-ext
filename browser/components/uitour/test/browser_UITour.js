@@ -8,8 +8,6 @@ var gContentAPI;
 
 ChromeUtils.defineESModuleGetters(this, {
   ProfileAge: "resource://gre/modules/ProfileAge.sys.mjs",
-  TelemetryArchiveTesting:
-    "resource://testing-common/TelemetryArchiveTesting.sys.mjs",
   UpdateUtils: "resource://gre/modules/UpdateUtils.sys.mjs",
   CustomizableUITestUtils:
     "resource://testing-common/CustomizableUITestUtils.sys.mjs",
@@ -77,23 +75,6 @@ var tests = [
       );
 
       done();
-    }, "http://example.org/");
-  },
-  function test_unsecure_host_override(done) {
-    Services.prefs.setBoolPref("browser.uitour.requireSecure", false);
-    loadUITourTestPage(function () {
-      let highlight = document.getElementById("UITourHighlight");
-      is_element_hidden(highlight, "Highlight should initially be hidden");
-
-      gContentAPI.showHighlight("urlbar").then(() => {
-        waitForElementToBeVisible(
-          highlight,
-          done,
-          "Highlight should be shown on a unsecure host when override pref is set"
-        );
-
-        Services.prefs.setBoolPref("browser.uitour.requireSecure", true);
-      });
     }, "http://example.org/");
   },
   function test_disabled(done) {
@@ -485,7 +466,9 @@ var tests = [
 
     is(
       popup.anchorNode,
-      document.getElementById("searchbar"),
+      Services.prefs.getBoolPref("browser.search.widget.new")
+        ? document.getElementById("searchbar-new")
+        : document.getElementById("searchbar"),
       "Popup should be anchored to the searchbar"
     );
     is(title.textContent, "search title", "Popup should have correct title");
@@ -526,15 +509,22 @@ var tests = [
         "undefined",
         "Check distribution isn't undefined."
       );
-      // distribution id defaults to "default" for most builds, and
-      // "mozilla-MSIX" for MSIX builds.
+      // distribution id defaults to "default" for most builds,
+      // "mozilla-MSIX" for MSIX builds, and "mozilla-official" for
+      // official Mozilla builds.
+      let expectedDistribution = "default";
+      if (
+        AppConstants.platform === "win" &&
+        Services.sysinfo.getProperty("hasWinPackageId")
+      ) {
+        expectedDistribution = "mozilla-MSIX";
+      } else if (AppConstants.BUILT_BY_MOZILLA) {
+        expectedDistribution = "mozilla-official";
+      }
       is(
         result.distribution,
-        AppConstants.platform === "win" &&
-          Services.sysinfo.getProperty("hasWinPackageId")
-          ? "mozilla-MSIX"
-          : "default",
-        'Should be "default" without preference set.'
+        expectedDistribution,
+        "Should have expected distribution value."
       );
 
       let defaults = Services.prefs.getDefaultBranch("distribution.");
@@ -617,11 +607,11 @@ var tests = [
     });
   },
   taskify(async function test_search() {
-    let defaultEngine = await Services.search.getDefault();
-    let visibleEngines = await Services.search.getVisibleEngines();
+    let defaultEngine = await SearchService.getDefault();
+    let visibleEngines = await SearchService.getVisibleEngines();
     let expectedEngines = visibleEngines
-      .filter(engine => engine.identifier)
-      .map(engine => "searchEngine-" + engine.identifier);
+      .filter(engine => engine.isAppProvided)
+      .map(engine => "searchEngine-" + engine.id);
 
     let data = await new Promise(resolve =>
       gContentAPI.getConfiguration("search", resolve)
@@ -636,12 +626,12 @@ var tests = [
 
     is(
       data.searchEngineIdentifier,
-      defaultEngine.identifier,
-      "the searchEngineIdentifier property should contain the defaultEngine's identifier"
+      defaultEngine.id,
+      "the searchEngineIdentifier property should contain the defaultEngine's id"
     );
 
     let someOtherEngineID = data.engines.filter(
-      t => t != "searchEngine-" + defaultEngine.identifier
+      t => t != "searchEngine-" + defaultEngine.id
     )[0];
     someOtherEngineID = someOtherEngineID.replace(/^searchEngine-/, "");
 
@@ -654,7 +644,7 @@ var tests = [
         info("browser-search-engine-modified: " + verb);
         if (verb == "engine-default") {
           is(
-            Services.search.defaultEngine.identifier,
+            SearchService.defaultEngine.id,
             someOtherEngineID,
             "correct engine was switched to"
           );
@@ -663,18 +653,16 @@ var tests = [
       };
       Services.obs.addObserver(observe, "browser-search-engine-modified");
       registerCleanupFunction(async () => {
-        await Services.search.setDefault(
+        await SearchService.setDefault(
           defaultEngine,
-          Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+          SearchService.CHANGE_REASON.UNKNOWN
         );
       });
 
       gContentAPI.setDefaultSearchEngine(someOtherEngineID);
     });
 
-    let engine = (await Services.search.getVisibleEngines()).filter(
-      e => e.identifier == someOtherEngineID
-    )[0];
+    let engine = SearchService.getEngineById(someOtherEngineID);
 
     let submissionUrl = engine
       .getSubmission("dummy")
@@ -688,11 +676,11 @@ var tests = [
         category: "search.engine.default",
         name: "changed",
         extra: {
-          change_source: "uitour",
+          change_reason: "uitour",
           previous_engine_id: defaultEngine.telemetryId,
           new_engine_id: engine.telemetryId,
           new_display_name: engine.name,
-          new_load_path: engine.wrappedJSObject._loadPath,
+          new_load_path: engine._loadPath,
           // Glean has a limit of 100 characters.
           new_submission_url: submissionUrl.slice(0, 100),
         },
@@ -701,33 +689,9 @@ var tests = [
     );
   }),
   taskify(async function test_treatment_tag() {
-    let ac = new TelemetryArchiveTesting.Checker();
-    await ac.promiseInit();
     await gContentAPI.setTreatmentTag("foobar", "baz");
-    // Wait until the treatment telemetry is sent before looking in the archive.
-    await BrowserTestUtils.waitForContentEvent(
-      gTestTab.linkedBrowser,
-      "mozUITourNotification",
-      false,
-      event => event.detail.event === "TreatmentTag:TelemetrySent"
-    );
-    await new Promise(resolve => {
-      gContentAPI.getTreatmentTag("foobar", data => {
-        is(data.value, "baz", "set and retrieved treatmentTag");
-        ac.promiseFindPing("uitour-tag", [
-          [["payload", "tagName"], "foobar"],
-          [["payload", "tagValue"], "baz"],
-        ]).then(
-          found => {
-            ok(found, "Telemetry ping submitted for setTreatmentTag");
-            resolve();
-          },
-          err => {
-            ok(false, "Exception finding uitour telemetry ping: " + err);
-            resolve();
-          }
-        );
-      });
+    await gContentAPI.getTreatmentTag("foobar", data => {
+      is(data.value, "baz", "set and retrieved treatmentTag");
     });
   }),
 

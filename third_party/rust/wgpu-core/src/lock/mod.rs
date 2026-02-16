@@ -33,6 +33,7 @@
 
 pub mod rank;
 
+#[cfg(feature = "std")] // requires thread-locals to work
 #[cfg_attr(not(wgpu_validate_locks), allow(dead_code))]
 mod ranked;
 
@@ -51,4 +52,4 @@ use observing as chosen;
 #[cfg(not(any(wgpu_validate_locks, feature = "observe_locks")))]
 use vanilla as chosen;
 
-pub use chosen::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+pub use chosen::{Mutex, MutexGuard, RankData, RwLock, RwLockReadGuard, RwLockWriteGuard};

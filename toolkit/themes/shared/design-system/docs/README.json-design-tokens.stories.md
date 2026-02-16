@@ -3,7 +3,7 @@
 The benefit of storing design tokens with a platform-agnostic format such as JSON is that it can be converted or translated into other languages or tools (e.g CSS, Swift, Kotlin, Figma).
 
 ## Quick start
-`design-tokens.json` holds our source of truth for design tokens in `mozilla-central` under the [design-system](https://searchfox.org/mozilla-central/source/toolkit/themes/shared/design-system) folder in `toolkit/themes/shared`. The CSS design token files in that folder come from the JSON file. If you need to modify a design token file, you should be editing the JSON.
+`src/design-tokens.json` holds our source of truth for design tokens in `mozilla-central` under the [design-system](https://searchfox.org/mozilla-central/source/toolkit/themes/shared/design-system) folder in `toolkit/themes/shared`. The CSS design token files in that folder come from the JSON file. If you need to modify a design token file, you should be editing the JSON.
 
 In order for us to be able to define design tokens in one place (the JSON file) and allow all platforms to consume design tokens in their specific format, we use a build system called [Style Dictionary](https://amzn.github.io/style-dictionary/#/).
 
@@ -20,37 +20,61 @@ At the end, we're capable of transforming JSON notation into CSS:
 ```json
 {
  "color": {
-    "blue": {
-      "05": {
-        "value": "#deeafc"
-      },
-      "30": {
-        "value": "#73a7f3"
-      },
-      "50": {
-        "value": "#0060df"
-      },
-      "60": {
-        "value": "#0250bb"
-      },
-      "70": {
-        "value": "#054096"
-      },
-      "80": {
-        "value": "#003070"
-      }
+  "blue": {
+    "0": {
+      "value": "oklch(97% 0.05 260)"
     },
+    "10": {
+      "value": "oklch(90% 0.13 260)"
+    },
+    "20": {
+      "value": "oklch(83% 0.17 260)"
+    },
+    "30": {
+      "value": "oklch(76% 0.2 260)"
+    },
+    "40": {
+      "value": "oklch(69% 0.22 260)"
+    },
+    "50": {
+      "value": "oklch(62% 0.24 260)"
+    },
+    "60": {
+      "value": "oklch(55% 0.24 260)"
+    },
+    "70": {
+      "value": "oklch(48% 0.2 260)"
+    },
+    "80": {
+      "value": "oklch(41% 0.17 260)"
+    },
+    "90": {
+      "value": "oklch(34% 0.14 260)"
+    },
+    "100": {
+      "value": "oklch(27% 0.1 260)"
+    },
+    "110": {
+      "value": "oklch(20% 0.05 260)"
+    }
   },
+ }
 }
 ```
 
 ```css
---color-blue-05: #deeafc;
---color-blue-30: #73a7f3;
---color-blue-50: #0060df;
---color-blue-60: #0250bb;
---color-blue-70: #054096;
---color-blue-80: #003070;
+--color-blue-0: oklch(97% 0.05 260);
+--color-blue-10: oklch(90% 0.13 260);
+--color-blue-20: oklch(83% 0.17 260);
+--color-blue-30: oklch(76% 0.2 260);
+--color-blue-40: oklch(69% 0.22 260);
+--color-blue-50: oklch(62% 0.24 260);
+--color-blue-60: oklch(55% 0.24 260);
+--color-blue-70: oklch(48% 0.2 260);
+--color-blue-80: oklch(41% 0.17 260);
+--color-blue-90: oklch(34% 0.14 260);
+--color-blue-100: oklch(27% 0.1 260);
+--color-blue-110: oklch(20% 0.05 260);
 ```
 
 Neat!
@@ -74,7 +98,7 @@ $ ./mach npm test --prefix=toolkit/themes/shared/design-system
 
 ## JSON format deep dive
 
-Style Dictionary works by ingesting JSON files with tokens data and performing various platform-specific transformations to output token files formatted for different languages. The library has certain quirks and limitations that we had to take into consideration when coming up with a JSON format for representing our tokens. The following is a bit of a "how to" guide for reading and adding to [`design-tokens.json`](https://searchfox.org/mozilla-central/source/toolkit/themes/shared/design-system/design-tokens.json) for anyone who needs to consume our tokens or add new tokens.
+Style Dictionary works by ingesting JSON files with tokens data and performing various platform-specific transformations to output token files formatted for different languages. The library has certain quirks and limitations that we had to take into consideration when coming up with a JSON format for representing our tokens. The following is a bit of a "how to" guide for reading and adding to [`src/design-tokens.json`](https://searchfox.org/mozilla-central/source/toolkit/themes/shared/design-system/src/design-tokens.json) for anyone who needs to consume our tokens or add new tokens.
 
 ### Naming
 
@@ -107,7 +131,7 @@ When reading through our JSON you will see many instances where we have used an 
   }
 }
 ```
-This is a workaround for a [known](https://github.com/amzn/style-dictionary/issues/119) [limitation](https://github.com/amzn/style-dictionary/issues/366) of Style Dictionary where it doesn't support nested token names that appear after a `value` key. If we want to have both `--font-weight` and `--font-weight-bold` CSS tokens they need to be represented as distinct objects with their own `value`s:
+This is a workaround for a [known](https://github.com/amzn/style-dictionary/issues/119) [limitation](https://github.com/amzn/style-dictionary/issues/366) of Style Dictionary where it doesn't support nested token names that appear after a `value` key. If we want to have both `--font-weight` and `--font-weight-semibold` CSS tokens they need to be represented as distinct objects with their own `value`s:
 
 ```json
 "font": {
@@ -115,7 +139,7 @@ This is a workaround for a [known](https://github.com/amzn/style-dictionary/issu
     "@base": {
       "value": "normal"
     },
-    "bold": {
+    "semibold": {
       "value": 600
     }
   }
@@ -277,7 +301,7 @@ communicates that `--text-color` should have the value `currentColor` in `tokens
 
 ### Adding new tokens
 
-In order to add a new token you will need to make changes to `design-tokens.json` - any files generated based on our JSON token definitions should never be modified directly. You should be able to work backwards from the variable name in whatever language you're working with to figure out the correct JSON structure.
+In order to add a new token you will need to make changes to `src/design-tokens.json` - any files generated based on our JSON token definitions should never be modified directly. You should be able to work backwards from the variable name in whatever language you're working with to figure out the correct JSON structure.
 
 Once you've made your changes, you can generate the new tokens CSS files by running `./mach buildtokens`.
 

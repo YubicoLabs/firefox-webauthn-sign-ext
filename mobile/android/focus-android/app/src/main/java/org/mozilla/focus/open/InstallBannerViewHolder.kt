@@ -1,10 +1,12 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 package org.mozilla.focus.open
 
 import android.view.View
 import android.widget.ImageView
+import androidx.annotation.LayoutRes
 import androidx.recyclerview.widget.RecyclerView
 import org.mozilla.focus.R
 import org.mozilla.focus.activity.FirefoxInstallationHelper.open
@@ -15,10 +17,9 @@ import org.mozilla.focus.activity.FirefoxInstallationHelper.open
 class InstallBannerViewHolder(
     itemView: View,
 ) : RecyclerView.ViewHolder(itemView), View.OnClickListener {
-    private val iconView: ImageView
+    private val iconView: ImageView = itemView.findViewById(R.id.icon)
 
     init {
-        iconView = itemView.findViewById(R.id.icon)
         itemView.setOnClickListener(this)
     }
 
@@ -34,6 +35,7 @@ class InstallBannerViewHolder(
     }
 
     companion object {
-        const val LAYOUT_ID = R.layout.item_install_banner
+        @LayoutRes
+        val LAYOUT_ID = R.layout.item_install_banner
     }
 }

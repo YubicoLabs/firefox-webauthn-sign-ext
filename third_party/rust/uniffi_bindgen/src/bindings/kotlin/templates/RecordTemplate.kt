@@ -1,4 +1,4 @@
-{%- let rec = ci|get_record_definition(name) %}
+{%- let rec = ci.get_record_definition(name).unwrap() %}
 
 {%- if rec.has_fields() %}
 {%- call kt::docstring(rec, 0) %}
@@ -6,13 +6,22 @@ data class {{ type_name }} (
     {%- for field in rec.fields() %}
     {%- call kt::docstring(field, 4) %}
     {% if config.generate_immutable_records() %}val{% else %}var{% endif %} {{ field.name()|var_name }}: {{ field|type_name(ci) -}}
-    {%- match field.default_value() %}
-        {%- when Some with(literal) %} = {{ literal|render_literal(field, ci) }}
-        {%- else %}
-    {%- endmatch -%}
+    {%- if let Some(default) = field.default_value() %} = {{ default|render_default(field, ci) }} {% endif %}
     {% if !loop.last %}, {% endif %}
     {%- endfor %}
-) {% if contains_object_references %}: Disposable {% endif %}{
+    {%- let uniffi_trait_methods = rec.uniffi_trait_methods() %}
+    {%- let comparable = uniffi_trait_methods.ord_cmp.is_some() %}
+)
+{%- if comparable && contains_object_references %}: Disposable, Comparable<{{ type_name }}>
+{%- elif contains_object_references  %}: Disposable
+{%- elif comparable  %}: Comparable<{{ type_name }}>
+{% endif -%}
+{
+    {% for meth in rec.methods() -%}
+    {%- call kt::func_decl("", meth, 4) %}
+    {% endfor %}
+
+    {% call kt::uniffi_trait_impls(uniffi_trait_methods) %}
     {% if contains_object_references %}
     @Suppress("UNNECESSARY_SAFE_CALL") // codegen is much simpler if we unconditionally emit safe calls here
     override fun destroy() {

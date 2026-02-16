@@ -10,6 +10,7 @@ interface nsIEventTarget;
 interface nsICacheStorageConsumptionObserver;
 interface nsICacheStorageVisitor;
 interface nsIPrincipal;
+interface nsIURI;
 
 /**
  * Provides access to particual cache storages of the network URI cache.
@@ -46,12 +47,12 @@ interface nsICacheStorageService : nsISupports
   nsICacheStorage pinningCacheStorage(in nsILoadContextInfo aLoadContextInfo);
 
   /**
-   * Evict any cache entry having the same origin of aPrincipal.
+   * Evict any cache entry having the same principal origin and OriginAttributes
    *
    * @param aPrincipal
    *   The principal to compare the entries with.
    */
-  void clearOrigin(in nsIPrincipal aPrincipal);
+  void clearOriginsByPrincipal(in nsIPrincipal aPrincipal);
 
   /**
    * Evict any cache entry which belongs to a base domain. This includes entries
@@ -68,12 +69,25 @@ interface nsICacheStorageService : nsISupports
    * @param aOriginAttributes
    *   The origin attributes in string format to compare the entries with.
    */
-  void clearOriginAttributes(in AString aOriginAttributes);
+  void clearOriginsByOriginAttributes(in AString aOriginAttributes);
 
   /**
    * Evict the whole cache.
    */
   void clear();
+
+  /**
+   * Evict any Dictionary cache entry by site
+   *
+   * @param aURI
+   *   The URI to compare the dictionary entries with.
+   */
+  void clearOriginDictionary(in nsIURI aURI);
+
+  /**
+   * Evict all Dictionary cache entries
+   */
+  void clearAllOriginDictionaries();
 
   /**
    * Purge only data of disk backed entries.  Metadata are left for

@@ -7,10 +7,10 @@
 #ifndef mozilla_dom_PaymentRequestData_h
 #define mozilla_dom_PaymentRequestData_h
 
+#include "mozilla/dom/PaymentRequestParent.h"
+#include "nsCOMPtr.h"
 #include "nsIPaymentAddress.h"
 #include "nsIPaymentRequest.h"
-#include "nsCOMPtr.h"
-#include "mozilla/dom/PaymentRequestParent.h"
 
 namespace mozilla::dom::payments {
 
@@ -225,7 +225,7 @@ class PaymentRequest final : public nsIPaymentRequest {
 
   // IPC's life cycle should be controlled by IPC mechanism.
   // PaymentRequest should not own the reference of it.
-  PaymentRequestParent* mIPC;
+  WeakPtr<PaymentRequestParent> mIPC;
   eState mState;
 };
 

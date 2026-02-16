@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_idbevents_h__
-#define mozilla_dom_idbevents_h__
+#ifndef mozilla_dom_idbevents_h_
+#define mozilla_dom_idbevents_h_
 
 #include "js/RootingAPI.h"
 #include "mozilla/dom/BindingDeclarations.h"
@@ -13,12 +13,8 @@
 #include "mozilla/dom/Nullable.h"
 #include "nsStringFwd.h"
 
-#define IDBVERSIONCHANGEEVENT_IID                    \
-  {                                                  \
-    0x3b65d4c3, 0x73ad, 0x492e, {                    \
-      0xb1, 0x2d, 0x15, 0xf9, 0xda, 0xc2, 0x08, 0x4b \
-    }                                                \
-  }
+#define IDBVERSIONCHANGEEVENT_IID \
+  {0x3b65d4c3, 0x73ad, 0x492e, {0xb1, 0x2d, 0x15, 0xf9, 0xda, 0xc2, 0x08, 0x4b}}
 
 namespace mozilla {
 
@@ -73,7 +69,7 @@ class IDBVersionChangeEvent final : public Event {
 
   Nullable<uint64_t> GetNewVersion() const { return mNewVersion; }
 
-  NS_DECLARE_STATIC_IID_ACCESSOR(IDBVERSIONCHANGEEVENT_IID)
+  NS_INLINE_DECL_STATIC_IID(IDBVERSIONCHANGEEVENT_IID)
 
   NS_DECL_ISUPPORTS_INHERITED
 
@@ -91,9 +87,7 @@ class IDBVersionChangeEvent final : public Event {
       const Nullable<uint64_t>& aNewVersion);
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(IDBVersionChangeEvent, IDBVERSIONCHANGEEVENT_IID)
-
 }  // namespace dom
 }  // namespace mozilla
 
-#endif  // mozilla_dom_idbevents_h__
+#endif  // mozilla_dom_idbevents_h_

@@ -9,25 +9,27 @@
 #include "BackgroundChildImpl.h"
 #include "IDBRequest.h"
 #include "IndexedDatabaseManager.h"
+#include "ProfilerHelpers.h"
+#include "ReportInternalError.h"
+#include "ThreadLocal.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/StorageAccess.h"
 #include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/IDBFactoryBinding.h"
 #include "mozilla/dom/Promise.h"
+#include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/quota/PrincipalUtils.h"
 #include "mozilla/dom/quota/QuotaManager.h"
 #include "mozilla/dom/quota/ResultExtensions.h"
-#include "mozilla/dom/BrowserChild.h"
-#include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/ipc/BackgroundChild.h"
 #include "mozilla/ipc/BackgroundUtils.h"
 #include "mozilla/ipc/PBackground.h"
 #include "mozilla/ipc/PBackgroundChild.h"
-#include "mozilla/StaticPrefs_dom.h"
-#include "mozilla/StorageAccess.h"
-#include "mozilla/Telemetry.h"
 #include "nsAboutProtocolUtils.h"
 #include "nsContentUtils.h"
 #include "nsGlobalWindowInner.h"
@@ -37,13 +39,10 @@
 #include "nsIUUIDGenerator.h"
 #include "nsIWebNavigation.h"
 #include "nsLiteralString.h"
-#include "nsStringFwd.h"
 #include "nsNetUtil.h"
 #include "nsSandboxFlags.h"
 #include "nsServiceManagerUtils.h"
-#include "ProfilerHelpers.h"
-#include "ReportInternalError.h"
-#include "ThreadLocal.h"
+#include "nsStringFwd.h"
 
 // Include this last to avoid path problems on Windows.
 #include "ActorsChild.h"
@@ -404,8 +403,8 @@ void IDBFactory::UpdateActiveDatabaseCount(int32_t aDelta) {
                         (mActiveDatabaseCount + aDelta) < mActiveDatabaseCount);
   mActiveDatabaseCount += aDelta;
 
-  if (nsGlobalWindowInner* win = GetOwnerWindow()) {
-    win->UpdateActiveIndexedDBDatabaseCount(aDelta);
+  if (nsIGlobalObject* global = GetOwnerGlobal()) {
+    global->UpdateActiveIndexedDBDatabaseCount(aDelta);
   }
 }
 

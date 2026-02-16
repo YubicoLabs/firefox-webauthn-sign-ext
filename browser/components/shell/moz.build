@@ -37,7 +37,7 @@ elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
         "nsIGNOMEShellService.idl",
         "nsIOpenTabsProvider.idl",
     ]
-    EXTRA_JS_MODULES += [
+    MOZ_SRC_FILES += [
         "OpenTabsProvider.sys.mjs",
     ]
     SOURCES += [
@@ -76,10 +76,14 @@ XPIDL_MODULE = "shellservice"
 if SOURCES:
     FINAL_LIBRARY = "browsercomps"
 
-EXTRA_JS_MODULES += [
+MOZ_SRC_FILES += [
     "HeadlessShell.sys.mjs",
     "ScreenshotChild.sys.mjs",
     "ShellService.sys.mjs",
+]
+
+MOZ_SRC_FILES += [
+    "StartupOSIntegration.sys.mjs",
 ]
 
 for var in (

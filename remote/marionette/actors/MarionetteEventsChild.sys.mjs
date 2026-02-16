@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-disable no-restricted-globals */
-
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -41,7 +39,9 @@ export class MarionetteEventsChild extends JSWindowActorChild {
 
     // Ignore invalid combinations of load events and document's readyState.
     if (
-      (type === "DOMContentLoaded" && target.readyState != "interactive") ||
+      (type === "DOMContentLoaded" &&
+        target.readyState != "interactive" &&
+        !target.isInitialDocument) ||
       (type === "pageshow" && target.readyState != "complete")
     ) {
       lazy.logger.warn(
@@ -62,6 +62,8 @@ export class MarionetteEventsChild extends JSWindowActorChild {
           browsingContext: this.browsingContext,
           documentURI: target.documentURI,
           readyState: target.readyState,
+          isInitialDocument: target.isInitialDocument,
+          isUncommittedInitialDocument: target.isUncommittedInitialDocument,
           type,
           windowId: this.innerWindowId,
         });

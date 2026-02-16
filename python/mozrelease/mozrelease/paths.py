@@ -20,10 +20,8 @@ def getCandidatesDir(product, version, buildNumber, protocol=None, server=None):
         assert server is not None, "server is required with protocol"
 
     product = product2ftp(product)
-    directory = "/{}/candidates/{}-candidates/build{}".format(
-        product,
-        str(version),
-        str(buildNumber),
+    directory = (
+        f"/{product}/candidates/{str(version)}-candidates/build{str(buildNumber)}"
     )
 
     if protocol:
@@ -36,9 +34,9 @@ def getReleasesDir(product, version=None, protocol=None, server=None):
     if protocol:
         assert server is not None, "server is required with protocol"
 
-    directory = "/{}/releases".format(product)
+    directory = f"/{product}/releases"
     if version:
-        directory = "{}/{}".format(directory, version)
+        directory = f"{directory}/{version}"
 
     if protocol:
         return urlunsplit((protocol, server, directory, None, None))
@@ -61,34 +59,28 @@ def getReleaseInstallerPath(
                 MozillaVersion(version) > MozillaVersion(last_linux_bz2_version)
             ):
                 compression = "xz"
-            return "/".join(
-                [
-                    p.strip("/")
-                    for p in [
-                        platform,
-                        locale,
-                        "%s-%s.tar.%s" % (productName, version, compression),
-                    ]
+            return "/".join([
+                p.strip("/")
+                for p in [
+                    platform,
+                    locale,
+                    "%s-%s.tar.%s" % (productName, version, compression),
                 ]
-            )
+            ])
         elif "mac" in platform:
-            return "/".join(
-                [
-                    p.strip("/")
-                    for p in [platform, locale, "%s %s.dmg" % (brandName, version)]
-                ]
-            )
+            return "/".join([
+                p.strip("/")
+                for p in [platform, locale, "%s %s.dmg" % (brandName, version)]
+            ])
         elif platform.startswith("win"):
-            return "/".join(
-                [
-                    p.strip("/")
-                    for p in [
-                        platform,
-                        locale,
-                        "%s Setup %s.exe" % (brandName, version),
-                    ]
+            return "/".join([
+                p.strip("/")
+                for p in [
+                    platform,
+                    locale,
+                    "%s Setup %s.exe" % (brandName, version),
                 ]
-            )
+            ])
         else:
             raise "Unsupported platform"
     elif platform.startswith("android"):

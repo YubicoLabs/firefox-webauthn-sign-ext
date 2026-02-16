@@ -11,6 +11,7 @@
 #include "mozilla/ErrorResult.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/DOMStringList.h"
 #include "mozilla/dom/LocationBase.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsString.h"
@@ -22,6 +23,10 @@ class nsIURI;
 class nsPIDOMWindowInner;
 
 namespace mozilla::dom {
+
+// Serializes principals to strings for location.ancestorOrigin purposes.
+nsTArray<nsString> ProduceAncestorOriginsList(
+    const nsTArray<nsCOMPtr<nsIPrincipal>>& aPrincipals);
 
 //*****************************************************************************
 // Location: Script "location" object
@@ -36,14 +41,15 @@ class Location final : public nsISupports,
 
   explicit Location(nsPIDOMWindowInner* aWindow);
 
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(Location)
 
   // WebIDL API:
   void Assign(const nsACString& aUrl, nsIPrincipal& aSubjectPrincipal,
               ErrorResult& aError);
 
-  void Reload(bool aForceget, nsIPrincipal& aSubjectPrincipal,
+  MOZ_CAN_RUN_SCRIPT
+  void Reload(JSContext* aCx, bool aForceget, nsIPrincipal& aSubjectPrincipal,
               ErrorResult& aError);
 
   void GetHref(nsACString& aHref, nsIPrincipal& aSubjectPrincipal,
@@ -101,6 +107,9 @@ class Location final : public nsISupports,
   void SetHash(const nsACString& aHash, nsIPrincipal& aSubjectPrincipal,
                ErrorResult& aError);
 
+  RefPtr<DOMStringList> GetAncestorOrigins(nsIPrincipal& aSubjectPrincipal,
+                                           ErrorResult& aRv);
+
   nsPIDOMWindowInner* GetParentObject() const { return mInnerWindow; }
 
   virtual JSObject* WrapObject(JSContext* aCx,
@@ -113,7 +122,7 @@ class Location final : public nsISupports,
   void ClearCachedValues();
 
  protected:
-  virtual ~Location();
+  ~Location();
 
   BrowsingContext* GetBrowsingContext() override;
   nsIDocShell* GetDocShell() override;

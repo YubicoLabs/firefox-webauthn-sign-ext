@@ -28,9 +28,9 @@ import android.webkit.WebView
 import android.webkit.WebView.HitTestResult
 import android.webkit.WebViewClient
 import android.webkit.WebViewDatabase
+import androidx.core.net.toUri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.engine.system.matcher.UrlMatcher
 import mozilla.components.browser.errorpages.ErrorType
@@ -49,7 +49,6 @@ import mozilla.components.concept.fetch.Response
 import mozilla.components.concept.storage.PageVisit
 import mozilla.components.concept.storage.VisitType
 import mozilla.components.support.test.any
-import mozilla.components.support.test.argumentCaptor
 import mozilla.components.support.test.eq
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.shadow.PixelCopyShadow
@@ -77,8 +76,8 @@ import org.mockito.Mockito.verifyNoInteractions
 import org.robolectric.Robolectric
 import org.robolectric.annotation.Config
 import java.io.StringReader
+import java.security.cert.X509Certificate
 
-@ExperimentalCoroutinesApi // for runTest
 @RunWith(AndroidJUnit4::class)
 class SystemEngineViewTest {
 
@@ -110,7 +109,10 @@ class SystemEngineViewTest {
         var observedUrl = ""
         var observedUserGesture = true
         var observedLoadingState = false
-        var observedSecurityChange: Triple<Boolean, String?, String?> = Triple(false, null, null)
+        var observedSecure = false
+        var observedHost: String? = null
+        var observedIssuer: String? = null
+        var observedCertificate: X509Certificate? = null
         engineSession.register(
             object : EngineSession.Observer {
                 override fun onLoadingStateChange(loading: Boolean) { observedLoadingState = loading }
@@ -118,8 +120,11 @@ class SystemEngineViewTest {
                     observedUrl = url
                     observedUserGesture = hasUserGesture
                 }
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
-                    observedSecurityChange = Triple(secure, host, issuer)
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
+                    observedSecure = secure
+                    observedHost = host
+                    observedIssuer = issuer
+                    observedCertificate = certificate
                 }
             },
         )
@@ -133,11 +138,17 @@ class SystemEngineViewTest {
         assertEquals("http://mozilla.org", observedUrl)
         assertEquals(false, observedUserGesture)
         assertFalse(observedLoadingState)
-        assertEquals(Triple(false, null, null), observedSecurityChange)
+        assertFalse(observedSecure)
+        assertNull(observedHost)
+        assertNull(observedIssuer)
+        assertNull(observedCertificate)
 
         val view = mock<WebView>()
         engineSession.webView.webViewClient.onPageFinished(view, "http://mozilla.org")
-        assertEquals(Triple(false, null, null), observedSecurityChange)
+        assertFalse(observedSecure)
+        assertNull(observedHost)
+        assertNull(observedIssuer)
+        assertNull(observedCertificate)
 
         val certificate = mock<SslCertificate>()
         val dName = mock<SslCertificate.DName>()
@@ -149,7 +160,10 @@ class SystemEngineViewTest {
         doReturn(dName).`when`(certificate).issuedBy
         doReturn(certificate).`when`(view).certificate
         engineSession.webView.webViewClient.onPageFinished(view, "http://mozilla.org")
-        assertEquals(Triple(true, "mozilla.org", "testCA"), observedSecurityChange)
+        assertTrue(observedSecure)
+        assertEquals("mozilla.org", observedHost)
+        assertEquals("testCA", observedIssuer)
+        assertNull(observedCertificate)
     }
 
     @Test
@@ -495,7 +509,7 @@ class SystemEngineViewTest {
 
     @Test
     fun `WebView client tracking protection`() {
-        SystemEngineView.URL_MATCHER = UrlMatcher(arrayOf("blocked.random"))
+        SystemEngineView.urlMatcher = UrlMatcher(arrayOf("blocked.random"))
 
         val engineSession = SystemEngineSession(testContext)
         val engineView = SystemEngineView(testContext)
@@ -504,7 +518,7 @@ class SystemEngineViewTest {
         val webViewClient = engineSession.webView.webViewClient
         val invalidRequest = mock<WebResourceRequest>()
         whenever(invalidRequest.isForMainFrame).thenReturn(false)
-        whenever(invalidRequest.url).thenReturn(Uri.parse("market://foo.bar/"))
+        whenever(invalidRequest.url).thenReturn("market://foo.bar/".toUri())
 
         var response = webViewClient.shouldInterceptRequest(engineSession.webView, invalidRequest)
         assertNull(response)
@@ -518,7 +532,7 @@ class SystemEngineViewTest {
 
         val faviconRequest = mock<WebResourceRequest>()
         whenever(faviconRequest.isForMainFrame).thenReturn(false)
-        whenever(faviconRequest.url).thenReturn(Uri.parse("http://foo/favicon.ico"))
+        whenever(faviconRequest.url).thenReturn("http://foo/favicon.ico".toUri())
         response = webViewClient.shouldInterceptRequest(engineSession.webView, faviconRequest)
         assertNotNull(response)
         assertNull(response!!.data)
@@ -527,7 +541,7 @@ class SystemEngineViewTest {
 
         val blockedRequest = mock<WebResourceRequest>()
         whenever(blockedRequest.isForMainFrame).thenReturn(false)
-        whenever(blockedRequest.url).thenReturn(Uri.parse("http://blocked.random"))
+        whenever(blockedRequest.url).thenReturn("http://blocked.random".toUri())
 
         var trackerBlocked: Tracker? = null
         engineSession.register(
@@ -548,7 +562,7 @@ class SystemEngineViewTest {
 
     @Test
     fun `blocked trackers are reported with correct categories`() {
-        val BLOCK_LIST = """{
+        val blockList = """{
       "license": "test-license",
       "categories": {
         "Advertising": [
@@ -590,8 +604,8 @@ class SystemEngineViewTest {
       }
         }
     """
-        SystemEngineView.URL_MATCHER = UrlMatcher.createMatcher(
-            StringReader(BLOCK_LIST),
+        SystemEngineView.urlMatcher = UrlMatcher.createMatcher(
+            StringReader(blockList),
             StringReader("{}"),
         )
 
@@ -615,110 +629,26 @@ class SystemEngineViewTest {
         val blockedRequest = mock<WebResourceRequest>()
         whenever(blockedRequest.isForMainFrame).thenReturn(false)
 
-        whenever(blockedRequest.url).thenReturn(Uri.parse("http://www.adtest1.com/"))
+        whenever(blockedRequest.url).thenReturn("http://www.adtest1.com/".toUri())
         webViewClient.shouldInterceptRequest(engineSession.webView, blockedRequest)
 
         assertTrue(trackerBlocked!!.trackingCategories.first() == TrackingCategory.AD)
 
-        whenever(blockedRequest.url).thenReturn(Uri.parse("http://analyticsTest1.com/"))
+        whenever(blockedRequest.url).thenReturn("http://analyticsTest1.com/".toUri())
         webViewClient.shouldInterceptRequest(engineSession.webView, blockedRequest)
 
-        assertTrue(trackerBlocked!!.trackingCategories.first() == TrackingCategory.ANALYTICS)
+        assertTrue(trackerBlocked.trackingCategories.first() == TrackingCategory.ANALYTICS)
 
-        whenever(blockedRequest.url).thenReturn(Uri.parse("http://www.socialtest1.com/"))
+        whenever(blockedRequest.url).thenReturn("http://www.socialtest1.com/".toUri())
         webViewClient.shouldInterceptRequest(engineSession.webView, blockedRequest)
 
-        assertTrue(trackerBlocked!!.trackingCategories.first() == TrackingCategory.SOCIAL)
+        assertTrue(trackerBlocked.trackingCategories.first() == TrackingCategory.SOCIAL)
 
-        SystemEngineView.URL_MATCHER = null
+        SystemEngineView.urlMatcher = null
     }
 
     @Test
-    @Suppress("Deprecation")
-    fun `WebViewClient calls interceptor from deprecated onReceivedError API`() {
-        val engineSession = spy(SystemEngineSession(testContext))
-        val engineView = SystemEngineView(testContext)
-        engineView.render(engineSession)
-        doNothing().`when`(engineSession).initSettings()
-
-        val requestInterceptor: RequestInterceptor = mock()
-        val webViewClient = engineSession.webView.webViewClient
-
-        // No session or interceptor attached.
-        webViewClient.onReceivedError(
-            engineSession.webView,
-            WebViewClient.ERROR_UNKNOWN,
-            null,
-            "http://failed.random",
-        )
-        verifyNoInteractions(requestInterceptor)
-
-        // Session attached, but not interceptor.
-        engineView.render(engineSession)
-        webViewClient.onReceivedError(
-            engineSession.webView,
-            WebViewClient.ERROR_UNKNOWN,
-            null,
-            "http://failed.random",
-        )
-        verifyNoInteractions(requestInterceptor)
-
-        // Session and interceptor.
-        engineSession.settings.requestInterceptor = requestInterceptor
-        webViewClient.onReceivedError(
-            engineSession.webView,
-            WebViewClient.ERROR_UNKNOWN,
-            null,
-            "http://failed.random",
-        )
-        verify(requestInterceptor).onErrorRequest(engineSession, ErrorType.UNKNOWN, "http://failed.random")
-
-        val webView = mock<WebView>()
-        val settings = mock<WebSettings>()
-        whenever(webView.settings).thenReturn(settings)
-
-        engineSession.webView = webView
-        val errorResponse = RequestInterceptor.ErrorResponse("about:fail")
-        webViewClient.onReceivedError(
-            engineSession.webView,
-            WebViewClient.ERROR_UNKNOWN,
-            null,
-            "http://failed.random",
-        )
-        verify(webView, never()).loadUrl(ArgumentMatchers.anyString())
-
-        whenever(requestInterceptor.onErrorRequest(engineSession, ErrorType.UNKNOWN, "http://failed.random"))
-            .thenReturn(errorResponse)
-        webViewClient.onReceivedError(
-            engineSession.webView,
-            WebViewClient.ERROR_UNKNOWN,
-            null,
-            "http://failed.random",
-        )
-        verify(webView).loadUrl("about:fail")
-
-        val errorResponse2 = RequestInterceptor.ErrorResponse("about:fail2")
-        webViewClient.onReceivedError(
-            engineSession.webView,
-            WebViewClient.ERROR_UNKNOWN,
-            null,
-            "http://failed.random",
-        )
-        verify(webView, never()).loadUrl("about:fail2")
-
-        whenever(requestInterceptor.onErrorRequest(engineSession, ErrorType.UNKNOWN, "http://failed.random"))
-            .thenReturn(errorResponse2)
-        webViewClient.onReceivedError(
-            engineSession.webView,
-            WebViewClient.ERROR_UNKNOWN,
-            null,
-            "http://failed.random",
-        )
-        verify(webView).loadUrl("about:fail2")
-    }
-
-    @Test
-    fun `WebViewClient calls interceptor from new onReceivedError API`() {
+    fun `WebViewClient calls interceptor from onReceivedError API`() {
         val engineSession = spy(SystemEngineSession(testContext))
         val engineView = SystemEngineView(testContext)
         engineView.render(engineSession)
@@ -840,7 +770,7 @@ class SystemEngineViewTest {
 
         val webViewClient = engineSession.webView.webViewClient
         val webFontRequest = mock<WebResourceRequest>()
-        whenever(webFontRequest.url).thenReturn(Uri.parse("/fonts/test.woff"))
+        whenever(webFontRequest.url).thenReturn("/fonts/test.woff".toUri())
         assertNull(webViewClient.shouldInterceptRequest(engineSession.webView, webFontRequest))
 
         engineView.render(engineSession)
@@ -849,7 +779,7 @@ class SystemEngineViewTest {
         engineSession.settings.webFontsEnabled = false
 
         val request = mock<WebResourceRequest>()
-        whenever(request.url).thenReturn(Uri.parse("http://mozilla.org"))
+        whenever(request.url).thenReturn("http://mozilla.org".toUri())
         assertNull(webViewClient.shouldInterceptRequest(engineSession.webView, request))
 
         val response = webViewClient.shouldInterceptRequest(engineSession.webView, webFontRequest)
@@ -1017,13 +947,19 @@ class SystemEngineViewTest {
 
         var observedUrl = ""
         var observedLoadingState = true
-        var observedSecurityChange: Triple<Boolean, String?, String?> = Triple(false, null, null)
+        var observedSecure = false
+        var observedHost: String? = null
+        var observedIssuer: String? = null
+        var observedCertificate: X509Certificate? = null
         engineSession.register(
             object : EngineSession.Observer {
                 override fun onLoadingStateChange(loading: Boolean) { observedLoadingState = loading }
                 override fun onLocationChange(url: String, hasUserGesture: Boolean) { observedUrl = url }
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
-                    observedSecurityChange = Triple(secure, host, issuer)
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
+                    observedSecure = secure
+                    observedHost = host
+                    observedIssuer = issuer
+                    observedCertificate = certificate
                 }
             },
         )
@@ -1040,12 +976,15 @@ class SystemEngineViewTest {
         engineSession.webView.webViewClient.onPageFinished(view, "invalid:")
         assertEquals("invalid:", observedUrl)
         assertFalse(observedLoadingState)
-        assertEquals(Triple(true, null, "testCA"), observedSecurityChange)
+        assertTrue(observedSecure)
+        assertNull(observedHost)
+        assertEquals("testCA", observedIssuer)
+        assertNull(observedCertificate)
     }
 
     @Test
     fun `URL matcher categories can be changed`() {
-        SystemEngineView.URL_MATCHER = null
+        SystemEngineView.urlMatcher = null
         val resources = testContext.resources
 
         var urlMatcher = SystemEngineView.getOrCreateUrlMatcher(
@@ -1104,7 +1043,7 @@ class SystemEngineViewTest {
     fun `permission requests are forwarded to observers`() {
         val permissionRequest: android.webkit.PermissionRequest = mock()
         whenever(permissionRequest.resources).thenReturn(emptyArray())
-        whenever(permissionRequest.origin).thenReturn(Uri.parse("https://mozilla.org"))
+        whenever(permissionRequest.origin).thenReturn("https://mozilla.org".toUri())
 
         val engineSession = SystemEngineSession(testContext)
         val engineView = SystemEngineView(testContext)
@@ -1135,7 +1074,7 @@ class SystemEngineViewTest {
     fun `window requests are forwarded to observers`() {
         val permissionRequest: android.webkit.PermissionRequest = mock()
         whenever(permissionRequest.resources).thenReturn(emptyArray())
-        whenever(permissionRequest.origin).thenReturn(Uri.parse("https://mozilla.org"))
+        whenever(permissionRequest.origin).thenReturn("https://mozilla.org".toUri())
 
         val engineSession = SystemEngineSession(testContext)
         val engineView = SystemEngineView(testContext)
@@ -1390,36 +1329,6 @@ class SystemEngineViewTest {
     }
 
     @Test
-    @Config(sdk = [Build.VERSION_CODES.N])
-    fun captureThumbnailOnPreO() {
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-        val engineView = SystemEngineView(activity)
-        val webView = mock<WebView>()
-
-        whenever(webView.width).thenReturn(100)
-        whenever(webView.height).thenReturn(200)
-
-        engineView.session = mock()
-
-        whenever(engineView.session!!.webView).thenReturn(webView)
-
-        var thumbnail: Bitmap? = null
-
-        engineView.captureThumbnail {
-            thumbnail = it
-        }
-        verify(webView).draw(any())
-        assertNotNull(thumbnail)
-
-        engineView.session = null
-        engineView.captureThumbnail {
-            thumbnail = it
-        }
-
-        assertNull(thumbnail)
-    }
-
-    @Test
     @Config(sdk = [Build.VERSION_CODES.O], shadows = [PixelCopyShadow::class])
     fun captureThumbnailOnPostO() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
@@ -1539,55 +1448,6 @@ class SystemEngineViewTest {
             it.substring(it.length - 10)
         }
         assertTrue((request as PromptRequest.Authentication).message.endsWith(noRealmMessageTail))
-    }
-
-    @Test
-    @Config(sdk = [Build.VERSION_CODES.N])
-    @Suppress("Deprecation")
-    fun `onReceivedHttpAuthRequest takes credentials from WebView`() {
-        val engineSession = SystemEngineSession(testContext)
-        val engineView = SystemEngineView(testContext)
-        var request: PromptRequest? = null
-
-        engineSession.register(
-            object : EngineSession.Observer {
-                override fun onPromptRequest(promptRequest: PromptRequest) {
-                    request = promptRequest
-                }
-            },
-        )
-
-        engineSession.webView = spy(engineSession.webView)
-        engineView.render(engineSession)
-
-        // use captor as getWebViewClient() is available only from Oreo
-        // and this test runs on N to not use WebViewDatabase
-        val captor = argumentCaptor<WebViewClient>()
-        verify(engineSession.webView).webViewClient = captor.capture()
-        val webViewClient = captor.value
-
-        val host = "mozilla.org"
-        val realm = "realm"
-        val userName = "user123"
-        val password = "pass@123"
-
-        val validCredentials = arrayOf(userName, password)
-        whenever(engineSession.webView.getHttpAuthUsernamePassword(host, realm)).thenReturn(validCredentials)
-        webViewClient.onReceivedHttpAuthRequest(engineSession.webView, mock(), host, realm)
-        assertEquals((request as PromptRequest.Authentication).userName, userName)
-        assertEquals((request as PromptRequest.Authentication).password, password)
-
-        val nullCredentials = null
-        whenever(engineSession.webView.getHttpAuthUsernamePassword(host, realm)).thenReturn(nullCredentials)
-        webViewClient.onReceivedHttpAuthRequest(engineSession.webView, mock(), host, realm)
-        assertEquals((request as PromptRequest.Authentication).userName, "")
-        assertEquals((request as PromptRequest.Authentication).password, "")
-
-        val credentialsWithNulls = arrayOf<String?>(null, null)
-        whenever(engineSession.webView.getHttpAuthUsernamePassword(host, realm)).thenReturn(credentialsWithNulls)
-        webViewClient.onReceivedHttpAuthRequest(engineSession.webView, mock(), host, realm)
-        assertEquals((request as PromptRequest.Authentication).userName, "")
-        assertEquals((request as PromptRequest.Authentication).password, "")
     }
 
     @Test

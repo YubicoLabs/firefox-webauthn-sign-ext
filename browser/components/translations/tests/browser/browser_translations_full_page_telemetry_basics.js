@@ -10,7 +10,6 @@ add_task(async function test_translations_telemetry_basics() {
   const { cleanup } = await loadTestPage({
     page: SPANISH_PAGE_URL,
     languagePairs: LANGUAGE_PAIRS,
-    prefs: [["browser.translations.panelShown", false]],
   });
 
   await TestTranslationsTelemetry.assertEvent(Glean.translationsPanel.open, {
@@ -25,7 +24,7 @@ add_task(async function test_translations_telemetry_basics() {
   await FullPageTranslationsTestUtils.openPanel({
     expectedFromLanguage: "es",
     expectedToLanguage: "en",
-    onOpenPanel: FullPageTranslationsTestUtils.assertPanelViewFirstShow,
+    onOpenPanel: FullPageTranslationsTestUtils.assertPanelViewIntro,
   });
 
   await FullPageTranslationsTestUtils.clickCancelButton();
@@ -57,7 +56,7 @@ add_task(async function test_translations_telemetry_basics() {
   await FullPageTranslationsTestUtils.openPanel({
     expectedFromLanguage: "es",
     expectedToLanguage: "en",
-    onOpenPanel: FullPageTranslationsTestUtils.assertPanelViewFirstShow,
+    onOpenPanel: FullPageTranslationsTestUtils.assertPanelViewIntro,
   });
 
   await FullPageTranslationsTestUtils.clickCancelButton();
@@ -89,6 +88,24 @@ add_task(async function test_translations_telemetry_basics() {
   await TestTranslationsTelemetry.assertTranslationsEnginePerformance({
     expectedEventCount: 0,
   });
+
+  await TestTranslationsTelemetry.assertEvent(
+    Glean.translations.identifyPageLanguage,
+    {
+      expectedEventCount: 1,
+      assertForMostRecentEvent: {
+        html_lang_attribute: "es",
+        identified_language: "es",
+        lang_tags_match: true,
+        is_lang_attribute_valid: true,
+        extracted_code_units: 2132,
+        extraction_time: ms => 0 < ms,
+        identification_time: ms => 0 < ms,
+        total_time: ms => 0 < ms,
+        confident: true,
+      },
+    }
+  );
 
   await cleanup();
 });

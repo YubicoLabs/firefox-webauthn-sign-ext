@@ -6,15 +6,14 @@
 #ifndef TRANSFRMX_TXMOZILLAXSLTPROCESSOR_H
 #define TRANSFRMX_TXMOZILLAXSLTPROCESSOR_H
 
-#include "nsStubMutationObserver.h"
-#include "nsIDocumentTransformer.h"
-#include "txExpandedNameMap.h"
-#include "txNamespaceMap.h"
-#include "nsCycleCollectionParticipant.h"
-#include "nsWrapperCache.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/XSLTProcessorBinding.h"
+#include "nsCycleCollectionParticipant.h"
+#include "nsIDocumentTransformer.h"
+#include "nsStubMutationObserver.h"
+#include "nsWrapperCache.h"
+#include "txExpandedNameMap.h"
+#include "txNamespaceMap.h"
 
 class nsINode;
 class nsIURI;
@@ -95,11 +94,6 @@ class txMozillaXSLTProcessor final : public nsIDocumentTransformer,
   void ImportStylesheet(nsINode& aStylesheet, mozilla::ErrorResult& aRv);
   already_AddRefed<mozilla::dom::DocumentFragment> TransformToFragment(
       nsINode& aSource, mozilla::dom::Document& aOutput,
-      mozilla::ErrorResult& aRv) {
-    return TransformToFragment(aSource, true, aOutput, aRv);
-  }
-  already_AddRefed<mozilla::dom::DocumentFragment> TransformToFragment(
-      nsINode& aSource, bool aCloneSource, mozilla::dom::Document& aOutput,
       mozilla::ErrorResult& aRv);
   already_AddRefed<mozilla::dom::Document> TransformToDocument(
       nsINode& aSource, mozilla::ErrorResult& aRv);

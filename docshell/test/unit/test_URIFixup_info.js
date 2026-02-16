@@ -990,6 +990,8 @@ function sanitize(input) {
 }
 
 add_task(async function setup() {
+  // FIXME: the test fails without setting this to false. Bug 1995919.
+  Services.prefs.setBoolPref("browser.fixup.domainwhitelist.localhost", false);
   var prefList = [
     "browser.fixup.typo.scheme",
     "keyword.enabled",
@@ -1006,13 +1008,13 @@ add_task(async function setup() {
   await setupSearchService();
   await addTestEngines();
 
-  await Services.search.setDefault(
-    Services.search.getEngineByName(kSearchEngineID),
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+  await SearchService.setDefault(
+    SearchService.getEngineByName(kSearchEngineID),
+    SearchService.CHANGE_REASON.UNKNOWN
   );
-  await Services.search.setDefaultPrivate(
-    Services.search.getEngineByName(kPrivateSearchEngineID),
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+  await SearchService.setDefaultPrivate(
+    SearchService.getEngineByName(kPrivateSearchEngineID),
+    SearchService.CHANGE_REASON.UNKNOWN
   );
 });
 
@@ -1035,9 +1037,9 @@ add_task(async function run_test() {
   gSingleWordDNSLookup = true;
   await do_single_test_run();
   gSingleWordDNSLookup = false;
-  await Services.search.setDefault(
-    Services.search.getEngineByName(kPostSearchEngineID),
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+  await SearchService.setDefault(
+    SearchService.getEngineByName(kPostSearchEngineID),
+    SearchService.CHANGE_REASON.UNKNOWN
   );
   await do_single_test_run();
 });
@@ -1048,12 +1050,12 @@ async function do_single_test_run() {
     ? testcases.filter(t => t.keywordLookup)
     : testcases;
 
-  let engine = await Services.search.getDefault();
+  let engine = await SearchService.getDefault();
   let engineUrl =
     engine.name == kPostSearchEngineID
       ? kPostSearchEngineURL
       : kSearchEngineURL;
-  let privateEngine = await Services.search.getDefaultPrivate();
+  let privateEngine = await SearchService.getDefaultPrivate();
   let privateEngineUrl = kPrivateSearchEngineURL;
 
   for (let {

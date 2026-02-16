@@ -14,6 +14,7 @@
 #include "mozilla/Span.h"
 #include "mozilla/dom/AudioDataBinding.h"
 #include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/BufferSourceBindingFwd.h"
 #include "mozilla/dom/StructuredCloneHolder.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsWrapperCache.h"
@@ -23,8 +24,6 @@ class nsIURI;
 
 namespace mozilla::dom {
 
-class MaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer;
-class OwningMaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer;
 class Promise;
 struct AudioDataBufferInit;
 struct AudioDataCopyToOptions;
@@ -83,9 +82,8 @@ class AudioData final : public nsISupports, public nsWrapperCache {
   uint32_t AllocationSize(const AudioDataCopyToOptions& aOptions,
                           ErrorResult& aRv);
 
-  void CopyTo(
-      const MaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer& aDestination,
-      const AudioDataCopyToOptions& aOptions, ErrorResult& aRv);
+  void CopyTo(const AllowSharedBufferSource& aDestination,
+              const AudioDataCopyToOptions& aOptions, ErrorResult& aRv);
 
   already_AddRefed<AudioData> Clone(ErrorResult& aRv);
 
@@ -134,28 +132,41 @@ class AudioData final : public nsISupports, public nsWrapperCache {
 class AudioDataResource final {
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(AudioDataResource);
   explicit AudioDataResource(FallibleTArray<uint8_t>&& aData)
-      : mData(std::move(aData)) {}
+      : mCopiedData(std::move(aData)) {}
 
-  explicit AudioDataResource() : mData() {}
+  explicit AudioDataResource() : mCopiedData() {}
+  /// Create AudioDataResource, transferring ownership from js_malloc'd data.
+  AudioDataResource(UniquePtr<uint8_t[], JS::FreePolicy>&& aData,
+                    size_t aOffset, size_t aLen)
+      : mAdoptedData(std::move(aData)),
+        mAdoptedDataOffset(aOffset),
+        mAdoptedDataLen(aLen) {}
 
   static AudioDataResource* Create(const Span<uint8_t>& aData) {
     AudioDataResource* resource = new AudioDataResource();
-    if (!resource->mData.AppendElements(aData, mozilla::fallible_t())) {
+    if (!resource->mCopiedData.AppendElements(aData, mozilla::fallible_t())) {
       return nullptr;
     }
     return resource;
   }
 
   static Result<already_AddRefed<AudioDataResource>, nsresult> Construct(
-      const OwningMaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer& aInit);
+      const OwningAllowSharedBufferSource& aInit);
 
-  Span<uint8_t> Data() { return Span(mData.Elements(), mData.Length()); };
+  Span<uint8_t> Data() {
+    return mAdoptedData
+               ? Span(mAdoptedData.get() + mAdoptedDataOffset, mAdoptedDataLen)
+               : Span(mCopiedData.Elements(), mCopiedData.Length());
+  }
 
  private:
   ~AudioDataResource() = default;
   // It's always possible for the allocation to fail -- the size is
   // controled by script.
-  FallibleTArray<uint8_t> mData;
+  FallibleTArray<uint8_t> mCopiedData;
+  UniquePtr<uint8_t[], JS::FreePolicy> mAdoptedData;
+  size_t mAdoptedDataOffset;
+  size_t mAdoptedDataLen;
 };
 
 struct AudioDataSerializedData {

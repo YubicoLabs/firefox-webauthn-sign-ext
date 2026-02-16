@@ -10,23 +10,22 @@
 
 #include "ChildIterator.h"
 #include "GeckoProfiler.h"
+#include "mozilla/AbsoluteContainingBlock.h"
 #include "mozilla/ComputedStyle.h"
-#include "mozilla/dom/Document.h"
-#include "mozilla/dom/Element.h"
-#include "mozilla/MemoryReporting.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/PresState.h"
 #include "mozilla/ViewportFrame.h"
-#include "nsAbsoluteContainingBlock.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/Element.h"
 #include "nsCOMPtr.h"
 #include "nsContainerFrame.h"
-#include "nscore.h"
 #include "nsError.h"
 #include "nsGkAtoms.h"
 #include "nsILayoutHistoryState.h"
 #include "nsIStatefulFrame.h"
 #include "nsPlaceholderFrame.h"
 #include "nsWindowSizes.h"
+#include "nscore.h"
 #include "plhash.h"
 
 using namespace mozilla;
@@ -64,7 +63,7 @@ void nsFrameManager::AppendFrames(nsContainerFrame* aParentFrame,
                                   FrameChildListID aListID,
                                   nsFrameList&& aFrameList) {
   if (aParentFrame->IsAbsoluteContainer() &&
-      aListID == aParentFrame->GetAbsoluteListID()) {
+      aListID == FrameChildListID::Absolute) {
     aParentFrame->GetAbsoluteContainingBlock()->AppendFrames(
         aParentFrame, aListID, std::move(aFrameList));
   } else {
@@ -85,7 +84,7 @@ void nsFrameManager::InsertFrames(nsContainerFrame* aParentFrame,
       "aPrevFrame must be the last continuation in its chain!");
 
   if (aParentFrame->IsAbsoluteContainer() &&
-      aListID == aParentFrame->GetAbsoluteListID()) {
+      aListID == FrameChildListID::Absolute) {
     aParentFrame->GetAbsoluteContainingBlock()->InsertFrames(
         aParentFrame, aListID, aPrevFrame, std::move(aFrameList));
   } else {
@@ -115,7 +114,7 @@ void nsFrameManager::RemoveFrame(DestroyContext& aContext,
                "Must call RemoveFrame on placeholder for out-of-flows.");
   nsContainerFrame* parentFrame = aOldFrame->GetParent();
   if (parentFrame->IsAbsoluteContainer() &&
-      aListID == parentFrame->GetAbsoluteListID()) {
+      aListID == FrameChildListID::Absolute) {
     parentFrame->GetAbsoluteContainingBlock()->RemoveFrame(aContext, aListID,
                                                            aOldFrame);
   } else {
@@ -178,7 +177,16 @@ void nsFrameManager::CaptureFrameState(nsIFrame* aFrame,
       // Make sure to walk through placeholders as needed, so that we
       // save state for out-of-flows which may not be our descendants
       // themselves but whose placeholders are our descendants.
-      CaptureFrameState(nsPlaceholderFrame::GetRealFrameFor(child), aState);
+      nsIFrame* realChild = nsPlaceholderFrame::GetRealFrameFor(child);
+      // GetRealFrameFor should theoretically never return null here (and its
+      // helper has an assertion to enforce this); but we've got known fuzzer
+      // testcases where it does return null (in non-debug builds that make it
+      // past the aforementioned assertion) due to weird situations with
+      // out-of-flows and fragmentation. We handle that unexpected situation by
+      // silently skipping this frame, rather than crashing.
+      if (MOZ_LIKELY(realChild)) {
+        CaptureFrameState(realChild, aState);
+      }
     }
   }
 }

@@ -24,7 +24,8 @@ class CodeGeneratorARM : public CodeGeneratorShared {
   friend class MoveResolverARM;
 
  protected:
-  CodeGeneratorARM(MIRGenerator* gen, LIRGraph* graph, MacroAssembler* masm);
+  CodeGeneratorARM(MIRGenerator* gen, LIRGraph* graph, MacroAssembler* masm,
+                   const wasm::CodeMetadata* wasmCodeMeta);
 
   NonAssertingLabel deoptLabel_;
 
@@ -38,11 +39,6 @@ class CodeGeneratorARM : public CodeGeneratorShared {
   void bailoutCmpPtr(Assembler::Condition c, T1 lhs, T2 rhs,
                      LSnapshot* snapshot) {
     masm.cmpPtr(lhs, rhs);
-    bailoutIf(c, snapshot);
-  }
-  void bailoutTestPtr(Assembler::Condition c, Register lhs, Register rhs,
-                      LSnapshot* snapshot) {
-    masm.testPtr(lhs, rhs);
     bailoutIf(c, snapshot);
   }
   template <typename T1, typename T2>
@@ -89,8 +85,6 @@ class CodeGeneratorARM : public CodeGeneratorShared {
   void emitWasmStore(T* ins);
   template <typename T>
   void emitWasmUnalignedStore(T* ins);
-
-  Register64 ToOperandOrRegister64(const LInt64Allocation& input);
 
   void divICommon(MDiv* mir, Register lhs, Register rhs, Register output,
                   LSnapshot* snapshot, Label& done);

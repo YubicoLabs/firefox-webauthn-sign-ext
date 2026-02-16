@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
 <resources xmlns:tools="http://schemas.android.com/tools" xmlns:moz="http://mozac.org/tools">
   <!--
     Home Fragment
@@ -6,19 +13,14 @@
     Content description (not visible, for screen readers etc.): "Three dot" menu button.
   -->
   <string name="content_description_menu">Tuilleadh roghanna</string>
-  <!-- Content description (not visible, for screen readers etc.): "Private Browsing" menu button. -->
-  <string name="content_description_private_browsing_button">Cumasaigh brabhsáil phríobháideach</string>
-  <!-- Content description (not visible, for screen readers etc.): "Private Browsing" menu button. -->
-  <string name="content_description_disable_private_browsing_button">Díchumasaigh brabhsáil phríobháideach</string>
   <!-- Placeholder text shown in the search bar before a user enters text for the default engine -->
   <string name="search_hint">Cuardaigh nó cuir seoladh isteach</string>
   <!-- No Open Tabs Message Description -->
-  <string name="no_open_tabs_description">Taispeánfar do chluaisíní oscailte anseo.</string>
-  <string name="private_browsing_common_myths">
-       Gnáthmhiotais maidir le brabhsáil phríobháideach
-    </string>
-  <!-- Text for the negative button to decline adding a Private Browsing shortcut to the Home screen -->
-  <string name="cfr_neg_button_text">Ná cuir</string>
+  <string name="no_open_tabs_description" tools:ignore="UnusedResources" moz:removedIn="149">Taispeánfar do chluaisíní oscailte anseo.</string>
+  <!-- Private Browsing -->
+  <string name="private_browsing_common_myths">Gnáthmhiotais maidir le brabhsáil phríobháideach</string>
+  <!-- Private browsing erase action "contextual feature recommendation" (CFR) -->
+
   <!--
     Home screen icons - Long press shortcuts
 
@@ -40,9 +42,9 @@
   <!-- Content description (not visible, for screen readers etc.): Stop loading current website -->
   <string name="browser_menu_stop">Stad</string>
   <!-- Browser menu button that sends a user to help articles -->
-  <string name="browser_menu_help">Cabhair</string>
+  <string name="browser_menu_help" tools:ignore="UnusedResources" moz:removedIn="149">Cabhair</string>
   <!-- Browser menu button that sends a to a the what's new article -->
-  <string name="browser_menu_whats_new">Gnéithe Nua</string>
+  <string name="browser_menu_whats_new" tools:ignore="UnusedResources" moz:removedIn="149">Gnéithe Nua</string>
   <!-- Browser menu button that opens the settings menu -->
   <string name="browser_menu_settings">Socruithe</string>
   <!-- Browser menu toggle that requests a desktop site -->
@@ -55,17 +57,17 @@
   <string name="browser_menu_share">Comhroinn</string>
   <!--
     Browser menu button shown in custom tabs that opens the current tab in Fenix
-    The first parameter is the name of the app defined in app_name (for example: Fenix)
+    %1$s is the name of the app (for example "Firefox").
   -->
   <string name="browser_menu_open_in_fenix">Oscail in %1$s</string>
   <!--
     Browser menu text shown in custom tabs to indicate this is a Fenix tab
-    The first parameter is the name of the app defined in app_name (for example: Fenix)
+    %1$s is the name of the app (for example "Firefox").
   -->
-  <string name="browser_menu_powered_by">Á CHUMHACHTÚ AG %1$s</string>
+  <string name="browser_menu_powered_by" tools:ignore="UnusedResources" moz:removedIn="149">Á CHUMHACHTÚ AG %1$s</string>
   <!--
     Browser menu text shown in custom tabs to indicate this is a Fenix tab
-    The first parameter is the name of the app defined in app_name (for example: Fenix)
+    %1$s is the name of the app (for example "Firefox").
   -->
   <string name="browser_menu_powered_by2">Á chumhachtú ag %1$s</string>
   <!-- Browser menu button to put the current page in reader mode -->
@@ -92,8 +94,12 @@
   <string name="search_suggestions_onboarding_do_not_allow_button">Ná ceadaigh</string>
   <!-- Search suggestion onboarding hint title text -->
   <string name="search_suggestions_onboarding_title">Ceadaigh moltaí cuardaigh i seisiúin phríobháideacha?</string>
-  <!-- Search suggestion onboarding hint description text, first parameter is the name of the app defined in app_name (for example: Fenix) -->
+  <!-- Search suggestion onboarding hint description text, %s is the name of the app (for example "Firefox"). -->
   <string name="search_suggestions_onboarding_text">Comhroinneann %s gach uile rud a chuireann tú isteach sa mbarra suímh leis an inneall cuardaigh réamhshocraithe.</string>
+  <!-- ==== Project "Nova" onboarding strings ==== -->
+
+  <!-- ==== End of Project "Nova" onboarding strings ==== -->
+
   <!-- Text preview for smaller sized widgets -->
   <string name="search_widget_text_short">Cuardach</string>
   <!-- Text preview for larger sized widgets -->
@@ -116,7 +122,7 @@
   <string name="preferences_rate">Rátáil ar Google Play</string>
   <!--
     Preference linking to about page for Fenix
-    The first parameter is the name of the app defined in app_name (for example: Fenix)
+    %1$s is the name of the app (for example "Firefox").
   -->
   <string name="preferences_about">Maidir le %1$s</string>
   <!-- Preference for settings related to changing the default browser -->
@@ -143,8 +149,6 @@
   <string name="preferences_account_sync_error">Athcheangail chun sioncronú a thosú arís</string>
   <!-- Preference for language -->
   <string name="preferences_language">Teanga</string>
-  <!-- Preference for data choices -->
-  <string name="preferences_data_choices">Roghanna sonraí</string>
   <!-- Preference for data collection -->
   <string name="preferences_data_collection">Bailiú sonraí</string>
   <!-- Preference for developers -->
@@ -179,11 +183,11 @@
   <string name="empty_device_name_error">Ní cheadaítear ainm folamh.</string>
   <!-- Label indicating that sync is in progress -->
   <string name="sync_syncing_in_progress">Á Shioncronú…</string>
-  <!-- Label summary indicating that sync failed. The first parameter is the date stamp showing last time it succeeded -->
+  <!-- Label summary indicating that sync failed. %s is the date stamp showing last time it succeeded. -->
   <string name="sync_failed_summary">Theip ar an sioncronú. An sioncronú is déanaí: %s</string>
   <!-- Label summary showing never synced -->
   <string name="sync_failed_never_synced_summary">Theip ar an sioncronú. An sioncronú is déanaí: gan sioncronú</string>
-  <!-- Label summary the date we last synced. The first parameter is date stamp showing last time synced -->
+  <!-- Label summary the date we last synced. %s is date stamp showing last time sync was completed. -->
   <string name="sync_last_synced_summary">An sioncronú is déanaí: %s</string>
   <!-- Label summary showing never synced -->
   <string name="sync_never_synced_summary">An sioncronú is déanaí: gan sioncronú</string>
@@ -211,10 +215,6 @@
   <string name="exceptions_empty_message_description">Is féidir leat eisceachtaí a úsáid chun cosaint ar lorgaireacht a mhúchadh ar shuímh ar leith.</string>
   <!-- Text displayed when there are no exceptions, with learn more link that brings users to a tracking protection SUMO page -->
   <string name="exceptions_empty_message_learn_more_link">Tuilleadh eolais</string>
-  <!-- Preference description for usage and technical data collection -->
-  <string name="preferences_usage_data_description" tools:ignore="UnusedResources" moz:removedIn="136">Seolann sé faisnéis maidir le feidhmíocht, úsáid, crua-earraí, agus saincheapadh an bhrabhsálaí chuig Mozilla chun cabhrú linn feabhas a chur ar %1$s</string>
-  <!-- Preference switch for marketing data collection -->
-  <string name="preferences_marketing_data" tools:ignore="UnusedResources" moz:removedIn="136">Sonraí margaíochta</string>
   <!-- Preference for reconnecting to FxA sync -->
   <string name="preferences_sync_sign_in_to_reconnect">Logáil isteach le hathcheangal</string>
   <!-- Preference for removing FxA account -->
@@ -261,17 +261,11 @@
   <string name="settings_title">Socruithe</string>
   <!-- Content description (not visible, for screen readers etc.): "Close button for library settings" -->
   <string name="content_description_close_button">Dún</string>
-  <!--
-    Sessions
-
-    Title for the list of tabs in the current private session
-  -->
-  <string name="tabs_header_private_tabs_title" moz:removedIn="136" tools:ignore="UnusedResources">Cluaisíní príobháideacha</string>
   <!-- Content description (not visible, for screen readers etc.): Add tab button. Adds a news tab when pressed -->
   <string name="add_tab">Cluaisín nua</string>
   <!-- Content description (not visible, for screen readers etc.): Close tab button. Closes the current session when pressed -->
   <string name="close_tab">Dún an cluaisín</string>
-  <!-- Content description (not visible, for screen readers etc.): Close tab <title> button. First parameter is tab title -->
+  <!-- Content description (not visible, for screen readers etc.): Close tab <title> button. %s is the tab title -->
   <string name="close_tab_title">Dún cluaisín %s</string>
   <!-- Content description (not visible, for screen readers etc.): Opens the open tabs menu when pressed -->
   <string name="open_tabs_menu">Roghchlár na gcluaisíní oscailte</string>
@@ -289,7 +283,7 @@
   <string name="history_delete_item">Scrios</string>
   <!--
     History multi select title in app bar
-    The first parameter is the number of bookmarks selected
+    %1$d is the number of bookmarks selected
   -->
   <string name="history_multi_select_title">%1$d mír roghnaithe</string>
   <!-- Text for the header that groups the history the past 7 days -->
@@ -303,7 +297,7 @@
   <!--
     Crashes
 
-    Title text displayed on the tab crash page. This first parameter is the name of the application (For example: Fenix)
+    Title text displayed on the tab crash page. %1$s is the name of the app (for example "Firefox").
   -->
   <string name="tab_crash_title_2">Ní féidir le %1$s an leathanach sin a lódáil.</string>
   <!-- Send crash report checkbox text on the tab crash page -->
@@ -328,38 +322,28 @@
   <string name="bookmark_menu_open_in_private_tab_button">Oscail i gcluaisín príobháideach</string>
   <!-- Bookmark overflow menu delete button -->
   <string name="bookmark_menu_delete_button">Scrios</string>
-  <!-- Bookmark overflow menu save button -->
-  <string name="bookmark_menu_save_button">Sábháil</string>
   <!--
     Bookmark multi select title in app bar
-    The first parameter is the number of bookmarks selected
+    %1$d is the number of bookmarks selected
   -->
   <string name="bookmarks_multi_select_title">%1$d leabharmharc roghnaithe</string>
   <!-- Bookmark editing screen title -->
   <string name="edit_bookmark_fragment_title">Cuir an leabharmharc in eagar</string>
   <!-- Bookmark folder editing screen title -->
   <string name="edit_bookmark_folder_fragment_title">Cuir an fillteán in eagar</string>
-  <!-- Bookmark sign in button message -->
-  <string name="bookmark_sign_in_button">Logáil isteach chun leabharmharcanna sioncronaithe a fheiceáil</string>
   <!-- Bookmark URL editing field label -->
   <string name="bookmark_url_label">URL</string>
   <!-- Bookmark FOLDER editing field label -->
   <string name="bookmark_folder_label">FILLTEÁN</string>
   <!-- Bookmark NAME editing field label -->
   <string name="bookmark_name_label">AINM</string>
-  <!-- Bookmark add folder screen title -->
-  <string name="bookmark_add_folder_fragment_label">Fillteán nua</string>
   <!-- Bookmark select folder screen title -->
   <string name="bookmark_select_folder_fragment_label">Roghnaigh fillteán</string>
-  <!-- Bookmark editing error missing title -->
-  <string name="bookmark_empty_title_error">Ní mór teideal a bheith ann</string>
   <!-- Bookmark editing error missing or improper URL -->
   <string name="bookmark_invalid_url_error">URL neamhbhailí</string>
-  <!-- Bookmark screen message for empty bookmarks folder -->
-  <string name="bookmarks_empty_message">Níl aon leabharmharc anseo</string>
   <!--
     Bookmark snackbar message on deletion
-    The first parameter is the host part of the URL of the bookmark deleted, if any
+    %1$s is the host part of the URL of the bookmark deleted, if any
   -->
   <string name="bookmark_deletion_snackbar_message">Scriosadh %1$s</string>
   <!-- Bookmark undo button for deletion snackbar action -->
@@ -442,10 +426,6 @@
     %d is a placeholder for the number of tabs selected.
   -->
   <string name="create_collection_save_to_collection_tab_selected">%d chluaisín roghnaithe</string>
-  <!-- Text shown in snackbar when multiple tabs have been saved in a collection -->
-  <string name="create_collection_tabs_saved">Sábháladh na cluaisíní!</string>
-  <!-- Text shown in snackbar when one tab has been saved in a collection -->
-  <string name="create_collection_tab_saved">Sábháladh an cluaisín!</string>
   <!-- Content description (not visible, for screen readers etc.): button to close the collection creator -->
   <string name="create_collection_close">Dún</string>
   <!-- Button to save currently selected tabs in the "select tabs" step of the collection creator -->
@@ -502,38 +482,26 @@
   <!--
     Snackbar
 
-    Text shown in snackbar when user deletes a collection
+    Text shown in snackbar when user closes a tab
   -->
-  <string name="snackbar_collection_deleted">Scriosadh an bailiúchán</string>
-  <!-- Text shown in snackbar when user renames a collection -->
-  <string name="snackbar_collection_renamed">Athainmníodh an bailiúchán</string>
-  <!-- Text shown in snackbar when user closes a tab -->
   <string name="snackbar_tab_closed">Dúnadh an cluaisín</string>
   <!-- Text shown in snackbar when user closes all tabs -->
   <string name="snackbar_tabs_closed">Dúnadh na cluaisíní</string>
   <!-- Text shown in snackbar when user closes a private tab -->
   <string name="snackbar_private_tab_closed">Dúnadh an cluaisín príobháideach</string>
-  <!-- Text shown in snackbar when user closes all private tabs -->
-  <string name="snackbar_private_tabs_closed">Dúnadh na cluaisíní príobháideacha</string>
   <!-- Text shown in snackbar to undo deleting a tab, top site or collection -->
   <string name="snackbar_deleted_undo">CEALAIGH</string>
-  <!-- Text shown in snackbar when user removes a top site -->
-  <string name="snackbar_top_site_removed">Baineadh an suíomh</string>
   <!--
     QR code scanner prompt which appears after scanning a code, but before navigating to it
-    First parameter is the name of the app, second parameter is the URL or text scanned
+    %1$s is the name of the app (for example "Firefox"), %2$s is the URL or text scanned
   -->
   <string name="qr_scanner_confirmation_dialog_message">Tabhair cead do %1$s %2$s a oscailt</string>
   <!-- QR code scanner prompt dialog positive option to allow navigation to scanned link -->
   <string name="qr_scanner_dialog_positive">CEADAIGH</string>
   <!-- QR code scanner prompt dialog positive option to deny navigation to scanned link -->
   <string name="qr_scanner_dialog_negative">DIÚLTAIGH</string>
-  <!-- Tab collection deletion prompt dialog message. Placeholder will be replaced with the collection name -->
+  <!-- Tab collection deletion prompt dialog message. %1$s is the collection name. -->
   <string name="tab_collection_dialog_message">An bhfuil tú cinnte gur mhaith leat %1$s a scriosadh?</string>
-  <!-- Tab collection deletion prompt dialog option to delete the collection -->
-  <string name="tab_collection_dialog_positive">Scrios</string>
-  <!-- Message for copying the URL via long press on the toolbar -->
-  <string name="url_copied">Cóipeáladh an URL</string>
   <!-- Sample text for accessibility font size -->
   <string name="accessibility_text_size_sample_text_1">Is téacs samplach é seo. Feicfidh tú an chuma atá air tar éis duit an chlómhéid a athrú leis an socrú seo.</string>
   <!-- Summary for Accessibility Text Size Scaling Preference -->
@@ -544,10 +512,10 @@
   <string name="preference_accessibility_auto_size_summary">Úsáidfear an chlómhéid ó na socruithe Android. Díchumasaigh chun an chlómhéid a bhainistiú anseo.</string>
   <!-- Title for the Delete browsing data preference -->
   <string name="preferences_delete_browsing_data">Scrios na sonraí brabhsála</string>
-  <!-- Subtitle for the tabs item in Delete browsing data, parameter will be replaced with the number of open tabs -->
+  <!-- Subtitle for the tabs item in Delete browsing data, %d is the number of open tabs -->
   <string name="preferences_delete_browsing_data_tabs_subtitle">%d cluaisín</string>
   <!--
-    Subtitle for the data and history items in delete browsing data, parameter will be replaced with the
+    Subtitle for the data and history items in delete browsing data, %d is the
     number of history items the user has
   -->
   <string name="preferences_delete_browsing_data_browsing_data_subtitle">%d seoladh</string>
@@ -566,8 +534,8 @@
   <!-- Summary for the Delete browsing data on quit preference. "Quit" translation should match delete_browsing_data_on_quit_action translation. -->
   <string name="preference_summary_delete_browsing_data_on_quit_2">Scriosann sé seo sonraí brabhsála go huathoibríoch nuair a roghnaíonn tú \"Scoir\" ón bpríomhroghchlár</string>
   <!-- Action item in menu for the Delete browsing data on quit feature -->
-  <string name="delete_browsing_data_on_quit_action">Scoir</string>
-  <!-- Dialog message to the user asking to delete browsing data. Parameter will be replaced by app name. -->
+  <string name="delete_browsing_data_on_quit_action" tools:ignore="UnusedResources" moz:removedIn="149">Scoir</string>
+  <!-- Dialog message to the user asking to delete browsing data. %s is the name of the app (for example "Firefox"). -->
   <string name="delete_browsing_data_prompt_message_3">Scriosfaidh %s na sonraí brabhsála roghnaithe.</string>
   <!-- Text for the cancel button for the data deletion dialog -->
   <string name="delete_browsing_data_prompt_cancel">Cealaigh</string>
@@ -583,14 +551,6 @@
     text to display in the snackbar once account is signed-in
   -->
   <string name="onboarding_firefox_account_sync_is_on">Tá Sync ar siúl</string>
-  <!--
-    Onboarding theme
-
-    Text shown in snackbar when multiple tabs have been sent to device
-  -->
-  <string name="sync_sent_tabs_snackbar">Seoladh na cluaisíní!</string>
-  <!-- Text shown in snackbar when one tab has been sent to device -->
-  <string name="sync_sent_tab_snackbar">Seoladh an cluaisín!</string>
   <!-- Text shown in snackbar when sharing tabs failed -->
   <string name="sync_sent_tab_error_snackbar">Níorbh fhéidir cluaisíní a sheoladh</string>
   <!-- Text shown in snackbar for the "retry" action that the user has after sharing tabs failed -->
@@ -598,7 +558,7 @@
   <!-- Title of QR Pairing Fragment -->
   <string name="sync_scan_code">Scan an cód</string>
   <!-- Instructions on how to access pairing -->
-  <string name="sign_in_instructions" tools:ignore="BrandUsage">Oscail Firefox ar do ríomhaire agus tabhair cuairt ar &lt;b&gt;https://firefox.com/pair&lt;/b&gt;</string>
+  <string name="sign_in_instructions" tools:ignore="BrandUsage"><![CDATA[Oscail Firefox ar do ríomhaire agus tabhair cuairt ar <b>https://firefox.com/pair</b>]]></string>
   <!-- Text shown for sign in pairing when ready -->
   <string name="sign_in_ready_for_scan">Réidh le scanadh</string>
   <!-- Text shown for settings option for sign with pairing -->
@@ -646,7 +606,7 @@
   <!-- Category of trackers (cryptominers) that can be blocked by Enhanced Tracking Protection -->
   <string name="etp_cryptominers_title">Criptimhianadóirí</string>
   <!-- Description of cryptominers that can be blocked by Enhanced Tracking Protection -->
-  <string name="etp_cryptominers_description">Cuireann sé seo cosc ar scripteanna mailíseacha a úsáideann do ghléas chun  airgeadra digiteach a thochailt.</string>
+  <string name="etp_cryptominers_description">Cuireann sé seo cosc ar scripteanna mailíseacha a úsáideann do ghléas chun airgeadra digiteach a thochailt.</string>
   <!-- Category of trackers (tracking content) that can be blocked by Enhanced Tracking Protection -->
   <string name="etp_tracking_content_title">Ábhar Lorgaireachta</string>
   <!-- Description of tracking content that can be blocked by Enhanced Tracking Protection -->
@@ -657,11 +617,11 @@
   <string name="etp_panel_off">Tá cosaint MÚCHTA don suíomh seo</string>
   <!-- Header for exceptions list for which sites enhanced tracking protection is always off -->
   <string name="enhanced_tracking_protection_exceptions">Tá Ardchosaint ar Lorgaireachta múchta do na suímh seo</string>
-  <!-- About page link text to open what's new link -->
+  <!-- About page link text to open what's new link. %s is the name of the app (for example "Firefox"). -->
   <string name="about_whats_new">Gach rud nua in %s</string>
   <!--
     Open source licenses page title
-    The first parameter is the app name
+    %s is the name of the app (for example "Firefox")
   -->
   <string name="open_source_licenses_title">%s | Leabharlanna FLOSS</string>
   <!-- About page link text to open support link -->
@@ -744,22 +704,14 @@
   <string name="search_add_custom_engine_error_empty_search_string">Cuir teaghrán cuardaigh isteach</string>
   <!-- Text shown when a user leaves out the required template string -->
   <string name="search_add_custom_engine_error_missing_template">Deimhnigh go meaitseálann an teaghrán cuardaigh an Sampla</string>
-  <!-- Text shown when we aren't able to validate the custom search query. The first parameter is the url of the custom search engine -->
-  <string name="search_add_custom_engine_error_cannot_reach">Earráid ag ceangal le “%s”</string>
-  <!-- Text shown when a user creates a new search engine -->
-  <string name="search_add_custom_engine_success_message">Cruthaíodh %s</string>
-  <!-- Text shown when a user successfully edits a custom search engine -->
-  <string name="search_edit_custom_engine_success_message">Sábháladh %s</string>
-  <!-- Text shown when a user successfully deletes a custom search engine -->
-  <string name="search_delete_search_engine_success_message">Scriosadh %s</string>
   <!-- Heading for the instructions to allow a permission -->
   <string name="phone_feature_blocked_intro">Lena cheadú:</string>
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Oscail Socruithe Android</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. Tapáil &lt;b&gt;Ceadanna&lt;/b&gt;</string>
-  <!-- Third step for the allowing a permission (Fore example: Camera) -->
-  <string name="phone_feature_blocked_step_feature">3. Scoránaigh &lt;b&gt;%1$s&lt;/b&gt; ANN</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. Tapáil <b>Ceadanna</b>]]></string>
+  <!-- Third step for the allowing a permission (%1$s is the permission name, for example "Camera"). -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. Scoránaigh <b>%1$s</b> ANN]]></string>
   <!-- Confirmation message for a dialog confirming if the user wants to delete all the permissions for all sites -->
   <string name="confirm_clear_permissions_on_all_sites">An bhfuil tú cinnte gur mhaith leat na ceadanna go léir a ghlanadh ar gach suíomh?</string>
   <!-- Confirmation message for a dialog confirming if the user wants to delete all the permissions for a site -->
@@ -768,14 +720,20 @@
   <string name="confirm_clear_permission_site">An bhfuil tú cinnte gur mhaith leat an cead seo a ghlanadh ar an suíomh seo?</string>
   <!-- label shown when there are not site exceptions to show in the site exception settings -->
   <string name="no_site_exceptions">Gan eisceachtaí suímh</string>
-  <!-- Bookmark deletion confirmation -->
-  <string name="bookmark_deletion_confirmation">An bhfuil tú cinnte gur mhaith leat an leabharmharc seo a scriosadh?</string>
   <!--
-    text shown before the issuer name to indicate who its verified by, parameter is the name of
+    text shown before the issuer name to indicate who its verified by, %1$s is the name of
     the certificate authority that verified the ticket
   -->
   <string name="certificate_info_verified_by">Fíoraithe ag: %1$s</string>
   <!-- Login overflow menu delete button -->
-  <string name="login_menu_delete_button">Scrios</string>
+  <string name="login_menu_delete_button" tools:ignore="UnusedResources" moz:removedIn="149">Scrios</string>
   <!-- Translations feature -->
+
+  <!-- TextField Design System Component -->
+
+  <!-- ==== Terms of use pop up prompt ==== -->
+
+  <!-- ==== Experiment strings. ==== -->
+
+  <!-- ==== End of Terms of use popup prompt. ==== -->
 </resources>

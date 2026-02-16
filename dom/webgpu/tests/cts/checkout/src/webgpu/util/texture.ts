@@ -1,9 +1,11 @@
 import { assert, unreachable } from '../../common/util/util.js';
 import {
+  getBlockInfoForTextureFormat,
   isDepthOrStencilTextureFormat,
+  isDepthStencilTextureFormat,
   isDepthTextureFormat,
+  isSintOrUintFormat,
   isStencilTextureFormat,
-  kTextureFormatInfo,
 } from '../format_info.js';
 import { GPUTestBase } from '../gpu_test.js';
 
@@ -23,6 +25,13 @@ const kLoadValueFromStorageInfo: Partial<{
     unpackWGSL: string;
   };
 }> = {
+  r8snorm: {
+    storageType: 'u32',
+    texelType: 'vec4f',
+    unpackWGSL: `
+    return vec4f(unpack4x8snorm(getSrc(byteOffset / 4))[byteOffset % 4], 0.123, 0.123, 0.123)
+  `,
+  },
   r8unorm: {
     storageType: 'u32',
     texelType: 'vec4f',
@@ -42,6 +51,14 @@ const kLoadValueFromStorageInfo: Partial<{
     texelType: 'vec4i',
     unpackWGSL: `
     return vec4i(unpack4xI8(getSrc(byteOffset / 4))[byteOffset % 4], 123, 123, 123)
+  `,
+  },
+  rg8snorm: {
+    storageType: 'u32',
+    texelType: 'vec4f',
+    unpackWGSL: `
+    let v = unpack4x8snorm(getSrc(byteOffset / 4));
+    return vec4f(select(v.rg, v.ba, byteOffset % 4 >= 2), 0.123, 0.123)
   `,
   },
   rg8unorm: {
@@ -67,6 +84,11 @@ const kLoadValueFromStorageInfo: Partial<{
     let v = unpack4xI8(getSrc(byteOffset / 4));
     return vec4i(select(v.rg, v.ba, byteOffset % 4 >= 2), 123, 123)
   `,
+  },
+  rgba8snorm: {
+    storageType: 'u32',
+    texelType: 'vec4f',
+    unpackWGSL: 'return unpack4x8snorm(getSrc(byteOffset / 4))',
   },
   rgba8unorm: {
     storageType: 'u32',
@@ -113,6 +135,11 @@ const kLoadValueFromStorageInfo: Partial<{
     storageType: 'u32',
     texelType: 'vec4i',
     unpackWGSL: 'return unpack4xI8(getSrc(byteOffset / 4))',
+  },
+  rg11b10ufloat: {
+    storageType: 'u32',
+    texelType: 'vec4f',
+    unpackWGSL: `return unpackRG11B10UFloat(getSrc(byteOffset / 4))`,
   },
   r16float: {
     storageType: 'u32',
@@ -188,6 +215,79 @@ const kLoadValueFromStorageInfo: Partial<{
       )
     `,
   },
+  r16unorm: {
+    storageType: 'u32',
+    texelType: 'vec4f',
+    unpackWGSL: `
+    let raw = extractBits(getSrc(byteOffset / 4), (byteOffset % 4 / 2) * 16, 16);
+    return vec4f(f32(raw) / 65535.0, 0.123, 0.123, 0.123);
+  `,
+  },
+  r16snorm: {
+    storageType: 'i32',
+    texelType: 'vec4f',
+    unpackWGSL: `
+    let raw = extractBits(getSrc(byteOffset / 4), (byteOffset % 4 / 2) * 16, 16);
+    let signedVal = i32(raw);
+    return vec4f(f32(signedVal) / 32767.0, 0.123, 0.123, 0.123);
+  `,
+  },
+  rg16unorm: {
+    storageType: 'u32',
+    texelType: 'vec4f',
+    unpackWGSL: `
+    let v = getSrc(byteOffset / 4);
+    let r = extractBits(v, 0, 16);
+    let g = extractBits(v, 16, 16);
+    return vec4f(f32(r) / 65535.0, f32(g) / 65535.0, 0.123, 0.123);
+  `,
+  },
+  rg16snorm: {
+    storageType: 'i32',
+    texelType: 'vec4f',
+    unpackWGSL: `
+    let v = getSrc(byteOffset / 4);
+    let r = i32(extractBits(v, 0, 16));
+    let g = i32(extractBits(v, 16, 16));
+    return vec4f(f32(r) / 32767.0, f32(g) / 32767.0, 0.123, 0.123);
+  `,
+  },
+  rgba16unorm: {
+    storageType: 'u32',
+    texelType: 'vec4f',
+    unpackWGSL: `
+    let v0 = getSrc(byteOffset / 4);
+    let v1 = getSrc(byteOffset / 4 + 1);
+    let r = extractBits(v0, 0, 16);
+    let g = extractBits(v0, 16, 16);
+    let b = extractBits(v1, 0, 16);
+    let a = extractBits(v1, 16, 16);
+    return vec4f(
+      f32(r) / 65535.0,
+      f32(g) / 65535.0,
+      f32(b) / 65535.0,
+      f32(a) / 65535.0
+    );
+  `,
+  },
+  rgba16snorm: {
+    storageType: 'i32',
+    texelType: 'vec4f',
+    unpackWGSL: `
+    let v0 = getSrc(byteOffset / 4);
+    let v1 = getSrc(byteOffset / 4 + 1);
+    let r = i32(extractBits(v0, 0, 16));
+    let g = i32(extractBits(v0, 16, 16));
+    let b = i32(extractBits(v1, 0, 16));
+    let a = i32(extractBits(v1, 16, 16));
+    return vec4f(
+      f32(r) / 32767.0,
+      f32(g) / 32767.0,
+      f32(b) / 32767.0,
+      f32(a) / 32767.0
+    );
+  `,
+  },
   r32float: {
     storageType: 'f32',
     texelType: 'vec4f',
@@ -244,22 +344,31 @@ const kLoadValueFromStorageInfo: Partial<{
   },
 };
 
-function getDepthStencilOptionsForFormat(format: GPUTextureFormat) {
-  // Note: For now we prefer depth over stencil. To fix this would require passing GPUTextureAspect all the way down.
+function getDepthStencilOptionsForFormat(
+  format: GPUTextureFormat,
+  aspect: GPUTextureAspect | undefined
+) {
   return {
-    useFragDepth: isDepthTextureFormat(format),
-    discardWithStencil: isStencilTextureFormat(format) && !isDepthTextureFormat(format),
+    useFragDepth:
+      isDepthTextureFormat(format) && (!aspect || aspect === 'all' || aspect === 'depth-only'),
+    discardWithStencil:
+      isStencilTextureFormat(format) && (!aspect || aspect === 'all' || aspect === 'stencil-only'),
   };
 }
 
 function getCopyBufferToTextureViaRenderCode(
   srcFormat: GPUTextureFormat,
-  dstFormat: GPUTextureFormat
+  dstFormat: GPUTextureFormat,
+  dstAspect: GPUTextureAspect | undefined
 ) {
   const info = kLoadValueFromStorageInfo[srcFormat];
   assert(!!info);
   const { storageType, texelType, unpackWGSL } = info;
-  const { useFragDepth, discardWithStencil } = getDepthStencilOptionsForFormat(dstFormat);
+  const { useFragDepth, discardWithStencil } = getDepthStencilOptionsForFormat(
+    dstFormat,
+    dstAspect
+  );
+  assert(!useFragDepth || !discardWithStencil, 'can not do both aspects at once');
 
   const [depthDecl, depthCode] = useFragDepth
     ? ['@builtin(frag_depth) d: f32,', 'fs.d = fs.v[0];']
@@ -306,6 +415,53 @@ function getCopyBufferToTextureViaRenderCode(
       let x = offset % width;
       let y = offset / width;
       return textureLoad(src, vec2u(x, y), 0).r;
+    }
+
+    const kFloat32FormatMantissaBits = 23;
+    const kFloat32FormatBias = 127;
+    fn floatBitsToNumber(
+        rawBits: u32,
+        bitOffset: u32,
+        exponentBits: u32,
+        mantissaBits: u32,
+        bias: u32,
+        signed: bool) -> f32 {
+      let nonSignBits = exponentBits + mantissaBits;
+      let allBits = nonSignBits + select(0u, 1u, signed);
+      let allMask = (1u << allBits) - 1u;
+      let bits = (rawBits >> bitOffset) & allMask;
+      let nonSignBitsMask = (1u << nonSignBits) - 1u;
+      let exponentAndMantissaBits = bits & nonSignBitsMask;
+      let exponentMask = ((1u << exponentBits) - 1u) << mantissaBits;
+      let infinityOrNaN = (bits & exponentMask) == exponentMask;
+      if (infinityOrNaN) {
+        let mantissaMask = (1u << mantissaBits) - 1;
+        let signBit = 1u << nonSignBits;
+        let isNegative = (bits & signBit) != 0;
+        if ((bits & mantissaMask) != 0u) {
+          return 0.0; // NaN (does not exist in WGSL)
+        }
+        if (isNegative) {
+          return f32(-2e38); // NEGATIVE_INFINITY (does not exist in WGSL)
+        } else {
+          return f32(2e38); // POSITIVE_INFINITY (does not exist in WGSL)
+        }
+      }
+      var f32BitsWithWrongBias =
+        exponentAndMantissaBits << (kFloat32FormatMantissaBits - mantissaBits);
+      // add in the sign
+      f32BitsWithWrongBias |= (bits << (31u - nonSignBits)) & 0x80000000u;
+      let numberWithWrongBias = bitcast<f32>(f32BitsWithWrongBias);
+      return numberWithWrongBias * pow(2.0f, f32(kFloat32FormatBias - bias));
+    }
+
+    fn unpackRG11B10UFloat(v: u32) -> vec4f {
+      return vec4f(
+        floatBitsToNumber(v,  0, 5, 6, 15, false),
+        floatBitsToNumber(v, 11, 5, 6, 15, false),
+        floatBitsToNumber(v, 22, 5, 5, 15, false),
+        1
+      );
     }
 
     fn unpack(byteOffset: u32) -> ${texelType} {
@@ -372,7 +528,10 @@ function copyBufferToTextureViaRender(
   const { format: textureFormat, sampleCount } = dest.texture;
   const origin = reifyOrigin3D(dest.origin ?? [0]);
   const copySize = reifyExtent3D(size);
-  const { useFragDepth, discardWithStencil } = getDepthStencilOptionsForFormat(dest.texture.format);
+  const { useFragDepth, discardWithStencil } = getDepthStencilOptionsForFormat(
+    dest.texture.format,
+    dest.aspect
+  );
   const resourcesToDestroy: (GPUTexture | GPUBuffer)[] = [];
 
   const { device } = t;
@@ -380,7 +539,8 @@ function copyBufferToTextureViaRender(
   for (let blitCount = 0; blitCount < numBlits; ++blitCount) {
     const { code, dataFormat } = getCopyBufferToTextureViaRenderCode(
       sourceFormat,
-      dest.texture.format
+      dest.texture.format,
+      dest.aspect
     );
     const stencilWriteMask = 1 << blitCount;
     const id = JSON.stringify({
@@ -494,6 +654,7 @@ function copyBufferToTextureViaRender(
                   mipLevelCount,
                   arrayLayerCount,
                 }),
+                depthReadOnly: true,
                 stencilClearValue: 0,
                 stencilLoadOp: 'load',
                 stencilStoreOp: 'store',
@@ -533,7 +694,7 @@ function copyBufferToTextureViaRender(
       pass.setViewport(origin.x, origin.y, copySize.width, copySize.height, 0, 1);
       pass.setPipeline(pipeline);
 
-      const info = kTextureFormatInfo[sourceFormat];
+      const info = getBlockInfoForTextureFormat(sourceFormat);
       const offset =
         (source.offset ?? 0) + (source.bytesPerRow ?? 0) * (source.rowsPerImage ?? 0) * l;
       const uniforms = new Uint32Array([
@@ -580,8 +741,6 @@ export function createTextureFromTexelViews(
   assert(texelViews.length > 0 && texelViews.every(e => e.format === texelViews[0].format));
   const viewsFormat = texelViews[0].format;
   const textureFormat = desc.format ?? viewsFormat;
-  const isTextureFormatDifferentThanTexelViewFormat = textureFormat !== viewsFormat;
-  const { width, height, depthOrArrayLayers } = reifyExtent3D(desc.size);
 
   // Create the texture and then initialize each mipmap level separately.
   const texture = t.createTextureTracked({
@@ -590,9 +749,30 @@ export function createTextureFromTexelViews(
     usage: desc.usage | GPUTextureUsage.COPY_DST,
     mipLevelCount: texelViews.length,
   });
+  // Note: At the time of this writing there is no such thing as a depth-stencil TexelView
+  // so we couldn't have passed in data for "all" aspects. This seems like a code smell issue
+  // but it's a big change to fix.
+  const aspect = isDepthStencilTextureFormat(textureFormat)
+    ? isSintOrUintFormat(viewsFormat)
+      ? 'stencil-only'
+      : 'depth-only'
+    : 'all';
+  copyTexelViewsToTexture(t, texture, aspect, texelViews);
+  return texture;
+}
+
+export function copyTexelViewsToTexture(
+  t: GPUTestBase,
+  texture: GPUTexture,
+  aspect: GPUTextureAspect,
+  texelViews: TexelView[]
+) {
+  const viewsFormat = texelViews[0].format;
+  const isTextureFormatDifferentThanTexelViewFormat = texture.format !== viewsFormat;
+  const { width, height, depthOrArrayLayers } = texture;
 
   // Copy the texel view into each mip level layer.
-  const commandEncoder = t.device.createCommandEncoder();
+  const commandEncoder = t.device.createCommandEncoder({ label: 'copyTexelViewToTexture' });
   const resourcesToDestroy: (GPUTexture | GPUBuffer)[] = [];
   for (let mipLevel = 0; mipLevel < texelViews.length; mipLevel++) {
     const {
@@ -601,7 +781,7 @@ export function createTextureFromTexelViews(
       mipSize: [mipWidth, mipHeight, mipDepthOrArray],
     } = getTextureCopyLayout(
       viewsFormat,
-      desc.dimension ?? '2d',
+      texture.dimension ?? '2d',
       [width, height, depthOrArrayLayers],
       {
         mipLevel,
@@ -626,18 +806,19 @@ export function createTextureFromTexelViews(
     });
     stagingBuffer.unmap();
 
-    if (
-      isTextureFormatDifferentThanTexelViewFormat ||
-      texture.sampleCount > 1 ||
-      isDepthOrStencilTextureFormat(textureFormat)
-    ) {
+    const copyB2TOk =
+      !isTextureFormatDifferentThanTexelViewFormat &&
+      texture.sampleCount === 1 &&
+      !isDepthOrStencilTextureFormat(texture.format);
+
+    if (!copyB2TOk) {
       resourcesToDestroy.push(
         ...copyBufferToTextureViaRender(
           t,
           commandEncoder,
           { buffer: stagingBuffer, bytesPerRow, rowsPerImage },
           viewsFormat,
-          { texture, mipLevel },
+          { texture, mipLevel, aspect },
           [mipWidth, mipHeight, mipDepthOrArray]
         )
       );
@@ -645,7 +826,7 @@ export function createTextureFromTexelViews(
       // Copy from the staging buffer into the texture.
       commandEncoder.copyBufferToTexture(
         { buffer: stagingBuffer, bytesPerRow, rowsPerImage },
-        { texture, mipLevel },
+        { texture, mipLevel, aspect: aspect ?? 'all' },
         [mipWidth, mipHeight, mipDepthOrArray]
       );
     }
@@ -654,6 +835,4 @@ export function createTextureFromTexelViews(
 
   // Cleanup temp buffers and textures.
   resourcesToDestroy.forEach(value => value.destroy());
-
-  return texture;
 }

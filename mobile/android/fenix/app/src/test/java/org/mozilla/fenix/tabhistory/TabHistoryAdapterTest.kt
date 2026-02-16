@@ -22,9 +22,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.components
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
+import org.robolectric.RobolectricTestRunner
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class TabHistoryAdapterTest {
 
     @MockK
@@ -56,7 +56,10 @@ class TabHistoryAdapterTest {
 
     @Test
     fun `creates and binds view holder`() {
-        every { testContext.components.core.icons } returns BrowserIcons(testContext, mockk(relaxed = true))
+        every { testContext.components.core.icons } returns BrowserIcons(
+            testContext,
+            mockk(relaxed = true),
+        )
         adapter.submitList(listOf(selectedItem, unselectedItem))
 
         val holder = spyk(adapter.createViewHolder(parent, 0))

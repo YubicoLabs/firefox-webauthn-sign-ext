@@ -26,8 +26,8 @@ interface HTMLTextAreaElement : HTMLElement {
            attribute DOMString dirName;
   [CEReactions, SetterThrows, Pure]
            attribute boolean disabled;
-  [Pure]
-  readonly attribute HTMLFormElement? form;
+  [Pure, BinaryName=formForBindings]
+  readonly attribute Element? form;
            // attribute DOMString inputMode;
   [CEReactions, SetterThrows, Pure]
            attribute long maxLength;
@@ -62,6 +62,7 @@ interface HTMLTextAreaElement : HTMLElement {
   boolean reportValidity();
   undefined setCustomValidity(DOMString error);
 
+  [BinaryName=labelsForBindings]
   readonly attribute NodeList labels;
 
   undefined select();
@@ -92,4 +93,11 @@ HTMLTextAreaElement includes MozEditableElement;
 partial interface HTMLTextAreaElement {
   [ChromeOnly]
   attribute DOMString previewValue;
+  // A string indicating that the value of the element has been autofilled:
+  // either "filled", "preview" or "".
+  [ChromeOnly]
+  attribute DOMString autofillState;
+
+  [ChromeOnly]
+  AutocompleteInfo getAutocompleteInfo();
 };

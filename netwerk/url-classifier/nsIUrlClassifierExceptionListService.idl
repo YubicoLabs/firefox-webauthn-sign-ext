@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsISupports.idl"
-
+#include "nsIUrlClassifierExceptionList.idl"
 /**
  * Observer for exception list updates.
  */
@@ -15,10 +15,10 @@ interface nsIUrlClassifierExceptionListObserver : nsISupports
    * for a designated feature changes and when the observer is first registered.
    *
    * @param aList
-   *        A comma-separated list of url patterns, intended to be parsed
-   *        by nsContentUtils::IsURIInList.
+   *        An nsIUrlClassifierExceptionList object which can be queried for
+   *        exceptions associated with the feature.
    */
-  void onExceptionListUpdate(in ACString aList);
+  void onExceptionListUpdate(in nsIUrlClassifierExceptionList aList);
 };
 
 /**
@@ -68,4 +68,9 @@ interface nsIUrlClassifierExceptionListService : nsISupports
    *  This API is for testing only.
    */
   void clear();
+
+  /**
+   * Manually trigger the category prefs migration if it hasn't been run yet.
+   */
+  void maybeMigrateCategoryPrefs();
 };

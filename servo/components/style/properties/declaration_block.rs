@@ -14,6 +14,8 @@ use super::{
 };
 use crate::context::QuirksMode;
 use crate::custom_properties;
+use crate::derives::*;
+use crate::dom::AttributeTracker;
 use crate::error_reporting::{ContextualParseError, ParseErrorReporter};
 use crate::parser::ParserContext;
 use crate::properties::{
@@ -24,14 +26,14 @@ use crate::rule_cache::RuleCacheConditions;
 use crate::selector_map::PrecomputedHashSet;
 use crate::selector_parser::SelectorImpl;
 use crate::shared_lock::Locked;
-use crate::str::{CssString, CssStringWriter};
 use crate::stylesheets::container_rule::ContainerSizeQuery;
 use crate::stylesheets::{CssRuleType, Origin, UrlExtraData};
 use crate::stylist::Stylist;
 use crate::values::computed::Context;
 use cssparser::{
     parse_important, AtRuleParser, CowRcStr, DeclarationParser, Delimiter, ParseErrorKind, Parser,
-    ParserInput, QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser,
+    ParserInput, ParserState, QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser,
+    SourceLocation,
 };
 use itertools::Itertools;
 use selectors::SelectorList;
@@ -41,7 +43,10 @@ use smallvec::SmallVec;
 use std::fmt::{self, Write};
 use std::iter::Zip;
 use std::slice::Iter;
-use style_traits::{CssWriter, ParseError, ParsingMode, StyleParseErrorKind, ToCss};
+use style_traits::{
+    CssString, CssStringWriter, CssWriter, ParseError, ParsingMode, StyleParseErrorKind, ToCss,
+    TypedValue,
+};
 use thin_vec::ThinVec;
 
 /// A set of property declarations including animations and transitions.
@@ -110,6 +115,24 @@ impl Importance {
             Self::Important => true,
         }
     }
+}
+
+/// A property-aware wrapper around reification results.
+///
+/// While `TypedValue` is property-agnostic, this enum represents the outcome
+/// of reifying a specific property inside a `PropertyDeclarationBlock`.
+#[derive(Clone, Debug)]
+pub enum PropertyTypedValue {
+    /// The property is not present in the declaration block.
+    None,
+
+    /// The property exists but cannot be expressed as a `TypedValue`.
+    /// Used for shorthands and other unrepresentable cases, which must be
+    /// exposed as `CSSUnsupportedValue` objects tied to the property.
+    Unsupported,
+
+    /// The property was successfully reified into a `TypedValue`.
+    Typed(TypedValue),
 }
 
 /// A set of properties.
@@ -191,7 +214,7 @@ impl PropertyDeclarationIdSet {
     }
 
     /// Iterate over the current property declaration id set.
-    pub fn iter(&self) -> PropertyDeclarationIdSetIterator {
+    pub fn iter(&self) -> PropertyDeclarationIdSetIterator<'_> {
         PropertyDeclarationIdSetIterator {
             longhands: self.longhands.iter(),
             custom: self.custom.iter(),
@@ -236,6 +259,15 @@ pub struct PropertyDeclarationBlock {
 
     /// The set of properties that are present in the block.
     property_ids: PropertyDeclarationIdSet,
+}
+
+impl PartialEq for PropertyDeclarationBlock {
+    fn eq(&self, other: &Self) -> bool {
+        // property_ids must be equal if declarations are equal, so we don't
+        // need to compare them explicitly.
+        self.declarations == other.declarations
+            && self.declarations_importance == other.declarations_importance
+    }
 }
 
 /// Iterator over `(PropertyDeclaration, Importance)` pairs.
@@ -334,8 +366,14 @@ impl<'a, 'cx, 'cx_a: 'cx> Iterator for AnimationValueIterator<'a, 'cx, 'cx_a> {
                 continue;
             }
 
-            let animation =
-                AnimationValue::from_declaration(decl, &mut self.context, self.style, self.default_values);
+            let animation = AnimationValue::from_declaration(
+                decl,
+                &mut self.context,
+                self.style,
+                self.default_values,
+                // TODO (descalante): should be able to get an attr from an animated element
+                &mut AttributeTracker::new_dummy(),
+            );
 
             if let Some(anim) = animation {
                 return Some(anim);
@@ -400,7 +438,7 @@ impl PropertyDeclarationBlock {
 
     /// Iterate over `(PropertyDeclaration, Importance)` pairs
     #[inline]
-    pub fn declaration_importance_iter(&self) -> DeclarationImportanceIterator {
+    pub fn declaration_importance_iter(&self) -> DeclarationImportanceIterator<'_> {
         DeclarationImportanceIterator::new(&self.declarations, &self.declarations_importance)
     }
 
@@ -572,6 +610,32 @@ impl PropertyDeclarationBlock {
         }
     }
 
+    /// Find the value of the given property in this block and reify it
+    pub fn property_value_to_typed(&self, property: &PropertyId) -> PropertyTypedValue {
+        match property.as_shorthand() {
+            Ok(shorthand) => {
+                if shorthand
+                    .longhands()
+                    .all(|longhand| self.contains(PropertyDeclarationId::Longhand(longhand)))
+                {
+                    PropertyTypedValue::Unsupported
+                } else {
+                    PropertyTypedValue::None
+                }
+            },
+            Err(longhand_or_custom) => match self.get(longhand_or_custom) {
+                Some((value, _importance)) => {
+                    if let Some(typed_value) = value.to_typed() {
+                        PropertyTypedValue::Typed(typed_value)
+                    } else {
+                        PropertyTypedValue::Unsupported
+                    }
+                },
+                None => PropertyTypedValue::None,
+            },
+        }
+    }
+
     /// Adds or overrides the declaration for a given property in this block.
     ///
     /// See the documentation of `push` to see what impact `source` has when the
@@ -661,8 +725,9 @@ impl PropertyDeclarationBlock {
                 .all_shorthand
                 .declarations()
                 .any(|decl| {
-                    !self.contains(decl.id()) ||
-                        self.declarations
+                    !self.contains(decl.id())
+                        || self
+                            .declarations
                             .iter()
                             .enumerate()
                             .find(|&(_, ref d)| d.id() == decl.id())
@@ -704,9 +769,9 @@ impl PropertyDeclarationBlock {
                                     }
                                     return DeclarationUpdate::UpdateInPlace { pos };
                                 }
-                                if !needs_append &&
-                                    id.logical_group() == Some(logical_group) &&
-                                    id.is_logical() != longhand_id.is_logical()
+                                if !needs_append
+                                    && id.logical_group() == Some(logical_group)
+                                    && id.is_logical() != longhand_id.is_logical()
                                 {
                                     needs_append = true;
                                 }
@@ -940,7 +1005,7 @@ impl PropertyDeclarationBlock {
         );
 
         if let Some(cv) = computed_values {
-            context.builder.custom_properties = cv.custom_properties.clone();
+            context.builder.custom_properties = cv.custom_properties().clone();
         };
 
         match (declaration, computed_values) {
@@ -959,6 +1024,7 @@ impl PropertyDeclarationBlock {
                     stylist,
                     &context,
                     &mut Default::default(),
+                    &mut AttributeTracker::new_dummy(),
                 )
                 .to_css(dest),
             (ref d, _) => d.to_css(dest),
@@ -1420,11 +1486,18 @@ pub struct DeclarationParserState<'i> {
     importance: Importance,
     /// A list of errors that have happened so far. Not all of them might be reported.
     errors: SmallParseErrorVec<'i>,
+    /// The start of the first declaration
+    first_declaration_start: SourceLocation,
     /// The last parsed property id, if any.
     last_parsed_property_id: Option<PropertyId>,
 }
 
 impl<'i> DeclarationParserState<'i> {
+    /// Getter for first_declaration_start.
+    pub fn first_declaration_start(&self) -> SourceLocation {
+        self.first_declaration_start
+    }
+
     /// Returns whether any parsed declarations have been parsed so far.
     pub fn has_parsed_declarations(&self) -> bool {
         !self.output_block.is_empty()
@@ -1441,6 +1514,7 @@ impl<'i> DeclarationParserState<'i> {
         context: &ParserContext,
         name: CowRcStr<'i>,
         input: &mut Parser<'i, 't>,
+        declaration_start: &ParserState,
     ) -> Result<(), ParseError<'i>> {
         let id = match PropertyId::parse(&name, context) {
             Ok(id) => id,
@@ -1457,7 +1531,9 @@ impl<'i> DeclarationParserState<'i> {
         self.importance = match input.try_parse(parse_important) {
             Ok(()) => {
                 if !context.allows_important_declarations() {
-                    return Err(input.new_custom_error(StyleParseErrorKind::UnexpectedImportantDeclaration));
+                    return Err(
+                        input.new_custom_error(StyleParseErrorKind::UnexpectedImportantDeclaration)
+                    );
                 }
                 Importance::Important
             },
@@ -1465,12 +1541,18 @@ impl<'i> DeclarationParserState<'i> {
         };
         // In case there is still unparsed text in the declaration, we should roll back.
         input.expect_exhausted()?;
+        let has_parsed_declarations = self.has_parsed_declarations();
         self.output_block
             .extend(self.declarations.drain(), self.importance);
         // We've successfully parsed a declaration, so forget about
         // `last_parsed_property_id`. It'd be wrong to associate any
         // following error with this property.
         self.last_parsed_property_id = None;
+
+        if !has_parsed_declarations {
+            self.first_declaration_start = declaration_start.source_location();
+        }
+
         Ok(())
     }
 
@@ -1544,8 +1626,10 @@ impl<'a, 'b, 'i> DeclarationParser<'i> for PropertyDeclarationParser<'a, 'b, 'i>
         &mut self,
         name: CowRcStr<'i>,
         input: &mut Parser<'i, 't>,
+        declaration_start: &ParserState,
     ) -> Result<(), ParseError<'i>> {
-        self.state.parse_value(self.context, name, input)
+        self.state
+            .parse_value(self.context, name, input, declaration_start)
     }
 }
 
@@ -1625,7 +1709,10 @@ fn report_one_css_error<'i>(
                 PropertyId::Custom(ref c) => {
                     StyleParseErrorKind::new_invalid(format!("--{}", c), error)
                 },
-                _ => StyleParseErrorKind::new_invalid(property.non_custom_id().unwrap().name(), error),
+                _ => StyleParseErrorKind::new_invalid(
+                    property.non_custom_id().unwrap().name(),
+                    error,
+                ),
             };
         }
     }

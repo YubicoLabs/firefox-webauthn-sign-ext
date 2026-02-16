@@ -11,6 +11,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageInfo
 import android.content.pm.ResolveInfo
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.testContext
@@ -56,6 +57,12 @@ class AppLinksUseCasesTest {
         "intent://com.example.app#Intent;package=com.example.com;S.browser_fallback_url=https://example.com;end"
     private val appIntentWithPackageAndPlayStoreFallback =
         "intent://com.example.app#Intent;package=com.example.com;S.browser_fallback_url=https://play.google.com/store/abc;end"
+    private val urlWithAndroidFallbackLink =
+        "https://mozilla.org/?afl=https://example.com"
+    private val urlWithFallbackLink =
+        "https://mozilla.org/?link=https://example.com"
+    private val urlWithBrowserFallbackLink =
+        "https://mozilla.org/?S.browser_fallback_url=https://example.com"
 
     @Before
     fun setup() {
@@ -344,15 +351,13 @@ class AppLinksUseCasesTest {
         val redirect = subject.interceptedAppLinkRedirect(uri)
         assertFalse(redirect.hasExternalApp())
         assertTrue(redirect.hasFallback())
-
-        assertEquals("http://zxing.org", redirect.fallbackUrl)
     }
 
     @Test
     fun `A intent scheme denied should return no app intent`() {
         val uri = "intent://details/#Intent"
         val context = createContext(Triple(uri, appPackage, ""))
-        val subject = AppLinksUseCases(context, { true }, alwaysDeniedSchemes = setOf("intent"))
+        val subject = AppLinksUseCases(context, { true }, alwaysDeniedSchemes = AlwaysDeniedSchemes(setOf("intent")))
 
         val redirect = subject.interceptedAppLinkRedirect.invoke(uri)
 
@@ -463,7 +468,7 @@ class AppLinksUseCasesTest {
     @Test
     fun `OpenAppLinkRedirect should not try to open data URIs`() {
         val context = createContext()
-        val uri = Uri.parse(dataUrl)
+        val uri = dataUrl.toUri()
         val intent = Intent(Intent.ACTION_VIEW)
         intent.setDataAndType(uri, fileType)
         val subject = AppLinksUseCases(context, { true })
@@ -476,7 +481,7 @@ class AppLinksUseCasesTest {
     @Test
     fun `OpenAppLinkRedirect should not try to open javascript URIs`() {
         val context = createContext()
-        val uri = Uri.parse(javascriptUrl)
+        val uri = javascriptUrl.toUri()
         val intent = Intent(Intent.ACTION_VIEW)
         intent.setDataAndType(uri, fileType)
         val subject = AppLinksUseCases(context, { true })
@@ -489,7 +494,7 @@ class AppLinksUseCasesTest {
     @Test
     fun `OpenAppLinkRedirect should not try to open about URIs`() {
         val context = createContext()
-        val uri = Uri.parse(aboutUrl)
+        val uri = aboutUrl.toUri()
         val intent = Intent(Intent.ACTION_VIEW)
         intent.setDataAndType(uri, fileType)
         val subject = AppLinksUseCases(context, { true })
@@ -502,7 +507,7 @@ class AppLinksUseCasesTest {
     @Test
     fun `OpenAppLinkRedirect should not try to open jar URIs`() {
         val context = createContext()
-        val uri = Uri.parse(jarUrl)
+        val uri = jarUrl.toUri()
         val intent = Intent(Intent.ACTION_VIEW)
         intent.setDataAndType(uri, fileType)
         val subject = AppLinksUseCases(context, { true })
@@ -549,27 +554,6 @@ class AppLinksUseCasesTest {
         assertFalse(redirect.hasFallback())
         assertNull(redirect.marketplaceIntent)
         assertNull(redirect.fallbackUrl)
-        assertTrue(redirect.appIntent?.flags?.and(Intent.FLAG_ACTIVITY_CLEAR_TASK) == 0)
-    }
-
-    @Test
-    fun `WHEN opening a app scheme uri WITH fallback URL THEN use fallback if needed`() {
-        val context = createContext(Triple(appIntentWithPackageAndFallback, appPackage, ""))
-
-        var subject = AppLinksUseCases(context, { false })
-        var redirect = subject.interceptedAppLinkRedirect(appIntentWithPackageAndFallback)
-        assertFalse(redirect.hasExternalApp())
-        assertTrue(redirect.hasFallback())
-        assertTrue(redirect.marketplaceIntent != null)
-        assertEquals(redirect.fallbackUrl, "https://example.com")
-
-        AppLinksUseCases.clearRedirectCache()
-        subject = AppLinksUseCases(context, { true })
-        redirect = subject.interceptedAppLinkRedirect(appIntentWithPackageAndFallback)
-        assertTrue(redirect.hasExternalApp())
-        assertTrue(redirect.hasFallback())
-        assertTrue(redirect.marketplaceIntent != null)
-        assertEquals(redirect.fallbackUrl, "https://example.com")
         assertTrue(redirect.appIntent?.flags?.and(Intent.FLAG_ACTIVITY_CLEAR_TASK) == 0)
     }
 
@@ -672,20 +656,6 @@ class AppLinksUseCasesTest {
     }
 
     @Test
-    fun `WHEN launch in app is updated to true THEN should redirect`() {
-        val context = createContext(Triple(appUrl, appPackage, ""))
-        val subject = AppLinksUseCases(context, { false })
-
-        var redirect = subject.interceptedAppLinkRedirect(appUrl)
-        assertFalse(redirect.isRedirect())
-
-        AppLinksUseCases.clearRedirectCache()
-        subject.updateLaunchInApp { true }
-        redirect = subject.interceptedAppLinkRedirect(appUrl)
-        assertTrue(redirect.isRedirect())
-    }
-
-    @Test
     fun `WHEN opening a app scheme uri WITH fallback URL WHERE the URL is Google PlayStore THEN ignore fallback URL`() {
         val context = createContext(Triple(appIntentWithPackageAndPlayStoreFallback, appPackage, ""))
 
@@ -706,5 +676,35 @@ class AppLinksUseCasesTest {
         assertFalse(redirect.hasExternalApp())
         assertTrue(redirect.hasFallback())
         assertEquals("https://play.google.com/store/abc", redirect.fallbackUrl)
+    }
+
+    @Test
+    fun `GIVEN an url with android fallback link WHEN scheme is supported by the engine THEN fallback should not be used`() {
+        val context = createContext()
+        val subject = AppLinksUseCases(context, { true })
+
+        val redirect = subject.interceptedAppLinkRedirect(urlWithAndroidFallbackLink)
+        assertNull(redirect.fallbackUrl)
+        assertFalse(redirect.hasFallback())
+    }
+
+    @Test
+    fun `GIVEN an url with fallback link WHEN scheme is supported by the engine THEN fallback should not be used`() {
+        val context = createContext()
+        val subject = AppLinksUseCases(context, { true })
+
+        val redirect = subject.interceptedAppLinkRedirect(urlWithFallbackLink)
+        assertNull(redirect.fallbackUrl)
+        assertFalse(redirect.hasFallback())
+    }
+
+    @Test
+    fun `GIVEN an url with browser fallback link WHEN scheme is supported by the engine THEN fallback should not be used`() {
+        val context = createContext()
+        val subject = AppLinksUseCases(context, { true })
+
+        val redirect = subject.interceptedAppLinkRedirect(urlWithBrowserFallbackLink)
+        assertNull(redirect.fallbackUrl)
+        assertFalse(redirect.hasFallback())
     }
 }

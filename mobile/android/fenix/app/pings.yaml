@@ -119,14 +119,45 @@ fx-suggest:
     Distinguishable by its `ping_type`.
     Does not contain a `client_id`, preferring a `context_id` instead.
   include_client_id: false
+  uploader_capabilities:
+    - ohttp
   bugs:
     - https://bugzilla.mozilla.org/show_bug.cgi?id=1857092
+    - https://bugzilla.mozilla.org/show_bug.cgi?id=1969155
   data_reviews:
     - https://github.com/mozilla-mobile/firefox-android/pull/3958#issuecomment-1758607927
   notification_emails:
     - lina@mozilla.com
     - ttran@mozilla.com
     - najiang@mozilla.com
+
+fx-suggest-api:
+  description: |
+    A ping representing a single interaction event with Firefox Suggestions API.
+    Distinguishable by its `ping_type`.
+    Does not contain a `client_id`.
+  include_client_id: false
+  uploader_capabilities:
+    - ohttp
+  bugs:
+    - https://bugzilla.mozilla.org/show_bug.cgi?id=1984499
+  data_reviews: []
+  notification_emails:
+    - rmalicdem@mozilla.com
+
+fx-accounts:
+  description: |
+    A ping for information about Mozilla Account usage. Sent at the same cadence
+    as the baseline ping.
+  include_client_id: true
+  send_if_empty: false
+  bugs:
+    - https://bugzilla.mozilla.org/show_bug.cgi?id=1970661
+  data_reviews:
+    - https://bugzilla.mozilla.org/show_bug.cgi?id=1970661
+  notification_emails:
+    - fmasalha@mozilla.com
+    - mtighe@mozilla.com
 
 font-list:
   description: |
@@ -247,3 +278,30 @@ broken-site-report:
     - https://phabricator.services.mozilla.com/D232122#8037249
   notification_emails:
     - twisniewski@mozilla.com
+
+nimbus:
+  description: |
+    This ping is submitted by Nimbus code after the enrollment workflow has completed.
+  include_client_id: true
+  send_if_empty: true
+  bugs:
+    - https://bugzilla.mozilla.org/show_bug.cgi?id=1951125
+  data_reviews:
+    - https://bugzilla.mozilla.org/show_bug.cgi?id=1951125
+  notification_emails:
+    - chumphreys@mozilla.com
+    - project-nimbus@mozilla.com
+
+onboarding:
+  description: |
+    This ping is submitted multiple times during onboarding: once after every card/screen is completed.
+    Usually (or always?) the first card/screen asks permission to submit metrics, so the first
+    `onboarding` ping is the logical negation of the `onboarding-opt-out` ping.
+  include_client_id: false
+  send_if_empty: true
+  bugs:
+    - https://bugzilla.mozilla.org/show_bug.cgi?id=2010810
+  data_reviews:
+    - https://phabricator.services.mozilla.com/D280983
+  notification_emails:
+    - android-probes@mozilla.com

@@ -4,7 +4,12 @@ copyExternalImageToTexture from HTMLImageElement source.
 
 import { makeTestGroup } from '../../../common/framework/test_group.js';
 import { raceWithRejectOnTimeout } from '../../../common/util/util.js';
-import { kTextureFormatInfo, kValidTextureFormatsForCopyE2T } from '../../format_info.js';
+import {
+  getBaseFormatForRegularTextureFormat,
+  isTextureFormatPossiblyUsableWithCopyExternalImageToTexture,
+  kRegularTextureFormats,
+} from '../../format_info.js';
+import * as ttu from '../../texture_test_utils.js';
 import { TextureUploadingUtils, kCopySubrectInfo } from '../../util/copy_to_texture.js';
 
 import { kTestColorsOpaque, makeTestColorsTexelView } from './util.js';
@@ -54,18 +59,20 @@ g.test('from_image')
   .params(u =>
     u
       .combine('srcDoFlipYDuringCopy', [true, false])
-      .combine('dstColorFormat', kValidTextureFormatsForCopyE2T)
+      .combine('dstColorFormat', kRegularTextureFormats)
+      .filter(t => isTextureFormatPossiblyUsableWithCopyExternalImageToTexture(t.dstColorFormat))
       .combine('dstPremultiplied', [true, false])
       .beginSubcases()
       .combine('width', [1, 2, 4, 15, 255, 256])
       .combine('height', [1, 2, 4, 15, 255, 256])
   )
   .beforeAllSubcases(t => {
-    t.skipIfTextureFormatNotSupported(t.params.dstColorFormat);
     if (typeof HTMLImageElement === 'undefined') t.skip('HTMLImageElement not available');
   })
   .fn(async t => {
     const { width, height, dstColorFormat, dstPremultiplied, srcDoFlipYDuringCopy } = t.params;
+    t.skipIfTextureFormatNotSupported(dstColorFormat);
+    t.skipIfTextureFormatPossiblyNotUsableWithCopyExternalImageToTexture(dstColorFormat);
 
     const imageCanvas = document.createElement('canvas');
     imageCanvas.width = width;
@@ -108,7 +115,7 @@ g.test('from_image')
         GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
-    const expFormat = kTextureFormatInfo[dstColorFormat].baseFormat ?? dstColorFormat;
+    const expFormat = getBaseFormatForRegularTextureFormat(dstColorFormat) ?? dstColorFormat;
     const flipSrcBeforeCopy = false;
     const texelViewExpected = t.getExpectedDstPixelsFromSrcPixels({
       srcPixels: imageData.data,
@@ -211,7 +218,7 @@ g.test('from_fully_transparent_image')
       ? new Uint8Array([0, 0, 0, 0])
       : new Uint8Array([255, 102, 153, 0]);
 
-    t.expectSinglePixelComparisonsAreOkInTexture({ texture: dst }, [
+    ttu.expectSinglePixelComparisonsAreOkInTexture(t, { texture: dst }, [
       { coord: { x: kImageWidth * 0.3, y: kImageHeight * 0.3 }, exp: expectedPixels },
     ]);
   });

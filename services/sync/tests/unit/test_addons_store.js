@@ -9,9 +9,6 @@ const { AddonsEngine } = ChromeUtils.importESModule(
 const { Service } = ChromeUtils.importESModule(
   "resource://services-sync/service.sys.mjs"
 );
-const { FileUtils } = ChromeUtils.importESModule(
-  "resource://gre/modules/FileUtils.sys.mjs"
-);
 const { SyncedRecordsTelemetry } = ChromeUtils.importESModule(
   "resource://services-sync/telemetry.sys.mjs"
 );
@@ -43,20 +40,39 @@ AddonTestUtils.overrideCertDB();
 Services.prefs.setBoolPref("extensions.experiments.enabled", true);
 
 const SYSTEM_ADDON_ID = "system1@tests.mozilla.org";
-add_setup(async function setupSystemAddon() {
-  const distroDir = FileUtils.getDir("ProfD", ["sysfeatures", "app0"]);
-  distroDir.create(Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
-  AddonTestUtils.registerDirectory("XREAppFeat", distroDir);
+const THEME_ID = "synctheme@tests.mozilla.org";
+
+add_setup(async function setupBuiltInAddon() {
+  // Enable SCOPE_APPLICATION for builtin testing.  Default in tests is only SCOPE_PROFILE.
+  let scopes = AddonManager.SCOPE_PROFILE | AddonManager.SCOPE_APPLICATION;
+  Services.prefs.setIntPref("extensions.enabledScopes", scopes);
+
+  const addon_version = "1.0";
+  const addon_res_url_path = "test-builtin-addon";
 
   let xpi = await AddonTestUtils.createTempWebExtensionFile({
     manifest: {
+      version: addon_version,
       browser_specific_settings: { gecko: { id: SYSTEM_ADDON_ID } },
     },
   });
 
-  xpi.copyTo(distroDir, `${SYSTEM_ADDON_ID}.xpi`);
-
-  await AddonTestUtils.overrideBuiltIns({ system: [SYSTEM_ADDON_ID] });
+  // The built-in location requires a resource: URL that maps to a
+  // jar: or file: URL.  This would typically be something bundled
+  // into omni.ja but for testing we just use a temp file.
+  let base = Services.io.newURI(`jar:file:${xpi.path}!/`);
+  let resProto = Services.io
+    .getProtocolHandler("resource")
+    .QueryInterface(Ci.nsIResProtocolHandler);
+  resProto.setSubstitution(addon_res_url_path, base);
+  let builtins = [
+    {
+      addon_id: SYSTEM_ADDON_ID,
+      addon_version,
+      res_url: `resource://${addon_res_url_path}/`,
+    },
+  ];
+  await AddonTestUtils.overrideBuiltIns({ builtins });
   await AddonTestUtils.promiseStartupManager();
 });
 
@@ -821,6 +837,88 @@ add_task(async function test_incoming_reconciled_but_not_cached() {
 
   Assert.notEqual(await AddonManager.getAddonByID(ID1), null);
 
+  await promiseStopServer(server);
+});
+
+// Helper for testing theme-specific addons
+function makeThemeSearchResult(id) {
+  return {
+    next: null,
+    results: [
+      {
+        name: "Sync Theme",
+        type: "theme",
+        guid: id,
+        current_version: {
+          version: "1.0",
+          files: [
+            {
+              platform: "all",
+              size: 1234,
+              url: `http://localhost:${HTTP_PORT}/synctheme.xpi`,
+            },
+          ],
+        },
+        last_updated: "2025-03-01T00:00:00.000Z",
+      },
+    ],
+  };
+}
+
+/**
+ * Incoming theme add-on record should
+ *   – install the theme
+ *   – enable it immediately
+ *   – clear the hand-off pref
+ */
+add_task(async function test_incoming_theme_gets_enabled() {
+  const xpiTheme = AddonTestUtils.createTempWebExtensionFile({
+    manifest: {
+      manifest_version: 2,
+      name: "Sync Theme",
+      version: "1.0",
+      applications: { gecko: { id: THEME_ID } },
+      theme: { colors: { frame: "#000000", tab_background_text: "#ffffff" } },
+    },
+  });
+
+  const server = createAndStartHTTPServer(HTTP_PORT);
+  server.registerFile("/synctheme.xpi", xpiTheme);
+  server.registerPathHandler(
+    `/search/guid:${encodeURIComponent(THEME_ID)}`,
+    (req, resp) => {
+      resp.setHeader("Content-Type", "application/json", true);
+      resp.write(JSON.stringify(makeThemeSearchResult(THEME_ID)));
+    }
+  );
+
+  // Pretend Prefs‑engine has just synced a new activeThemeID
+  Services.prefs.setStringPref("extensions.pendingActiveThemeID", THEME_ID);
+
+  // Feed an add-on record into the Addons engine.
+  const guid = Utils.makeGUID();
+  const record = createRecordForThisApp(guid, THEME_ID, true, false);
+  const telem = new SyncedRecordsTelemetry();
+
+  const onStartup = AddonTestUtils.promiseWebExtensionStartup(THEME_ID);
+  const failed = await store.applyIncomingBatch([record], telem);
+
+  Assert.equal(0, failed.length, "No records should fail to apply");
+  await onStartup;
+
+  const theme = await AddonManager.getAddonByID(THEME_ID);
+  Assert.ok(theme, "Theme is installed");
+  Assert.ok(theme.isActive, "Theme is active");
+  Assert.ok(!theme.userDisabled, "Theme is not user-disabled");
+
+  Assert.equal(
+    Services.prefs.getPrefType("extensions.pendingActiveThemeID"),
+    Ci.nsIPrefBranch.PREF_INVALID,
+    "Hand-off pref was cleared"
+  );
+
+  // Clean-up
+  await uninstallAddon(theme, reconciler);
   await promiseStopServer(server);
 });
 

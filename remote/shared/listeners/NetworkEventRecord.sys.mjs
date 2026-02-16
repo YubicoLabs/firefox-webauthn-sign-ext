@@ -24,6 +24,8 @@ ChromeUtils.defineLazyGetter(lazy, "logger", () => lazy.Log.get());
  */
 export class NetworkEventRecord {
   #decodedBodySizeMap;
+  #devtoolsResponseContent;
+  #devtoolsResponseSizes;
   #fromCache;
   #networkEventsMap;
   #networkListener;
@@ -66,6 +68,13 @@ export class NetworkEventRecord {
     });
     this.#response = null;
 
+    this.#devtoolsResponseContent = null;
+    this.#devtoolsResponseSizes = {
+      decodedBodySize: 0,
+      encodedBodySize: 0,
+      totalTransmittedSize: 0,
+    };
+
     if (channel instanceof Ci.nsIChannel) {
       this.#wrappedChannel = ChannelWrapper.get(channel);
       this.#wrappedChannel.addEventListener("error", this.#onChannelCompleted);
@@ -87,7 +96,9 @@ export class NetworkEventRecord {
       } else {
         // Otherwise if there is no redirect count or if it is identical to the
         // previously detected request, this is an authentication attempt.
-        previousEvent.notifyAuthenticationAttempt();
+        previousEvent.notifyAuthenticationAttempt(
+          this.#request.channel.channelId
+        );
       }
     }
 
@@ -110,6 +121,10 @@ export class NetworkEventRecord {
 
   get #requestId() {
     return this.#request.requestId;
+  }
+
+  get channelId() {
+    return this.#request.channel.channelId;
   }
 
   get redirectCount() {
@@ -210,10 +225,48 @@ export class NetworkEventRecord {
    *
    * @param {object} responseContent
    *     An object which represents the response content.
-   * @param {object} responseInfo
-   *     Additional meta data about the response.
    */
-  addResponseContent(responseContent, responseInfo) {
+  addResponseContent(responseContent) {
+    // Bug 1982252: at the moment we have no way to know which
+    // addResponseContent call corresponds to the last chunk, and therefore we
+    // hold on the responseContent and will forward it to the NetworkResponse
+    // class in addResponseContentComplete.
+    this.#devtoolsResponseContent = responseContent;
+
+    // Bug 1979111: In Bug 1971778 the DevTools NetworkObserver is configured
+    // to no longer decode response sizes.
+    // Consequently `responseContent` no longer exposes the decodedBodySize.
+    // Until we can monitor decoded body size in all processes, ServiceWorker
+    // initiated requests will report the encodedBodySize here, which is at
+    // least non-zero.
+    this.#devtoolsResponseSizes.decodedBodySize =
+      responseContent.isContentEncoded
+        ? responseContent.encodedBodySize
+        : responseContent.decodedBodySize;
+    // Note: response's bodySize is normally equal to encodedBodySize, but
+    // encodedBodySize is only available on responses with isContentEncoded
+    // set to true, which is not the case for data or file URIs, regardless
+    // of the `decodeResponseBodies` configuration of the NetworkObserver.
+    this.#devtoolsResponseSizes.encodedBodySize = responseContent.bodySize;
+    this.#devtoolsResponseSizes.totalTransmittedSize =
+      responseContent.transferredSize;
+  }
+
+  /**
+   * Add response content complete
+   *
+   * Required API for a NetworkObserver event owner.
+   *
+   * @param {object} responseInfo
+   *    An object with info for when response content is complete
+   */
+  addResponseContentComplete(responseInfo) {
+    // addResponseContentComplete is called when all chunks have been received,
+    // we can now set the final response content in the response object.
+    if (this.#response && this.#devtoolsResponseContent) {
+      this.#response.setResponseContent(this.#devtoolsResponseContent);
+    }
+
     if (
       // Ignore already completed requests.
       this.#request.alreadyCompleted ||
@@ -224,12 +277,10 @@ export class NetworkEventRecord {
       return;
     }
 
-    const sizes = {
-      decodedBodySize: responseContent.decodedBodySize,
-      encodedBodySize: responseContent.bodySize,
-      totalTransmittedSize: responseContent.transferredSize,
-    };
-    this.#handleRequestEnd(responseInfo.blockedReason, sizes);
+    this.#handleRequestEnd(
+      responseInfo.blockedReason,
+      this.#devtoolsResponseSizes
+    );
   }
 
   /**
@@ -254,8 +305,12 @@ export class NetworkEventRecord {
    * Complete response in case of an authentication attempt.
    *
    * This method is required to be called on the previous event.
+   *
+   * @param {number} nextChannelId
+   *     The channelId of the next authentication attempt in the authentication
+   *     chain.
    */
-  notifyAuthenticationAttempt() {
+  notifyAuthenticationAttempt(nextChannelId) {
     // TODO: Bug 1899604, behavior might change based on spec issue
     // https://github.com/w3c/webdriver-bidi/issues/722
 
@@ -264,6 +319,12 @@ export class NetworkEventRecord {
     // This way, only the last successful/failed authentication attempt will
     // emit a response completed event.
     this.#markRequestComplete();
+
+    // Notify the decodedBodySizeMap about the authentication chain as well.
+    this.#decodedBodySizeMap.setAuthenticationAttemptMapping(
+      this.#request.channel.channelId,
+      nextChannelId
+    );
   }
 
   /**
@@ -361,7 +422,7 @@ export class NetworkEventRecord {
     }
   }
 
-  #onChannelCompleted = async () => {
+  #onChannelCompleted = () => {
     if (this.#request.alreadyCompleted) {
       return;
     }
@@ -377,7 +438,7 @@ export class NetworkEventRecord {
     // sizes.
     const sizes = {};
     if (this.#request.isHttpChannel && !blockedReason) {
-      sizes.decodedBodySize = await this.#decodedBodySizeMap.getDecodedBodySize(
+      sizes.decodedBodySize = this.#decodedBodySizeMap.getDecodedBodySize(
         this.#request.channel.channelId
       );
       sizes.encodedBodySize = this.#request.channel.encodedBodySize;

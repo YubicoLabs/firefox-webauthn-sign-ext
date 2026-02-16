@@ -19,7 +19,6 @@
 #include "TLSClientAuthCertSelection.h"
 #include "keyhi.h"
 #include "mozilla/Base64.h"
-#include "mozilla/DebugOnly.h"
 #include "mozilla/Logging.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/RandomNum.h"
@@ -29,6 +28,7 @@
 #include "mozilla/net/SSLTokensCache.h"
 #include "mozilla/net/SocketProcessChild.h"
 #include "mozilla/psm/IPCClientCertsChild.h"
+#include "mozilla/psm/mozilla_abridged_certs_generated.h"
 #include "mozilla/psm/PIPCClientCertsChild.h"
 #include "mozpkix/pkixnss.h"
 #include "mozpkix/pkixtypes.h"
@@ -60,6 +60,10 @@
 #if defined(__arm__)
 #  include "mozilla/arm.h"
 #endif
+
+#ifdef MOZ_WIDGET_ANDROID
+#  include "mozilla/java/ClientAuthCertificateManagerWrappers.h"
+#endif  // MOZ_WIDGET_ANDROID
 
 using namespace mozilla;
 using namespace mozilla::psm;
@@ -755,7 +759,7 @@ static int16_t nsSSLIOLayerPoll(PRFileDesc* fd, int16_t in_flags,
                : "[%p] poll SSL socket using lower %d\n",
            fd, (int)in_flags));
 
-  socketInfo->MaybeDispatchSelectClientAuthCertificate();
+  socketInfo->MaybeSelectClientAuthCertificate();
 
   // We want the handshake to continue during certificate validation, so we
   // don't need to do anything special here. libssl automatically blocks when
@@ -1254,9 +1258,6 @@ static PRFileDesc* nsSSLIOLayerImportFD(PRFileDesc* fd,
   if (!sslSock) {
     return nullptr;
   }
-  if (SSL_SetPKCS11PinArg(sslSock, infoObject) != SECSuccess) {
-    return nullptr;
-  }
   if (SSL_HandshakeCallback(sslSock, HandshakeCallback, infoObject) !=
       SECSuccess) {
     return nullptr;
@@ -1341,6 +1342,51 @@ void GatherCertificateCompressionTelemetry(SECStatus rv,
   }
   // Glam requires us to send 0 in case of success.
   mozilla::glean::cert_compression::failures.Get(decoder).Add(0);
+}
+
+SECStatus abridgedCertificatePass1Decode(const SECItem* input,
+                                         unsigned char* output,
+                                         size_t outputLen, size_t* usedLen) {
+  if (!input || !input->data || input->len == 0 || !output || outputLen == 0) {
+    PR_SetError(SEC_ERROR_INVALID_ARGS, 0);
+    return SECFailure;
+  }
+  if (NS_FAILED(mozilla::psm::abridged_certs::decompress(
+          input->data, input->len, output, outputLen, usedLen))) {
+    PR_SetError(SEC_ERROR_BAD_DATA, 0);
+    return SECFailure;
+  }
+  return SECSuccess;
+}
+
+SECStatus abridgedCertificateDecode(const SECItem* input, unsigned char* output,
+                                    size_t outputLen, size_t* usedLen) {
+  if (!input || !input->data || input->len == 0 || !output || outputLen == 0) {
+    MOZ_LOG(gPIPNSSLog, LogLevel::Error,
+            ("AbridgedCerts: Invalid arguments passed to "
+             "abridgedCertificateDecode"));
+    PR_SetError(SEC_ERROR_INVALID_ARGS, 0);
+    return SECFailure;
+  }
+  // Pass 2 - Brotli with no dictionary
+  UniqueSECItem tempBuffer(::SECITEM_AllocItem(nullptr, nullptr, outputLen));
+  if (!tempBuffer) {
+    PR_SetError(SEC_ERROR_NO_MEMORY, 0);
+    return SECFailure;
+  }
+  size_t tempUsed;
+  SECStatus rv = brotliCertificateDecode(input, tempBuffer->data,
+                                         (size_t)tempBuffer->len, &tempUsed);
+  if (rv != SECSuccess) {
+    MOZ_LOG(gPIPNSSLog, LogLevel::Error,
+            ("AbridgedCerts: Brotli Decoder failed"));
+    // Error code set by brotliCertificateDecode
+    return rv;
+  }
+  tempBuffer->len = tempUsed;
+  // Error code (if any) set by abridgedCertificatePass1Decode
+  return abridgedCertificatePass1Decode(tempBuffer.get(), output, outputLen,
+                                        usedLen);
 }
 
 SECStatus zlibCertificateDecode(const SECItem* input, unsigned char* output,
@@ -1597,6 +1643,9 @@ static nsresult nsSSLIOLayerSetOptions(PRFileDesc* fd, bool forSTARTTLS,
     SSLCertificateCompressionAlgorithm zstdAlg = {3, "zstd", nullptr,
                                                   zstdCertificateDecode};
 
+    SSLCertificateCompressionAlgorithm abridgedAlg = {
+        0xab00, "abridged-00", nullptr, abridgedCertificateDecode};
+
     if (StaticPrefs::security_tls_enable_certificate_compression_zlib() &&
         SSL_SetCertificateCompressionAlgorithm(fd, zlibAlg) != SECSuccess) {
       return NS_ERROR_FAILURE;
@@ -1609,6 +1658,12 @@ static nsresult nsSSLIOLayerSetOptions(PRFileDesc* fd, bool forSTARTTLS,
 
     if (StaticPrefs::security_tls_enable_certificate_compression_zstd() &&
         SSL_SetCertificateCompressionAlgorithm(fd, zstdAlg) != SECSuccess) {
+      return NS_ERROR_FAILURE;
+    }
+
+    if (StaticPrefs::security_tls_enable_certificate_compression_abridged() &&
+        mozilla::psm::abridged_certs::certs_are_available() &&
+        SSL_SetCertificateCompressionAlgorithm(fd, abridgedAlg) != SECSuccess) {
       return NS_ERROR_FAILURE;
     }
   }
@@ -1878,22 +1933,19 @@ void DoFindObjects(FindObjectsCallback cb, void* ctx) {
         cb(kIPCClientCertsObjectTypeECKey, object.get_ECKey().params().Length(),
            object.get_ECKey().params().Elements(),
            object.get_ECKey().cert().Length(),
-           object.get_ECKey().cert().Elements(), object.get_ECKey().slotType(),
-           ctx);
+           object.get_ECKey().cert().Elements(), ctx);
         break;
       case IPCClientCertObject::TRSAKey:
         cb(kIPCClientCertsObjectTypeRSAKey,
            object.get_RSAKey().modulus().Length(),
            object.get_RSAKey().modulus().Elements(),
            object.get_RSAKey().cert().Length(),
-           object.get_RSAKey().cert().Elements(),
-           object.get_RSAKey().slotType(), ctx);
+           object.get_RSAKey().cert().Elements(), ctx);
         break;
       case IPCClientCertObject::TCertificate:
         cb(kIPCClientCertsObjectTypeCert,
            object.get_Certificate().der().Length(),
-           object.get_Certificate().der().Elements(), 0, nullptr,
-           object.get_Certificate().slotType(), ctx);
+           object.get_Certificate().der().Elements(), 0, nullptr, ctx);
         break;
       default:
         MOZ_ASSERT_UNREACHABLE("unhandled IPCClientCertObject type");
@@ -1929,4 +1981,74 @@ void DoSign(size_t cert_len, const uint8_t* cert, size_t data_len,
   }
   cb(signature.data().Length(), signature.data().Elements(), ctx);
 }
+
+#ifdef MOZ_WIDGET_ANDROID
+// Similar to `DoFindObjects`, this function implements searching for client
+// authentication certificates on Android. When a TLS server requests a client
+// auth certificate, the backend will forward that request to the frontend,
+// which calls KeyChain.choosePrivateKeyAlias. The user can choose a
+// certificate, which causes it to become available for use. The
+// `ClientAuthCertificateManager` singleton keeps track of these certificates.
+// This function is called by osclientcerts when the backend looks for new
+// certificates and keys. It gets a list of all known client auth certificates
+// from `ClientAuthCertificateManager` and returns them via the callback.
+void AndroidDoFindObjects(FindObjectsCallback cb, void* ctx) {
+  if (!jni::IsAvailable()) {
+    MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
+            ("AndroidDoFindObjects: JNI not available"));
+    return;
+  }
+  jni::ObjectArray::LocalRef clientAuthCertificates =
+      java::ClientAuthCertificateManager::GetClientAuthCertificates();
+  for (size_t i = 0; i < clientAuthCertificates->Length(); i++) {
+    java::ClientAuthCertificateManager::ClientAuthCertificate::LocalRef
+        clientAuthCertificate = clientAuthCertificates->GetElement(i);
+    jni::ByteArray::LocalRef der = clientAuthCertificate->GetCertificateBytes();
+    jni::ByteArray::LocalRef keyParameters =
+        clientAuthCertificate->GetKeyParameters();
+    cb(kIPCClientCertsObjectTypeCert, der->Length(),
+       reinterpret_cast<uint8_t*>(der->GetElements().Elements()), 0, nullptr,
+       ctx);
+    cb(clientAuthCertificate->GetType(), keyParameters->Length(),
+       reinterpret_cast<uint8_t*>(keyParameters->GetElements().Elements()),
+       der->Length(), reinterpret_cast<uint8_t*>(der->GetElements().Elements()),
+       ctx);
+    jni::ObjectArray::LocalRef issuersBytes =
+        clientAuthCertificate->GetIssuersBytes();
+    if (issuersBytes) {
+      for (size_t i = 0; i < issuersBytes->Length(); i++) {
+        jni::ByteArray::LocalRef issuer = issuersBytes->GetElement(i);
+        cb(kIPCClientCertsObjectTypeCert, issuer->Length(),
+           reinterpret_cast<uint8_t*>(issuer->GetElements().Elements()), 0,
+           nullptr, ctx);
+      }
+    }
+  }
+}
+
+// Similar to `DoSign`, this function implements signing for client
+// authentication certificates on Android. `ClientAuthCertificateManager` keeps
+// track of any available client auth certificates and does the actual work of
+// signing - this function just passes in the appropriate parameters.
+void AndroidDoSign(size_t certLen, const uint8_t* cert, size_t dataLen,
+                   const uint8_t* data, const char* algorithm, SignCallback cb,
+                   void* ctx) {
+  if (!jni::IsAvailable()) {
+    MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("AndroidDoSign: JNI not available"));
+    return;
+  }
+  jni::ByteArray::LocalRef certBytes =
+      jni::ByteArray::New(reinterpret_cast<const int8_t*>(cert), certLen);
+  jni::ByteArray::LocalRef dataBytes =
+      jni::ByteArray::New(reinterpret_cast<const int8_t*>(data), dataLen);
+  jni::String::LocalRef algorithmStr = jni::StringParam(algorithm);
+  jni::ByteArray::LocalRef signature = java::ClientAuthCertificateManager::Sign(
+      certBytes, dataBytes, algorithmStr);
+  if (signature) {
+    cb(signature->Length(),
+       reinterpret_cast<const uint8_t*>(signature->GetElements().Elements()),
+       ctx);
+  }
+}
+#endif  // MOZ_WIDGET_ANDROID
 }  // extern "C"

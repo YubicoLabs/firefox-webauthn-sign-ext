@@ -24,20 +24,27 @@
 //! The assertions in the constructor methods ensure that the tag getter matches
 //! our expectations.
 
-use super::{Context, Length, Percentage, PositionProperty, ToComputedValue};
+use super::{position::AnchorSide, Context, Length, Percentage, ToComputedValue};
+use crate::derives::*;
 #[cfg(feature = "gecko")]
-use crate::gecko_bindings::structs::GeckoFontMetrics;
-use crate::logical_geometry::PhysicalAxis;
-use crate::values::animated::{Animate, Context as AnimatedContext, Procedure, ToAnimatedValue, ToAnimatedZero};
+use crate::gecko_bindings::structs::{AnchorPosOffsetResolutionParams, GeckoFontMetrics};
+use crate::logical_geometry::{PhysicalAxis, PhysicalSide};
+use crate::values::animated::{
+    Animate, Context as AnimatedContext, Procedure, ToAnimatedValue, ToAnimatedZero,
+};
+use crate::values::computed::position::TryTacticAdjustment;
 use crate::values::distance::{ComputeSquaredDistance, SquaredDistance};
 use crate::values::generics::calc::{CalcUnits, PositivePercentageBasis};
+#[cfg(feature = "gecko")]
 use crate::values::generics::length::AnchorResolutionResult;
-use crate::values::generics::{calc, NonNegative};
+use crate::values::generics::position::GenericAnchorSide;
+use crate::values::generics::{calc, ClampToNonNegative, NonNegative};
 use crate::values::resolved::{Context as ResolvedContext, ToResolvedValue};
 use crate::values::specified::length::{FontBaseSize, LineHeightBase};
 use crate::values::{specified, CSSFloat};
 use crate::{Zero, ZeroNoPercent};
 use app_units::Au;
+use debug_unreachable::debug_unreachable;
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Write};
@@ -108,6 +115,7 @@ pub struct TagVariant {
 /// Also we need the union and the variants to be `pub` (even though the member
 /// is private) so that cbindgen generates it. They're not part of the public
 /// API otherwise.
+#[derive(ToTyped)]
 #[repr(transparent)]
 pub struct LengthPercentage(LengthPercentageUnion);
 
@@ -444,23 +452,13 @@ impl LengthPercentage {
         }
     }
 
-    /// Returns true if the computed value is absolute 0 or 0%.
-    #[inline]
-    pub fn is_definitely_zero(&self) -> bool {
-        match self.unpack() {
-            Unpacked::Length(l) => l.px() == 0.0,
-            Unpacked::Percentage(p) => p.0 == 0.0,
-            Unpacked::Calc(..) => false,
-        }
-    }
-
     /// Resolves the percentage.
     #[inline]
     pub fn resolve(&self, basis: Length) -> Length {
         match self.unpack() {
             Unpacked::Length(l) => l,
             Unpacked::Percentage(p) => (basis * p.0).normalized(),
-            Unpacked::Calc(ref c) => c.resolve_non_anchor(basis),
+            Unpacked::Calc(ref c) => c.resolve(basis),
         }
     }
 
@@ -508,14 +506,18 @@ impl LengthPercentage {
         Some(match self.unpack() {
             Unpacked::Length(l) => Percentage(l.px() / basis.px()),
             Unpacked::Percentage(p) => p,
-            Unpacked::Calc(ref c) => Percentage(c.resolve_non_anchor(basis).px() / basis.px()),
+            Unpacked::Calc(ref c) => Percentage(c.resolve(basis).px() / basis.px()),
         })
     }
 
     /// Returns the used value.
     #[inline]
     pub fn to_used_value(&self, containing_length: Au) -> Au {
-        Au::from(self.to_pixel_length(containing_length))
+        let length = self.to_pixel_length(containing_length);
+        if let Unpacked::Percentage(_) = self.unpack() {
+            return Au::from_f32_px_trunc(length.px());
+        }
+        Au::from(length)
     }
 
     /// Returns the used value as CSSPixelLength.
@@ -528,7 +530,11 @@ impl LengthPercentage {
     #[inline]
     pub fn maybe_to_used_value(&self, container_len: Option<Au>) -> Option<Au> {
         self.maybe_percentage_relative_to(container_len.map(Length::from))
-            .map(Au::from)
+            .map(if let Unpacked::Percentage(_) = self.unpack() {
+                |length: Length| Au::from_f32_px_trunc(length.px())
+            } else {
+                Au::from
+            })
     }
 
     /// If there are special rules for computing percentages in a value (e.g.
@@ -540,10 +546,12 @@ impl LengthPercentage {
         }
         Some(self.resolve(container_len?))
     }
+}
 
+impl ClampToNonNegative for LengthPercentage {
     /// Returns the clamped non-negative values.
     #[inline]
-    pub fn clamp_to_non_negative(mut self) -> Self {
+    fn clamp_to_non_negative(mut self) -> Self {
         match self.unpack_mut() {
             UnpackedMut::Length(l) => Self::new_length(l.clamp_to_non_negative()),
             UnpackedMut::Percentage(p) => Self::new_percent(p.clamp_to_non_negative()),
@@ -644,16 +652,21 @@ impl Zero for LengthPercentage {
         LengthPercentage::new_length(Length::zero())
     }
 
+    /// Returns true if the computed value is absolute 0 or 0%.
     #[inline]
     fn is_zero(&self) -> bool {
-        self.is_definitely_zero()
+        match self.unpack() {
+            Unpacked::Length(l) => l.px() == 0.0,
+            Unpacked::Percentage(p) => p.0 == 0.0,
+            Unpacked::Calc(..) => false,
+        }
     }
 }
 
 impl ZeroNoPercent for LengthPercentage {
     #[inline]
     fn is_zero_no_percent(&self) -> bool {
-        self.is_definitely_zero() && !self.has_percentage()
+        self.to_length().is_some_and(|l| l.px() == 0.0)
     }
 }
 
@@ -688,6 +701,7 @@ impl<'de> Deserialize<'de> for LengthPercentage {
     ToAnimatedZero,
     ToCss,
     ToResolvedValue,
+    ToTyped,
 )]
 #[allow(missing_docs)]
 #[repr(u8)]
@@ -901,117 +915,8 @@ pub struct CalcLengthPercentage {
     node: CalcNode,
 }
 
-struct ResolveContext {
-    percentage_used: bool,
-    anchor_function_used: bool,
-}
-
-impl Default for ResolveContext {
-    fn default() -> Self {
-        Self {
-            percentage_used: false,
-            anchor_function_used: false,
-        }
-    }
-}
-
-fn leaf_to_output(
-    leaf: &CalcLengthPercentageLeaf,
-    basis: Length,
-    context: &mut ResolveContext,
-) -> Result<CalcLengthPercentageLeaf, ()> {
-    Ok(if let CalcLengthPercentageLeaf::Percentage(p) = leaf {
-        context.percentage_used = true;
-        CalcLengthPercentageLeaf::Length(Length::new(basis.px() * p.0))
-    } else {
-        leaf.clone()
-    })
-}
-
-fn map_node(
-    node: &CalcNode,
-    basis: Length,
-    info: &CalcAnchorFunctionResolutionInfo,
-    context: &mut ResolveContext,
-) -> Result<Option<CalcNode>, ()> {
-    match node {
-        CalcNode::Anchor(f) => {
-            context.anchor_function_used = true;
-            match f.resolve(info.axis, info.position_property) {
-                AnchorResolutionResult::Invalid => return Err(()),
-                AnchorResolutionResult::Fallback(fb) => {
-                    let mut inner_context = ResolveContext::default();
-                    // TODO(dshin, bug 1923759): At least for now, fallbacks should always resolve, since they do not contain
-                    // recursive anchor functions.
-                    let resolved = fb
-                        .resolve_map(
-                            |leaf, percentage_used| leaf_to_output(leaf, basis, percentage_used),
-                            |_, _| Ok(None),
-                            &mut inner_context,
-                        )
-                        .expect("anchor() fallback should have been resolvable?");
-                    context.percentage_used |= inner_context.percentage_used;
-                    debug_assert!(
-                        !inner_context.anchor_function_used,
-                        "Nested anchor function used?"
-                    );
-                    Ok(Some(CalcNode::Leaf(resolved)))
-                },
-                AnchorResolutionResult::Resolved(v) => Ok(Some(*v.clone())),
-            }
-        },
-        CalcNode::AnchorSize(f) => {
-            context.anchor_function_used = true;
-            match f.resolve(info.position_property) {
-                AnchorResolutionResult::Invalid => return Err(()),
-                AnchorResolutionResult::Fallback(fb) => {
-                    let mut inner_context = ResolveContext::default();
-                    // TODO(dshin, bug 1923956): Equivalent to corresponding matching arm for `anchor()`.
-                    let resolved = fb
-                        .resolve_map(
-                            |leaf, percentage_used| leaf_to_output(leaf, basis, percentage_used),
-                            |_, _| Ok(None),
-                            &mut inner_context,
-                        )
-                        .expect("anchor-size() fallbaack should have been resolvable?");
-                    context.percentage_used |= inner_context.percentage_used;
-                    debug_assert!(
-                        !inner_context.anchor_function_used,
-                        "Nested anchor function used?"
-                    );
-                    Ok(Some(CalcNode::Leaf(resolved)))
-                },
-                AnchorResolutionResult::Resolved(v) => Ok(Some(*v.clone())),
-            }
-        },
-        _ => Ok(None),
-    }
-}
-
-/// Information required for resolving anchor functions.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct CalcAnchorFunctionResolutionInfo {
-    /// Which axis we're resolving anchor functions for.
-    /// This is only relevant for `anchor()`, which requires
-    /// the property using the function to be in the same axis
-    /// as the specified side [1].
-    /// [1]: https://drafts.csswg.org/css-anchor-position-1/#anchor-valid
-    pub axis: PhysicalAxis,
-    /// `position` property of the box for which this style is being resolved.
-    pub position_property: PositionProperty,
-}
-
-impl CalcAnchorFunctionResolutionInfo {
-    fn invalid() -> Self {
-        Self {
-            // Makes anchor functions always invalid
-            position_property: PositionProperty::Static,
-            // Doesn't matter
-            axis: PhysicalAxis::Vertical,
-        }
-    }
-}
+/// Type for anchor side in `calc()` and other math fucntions.
+pub type CalcAnchorSide = GenericAnchorSide<Box<CalcNode>>;
 
 /// Result of resolving `CalcLengthPercentage`
 pub struct CalcLengthPercentageResolution {
@@ -1021,52 +926,188 @@ pub struct CalcLengthPercentageResolution {
     pub percentage_used: bool,
 }
 
-impl CalcLengthPercentage {
-    /// Resolves the percentage, resolving anchor functions as specified in `resolve`.
-    pub fn resolve_non_anchor(&self, basis: Length) -> Length {
-        self.resolve(basis, None)
-            .expect("Non-anchor calc resolution returned None")
-            .result
-    }
+/// What anchor positioning functions are allowed to resolve in calc percentage
+/// values.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum AllowAnchorPosResolutionInCalcPercentage {
+    /// Both `anchor()` and `anchor-size()` are valid and should be resolved.
+    Both(PhysicalSide),
+    /// Only `anchor-size()` is valid and should be resolved.
+    AnchorSizeOnly(PhysicalAxis),
+}
 
-    /// Resolves the percentage and anchor functions, if provided. Otherwise, anchor functions
-    /// will be resolved as invalid.
-    #[inline]
-    pub fn resolve(
-        &self,
-        basis: Length,
-        anchor_resolution_info: Option<CalcAnchorFunctionResolutionInfo>,
-    ) -> Option<CalcLengthPercentageResolution> {
-        let mut context = ResolveContext::default();
-        let info = anchor_resolution_info.unwrap_or(CalcAnchorFunctionResolutionInfo::invalid());
-        let result = self.node.resolve_map(
-            |leaf, context| leaf_to_output(leaf, basis, context),
-            |node, context| map_node(node, basis, &info, context),
-            &mut context,
-        );
-
-        match result {
-            Ok(r) => match r {
-                CalcLengthPercentageLeaf::Length(px) => Some(CalcLengthPercentageResolution{
-                    result: Length::new(self.clamping_mode.clamp(px.px())).normalized(),
-                    percentage_used: context.percentage_used,
-                }),
-                _ => unreachable!("resolve_map should turn percentages to lengths, and parsing should ensure that we don't end up with a number"),
-            },
-            Err(()) => {
-                if anchor_resolution_info.is_some() {
-                    None
+impl AllowAnchorPosResolutionInCalcPercentage {
+    #[cfg(feature = "gecko")]
+    /// Get the `anchor-size()` resolution axis.
+    pub fn to_axis(&self) -> PhysicalAxis {
+        match self {
+            Self::AnchorSizeOnly(axis) => *axis,
+            Self::Both(side) => {
+                if matches!(side, PhysicalSide::Top | PhysicalSide::Bottom) {
+                    PhysicalAxis::Vertical
                 } else {
-                    // TODO(dshin, bug 1923959): This should be an assert; we can't do that at the moment because size properties with anchor
-                    // functions in calc node end up here. For now, return an invalid-but-reasonable-enough 0.
-                    debug_assert!(context.anchor_function_used, "Anchor function not used but failed resolution?");
-                    Some(CalcLengthPercentageResolution{
-                        result: Length::zero(),
-                        percentage_used: false,
-                    })
+                    PhysicalAxis::Horizontal
                 }
             },
         }
+    }
+}
+
+impl From<&CalcAnchorSide> for AnchorSide {
+    fn from(value: &CalcAnchorSide) -> Self {
+        match value {
+            CalcAnchorSide::Keyword(k) => Self::Keyword(*k),
+            CalcAnchorSide::Percentage(p) => {
+                if let CalcNode::Leaf(CalcLengthPercentageLeaf::Percentage(p)) = **p {
+                    Self::Percentage(p)
+                } else {
+                    unreachable!("Should have parsed simplified percentage.");
+                }
+            },
+        }
+    }
+}
+
+impl CalcLengthPercentage {
+    /// Resolves the percentage.
+    #[inline]
+    pub fn resolve(&self, basis: Length) -> Length {
+        // unwrap() is fine because the conversion below is infallible.
+        if let CalcLengthPercentageLeaf::Length(px) = self
+            .node
+            .resolve_map(|leaf| {
+                Ok(if let CalcLengthPercentageLeaf::Percentage(p) = leaf {
+                    CalcLengthPercentageLeaf::Length(Length::new(basis.px() * p.0))
+                } else {
+                    leaf.clone()
+                })
+            })
+            .unwrap()
+        {
+            Length::new(self.clamping_mode.clamp(px.px())).normalized()
+        } else {
+            unreachable!("resolve_map should turn percentages to lengths, and parsing should ensure that we don't end up with a number");
+        }
+    }
+
+    /// Return a clone of this node with all anchor functions computed and replaced with
+    /// corresponding values, returning error if the resolution is invalid.
+    #[inline]
+    #[cfg(feature = "gecko")]
+    pub fn resolve_anchor(
+        &self,
+        allowed: AllowAnchorPosResolutionInCalcPercentage,
+        params: &AnchorPosOffsetResolutionParams,
+    ) -> Result<(CalcNode, AllowedNumericType), ()> {
+        use crate::values::{
+            computed::{length::resolve_anchor_size, AnchorFunction},
+            generics::{length::GenericAnchorSizeFunction, position::GenericAnchorFunction},
+        };
+
+        fn resolve_anchor_function<'a>(
+            f: &'a GenericAnchorFunction<Box<CalcNode>, Box<CalcNode>>,
+            side: PhysicalSide,
+            params: &AnchorPosOffsetResolutionParams,
+        ) -> AnchorResolutionResult<'a, Box<CalcNode>> {
+            let anchor_side: &CalcAnchorSide = &f.side;
+            let resolved = if f.valid_for(side, params.mBaseParams.mPosition) {
+                AnchorFunction::resolve(&f.target_element, &anchor_side.into(), side, params).ok()
+            } else {
+                None
+            };
+
+            resolved.map_or_else(
+                || {
+                    let Some(fb) = f.fallback.as_ref() else {
+                        return AnchorResolutionResult::Invalid;
+                    };
+                    let mut node = fb.clone();
+                    let result = node.map_node(|node| {
+                        resolve_anchor_functions(
+                            node,
+                            AllowAnchorPosResolutionInCalcPercentage::Both(side),
+                            params,
+                        )
+                    });
+                    if result.is_err() {
+                        return AnchorResolutionResult::Invalid;
+                    }
+                    AnchorResolutionResult::Resolved(node)
+                },
+                |v| {
+                    AnchorResolutionResult::Resolved(Box::new(CalcNode::Leaf(
+                        CalcLengthPercentageLeaf::Length(v),
+                    )))
+                },
+            )
+        }
+
+        fn resolve_anchor_size_function<'a>(
+            f: &'a GenericAnchorSizeFunction<Box<CalcNode>>,
+            allowed: AllowAnchorPosResolutionInCalcPercentage,
+            params: &AnchorPosOffsetResolutionParams,
+        ) -> AnchorResolutionResult<'a, Box<CalcNode>> {
+            let axis = allowed.to_axis();
+            let resolved = if f.valid_for(params.mBaseParams.mPosition) {
+                resolve_anchor_size(&f.target_element, axis, f.size, &params.mBaseParams).ok()
+            } else {
+                None
+            };
+
+            resolved.map_or_else(
+                || {
+                    let Some(fb) = f.fallback.as_ref() else {
+                        return AnchorResolutionResult::Invalid;
+                    };
+                    let mut node = fb.clone();
+                    let result =
+                        node.map_node(|node| resolve_anchor_functions(node, allowed, params));
+                    if result.is_err() {
+                        return AnchorResolutionResult::Invalid;
+                    }
+                    AnchorResolutionResult::Resolved(node)
+                },
+                |v| {
+                    AnchorResolutionResult::Resolved(Box::new(CalcNode::Leaf(
+                        CalcLengthPercentageLeaf::Length(v),
+                    )))
+                },
+            )
+        }
+
+        fn resolve_anchor_functions(
+            node: &CalcNode,
+            allowed: AllowAnchorPosResolutionInCalcPercentage,
+            params: &AnchorPosOffsetResolutionParams,
+        ) -> Result<Option<CalcNode>, ()> {
+            let resolution = match node {
+                CalcNode::Anchor(f) => {
+                    let prop_side = match allowed {
+                        AllowAnchorPosResolutionInCalcPercentage::Both(side) => side,
+                        AllowAnchorPosResolutionInCalcPercentage::AnchorSizeOnly(_) => {
+                            unreachable!("anchor() found where disallowed")
+                        },
+                    };
+                    resolve_anchor_function(f, prop_side, params)
+                },
+                CalcNode::AnchorSize(f) => resolve_anchor_size_function(f, allowed, params),
+                _ => return Ok(None),
+            };
+
+            match resolution {
+                AnchorResolutionResult::Invalid => Err(()),
+                AnchorResolutionResult::Fallback(fb) => {
+                    // TODO(dshin, bug 1923759): At least for now, fallbacks should not contain any anchor function.
+                    Ok(Some(*fb.clone()))
+                },
+                AnchorResolutionResult::Resolved(v) => Ok(Some(*v.clone())),
+            }
+        }
+
+        let mut node = self.node.clone();
+        node.map_node(|node| resolve_anchor_functions(node, allowed, params))?;
+        Ok((node, self.clamping_mode))
     }
 }
 
@@ -1243,27 +1284,7 @@ impl Animate for LengthPercentage {
 /// A wrapper of LengthPercentage, whose value must be >= 0.
 pub type NonNegativeLengthPercentage = NonNegative<LengthPercentage>;
 
-impl ToAnimatedValue for NonNegativeLengthPercentage {
-    type AnimatedValue = LengthPercentage;
-
-    #[inline]
-    fn to_animated_value(self, context: &AnimatedContext) -> Self::AnimatedValue {
-        self.0.to_animated_value(context)
-    }
-
-    #[inline]
-    fn from_animated_value(animated: Self::AnimatedValue) -> Self {
-        NonNegative(animated.clamp_to_non_negative())
-    }
-}
-
 impl NonNegativeLengthPercentage {
-    /// Returns true if the computed value is absolute 0 or 0%.
-    #[inline]
-    pub fn is_definitely_zero(&self) -> bool {
-        self.0.is_definitely_zero()
-    }
-
     /// Returns the used value.
     #[inline]
     pub fn to_used_value(&self, containing_length: Au) -> Au {
@@ -1276,5 +1297,31 @@ impl NonNegativeLengthPercentage {
     pub fn maybe_to_used_value(&self, containing_length: Option<Au>) -> Option<Au> {
         let resolved = self.0.maybe_to_used_value(containing_length)?;
         Some(std::cmp::max(resolved, Au(0)))
+    }
+}
+
+impl TryTacticAdjustment for LengthPercentage {
+    fn try_tactic_adjustment(&mut self, old_side: PhysicalSide, new_side: PhysicalSide) {
+        match self.unpack_mut() {
+            UnpackedMut::Calc(calc) => calc.node.try_tactic_adjustment(old_side, new_side),
+            UnpackedMut::Percentage(mut p) => {
+                p.try_tactic_adjustment(old_side, new_side);
+                *self = Self::new_percent(p);
+            },
+            UnpackedMut::Length(..) => {},
+        }
+    }
+}
+
+impl TryTacticAdjustment for CalcNode {
+    fn try_tactic_adjustment(&mut self, old_side: PhysicalSide, new_side: PhysicalSide) {
+        self.visit_depth_first(|node| match node {
+            Self::Leaf(CalcLengthPercentageLeaf::Percentage(p)) => {
+                p.try_tactic_adjustment(old_side, new_side)
+            },
+            Self::Anchor(a) => a.try_tactic_adjustment(old_side, new_side),
+            Self::AnchorSize(a) => a.try_tactic_adjustment(old_side, new_side),
+            _ => {},
+        });
     }
 }

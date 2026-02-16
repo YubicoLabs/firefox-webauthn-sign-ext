@@ -3,10 +3,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __nsFormFillController__
-#define __nsFormFillController__
+#ifndef _nsFormFillController_
+#define _nsFormFillController_
 
 #include "mozilla/TimeStamp.h"
+#include "mozilla/dom/Promise.h"
 #include "nsIFormFillController.h"
 #include "nsIAutoCompleteInput.h"
 #include "nsIAutoCompleteSearch.h"
@@ -14,6 +15,7 @@
 #include "nsIAutoCompletePopup.h"
 #include "nsIDOMEventListener.h"
 #include "nsCOMPtr.h"
+#include "nsCOMArray.h"
 #include "nsStubMutationObserver.h"
 #include "nsTHashMap.h"
 #include "nsInterfaceHashtable.h"
@@ -27,9 +29,10 @@ class nsINode;
 
 namespace mozilla {
 class CancelableRunnable;
+class ErrorResult;
 namespace dom {
 class EventTarget;
-class HTMLInputElement;
+class Element;
 }  // namespace dom
 }  // namespace mozilla
 
@@ -65,13 +68,13 @@ class nsFormFillController final : public nsIFormFillController,
   MOZ_CAN_RUN_SCRIPT virtual ~nsFormFillController();
 
   MOZ_CAN_RUN_SCRIPT
-  void StartControllingInput(mozilla::dom::HTMLInputElement* aInput);
+  void StartControllingInput(mozilla::dom::Element* aInput);
   MOZ_CAN_RUN_SCRIPT void StopControllingInput();
 
   bool IsFocusedInputControlled() const;
 
   MOZ_CAN_RUN_SCRIPT
-  nsresult HandleFocus(mozilla::dom::HTMLInputElement* aInput);
+  nsresult HandleFocus(mozilla::dom::Element* aElement);
 
   void AttachListeners(mozilla::dom::EventTarget* aEventTarget);
 
@@ -80,13 +83,12 @@ class nsFormFillController final : public nsIFormFillController,
    * StartControllingInput on it.
    */
   MOZ_CAN_RUN_SCRIPT
-  void MaybeStartControllingInput(mozilla::dom::HTMLInputElement* aElement);
+  void MaybeStartControllingInput(mozilla::dom::Element* aElement);
 
   // clears the reference mRestartAfterAttributeChangeTask before running
   // MaybeStartControllingInput()
   MOZ_CAN_RUN_SCRIPT
-  void MaybeStartControllingInputScheduled(
-      mozilla::dom::HTMLInputElement* aElement);
+  void MaybeStartControllingInputScheduled(mozilla::dom::Element* aElement);
 
   // cancels a scheduled AttributeChangeTask and clears the reference
   // mRestartAfterAttributeChangeTask
@@ -99,8 +101,7 @@ class nsFormFillController final : public nsIFormFillController,
   bool RowMatch(nsFormHistory* aHistory, uint32_t aIndex,
                 const nsAString& aInputName, const nsAString& aInputValue);
 
-  inline nsIDocShell* GetDocShellForInput(
-      mozilla::dom::HTMLInputElement* aInput);
+  inline nsIDocShell* GetDocShellForInput(mozilla::dom::Element* aInput);
 
   void MaybeRemoveMutationObserver(nsINode* aNode);
 
@@ -108,10 +109,13 @@ class nsFormFillController final : public nsIFormFillController,
 
   bool IsTextControl(nsINode* aNode);
 
+  MOZ_CAN_RUN_SCRIPT
+  void WaitForPromise(bool showPopup);
+
   // members //////////////////////////////////////////
 
   nsCOMPtr<nsIAutoCompleteController> mController;
-  mozilla::dom::HTMLInputElement* mFocusedInput;
+  mozilla::dom::Element* mControlledElement;
   RefPtr<mozilla::CancelableRunnable> mRestartAfterAttributeChangeTask;
 
   // mListNode is a <datalist> element which, is set, has the form fill
@@ -128,6 +132,10 @@ class nsFormFillController final : public nsIFormFillController,
 
   nsTHashMap<nsPtrHashKey<const nsINode>, bool> mAutoCompleteInputs;
 
+  nsCOMArray<nsIFormFillFocusListener> mFocusListeners;
+
+  RefPtr<mozilla::dom::Promise> mFocusPendingPromise;
+
   uint16_t mFocusAfterRightClickThreshold;
   uint32_t mTimeout;
   uint32_t mMinResultsForPopup;
@@ -141,6 +149,25 @@ class nsFormFillController final : public nsIFormFillController,
   bool mPasswordPopupAutomaticallyOpened;
   bool mAutoCompleteActive = false;
   bool mInvalidatePreviousResult = false;
+
+ private:
+  void GetName(mozilla::dom::Element* aInput, nsAString& aValue);
+  void GetValue(mozilla::dom::Element* aInput, nsAString& aValue);
+  mozilla::dom::Element* GetList(mozilla::dom::Element* aInput);
+  bool HasBeenTypePassword(mozilla::dom::Element* aInput);
+  bool ReadOnly(mozilla::dom::Element* aInput) const;
+  uint32_t GetSelectionStartInternal(mozilla::dom::Element* aInput,
+                                     mozilla::ErrorResult& aRv);
+  uint32_t GetSelectionEndInternal(mozilla::dom::Element* aInput,
+                                   mozilla::ErrorResult& aRv);
+
+  MOZ_CAN_RUN_SCRIPT
+  void SetSelectionRange(mozilla::dom::Element* aInput,
+                         uint32_t aSelectionStart, uint32_t aSelectionEnd,
+                         mozilla::ErrorResult& aRv);
+  void SetUserInput(mozilla::dom::Element* aInput, const nsAString& aValue,
+                    nsIPrincipal& aSubjectPrincipal);
+  void EnablePreview(mozilla::dom::Element* aInput);
 };
 
-#endif  // __nsFormFillController__
+#endif  // _nsFormFillController_

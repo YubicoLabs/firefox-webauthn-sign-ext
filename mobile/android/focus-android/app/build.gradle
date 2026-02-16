@@ -1,17 +1,20 @@
 plugins {
+    alias(libs.plugins.dependency.analysis)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id "com.jetbrains.python.envs" version "$python_envs_plugin"
-}
-
-if (findProject(":geckoview") != null) {
-    buildDir "${topobjdir}/gradle/build/mobile/android/focus-android"
+    alias(libs.plugins.python.envs.plugin)
+    id 'org.mozilla.nimbus-gradle-plugin'
 }
 
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-parcelize'
 apply plugin: 'jacoco'
-apply plugin: 'com.google.android.gms.oss-licenses-plugin'
+
+if (gradle.mozconfig.substs.MOZILLA_OFFICIAL) {
+    apply plugin: 'com.google.android.gms.oss-licenses-plugin'
+}
+
+def isAppBundle = gradle.startParameter.taskNames.any { it.toLowerCase().contains("bundle") }
 
 def versionCodeGradle = "$project.rootDir/tools/gradle/versionCode.gradle"
 if (findProject(":geckoview") != null) {
@@ -19,9 +22,14 @@ if (findProject(":geckoview") != null) {
 }
 apply from: versionCodeGradle
 
+// Generated sources location for LocalesList.kt
+def generatedLocaleListBaseDir = project.layout.buildDirectory.dir("generated/source/locales").get().asFile
+def generatedLocaleListDir = new File(generatedLocaleListBaseDir, "org/mozilla/focus/generated")
+def generatedLocaleListFilename = "LocalesList.kt"
+
 import com.android.build.api.variant.FilterConfiguration
+import com.google.android.gms.oss.licenses.plugin.DependencyTask
 import groovy.json.JsonOutput
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 import static org.gradle.api.tasks.testing.TestResult.ResultType
 
@@ -32,19 +40,23 @@ android {
         testBuildType project.property("testBuildType")
     }
 
+    compileSdk { version = release(config.compileSdkMajorVersion) { minorApiLevel = config.compileSdkMinorVersion } }
+
     defaultConfig {
         applicationId "org.mozilla"
-        minSdkVersion config.minSdkVersion
-        compileSdk config.compileSdkVersion
-        targetSdkVersion config.targetSdkVersion
+        minSdk config.minSdkVersion
+        targetSdk config.targetSdkVersion
         versionCode 11 // This versionCode is "frozen" for local builds. For "release" builds we
                        // override this with a generated versionCode at build time.
         // The versionName is dynamically overridden for all the build variants at build time.
         versionName Config.generateDebugVersionName()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments clearPackageData: 'true'
-        // See override in release builds for why it's blank.
-        buildConfigField "String", "VCS_HASH", "\"\""
+        if (gradle.mozconfig.substs.MOZ_INCLUDE_SOURCE_INFO) {
+            buildConfigField("String", "VCS_HASH", "\"" + gradle.mozconfig.source_repo.MOZ_SOURCE_STAMP + "\"")
+        } else {
+            buildConfigField("String", "VCS_HASH", "\"\"")
+        }
 
         vectorDrawables.useSupportLibrary = true
     }
@@ -57,9 +69,19 @@ android {
         }
     }
 
+    // Exclude native libraries for unsupported architectures from third-party dependencies
+    packagingOptions {
+        jniLibs {
+            excludes += ["**/armeabi/*.so", "**/mips/*.so", "**/mips64/*.so", "**/x86/*.so"]
+        }
+    }
+
     lint {
-        lintConfig file("lint.xml")
-        baseline file("lint-baseline.xml")
+        lintConfig = file("lint.xml")
+        baseline = file("lint-baseline.xml")
+        sarifReport = true
+        sarifOutput = file("../build/reports/lint/lint-report.sarif.json")
+        abortOnError = false
     }
 
     // We have a three dimensional build configuration:
@@ -69,23 +91,19 @@ android {
         release {
             // We allow disabling optimization by passing `-PdisableOptimization` to gradle. This is used
             // in automation for UI testing non-debug builds.
-            shrinkResources !project.hasProperty("disableOptimization")
-            minifyEnabled !project.hasProperty("disableOptimization")
+            shrinkResources = !project.hasProperty("disableOptimization")
+            minifyEnabled = !project.hasProperty("disableOptimization")
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             matchingFallbacks = ['release']
 
-            if (gradle.ext.vcsHashFileContent) {
-                buildConfigField "String", "VCS_HASH", "\"hg-${gradle.ext.vcsHashFileContent}\""
-            } else {
-                buildConfigField "String", "VCS_HASH", "\"${Config.getVcsHash(project)}\""
+            // If building locally, just use debug signing. In official automation builds, the
+            // files are signed using a separate service and not within gradle.
+            if (!gradle.mozconfig.substs.MOZ_AUTOMATION) {
+                signingConfig = signingConfigs.debug
             }
 
-            if (gradle.hasProperty("localProperties.autosignReleaseWithDebugKey")) {
-                println ("All builds will be automatically signed with the debug key")
-                signingConfig signingConfigs.debug
-            }
-
-            if (gradle.hasProperty("localProperties.debuggable")) {
+            if (gradle.hasProperty("localProperties.debuggable") ||
+                gradle.mozconfig.substs.MOZ_ANDROID_DEBUGGABLE) {
                 println ("All builds will be debuggable")
                 debuggable true
             }
@@ -108,17 +126,20 @@ android {
         }
     }
     testOptions {
-        execution 'ANDROIDX_TEST_ORCHESTRATOR'
         animationsDisabled = true
+        execution = 'ANDROIDX_TEST_ORCHESTRATOR'
+        testCoverage {
+            jacocoVersion = libs.versions.jacoco.get()
+        }
         unitTests {
             includeAndroidResources = true
         }
     }
 
     buildFeatures {
-        compose true
-        viewBinding true
-        buildConfig true
+        compose = true
+        viewBinding = true
+        buildConfig = true
     }
 
     flavorDimensions.add("product")
@@ -145,11 +166,11 @@ android {
 
     splits {
         abi {
-            enable true
+            enable = !isAppBundle
 
             reset()
 
-            include "x86", "armeabi-v7a", "arm64-v8a", "x86_64"
+            include "armeabi-v7a", "arm64-v8a", "x86_64"
         }
     }
 
@@ -161,6 +182,10 @@ android {
                 // and do not need to rely on Robolectric.
                 srcDir "${projectDir}/src/main/assets/"
             }
+        }
+
+        main {
+            java.srcDir generatedLocaleListBaseDir
         }
 
         // Release
@@ -175,16 +200,16 @@ android {
         focusNightly.root = 'src/focusNightly'
         klarNightly.root = 'src/klarNightly'
     }
-    packagingOptions {
-        resources {
-            pickFirsts += ['META-INF/atomicfu.kotlin_module', 'META-INF/proguard/coroutines.pro']
-        }
-        jniLibs {
-            useLegacyPackaging true
+
+    packaging {
+        if (!isAppBundle) {
+            jniLibs {
+                useLegacyPackaging = true
+            }
         }
     }
 
-    namespace 'org.mozilla.focus'
+    namespace = 'org.mozilla.focus'
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -195,9 +220,15 @@ ext {
     gleanExpireByVersion = 1
     gleanNamespace = "mozilla.telemetry.glean"
     gleanPythonEnvDir = gradle.mozconfig.substs.GRADLE_GLEAN_PARSER_VENV
+    gleanYamlFiles = [
+        "${project.projectDir}/metrics.yaml",
+        "${project.projectDir}/legacy_metrics.yaml",
+        "${project.projectDir}/pings.yaml",
+        "${project.projectDir}/legacy_pings.yaml",
+        "${project.projectDir}/tags.yaml",
+    ]
 }
 apply plugin: "org.mozilla.telemetry.glean-gradle-plugin"
-apply plugin: "org.mozilla.appservices.nimbus-gradle-plugin"
 
 nimbus {
     // The path to the Nimbus feature manifest file
@@ -221,31 +252,76 @@ nimbus {
     experimenterManifest = ".experimenter.yaml"
 }
 
-tasks.withType(KotlinCompile).configureEach {
-    kotlinOptions.freeCompilerArgs += "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
-}
-
 dependencies {
+    implementation project(':components:browser-domains')
+    implementation project(':components:browser-engine-gecko')
+    implementation project(':components:browser-errorpages')
+    implementation project(':components:browser-icons')
+    implementation project(':components:browser-menu')
+    implementation project(':components:browser-state')
+    implementation project(':components:browser-toolbar')
+    implementation project(':components:compose-awesomebar')
+    implementation project(':components:compose-cfr')
+    implementation project(':components:concept-awesomebar')
+    implementation project(':components:concept-engine')
+    implementation project(':components:concept-fetch')
+    implementation project(':components:concept-menu')
+    implementation project(':components:feature-app-links')
+    implementation project(':components:feature-awesomebar')
+    implementation project(':components:feature-contextmenu')
+    implementation project(':components:feature-customtabs')
+    implementation project(':components:feature-downloads')
+    implementation project(':components:feature-findinpage')
+    implementation project(':components:feature-intent')
+    implementation project(':components:feature-media')
+    implementation project(':components:feature-prompts')
+    implementation project(':components:feature-search')
+    implementation project(':components:feature-session')
+    implementation project(':components:feature-sitepermissions')
+    implementation project(':components:feature-tabs')
+    implementation project(':components:feature-toolbar')
+    implementation project(':components:feature-top-sites')
+    implementation project(':components:feature-webcompat')
+    implementation project(':components:feature-webcompat-reporter')
+    implementation project(':components:lib-auth')
+    implementation project(':components:lib-crash')
+    implementation project(':components:lib-crash-sentry')
+    implementation project(':components:lib-publicsuffixlist')
+    implementation project(':components:lib-state')
+    implementation project(":components:service-glean")
+    implementation project(':components:service-location')
+    implementation project(':components:service-nimbus')
+    implementation project(':components:support-ktx')
+    implementation project(':components:support-utils')
+    implementation project(':components:support-remotesettings')
+    implementation project(':components:support-appservices')
+    implementation project(':components:support-license')
+    implementation project(':components:support-locale')
+    implementation project(':components:support-webextensions')
+    implementation project(':components:ui-autocomplete')
+    implementation project(':components:ui-colors')
+    implementation project(':components:ui-icons')
+    implementation project(':components:ui-tabcounter')
+    implementation project(':components:ui-widgets')
+
     implementation libs.androidx.activity
     implementation libs.androidx.appcompat
     implementation libs.androidx.browser
     implementation libs.androidx.cardview
     implementation libs.androidx.collection
-
     implementation platform(libs.androidx.compose.bom)
-    androidTestImplementation platform(libs.androidx.compose.bom)
     implementation libs.androidx.compose.foundation
-    implementation libs.androidx.compose.material
     implementation libs.androidx.compose.material.icons
+    implementation libs.androidx.compose.material3
     implementation libs.androidx.compose.runtime.livedata
     implementation libs.androidx.compose.ui
     implementation libs.androidx.compose.ui.tooling
-
     implementation libs.androidx.constraintlayout
     implementation libs.androidx.constraintlayout.compose
     implementation libs.androidx.core.ktx
     implementation libs.androidx.core.splashscreen
     implementation libs.androidx.datastore.preferences
+    implementation libs.androidx.emoji2
     implementation libs.androidx.fragment
     implementation libs.androidx.lifecycle.process
     implementation libs.androidx.lifecycle.viewmodel
@@ -255,113 +331,52 @@ dependencies {
     implementation libs.androidx.savedstate
     implementation libs.androidx.transition
     implementation libs.androidx.work.runtime
-
-    // Required for in-app reviews
+    implementation libs.google.material
+    implementation libs.kotlinx.coroutines
+    implementation libs.mozilla.glean
     implementation libs.play.review
     implementation libs.play.review.ktx
+    implementation libs.sentry
 
-    implementation libs.google.material
-
-    implementation libs.thirdparty.sentry
-
-    implementation project(':browser-engine-gecko')
-    implementation project(':browser-domains')
-    implementation project(':browser-errorpages')
-    implementation project(':browser-icons')
-    implementation project(':browser-menu')
-    implementation project(':browser-state')
-    implementation project(':browser-toolbar')
-
-    implementation project(':concept-awesomebar')
-    implementation project(':concept-engine')
-    implementation project(':concept-fetch')
-    implementation project(':concept-menu')
-
-    implementation project(':compose-awesomebar')
-
-    implementation project(':feature-awesomebar')
-    implementation project(':feature-app-links')
-    implementation project(':feature-customtabs')
-    implementation project(':feature-contextmenu')
-    implementation project(':feature-downloads')
-    implementation project(':feature-findinpage')
-    implementation project(':feature-intent')
-    implementation project(':feature-prompts')
-    implementation project(':feature-session')
-    implementation project(':feature-search')
-    implementation project(':feature-tabs')
-    implementation project(':feature-toolbar')
-    implementation project(':feature-top-sites')
-    implementation project(':feature-sitepermissions')
-    implementation project(':lib-crash')
-    implementation project(':lib-crash-sentry')
-    implementation project(':lib-state')
-    implementation project(':feature-media')
-    implementation project(':lib-auth')
-    implementation project(':lib-publicsuffixlist')
-
-    implementation project(':service-location')
-    implementation project(':service-nimbus')
-
-    implementation project(':support-ktx')
-    implementation project(':support-utils')
-    implementation project(':support-rusthttp')
-    implementation project(':support-rustlog')
-    implementation project(':support-license')
-
-    implementation project(':ui-autocomplete')
-    implementation project(':ui-colors')
-    implementation project(':ui-icons')
-    implementation project(':ui-tabcounter')
-    implementation project(':ui-widgets')
-    implementation project(':feature-webcompat')
-    implementation project(':feature-webcompat-reporter')
-    implementation project(':support-webextensions')
-    implementation project(':support-locale')
-    implementation project(':compose-cfr')
-
-    implementation project(":service-glean")
-    implementation libs.mozilla.glean, {
-        exclude group: 'org.mozilla.telemetry', module: 'glean-native'
-    }
-
-    implementation libs.kotlin.coroutines
     debugImplementation libs.leakcanary
 
-    testImplementation "org.mozilla.telemetry:glean-native-forUnitTests:${project.ext.glean_version}"
+    testImplementation project(':components:lib-fetch-okhttp')
+    testImplementation project(':components:support-test')
+    testImplementation project(':components:support-test-libstate')
 
-    testImplementation libs.junit.api
-    testImplementation libs.junit.params
-    testRuntimeOnly libs.junit.engine
-
-    testImplementation libs.testing.robolectric
-    testImplementation libs.testing.mockito
-    testImplementation libs.testing.coroutines
-    testImplementation libs.androidx.work.testing
     testImplementation libs.androidx.arch.core.testing
-    testImplementation project(':support-test')
-    testImplementation project(':support-test-libstate')
-
-    androidTestImplementation libs.testing.mockwebserver
-    testImplementation libs.testing.mockwebserver
-    testImplementation project(':lib-fetch-okhttp')
-
     testImplementation libs.androidx.test.core
-    testImplementation libs.androidx.test.runner
     testImplementation libs.androidx.test.rules
+    testImplementation libs.androidx.test.runner
+    testImplementation libs.androidx.work.testing
+    testImplementation platform(libs.junit.bom)
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly libs.junit.platform.launcher
+    testImplementation libs.kotlinx.coroutines.test
+    testImplementation libs.mockito
+    testImplementation libs.mockwebserver
+    testImplementation libs.mozilla.glean.forUnitTests
+    testImplementation libs.robolectric
 
-    androidTestImplementation libs.androidx.espresso.core
-    androidTestImplementation libs.androidx.espresso.idling.resource
-    androidTestImplementation libs.androidx.espresso.intents
-    androidTestImplementation libs.androidx.espresso.web
+    // We need a version constraint due to AGP silently trying to downgrade the version otherwise.
+    // https://issuetracker.google.com/issues/349628366
+    constraints {
+        implementation(libs.androidx.concurrent)
+    }
+    androidTestImplementation libs.androidx.concurrent
     androidTestImplementation libs.androidx.test.core
+    androidTestImplementation libs.androidx.test.espresso.core
+    androidTestImplementation libs.androidx.test.espresso.idling.resource
+    androidTestImplementation libs.androidx.test.espresso.intents
+    androidTestImplementation libs.androidx.test.espresso.web
     androidTestImplementation libs.androidx.test.junit
     androidTestImplementation libs.androidx.test.monitor
     androidTestImplementation libs.androidx.test.runner
     androidTestImplementation libs.androidx.test.uiautomator
+    androidTestImplementation libs.mockwebserver
     androidTestUtil libs.androidx.test.orchestrator
 
-    lintChecks project(':tooling-lint')
+    lintChecks project(':components:tooling-lint')
 }
 // -------------------------------------------------------------------------------------------------
 //  Dynamically set versionCode (See tools/build/versionCode.gradle
@@ -398,7 +413,10 @@ android.applicationVariants.configureEach { variant ->
 
         variant.outputs.each { output ->
             def abi = output.getFilter(FilterConfiguration.FilterType.ABI.name())
-            def aab = project.hasProperty("aab")
+            if (isAppBundle) {
+                abi = "AAB"
+            }
+
             // We use the same version code generator, that we inherited from Fennec, across all channels - even on
             // channels that never shipped a Fennec build.
 
@@ -409,24 +427,21 @@ android.applicationVariants.configureEach { variant ->
 
             def versionCodeOverride = baseVersionCode
 
-            if (aab) {
+            if (abi == "AAB") {
                 // AAB version code is odd
                 versionCodeOverride = versionCodeOverride + 1
-                project.logger.debug("versionCode for AAB = $versionCodeOverride")
-            } else {
-                if (abi == "x86_64") {
+            } else if (abi == "x86_64") {
                     versionCodeOverride = versionCodeOverride + 6
-                } else if (abi == "x86") {
-                    versionCodeOverride = versionCodeOverride + 4
-                } else if (abi == "arm64-v8a") {
-                    versionCodeOverride = versionCodeOverride + 2
-                } else if (abi == "armeabi-v7a") {
-                    versionCodeOverride = versionCodeOverride + 0
-                } else {
-                    throw new RuntimeException("Unknown ABI: " + abi)
-                }
-                project.logger.debug("versionCode for $abi = $versionCodeOverride")
+            } else if (abi == "x86") {
+                versionCodeOverride = versionCodeOverride + 4
+            } else if (abi == "arm64-v8a") {
+                versionCodeOverride = versionCodeOverride + 2
+            } else if (abi == "armeabi-v7a") {
+                versionCodeOverride = versionCodeOverride + 0
+            } else {
+                throw new RuntimeException("Unknown ABI: " + abi)
             }
+            project.logger.debug("versionCode for $abi = $versionCodeOverride")
 
             if (versionName != null) {
                 output.versionNameOverride = versionName
@@ -542,17 +557,21 @@ android.applicationVariants.configureEach { variant ->
     }
 }
 
-def generatedLocaleListDir = file('src/main/java/org/mozilla/focus/generated')
-def generatedLocaleListFilename = 'LocalesList.kt'
-
 def enabledLocales = project.provider { getEnabledLocales() }
 
 tasks.register('generateLocaleList') {
     def localeList = file(new File(generatedLocaleListDir, generatedLocaleListFilename))
+    
+    inputs.property("enabledLocales", enabledLocales)
+    outputs.file(localeList)
+    
     doLast {
         generatedLocaleListDir.mkdir()
         localeList.delete()
         localeList.createNewFile()
+        localeList << "/* This Source Code Form is subject to the terms of the Mozilla Public" << "\n"
+        localeList << " * License, v. 2.0. If a copy of the MPL was not distributed with this" << "\n"
+        localeList << " * file, You can obtain one at http://mozilla.org/MPL/2.0/. */" << "\n" << "\n"
         localeList << "package org.mozilla.focus.generated" << "\n" << "\n"
         localeList << "import java.util.Collections" << "\n"
         localeList << "\n"
@@ -577,13 +596,14 @@ tasks.register('generateLocaleList') {
 }
 
 tasks.configureEach { task ->
-    if (name.contains("compile")) {
-        task.dependsOn generateLocaleList
+    if (task.name.contains("compile")) {
+        task.dependsOn(tasks.named("generateLocaleList"))
     }
 }
 
-clean.doLast {
-    generatedLocaleListDir.deleteDir()
+// Make sure DAGP code-source exploding happens after we generate LocalesList.kt
+tasks.matching { it.name.startsWith("explodeCodeSource") }.configureEach { t ->
+    t.dependsOn(tasks.named("generateLocaleList"))
 }
 
 if (project.hasProperty("coverage")) {
@@ -618,7 +638,7 @@ if (project.hasProperty("coverage")) {
     android {
         buildTypes {
             debug {
-                testCoverageEnabled true
+                testCoverageEnabled = true
                 applicationIdSuffix ".coverage"
             }
         }
@@ -650,6 +670,16 @@ tasks.register('printVariants') {
         ])
         println 'variants: ' + JsonOutput.toJson(variants.get())
     }
+}
+
+// Fix for Gradle 9 strictness: Ensure CleanUp runs before DependencyTask
+tasks.withType(DependencyTask).configureEach { task ->
+    // The OSS plugin creates a "LicensesCleanUp" task for every "DependencyTask"
+    // e.g., nightlyOssDependencyTask -> nightlyOssLicensesCleanUp
+    def cleanUpTaskName = task.name.replace("DependencyTask", "LicensesCleanUp")
+
+    // make the dependency task depend on its cleanup task.
+    task.dependsOn(tasks.named(cleanUpTaskName))
 }
 
 afterEvaluate {
@@ -693,4 +723,25 @@ afterEvaluate {
             it.logger.lifecycle("")
         }
     }
+}
+
+tasks.register("ktlint", Exec) {
+    group = "verification"
+    description = "Check Kotlin code style."
+    workingDir file("${gradle.mozconfig.topsrcdir}")
+    commandLine "./mach", "gradle", "-p", "mobile/android/focus-android", ":ktlint"
+}
+
+tasks.register("ktlintFormat", Exec) {
+    group = "formatting"
+    description = "Fix Kotlin code style deviations."
+    workingDir file("${gradle.mozconfig.topsrcdir}")
+    commandLine "./mach", "gradle", "-p", "mobile/android/focus-android", ":ktlintFormat"
+}
+
+tasks.register("detekt", Exec) {
+    group = "verification"
+    description = "Run detekt static analysis."
+    workingDir file("${gradle.mozconfig.topsrcdir}")
+    commandLine "./mach", "gradle", "-p", "mobile/android/focus-android", ":detekt"
 }

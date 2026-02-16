@@ -34,8 +34,6 @@ function templateHTML(options) {
   const debugString = options.debug ? "-dev" : "";
   // This list must match any similar ones in AboutNewTabChild.sys.mjs
   const scripts = [
-    "chrome://browser/content/contentSearchUI.js",
-    "chrome://browser/content/contentSearchHandoffUI.js",
     "chrome://browser/content/contentTheme.js",
     `${options.baseVendorUrl}vendor/react${debugString}.js`,
     `${options.baseVendorUrl}vendor/react-dom${debugString}.js`,
@@ -58,6 +56,8 @@ function templateHTML(options) {
 <!-- This Source Code Form is subject to the terms of the Mozilla Public
    - License, v. 2.0. If a copy of the MPL was not distributed with this file,
    - You can obtain one at http://mozilla.org/MPL/2.0/. -->
+
+<!-- Note: This page is pre-rendered by render-activity-stream-html.js -->
 
 <!doctype html>
 <html>
@@ -85,10 +85,6 @@ function templateHTML(options) {
     />
     <link
       rel="stylesheet"
-      href="chrome://browser/content/contentSearchUI.css"
-    />
-    <link
-      rel="stylesheet"
       href="chrome://newtab/content/css/activity-stream.css"
     />
   </head>
@@ -98,6 +94,11 @@ function templateHTML(options) {
       async
       type="module"
       src="chrome://global/content/elements/moz-toggle.mjs"
+    ></script>
+    <script
+      async
+      type="module"
+      src="chrome://global/content/elements/moz-badge.mjs"
     ></script>
     <script
       async
@@ -119,6 +120,31 @@ function templateHTML(options) {
       type="module"
       src="chrome://global/content/elements/moz-message-bar.mjs"
     ></script>
+    <script
+      async
+      type="module"
+      src="chrome://global/content/elements/moz-radio-group.mjs"
+    ></script>
+    <script
+      async
+      type="module"
+      src="chrome://global/content/elements/moz-select.mjs"
+    ></script>
+    <script
+      async
+      type="module"
+      src="chrome://global/content/elements/moz-reorderable-list.mjs"
+    ></script>
+    <script
+      async
+      type="module"
+      src="chrome://global/content/elements/panel-list.js"
+    ></script>
+    <script
+      async
+      type="module"
+      src="chrome://global/content/elements/moz-support-link.mjs"
+    ></script>
   </body>
 </html>
 `.trimLeft();
@@ -130,7 +156,7 @@ function templateHTML(options) {
  *
  * @param {string} destPath      Path to write the files to
  * @param {Map}    filesMap      Mapping of a string file name to templater
- * @param {Object} options       Various options for the templater
+ * @param {object} options       Various options for the templater
  */
 function writeFiles(destPath, filesMap, options) {
   for (const [file, templater] of filesMap) {

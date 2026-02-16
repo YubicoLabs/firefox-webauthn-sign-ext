@@ -1,4 +1,3 @@
-/* eslint-env mozilla/chrome-script */
 /* eslint-disable mozilla/use-services */
 
 "use strict";
@@ -114,7 +113,7 @@ addMessageListener("init", ({ domain }) => {
     true,
     Math.pow(2, 62),
     {},
-    Ci.nsICookie.SAMESITE_NONE,
+    Ci.nsICookie.SAMESITE_UNSET,
     Ci.nsICookie.SCHEME_HTTPS
   );
   is(

@@ -11,14 +11,14 @@
 #include "mozilla/dom/AddonManagerBinding.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/Fetch.h"
+#include "mozilla/dom/MediaKeySystemAccessManager.h"
 #include "mozilla/dom/NavigatorBinding.h"
 #include "mozilla/dom/Nullable.h"
-#include "nsWrapperCache.h"
 #include "nsHashKeys.h"
 #include "nsInterfaceHashtable.h"
 #include "nsString.h"
 #include "nsTArray.h"
-#include "mozilla/dom/MediaKeySystemAccessManager.h"
+#include "nsWrapperCache.h"
 
 class nsPluginArray;
 class nsMimeTypeArray;
@@ -42,6 +42,7 @@ class ServiceWorkerContainer;
 class CredentialsContainer;
 class Clipboard;
 class LockManager;
+class NavigatorLogin;
 class PrivateAttribution;
 class HTMLMediaElement;
 class AudioContext;
@@ -146,6 +147,11 @@ class Navigator final : public nsISupports, public nsWrapperCache {
                                Maybe<bool> aShouldResistFingerprinting,
                                nsAString& aUserAgent);
 
+  // Clears the language cache by calling:
+  // Navigator_Binding::ClearCachedLanguageValue(this); and
+  // Navigator_Binding::ClearCachedLanguagesValue(this);
+  void ClearLanguageCache();
+
   // Clears the platform cache by calling:
   // Navigator_Binding::ClearCachedPlatformValue(this);
   void ClearPlatformCache();
@@ -210,6 +216,7 @@ class Navigator final : public nsISupports, public nsWrapperCache {
   dom::Clipboard* Clipboard();
   webgpu::Instance* Gpu();
   dom::LockManager* Locks();
+  NavigatorLogin* Login();
   dom::PrivateAttribution* PrivateAttribution();
 
   static bool Webdriver();
@@ -218,7 +225,8 @@ class Navigator final : public nsISupports, public nsWrapperCache {
 
   StorageManager* Storage();
 
-  static void GetAcceptLanguages(nsTArray<nsString>& aLanguages);
+  static void GetAcceptLanguages(nsTArray<nsString>& aLanguages,
+                                 const nsCString* aLanguageOverride);
 
   dom::MediaCapabilities* MediaCapabilities();
   dom::MediaSession* MediaSession();
@@ -307,6 +315,7 @@ class Navigator final : public nsISupports, public nsWrapperCache {
   RefPtr<webgpu::Instance> mWebGpu;
   RefPtr<Promise> mSharePromise;  // Web Share API related
   RefPtr<LockManager> mLocks;
+  RefPtr<NavigatorLogin> mLogin;
   RefPtr<dom::PrivateAttribution> mPrivateAttribution;
   RefPtr<dom::UserActivation> mUserActivation;
   RefPtr<dom::WakeLockJS> mWakeLock;

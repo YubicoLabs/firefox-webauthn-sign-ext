@@ -55,6 +55,7 @@ class OutOfLineCallPostWriteElementBarrier;
 class CodeGenerator final : public CodeGeneratorSpecific {
   // Warp snapshot. This is nullptr for Wasm compilations.
   const WarpSnapshot* snapshot_ = nullptr;
+  IonScriptCounts* counts_ = nullptr;
 
   [[nodiscard]] bool generateBody();
 
@@ -86,7 +87,8 @@ class CodeGenerator final : public CodeGeneratorSpecific {
 
  public:
   CodeGenerator(MIRGenerator* gen, LIRGraph* graph,
-                MacroAssembler* masm = nullptr);
+                MacroAssembler* masm = nullptr,
+                const wasm::CodeMetadata* wasmCodeMeta = nullptr);
   ~CodeGenerator();
 
   [[nodiscard]] bool generate(const WarpSnapshot* snapshot);
@@ -97,9 +99,11 @@ class CodeGenerator final : public CodeGeneratorSpecific {
                                   size_t trapExitLayoutNumWords,
                                   wasm::FuncOffsets* offsets,
                                   wasm::StackMaps* stackMaps,
-                                  wasm::Decoder* decoder,
-                                  jit::IonPerfSpewer* spewer);
+                                  wasm::Decoder* decoder);
+  [[nodiscard]] bool generateBlock(LBlock* current, size_t blockNumber,
+                                   IonScriptCounts* counts, bool compilingWasm);
 
+  [[nodiscard]] bool generateOutOfLineBlocks();
   [[nodiscard]] bool link(JSContext* cx);
 
   void emitOOLTestObject(Register objreg, Label* ifTruthy, Label* ifFalsy,
@@ -117,7 +121,6 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   void visitOutOfLineCallVM(
       OutOfLineCallVM<Fn, fn, ArgSeq, StoreOutputTo>* ool);
 
-  void emitStoreElementHoleOOL(LInstruction* lir);
   void emitIsCallableOOL(Register object, Register output);
 
   void emitResumableWasmTrapOOL(LInstruction* lir, size_t framePushed,
@@ -131,12 +134,13 @@ class CodeGenerator final : public CodeGeneratorSpecific {
       OutOfLineCallPostWriteElementBarrier* ool);
 
   void callWasmStructAllocFun(LInstruction* lir, wasm::SymbolicAddress fun,
-                              Register typeDefData, Register output,
+                              Register typeDefData, Register allocSite,
+                              Register output,
                               const wasm::TrapSiteDesc& trapSiteDesc);
 
   void callWasmArrayAllocFun(LInstruction* lir, wasm::SymbolicAddress fun,
                              Register numElements, Register typeDefData,
-                             Register output,
+                             Register allocSite, Register output,
                              const wasm::TrapSiteDesc& trapSiteDesc);
 
 #ifdef ENABLE_WASM_JSPI
@@ -159,7 +163,7 @@ class CodeGenerator final : public CodeGeneratorSpecific {
 
   void emitElementPostWriteBarrier(MInstruction* mir,
                                    const LiveRegisterSet& liveVolatileRegs,
-                                   Register obj, const LAllocation* index,
+                                   Register obj, Register index,
                                    Register scratch,
                                    const ConstantOrRegister& val,
                                    int32_t indexDiff = 0);
@@ -168,6 +172,14 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   void visitPostWriteBarrierCommon(LPostBarrierType* lir, OutOfLineCode* ool);
   template <class LPostBarrierType>
   void visitPostWriteBarrierCommonV(LPostBarrierType* lir, OutOfLineCode* ool);
+  void visitLoadSlotByIteratorIndexCommon(Register object,
+                                          Register indexScratch,
+                                          Register kindScratch,
+                                          ValueOperand result);
+  void visitStoreSlotByIteratorIndexCommon(Register object,
+                                           Register indexScratch,
+                                           Register kindScratch,
+                                           ValueOperand value);
 
   void emitCallInvokeFunction(LInstruction* call, Register callereg,
                               bool isConstructing, bool ignoresReturnValue,
@@ -176,9 +188,13 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   void emitApplyGeneric(T* apply);
   template <typename T>
   void emitCallInvokeFunction(T* apply);
-  void emitAllocateSpaceForApply(Register argcreg, Register scratch);
+  template <typename T>
+  void emitAllocateSpaceForApply(T* apply, Register calleeReg, Register argcreg,
+                                 Register scratch);
+  template <typename T>
   void emitAllocateSpaceForConstructAndPushNewTarget(
-      Register argcreg, Register newTargetAndScratch);
+      T* apply, Register calleeReg, Register argcreg,
+      Register newTargetAndScratch);
   void emitCopyValuesForApply(Register argvSrcBase, Register argvIndex,
                               Register copyreg, size_t argvSrcOffset,
                               size_t argvDstOffset);
@@ -223,9 +239,27 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   void emitMaybeAtomizeSlot(LInstruction* ins, Register stringReg,
                             Address slotAddr, TypedOrValueRegister dest);
 
+  void emitWeakMapLookupObject(Register weakMap, Register obj,
+                               Register hashTable, Register hashCode,
+                               Register scratch, Register scratch2,
+                               Register scratch3, Register scratch4,
+                               Register scratch5, Label* found, Label* missing);
+
   using RegisterOrInt32 = mozilla::Variant<Register, int32_t>;
 
   static RegisterOrInt32 ToRegisterOrInt32(const LAllocation* allocation);
+
+  using AddressOrBaseIndex = mozilla::Variant<Address, BaseIndex>;
+
+  static AddressOrBaseIndex ToAddressOrBaseIndex(Register elements,
+                                                 const LAllocation* index,
+                                                 Scalar::Type type);
+
+  using AddressOrBaseObjectElementIndex =
+      mozilla::Variant<Address, BaseObjectElementIndex>;
+
+  static AddressOrBaseObjectElementIndex ToAddressOrBaseObjectElementIndex(
+      Register elements, const LAllocation* index);
 
 #ifdef DEBUG
   void emitAssertArgumentsSliceBounds(const RegisterOrInt32& begin,
@@ -244,6 +278,10 @@ class CodeGenerator final : public CodeGeneratorSpecific {
                   Register output);
 
   void emitInstanceOf(LInstruction* ins, Register protoReg);
+
+  void emitIteratorHasIndicesAndBranch(Register iterator, Register object,
+                                       Register temp, Register temp2,
+                                       Label* ifFalse);
 
 #ifdef DEBUG
   void emitAssertResultV(const ValueOperand output, const MDefinition* mir);
@@ -293,14 +331,14 @@ class CodeGenerator final : public CodeGeneratorSpecific {
 
   IonScriptCounts* maybeCreateScriptCounts();
 
-  template <typename InstructionWithMaybeTrapSite, class AddressOrBaseIndex>
+  template <typename InstructionWithMaybeTrapSite, class AddressOrBaseIndexT>
   void emitWasmValueLoad(InstructionWithMaybeTrapSite* ins, MIRType type,
-                         MWideningOp wideningOp, AddressOrBaseIndex addr,
+                         MWideningOp wideningOp, AddressOrBaseIndexT addr,
                          AnyRegister dst);
-  template <typename InstructionWithMaybeTrapSite, class AddressOrBaseIndex>
+  template <typename InstructionWithMaybeTrapSite, class AddressOrBaseIndexT>
   void emitWasmValueStore(InstructionWithMaybeTrapSite* ins, MIRType type,
                           MNarrowingOp narrowingOp, AnyRegister src,
-                          AddressOrBaseIndex addr);
+                          AddressOrBaseIndexT addr);
 
   void testValueTruthyForType(JSValueType type, ScratchTagScope& tag,
                               const ValueOperand& value, Register tempToUnbox,
@@ -346,12 +384,9 @@ class CodeGenerator final : public CodeGeneratorSpecific {
                                    Label* ifDoesntEmulateUndefined,
                                    Register scratch, OutOfLineTestObject* ool);
 
-  void emitStoreElementTyped(const LAllocation* value, MIRType valueType,
-                             Register elements, const LAllocation* index);
-
   // Bailout if an element about to be written to is a hole.
-  void emitStoreHoleCheck(Register elements, const LAllocation* index,
-                          LSnapshot* snapshot);
+  void emitStoreHoleCheck(Address dest, LSnapshot* snapshot);
+  void emitStoreHoleCheck(BaseObjectElementIndex dest, LSnapshot* snapshot);
 
   void emitAssertRangeI(MIRType type, const Range* r, Register input);
   void emitAssertRangeD(const Range* r, FloatRegister input,
@@ -373,7 +408,21 @@ class CodeGenerator final : public CodeGeneratorSpecific {
     NurseryObjectLabel(CodeOffset offset, uint32_t nurseryIndex)
         : offset(offset), nurseryIndex(nurseryIndex) {}
   };
-  Vector<NurseryObjectLabel, 0, JitAllocPolicy> ionNurseryObjectLabels_;
+  Vector<NurseryObjectLabel, 0, JitAllocPolicy> nurseryObjectLabels_;
+
+  // Like NurseryObjectLabel but for Values. The Values in the IonScript will be
+  // stored in the constants-list so this also stores the constantPoolIndex for
+  // that list.
+  struct NurseryValueLabel {
+    CodeOffset offset;
+    uint32_t nurseryIndex;
+    uint32_t constantPoolIndex = UINT32_MAX;
+    NurseryValueLabel(CodeOffset offset, uint32_t nurseryIndex)
+        : offset(offset), nurseryIndex(nurseryIndex) {}
+  };
+  Vector<NurseryValueLabel, 0, JitAllocPolicy> nurseryValueLabels_;
+
+  Address getNurseryValueAddress(ValueOrNurseryValueIndex val, Register reg);
 
   void branchIfInvalidated(Register temp, Label* invalidated);
 
@@ -381,12 +430,11 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   void emitDebugResultChecks(LInstruction* ins);
   void emitGCThingResultChecks(LInstruction* lir, MDefinition* mir);
   void emitValueResultChecks(LInstruction* lir, MDefinition* mir);
+  void emitWasmAnyrefResultChecks(LInstruction* lir, MDefinition* mir);
 #endif
 
   // Script counts created during code generation.
   IonScriptCounts* scriptCounts_;
-
-  IonPerfSpewer perfSpewer_;
 
   // Total Ion compilation time.
   mozilla::TimeDuration compileTime_;
@@ -409,6 +457,9 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   // Register a dependency on the HasSeenObjectEmulateUndefined fuse.
   bool addHasSeenObjectEmulateUndefinedFuseDependency();
 
+  // Register a dependency on the HasSeenArrayExceedsInt32Length fuse.
+  bool addHasSeenArrayExceedsInt32LengthFuseDependency();
+
   // Return true if the fuse is intact, and if the fuse is intact note the
   // dependency
   bool hasSeenObjectEmulateUndefinedFuseIntactAndDependencyNoted() {
@@ -417,6 +468,14 @@ class CodeGenerator final : public CodeGeneratorSpecific {
       bool tryToAdd = addHasSeenObjectEmulateUndefinedFuseDependency();
       // If we oom, just pretend that the fuse is popped.
       return tryToAdd;
+    }
+    return false;
+  }
+
+  bool hasSeenArrayExceedsInt32LengthFuseIntactAndDependencyNoted() {
+    bool intact = gen->outerInfo().hasSeenArrayExceedsInt32LengthFuseIntact();
+    if (intact) {
+      return addHasSeenArrayExceedsInt32LengthFuseDependency();
     }
     return false;
   }

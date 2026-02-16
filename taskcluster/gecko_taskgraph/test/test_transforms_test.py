@@ -5,12 +5,12 @@ Tests for the 'tests.py' transforms
 """
 
 import hashlib
-import json
 from functools import partial
 from pprint import pprint
 
 import mozunit
 import pytest
+from taskgraph.util import json
 
 from gecko_taskgraph.transforms import test as test_transforms
 
@@ -78,42 +78,42 @@ def test_split_variants(monkeypatch, run_full_config_transform, make_test_task):
 
     def make_expected(variant):
         """Helper to generate expected tasks."""
-        return make_test_task(
-            **{
-                "attributes": {"unittest_variant": variant},
-                "description": f"{variant} variant",
-                "mozharness": {
-                    "extra-options": [f"--setpref={variant}=1"],
-                },
-                "treeherder-symbol": f"g-{variant}(t)",
-                "variant-suffix": f"-{variant}",
-            }
-        )
+        return make_test_task(**{
+            "attributes": {"unittest_variant": variant},
+            "description": f"{variant} variant",
+            "mozharness": {
+                "extra-options": [f"--setpref={variant}=1"],
+            },
+            "treeherder-symbol": f"g-{variant}(t)",
+            "variant-suffix": f"-{variant}",
+        })
 
     run_split_variants = partial(
         run_full_config_transform, test_transforms.variant.split_variants
     )
 
     # test no variants
-    input_task = make_test_task(
-        **{
-            "run-without-variant": True,
-        }
-    )
+    input_task = make_test_task(**{
+        "run-without-variant": True,
+    })
     tasks = list(run_split_variants(input_task))
     assert len(tasks) == 1
-    assert tasks[0] == input_task
+
+    expected = input_task
+    expected["attributes"]["unittest_variant"] = None
+    assert tasks[0] == expected
 
     # test variants are split into expected tasks
-    input_task = make_test_task(
-        **{
-            "run-without-variant": True,
-            "variants": ["foo", "bar"],
-        }
-    )
+    input_task = make_test_task(**{
+        "run-without-variant": True,
+        "variants": ["foo", "bar"],
+    })
     tasks = list(run_split_variants(input_task))
     assert len(tasks) == 3
-    assert tasks[0] == make_test_task()
+
+    expected = make_test_task()
+    expected["attributes"]["unittest_variant"] = None
+    assert tasks[0] == expected
     assert tasks[1] == make_expected("foo")
 
     expected = make_expected("bar")
@@ -121,12 +121,10 @@ def test_split_variants(monkeypatch, run_full_config_transform, make_test_task):
     assert tasks[2] == expected
 
     # test composite variants
-    input_task = make_test_task(
-        **{
-            "run-without-variant": True,
-            "variants": ["foo+bar"],
-        }
-    )
+    input_task = make_test_task(**{
+        "run-without-variant": True,
+        "variants": ["foo+bar"],
+    })
     tasks = list(run_split_variants(input_task))
     assert len(tasks) == 2
     assert tasks[1]["attributes"]["unittest_variant"] == "foo+bar"
@@ -137,26 +135,22 @@ def test_split_variants(monkeypatch, run_full_config_transform, make_test_task):
     assert tasks[1]["treeherder-symbol"] == "g-foo-bar(t)"
 
     # test 'when' filter
-    input_task = make_test_task(
-        **{
-            "run-without-variant": True,
-            # this should cause task to be filtered out of 'bar' and 'foo+bar' variants
-            "test-platform": "windows",
-            "variants": ["foo", "bar", "foo+bar"],
-        }
-    )
+    input_task = make_test_task(**{
+        "run-without-variant": True,
+        # this should cause task to be filtered out of 'bar' and 'foo+bar' variants
+        "test-platform": "windows",
+        "variants": ["foo", "bar", "foo+bar"],
+    })
     tasks = list(run_split_variants(input_task))
     assert len(tasks) == 2
-    assert "unittest_variant" not in tasks[0]["attributes"]
+    assert tasks[0]["attributes"]["unittest_variant"] is None
     assert tasks[1]["attributes"]["unittest_variant"] == "foo"
 
     # test 'run-without-variants=False'
-    input_task = make_test_task(
-        **{
-            "run-without-variant": False,
-            "variants": ["foo"],
-        }
-    )
+    input_task = make_test_task(**{
+        "run-without-variant": False,
+        "variants": ["foo"],
+    })
     tasks = list(run_split_variants(input_task))
     assert len(tasks) == 1
     assert tasks[0]["attributes"]["unittest_variant"] == "foo"

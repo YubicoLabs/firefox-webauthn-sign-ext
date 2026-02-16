@@ -138,7 +138,7 @@ class AndroidHardwareTest(
     ] + copy.deepcopy(testing_config_options)
 
     def __init__(self, require_config_file=False):
-        super(AndroidHardwareTest, self).__init__(
+        super().__init__(
             config_options=self.config_options,
             all_actions=[
                 "clobber",
@@ -181,7 +181,7 @@ class AndroidHardwareTest(
     def query_abs_dirs(self):
         if self.abs_dirs:
             return self.abs_dirs
-        abs_dirs = super(AndroidHardwareTest, self).query_abs_dirs()
+        abs_dirs = super().query_abs_dirs()
         dirs = {}
         dirs["abs_test_install_dir"] = os.path.join(abs_dirs["abs_work_dir"], "tests")
         dirs["abs_test_bin_dir"] = os.path.join(
@@ -235,13 +235,31 @@ class AndroidHardwareTest(
             dirs["abs_blob_upload_dir"], self.test_suite
         )
 
+        # LambdaTest provides a list of recommended ports via env var:
+        #     UserPorts=port/27045,port/27046,port/27047,port/27048,port/27049
+        # These are only for android, so no need to put in mozprofile
+        # NOTE: mozprofile.DEFAULT_PORTS has http:8888.
+        DEFAULT_PORTS = {"http": 8854, "https": 4454, "ws": 9988, "wss": 4454}
+        ports = [p.split("/")[-1] for p in os.environ.get("UserPorts", "").split(",")]
+        if len(ports) > 3:
+            DEFAULT_PORTS = {
+                "http": ports[0],
+                "https": ports[1],
+                "ws": ports[2],
+                "wss": ports[3],
+            }
+
         str_format_values = {
             "device_serial": self.device_serial,
             "remote_webserver": c["remote_webserver"],
             "xre_path": self.xre_path,
             "utility_path": self.xre_path,
-            "http_port": "8854",  # starting http port  to use for the mochitest server
-            "ssl_port": "4454",  # starting ssl port to use for the server
+            "http_port": DEFAULT_PORTS[
+                "http"
+            ],  # starting http port  to use for the mochitest server
+            "ssl_port": DEFAULT_PORTS[
+                "https"
+            ],  # starting ssl port to use for the server
             "certs_path": os.path.join(dirs["abs_work_dir"], "tests/certs"),
             # TestingMixin._download_and_extract_symbols() will set
             # self.symbols_path when downloading/extracting.
@@ -294,7 +312,7 @@ class AndroidHardwareTest(
             if category in SUITE_REPEATABLE:
                 cmd.extend(["--repeat=%s" % c.get("repeat")])
             else:
-                self.log("--repeat not supported in {}".format(category), level=WARNING)
+                self.log(f"--repeat not supported in {category}", level=WARNING)
 
         if category not in SUITE_NO_E10S:
             if category in SUITE_DEFAULT_E10S and not c["e10s"]:
@@ -305,9 +323,9 @@ class AndroidHardwareTest(
         if self.disable_fission and category not in SUITE_NO_E10S:
             cmd.append("--disable-fission")
 
-        cmd.extend(["--setpref={}".format(p) for p in self.extra_prefs])
+        cmd.extend([f"--setpref={p}" for p in self.extra_prefs])
 
-        cmd.extend(["--tag={}".format(t) for t in self.test_tags])
+        cmd.extend([f"--tag={t}" for t in self.test_tags])
 
         try_options, try_tests = self.try_args(self.test_suite)
         if try_options:
@@ -399,9 +417,7 @@ class AndroidHardwareTest(
         """
         Download and extract product APK, tests.zip, and host utils.
         """
-        super(AndroidHardwareTest, self).download_and_extract(
-            suite_categories=self._query_suite_categories()
-        )
+        super().download_and_extract(suite_categories=self._query_suite_categories())
         dirs = self.query_abs_dirs()
         self.xre_path = dirs["abs_xre_dir"]
 
@@ -415,9 +431,9 @@ class AndroidHardwareTest(
         if install_needed is False:
             self.info("Skipping apk installation for %s" % self.test_suite)
             return
-        assert (
-            self.installer_path is not None
-        ), "Either add installer_path to the config or use --installer-path."
+        assert self.installer_path is not None, (
+            "Either add installer_path to the config or use --installer-path."
+        )
         self.uninstall_android_app()
         self.install_android_app(self.installer_path)
         self.info("Finished installing apps for %s" % self.device_name)

@@ -58,7 +58,7 @@
 //! ```
 
 use anyhow::Result;
-use uniffi_meta::Checksum;
+use uniffi_meta::{Checksum, ObjectTraitImplMetadata};
 
 use super::callbacks;
 use super::ffi::{FfiArgument, FfiCallbackFunction, FfiFunction, FfiStruct, FfiType};
@@ -85,12 +85,16 @@ pub struct Object {
     /// How this object is implemented in Rust
     pub(super) imp: ObjectImpl,
     pub(super) module_path: String,
+    pub(super) remote: bool,
     pub(super) constructors: Vec<Constructor>,
     pub(super) methods: Vec<Method>,
     // The "trait" methods - they have a (presumably "well known") name, and
     // a regular method (albeit with a generated name)
     // XXX - this should really be a HashSet, but not enough transient types support hash to make it worthwhile now.
     pub(super) uniffi_traits: Vec<UniffiTrait>,
+    // These are traits described in our CI which this object has declared it implements.
+    // This allows foreign bindings to implement things like inheritance or whatever makes sense for them.
+    pub(super) trait_impls: Vec<ObjectTraitImplMetadata>,
     // We don't include the FfiFuncs in the hash calculation, because:
     //  - it is entirely determined by the other fields,
     //    so excluding it is safe.
@@ -129,6 +133,10 @@ impl Object {
 
     pub fn imp(&self) -> &ObjectImpl {
         &self.imp
+    }
+
+    pub fn remote(&self) -> bool {
+        self.remote
     }
 
     pub fn is_trait_interface(&self) -> bool {
@@ -176,6 +184,19 @@ impl Object {
         self.uniffi_traits.iter().collect()
     }
 
+    pub fn uniffi_trait_methods(&self) -> UniffiTraitMethods {
+        UniffiTraitMethods::new(&self.uniffi_traits)
+    }
+
+    pub fn trait_impls(&self) -> Vec<&ObjectTraitImplMetadata> {
+        self.trait_impls.iter().collect()
+    }
+
+    // used by bindings for renaming.
+    pub fn trait_impls_mut(&mut self) -> &mut Vec<ObjectTraitImplMetadata> {
+        &mut self.trait_impls
+    }
+
     pub fn ffi_object_clone(&self) -> &FfiFunction {
         &self.ffi_func_clone
     }
@@ -206,7 +227,8 @@ impl Object {
                     .flat_map(|ut| match ut {
                         UniffiTrait::Display { fmt: m }
                         | UniffiTrait::Debug { fmt: m }
-                        | UniffiTrait::Hash { hash: m } => vec![m],
+                        | UniffiTrait::Hash { hash: m }
+                        | UniffiTrait::Ord { cmp: m } => vec![m],
                         UniffiTrait::Eq { eq, ne } => vec![eq, ne],
                     })
                     .map(|m| &m.ffi_func),
@@ -217,13 +239,13 @@ impl Object {
         assert!(!self.ffi_func_clone.name().is_empty());
         assert!(!self.ffi_func_free.name().is_empty());
         self.ffi_func_clone.arguments = vec![FfiArgument {
-            name: "ptr".to_string(),
-            type_: FfiType::RustArcPtr(self.name.to_string()),
+            name: "handle".to_string(),
+            type_: FfiType::Handle,
         }];
-        self.ffi_func_clone.return_type = Some(FfiType::RustArcPtr(self.name.to_string()));
+        self.ffi_func_clone.return_type = Some(FfiType::Handle);
         self.ffi_func_free.arguments = vec![FfiArgument {
-            name: "ptr".to_string(),
-            type_: FfiType::RustArcPtr(self.name.to_string()),
+            name: "handle".to_string(),
+            type_: FfiType::Handle,
         }];
         self.ffi_func_free.return_type = None;
         self.ffi_func_free.is_object_free_function = true;
@@ -313,9 +335,11 @@ impl From<uniffi_meta::ObjectMetadata> for Object {
             module_path: meta.module_path,
             name: meta.name,
             imp: meta.imp,
+            remote: meta.remote,
             constructors: Default::default(),
             methods: Default::default(),
             uniffi_traits: Default::default(),
+            trait_impls: Default::default(),
             ffi_func_clone: FfiFunction {
                 name: ffi_clone_name,
                 ..Default::default()
@@ -326,26 +350,6 @@ impl From<uniffi_meta::ObjectMetadata> for Object {
             },
             ffi_init_callback: None,
             docstring: meta.docstring.clone(),
-        }
-    }
-}
-
-impl From<uniffi_meta::UniffiTraitMetadata> for UniffiTrait {
-    fn from(meta: uniffi_meta::UniffiTraitMetadata) -> Self {
-        match meta {
-            uniffi_meta::UniffiTraitMetadata::Debug { fmt } => {
-                UniffiTrait::Debug { fmt: fmt.into() }
-            }
-            uniffi_meta::UniffiTraitMetadata::Display { fmt } => {
-                UniffiTrait::Display { fmt: fmt.into() }
-            }
-            uniffi_meta::UniffiTraitMetadata::Eq { eq, ne } => UniffiTrait::Eq {
-                eq: eq.into(),
-                ne: ne.into(),
-            },
-            uniffi_meta::UniffiTraitMetadata::Hash { hash } => {
-                UniffiTrait::Hash { hash: hash.into() }
-            }
         }
     }
 }
@@ -376,6 +380,8 @@ pub struct Constructor {
     // Force a checksum value, or we'll fallback to the trait.
     #[checksum_ignore]
     pub(super) checksum: Option<u16>,
+    // to help with lifetimes elsewhere...
+    pub(super) self_type: Type,
 }
 
 impl Constructor {
@@ -385,6 +391,14 @@ impl Constructor {
 
     pub fn rename(&mut self, new_name: String) {
         self.name = new_name;
+    }
+
+    pub fn is_async(&self) -> bool {
+        self.is_async
+    }
+
+    pub fn object_name(&self) -> &str {
+        &self.object_name
     }
 
     pub fn arguments(&self) -> Vec<&Argument> {
@@ -427,16 +441,14 @@ impl Constructor {
         self.name == "new"
     }
 
-    fn derive_ffi_func(&mut self) {
+    pub fn derive_ffi_func(&mut self) {
         assert!(!self.ffi_func.name().is_empty());
-        self.ffi_func.init(
-            Some(FfiType::RustArcPtr(self.object_name.clone())),
-            self.arguments.iter().map(Into::into),
-        );
+        self.ffi_func
+            .init(Some(FfiType::Handle), self.arguments.iter().map(Into::into));
     }
 
-    pub fn iter_types(&self) -> TypeIterator<'_> {
-        Box::new(self.arguments.iter().flat_map(Argument::iter_types))
+    pub fn checksum_from_metadata(meta: uniffi_meta::ConstructorMetadata) -> u16 {
+        uniffi_meta::checksum(&Self::from(meta))
     }
 }
 
@@ -451,6 +463,11 @@ impl From<uniffi_meta::ConstructorMetadata> for Constructor {
             is_async: meta.is_async,
             ..FfiFunction::default()
         };
+        let self_type = Type::Object {
+            module_path: meta.module_path.clone(),
+            name: meta.self_name.clone(),
+            imp: ObjectImpl::Struct,
+        };
         Self {
             name: meta.name,
             object_name: meta.self_name,
@@ -459,9 +476,10 @@ impl From<uniffi_meta::ConstructorMetadata> for Constructor {
             arguments,
             ffi_func,
             docstring: meta.docstring.clone(),
-            throws: meta.throws.map(Into::into),
+            throws: meta.throws,
             checksum_fn_name,
             checksum: meta.checksum,
+            self_type,
         }
     }
 }
@@ -473,10 +491,11 @@ impl From<uniffi_meta::ConstructorMetadata> for Constructor {
 #[derive(Debug, Clone, Checksum)]
 pub struct Method {
     pub(super) name: String,
-    pub(super) object_name: String,
-    pub(super) object_module_path: String,
     pub(super) is_async: bool,
-    pub(super) object_impl: ObjectImpl,
+    // Ignore `self_type` for the checksum, we never compare the method checksums for methods from
+    // different objects.
+    #[checksum_ignore]
+    pub(super) self_type: Type,
     pub(super) arguments: Vec<Argument>,
     pub(super) return_type: Option<Type>,
     // We don't include the FFIFunc in the hash calculation, because:
@@ -510,6 +529,10 @@ impl Method {
         self.is_async
     }
 
+    pub fn object_name(&self) -> &str {
+        self.self_type.name().unwrap()
+    }
+
     pub fn arguments(&self) -> Vec<&Argument> {
         self.arguments.iter().collect()
     }
@@ -519,13 +542,7 @@ impl Method {
     pub fn full_arguments(&self) -> Vec<Argument> {
         vec![Argument {
             name: "ptr".to_string(),
-            // TODO: ideally we'd get this via `ci.resolve_type_expression` so that it
-            // is contained in the proper `TypeUniverse`, but this works for now.
-            type_: Type::Object {
-                name: self.object_name.clone(),
-                module_path: self.object_module_path.clone(),
-                imp: self.object_impl,
-            },
+            type_: self.self_type.clone(),
             by_ref: !self.takes_self_by_arc,
             optional: false,
             default: None,
@@ -580,90 +597,53 @@ impl Method {
         Ok(())
     }
 
-    pub fn iter_types(&self) -> TypeIterator<'_> {
-        Box::new(
-            self.arguments
-                .iter()
-                .flat_map(Argument::iter_types)
-                .chain(self.return_type.iter().flat_map(Type::iter_types)),
-        )
-    }
-
     /// For async callback interface methods, the FFI struct to pass to the completion function.
     pub fn foreign_future_ffi_result_struct(&self) -> FfiStruct {
         callbacks::foreign_future_ffi_result_struct(self.return_type.as_ref().map(FfiType::from))
     }
-}
 
-impl From<uniffi_meta::MethodMetadata> for Method {
-    fn from(meta: uniffi_meta::MethodMetadata) -> Self {
+    // construct from metadata - like `From<>` but with extra args
+    pub fn from_metadata(meta: uniffi_meta::MethodMetadata, receiver: Type) -> Self {
         let ffi_name = meta.ffi_symbol_name();
         let checksum_fn_name = meta.checksum_symbol_name();
-        let is_async = meta.is_async;
-        let return_type = meta.return_type.map(Into::into);
         let arguments = meta.inputs.into_iter().map(Into::into).collect();
 
         let ffi_func = FfiFunction {
             name: ffi_name,
-            is_async,
+            is_async: meta.is_async,
             ..FfiFunction::default()
         };
 
         Self {
             name: meta.name,
-            object_name: meta.self_name,
-            object_module_path: meta.module_path,
-            is_async,
-            object_impl: ObjectImpl::Struct, // will be filled in later
+            self_type: receiver,
+            is_async: meta.is_async,
             arguments,
-            return_type,
+            return_type: meta.return_type,
             ffi_func,
             docstring: meta.docstring.clone(),
-            throws: meta.throws.map(Into::into),
+            throws: meta.throws,
             takes_self_by_arc: meta.takes_self_by_arc,
             checksum_fn_name,
             checksum: meta.checksum,
         }
     }
-}
 
-impl From<uniffi_meta::TraitMethodMetadata> for Method {
-    fn from(meta: uniffi_meta::TraitMethodMetadata) -> Self {
-        let ffi_name = meta.ffi_symbol_name();
-        let checksum_fn_name = meta.checksum_symbol_name();
-        let is_async = meta.is_async;
-        let return_type = meta.return_type.map(Into::into);
-        let arguments = meta.inputs.into_iter().map(Into::into).collect();
-        let ffi_func = FfiFunction {
-            name: ffi_name,
-            is_async,
-            ..FfiFunction::default()
-        };
-        Self {
-            name: meta.name,
-            object_name: meta.trait_name,
-            object_module_path: meta.module_path,
-            is_async,
-            arguments,
-            return_type,
-            docstring: meta.docstring.clone(),
-            throws: meta.throws.map(Into::into),
-            takes_self_by_arc: meta.takes_self_by_arc,
-            checksum_fn_name,
-            checksum: meta.checksum,
-            ffi_func,
-            object_impl: ObjectImpl::Struct,
-        }
+    pub fn checksum_from_metadata(meta: uniffi_meta::MethodMetadata) -> u16 {
+        // We can use an arbitrary `self_type` for this, since it's ignored for the checksum
+        uniffi_meta::checksum(&Self::from_metadata(meta, Type::UInt8))
     }
 }
 
 /// The list of traits we support generating helper methods for.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Checksum)]
 pub enum UniffiTrait {
     Debug { fmt: Method },
     Display { fmt: Method },
     Eq { eq: Method, ne: Method },
     Hash { hash: Method },
+    Ord { cmp: Method },
 }
 
 impl UniffiTrait {
@@ -672,7 +652,8 @@ impl UniffiTrait {
             match self {
                 UniffiTrait::Display { fmt: m }
                 | UniffiTrait::Debug { fmt: m }
-                | UniffiTrait::Hash { hash: m } => vec![m.iter_types()],
+                | UniffiTrait::Hash { hash: m }
+                | UniffiTrait::Ord { cmp: m } => vec![m.iter_types()],
                 UniffiTrait::Eq { eq, ne } => vec![eq.iter_types(), ne.iter_types()],
             }
             .into_iter()
@@ -684,7 +665,8 @@ impl UniffiTrait {
         match self {
             UniffiTrait::Display { fmt: m }
             | UniffiTrait::Debug { fmt: m }
-            | UniffiTrait::Hash { hash: m } => {
+            | UniffiTrait::Hash { hash: m }
+            | UniffiTrait::Ord { cmp: m } => {
                 m.derive_ffi_func()?;
             }
             UniffiTrait::Eq { eq, ne } => {
@@ -694,6 +676,58 @@ impl UniffiTrait {
         }
         Ok(())
     }
+
+    // construct from metadata - like `From<>` but with extra args
+    pub fn from_metadata(meta: uniffi_meta::UniffiTraitMetadata, receiver: Type) -> Self {
+        match meta {
+            uniffi_meta::UniffiTraitMetadata::Debug { fmt } => UniffiTrait::Debug {
+                fmt: Method::from_metadata(fmt, receiver),
+            },
+            uniffi_meta::UniffiTraitMetadata::Display { fmt } => UniffiTrait::Display {
+                fmt: Method::from_metadata(fmt, receiver),
+            },
+            uniffi_meta::UniffiTraitMetadata::Eq { eq, ne } => UniffiTrait::Eq {
+                eq: Method::from_metadata(eq, receiver.clone()),
+                ne: Method::from_metadata(ne, receiver),
+            },
+            uniffi_meta::UniffiTraitMetadata::Hash { hash } => UniffiTrait::Hash {
+                hash: Method::from_metadata(hash, receiver),
+            },
+            uniffi_meta::UniffiTraitMetadata::Ord { cmp } => UniffiTrait::Ord {
+                cmp: Method::from_metadata(cmp, receiver),
+            },
+        }
+    }
+}
+
+/// flattened uniffi_traits.
+#[derive(Debug, Clone, Default)]
+pub struct UniffiTraitMethods {
+    pub debug_fmt: Option<Method>,
+    pub display_fmt: Option<Method>,
+    pub eq_eq: Option<Method>,
+    pub eq_ne: Option<Method>,
+    pub hash_hash: Option<Method>,
+    pub ord_cmp: Option<Method>,
+}
+
+impl UniffiTraitMethods {
+    pub fn new(uniffi_traits: &[UniffiTrait]) -> Self {
+        let mut new = Self::default();
+        for t in uniffi_traits {
+            match t.clone() {
+                UniffiTrait::Debug { fmt } => new.debug_fmt = Some(fmt),
+                UniffiTrait::Display { fmt } => new.display_fmt = Some(fmt),
+                UniffiTrait::Eq { eq, ne } => {
+                    new.eq_eq = Some(eq);
+                    new.eq_ne = Some(ne);
+                }
+                UniffiTrait::Hash { hash } => new.hash_hash = Some(hash),
+                UniffiTrait::Ord { cmp } => new.ord_cmp = Some(cmp),
+            }
+        }
+        new
+    }
 }
 
 impl Callable for Constructor {
@@ -701,20 +735,24 @@ impl Callable for Constructor {
         self.arguments()
     }
 
-    fn return_type(&self) -> Option<Type> {
-        Some(Type::Object {
-            name: self.object_name.clone(),
-            module_path: self.object_module_path.clone(),
-            imp: ObjectImpl::Struct,
-        })
+    fn return_type(&self) -> Option<&Type> {
+        Some(&self.self_type)
     }
 
-    fn throws_type(&self) -> Option<Type> {
-        self.throws_type().cloned()
+    fn throws_type(&self) -> Option<&Type> {
+        self.throws_type()
+    }
+
+    fn docstring(&self) -> Option<&str> {
+        self.docstring()
     }
 
     fn is_async(&self) -> bool {
         self.is_async
+    }
+
+    fn ffi_func(&self) -> &FfiFunction {
+        &self.ffi_func
     }
 }
 
@@ -723,20 +761,28 @@ impl Callable for Method {
         self.arguments()
     }
 
-    fn return_type(&self) -> Option<Type> {
-        self.return_type().cloned()
+    fn return_type(&self) -> Option<&Type> {
+        self.return_type()
     }
 
-    fn throws_type(&self) -> Option<Type> {
-        self.throws_type().cloned()
+    fn throws_type(&self) -> Option<&Type> {
+        self.throws_type()
+    }
+
+    fn docstring(&self) -> Option<&str> {
+        self.docstring()
     }
 
     fn is_async(&self) -> bool {
         self.is_async
     }
 
-    fn takes_self(&self) -> bool {
-        true
+    fn ffi_func(&self) -> &FfiFunction {
+        &self.ffi_func
+    }
+
+    fn self_type(&self) -> Option<Type> {
+        Some(self.self_type.clone())
     }
 }
 
@@ -758,20 +804,20 @@ mod test {
         assert_eq!(ci.object_definitions().len(), 1);
         ci.get_object_definition("Testing").unwrap();
 
-        assert_eq!(ci.iter_types().count(), 6);
-        assert!(ci.iter_types().any(|t| t == &Type::UInt16));
-        assert!(ci.iter_types().any(|t| t == &Type::UInt32));
-        assert!(ci.iter_types().any(|t| t
+        assert_eq!(ci.iter_local_types().count(), 6);
+        assert!(ci.iter_local_types().any(|t| t == &Type::UInt16));
+        assert!(ci.iter_local_types().any(|t| t == &Type::UInt32));
+        assert!(ci.iter_local_types().any(|t| t
             == &Type::Sequence {
                 inner_type: Box::new(Type::UInt32)
             }));
-        assert!(ci.iter_types().any(|t| t == &Type::String));
-        assert!(ci.iter_types().any(|t| t
+        assert!(ci.iter_local_types().any(|t| t == &Type::String));
+        assert!(ci.iter_local_types().any(|t| t
             == &Type::Optional {
                 inner_type: Box::new(Type::String)
             }));
         assert!(ci
-            .iter_types()
+            .iter_local_types()
             .any(|t| matches!(t, Type::Object { name, ..} if name == "Testing")));
     }
 
@@ -785,7 +831,8 @@ mod test {
                 constructor(u32 v);
             };
         "#;
-        let ci = ComponentInterface::from_webidl(UDL, "crate_name").unwrap();
+        let mut ci = ComponentInterface::from_webidl(UDL, "crate_name").unwrap();
+        ci.derive_ffi_funcs().unwrap();
         assert_eq!(ci.object_definitions().len(), 1);
 
         let obj = ci.get_object_definition("Testing").unwrap();
@@ -815,7 +862,8 @@ mod test {
                 constructor(u32 v);
             };
         "#;
-        let ci = ComponentInterface::from_webidl(UDL, "crate_name").unwrap();
+        let mut ci = ComponentInterface::from_webidl(UDL, "crate_name").unwrap();
+        ci.derive_ffi_funcs().unwrap();
         assert_eq!(ci.object_definitions().len(), 1);
 
         let obj = ci.get_object_definition("Testing").unwrap();

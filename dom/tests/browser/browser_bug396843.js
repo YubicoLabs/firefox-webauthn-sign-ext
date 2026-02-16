@@ -1,4 +1,4 @@
-/** Test for Bug 396843 **/
+/** Test for Bug 396843 */
 
 function testInDocument(doc, documentID) {
   var allNodes = [];
@@ -9,7 +9,7 @@ function testInDocument(doc, documentID) {
     allNodes.push(doc.createElementNS("http://www.w3.org/1999/xhtml", name));
   }
 
-  /* List copy/pasted from nsHTMLTagList.h */
+  /* List copy/pasted from nsHTMLTagList.inc */
   HTML_TAG("a", "Anchor");
   HTML_TAG("abbr", "Span");
   HTML_TAG("acronym", "Span");
@@ -317,6 +317,10 @@ add_task(async function test1() {
 });
 
 async function newTabTest(location) {
+  await SpecialPowers.pushPrefEnv({
+    set: [["security.allow_eval_with_system_principal", true]],
+  });
+
   await BrowserTestUtils.withNewTab(
     { gBrowser, url: location },
     async function (browser) {

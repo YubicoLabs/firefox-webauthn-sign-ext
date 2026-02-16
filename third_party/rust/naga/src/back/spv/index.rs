@@ -225,8 +225,9 @@ impl BlockContext<'_> {
             Some(index_id) => {
                 let element_type_id = match self.ir_module.types[global.ty].inner {
                     crate::TypeInner::BindingArray { base, size: _ } => {
+                        let base_id = self.get_handle_type_id(base);
                         let class = map_storage_class(global.space);
-                        self.get_pointer_id(base, class)
+                        self.get_pointer_type_id(base_id, class)
                     }
                     _ => return Err(Error::Validation("array length expression case-5")),
                 };
@@ -243,7 +244,7 @@ impl BlockContext<'_> {
         };
         let length_id = self.gen_id();
         block.body.push(Instruction::array_length(
-            self.writer.get_uint_type_id(),
+            self.writer.get_u32_type_id(),
             length_id,
             structure_id,
             last_member_index,
@@ -267,19 +268,16 @@ impl BlockContext<'_> {
         block: &mut Block,
     ) -> Result<MaybeKnown<u32>, Error> {
         let sequence_ty = self.fun_info[sequence].ty.inner_with(&self.ir_module.types);
-        match sequence_ty.indexable_length(self.ir_module) {
+        match sequence_ty.indexable_length_resolved(self.ir_module) {
             Ok(crate::proc::IndexableLength::Known(known_length)) => {
                 Ok(MaybeKnown::Known(known_length))
-            }
-            Ok(crate::proc::IndexableLength::Pending) => {
-                unreachable!()
             }
             Ok(crate::proc::IndexableLength::Dynamic) => {
                 let length_id = self.write_runtime_array_length(sequence, block)?;
                 Ok(MaybeKnown::Computed(length_id))
             }
             Err(err) => {
-                log::error!("Sequence length for {:?} failed: {}", sequence, err);
+                log::error!("Sequence length for {sequence:?} failed: {err}");
                 Err(Error::Validation("indexable length"))
             }
         }
@@ -314,7 +312,7 @@ impl BlockContext<'_> {
                 let max_index_id = self.gen_id();
                 block.body.push(Instruction::binary(
                     spirv::Op::ISub,
-                    self.writer.get_uint_type_id(),
+                    self.writer.get_u32_type_id(),
                     max_index_id,
                     length_id,
                     const_one_id,
@@ -351,7 +349,7 @@ impl BlockContext<'_> {
         // If both are known, we can compute the index to be used
         // right now.
         if let (GuardedIndex::Known(index), MaybeKnown::Known(max_index)) = (index, max_index) {
-            let restricted = std::cmp::min(index, max_index);
+            let restricted = core::cmp::min(index, max_index);
             return Ok(BoundsCheckResult::KnownInBounds(restricted));
         }
 
@@ -368,10 +366,10 @@ impl BlockContext<'_> {
         // One or the other of the index or length is dynamic, so emit code for
         // BoundsCheckPolicy::Restrict.
         let restricted_index_id = self.gen_id();
-        block.body.push(Instruction::ext_inst(
+        block.body.push(Instruction::ext_inst_gl_op(
             self.writer.gl450_ext_inst_id,
             spirv::GLOp::UMin,
-            self.writer.get_uint_type_id(),
+            self.writer.get_u32_type_id(),
             restricted_index_id,
             &[index_id, max_index_id],
         ));
@@ -538,17 +536,18 @@ impl BlockContext<'_> {
     /// Emit code to subscript a vector by value with a computed index.
     ///
     /// Return the id of the element value.
+    ///
+    /// If `base_id_override` is provided, it is used as the vector expression
+    /// to be subscripted into, rather than the cached value of `base`.
     pub(super) fn write_vector_access(
         &mut self,
-        expr_handle: Handle<crate::Expression>,
+        result_type_id: Word,
         base: Handle<crate::Expression>,
-        index: Handle<crate::Expression>,
+        base_id_override: Option<Word>,
+        index: GuardedIndex,
         block: &mut Block,
     ) -> Result<Word, Error> {
-        let result_type_id = self.get_expression_type_id(&self.fun_info[expr_handle].ty);
-
-        let base_id = self.cached[base];
-        let index = GuardedIndex::Expression(index);
+        let base_id = base_id_override.unwrap_or_else(|| self.cached[base]);
 
         let result_id = match self.write_bounds_check(base, index, block)? {
             BoundsCheckResult::KnownInBounds(known_index) => {

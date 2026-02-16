@@ -10,7 +10,6 @@
 #include "EarlyHintPreloader.h"
 #include "mozilla/dom/LinkStyle.h"
 #include "mozilla/PreloadHashKey.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "nsContentUtils.h"
 #include "nsIChannel.h"
@@ -102,6 +101,13 @@ void EarlyHintsService::EarlyHint(
           loadInfo->GetBrowsingContextID(), aLoadingBrowsingContext, false);
     } else if (linkHeader.mRel.LowerCaseEqualsLiteral("modulepreload")) {
       mLinkType |= dom::LinkStyle::eMODULE_PRELOAD;
+      EarlyHintPreloader::MaybeCreateAndInsertPreload(
+          mOngoingEarlyHints, linkHeader, aBaseURI, principal,
+          cookieJarSettings, aReferrerPolicy, aCSPHeader,
+          loadInfo->GetBrowsingContextID(), aLoadingBrowsingContext, true);
+    } else if (linkHeader.mRel.LowerCaseEqualsLiteral(
+                   "compression-dictionary")) {
+      mLinkType |= dom::LinkStyle::eCOMPRESSION_DICTIONARY;
       EarlyHintPreloader::MaybeCreateAndInsertPreload(
           mOngoingEarlyHints, linkHeader, aBaseURI, principal,
           cookieJarSettings, aReferrerPolicy, aCSPHeader,

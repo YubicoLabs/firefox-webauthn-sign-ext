@@ -2,14 +2,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+# NOTE: Please keep the files listed in here in sync with the ones listed in
+# webext-glue/moz.build, as this ensures that the XPI generated at build time
+# shares the same structure as the built-in instance. (bug 1955994)
+
 browser.jar:
-% resource newtab %builtin-addons contentaccessible=yes
-% content newtab %content/builtin-addons contentaccessible=yes
   builtin-addons/newtab/manifest.json (./manifest.json)
-  builtin-addons/newtab/chrome.manifest (./chrome.manifest)
   builtin-addons/newtab/webext-glue/background.js (./webext-glue/background.js)
-  builtin-addons/newtab/webext-glue/schema.json (./webext-glue/schema.json)
-  builtin-addons/newtab/webext-glue/resource-mapping.js (./webext-glue/resource-mapping.js)
   builtin-addons/newtab/lib/ (./lib/*)
   builtin-addons/newtab/common/ (./common/*)
 * builtin-addons/newtab/data/content/abouthomecache/page.html.template (./data/content/abouthomecache/page.html.template)

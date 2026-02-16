@@ -278,6 +278,22 @@ async function runTests() {
   assertNotFound(quotes, "Tardigrade");
   assertNotFound(quotes, "Amoeba");
 
+  // nsFind should be able to find text inside hidden=until-found
+  // or closed <details> elements.
+  // Note: nsFind itself does not trigger the reveal algorithm; that is the
+  // responsibility of the caller (e.g., find-in-page, nsTypeAheadFind).
+  // https://html.spec.whatwg.org/#attr-hidden-until-found
+  assertFound(document.body, "hidden until found");
+
+  assertNotFound(document.body, "hidden because of content-visibility: hidden outside of hidden=until-found");
+
+  assertNotFound(document.body, "nested hidden block should not be found");
+  assertNotFound(document.body, "nested visibility:hidden should not be found");
+
+  assertNotFound(document.body, "hidden content in details");
+  assertFound(document.body, "auto-expanding details");
+  assertNotFound(document.body, "hidden details from outer node");
+
   // Simple checks for behavior of the entireWord option.
   var entireWord = document.getElementById("entireWord");
   rf.entireWord = true;
@@ -328,6 +344,12 @@ async function runTests() {
   assertNotFound(space, "\u{10000A}");
   assertNotFound(space, "\u{3000D}");
   assertNotFound(space, "\u{3000A}");
+
+  // Bug 1951607: Text inside <option> elements within <optgroup> in a <select>
+  // should be findable.
+  var selectElement = document.getElementById("select-with-optgroup");
+  assertFound(selectElement, "optgroup");
+  assertFound(selectElement, "OptionInOptGroup");
 
   // Do these test at the end since they trigger failure screenshots in
   // the test harness, and we want as much information as possible about
@@ -406,6 +428,29 @@ async function runTests() {
     Tardigrade
     <div>Amoeba</div>
 </div>
+<div id="hidden-until-found" hidden="until-found">hidden <span>until</span> found</div>
+<div style="content-visibility: hidden;">
+  <div id="hidden-until-found-inside-hidden" hidden="until-found">
+    hidden because of content-visibility: hidden outside of hidden=until-found
+  </div>
+</div>
+<div id="hidden-until-found-with-inner-hidden" hidden="until-found">
+  <div style="content-visibility: hidden;">
+    nested hidden block should not be found
+  </div>
+  <div style="visibility: hidden;">nested visibility:hidden should not be found</div>
+</div>
+<details>
+  <summary>Content below should be found</summary>
+  auto-expanding details
+  <div style="content-visibility: hidden;">hidden content in details</div>
+</details>
+<div style="content-visibility: hidden;">
+  <details>
+    <summary>Invisible details</summary>
+    hidden details from outer node
+  </details>
+</div>
 <div id="entireWord"><p>(one)</p><p>[two] [three]</p><p>-foo -bar</p></div>
 <div id="content" style="display: none">
 
@@ -417,6 +462,11 @@ async function runTests() {
 </div>
 <p id="nonspace">&#x2000D;&#x10000A;</p>
 <p id="space"> <br>&nbsp;</p>
+<select id="select-with-optgroup" multiple>
+  <optgroup label="optgroup">
+    <option>OptionInOptGroup</option>
+  </optgroup>
+</select>
 <pre id="test">
 </pre>
 </body>

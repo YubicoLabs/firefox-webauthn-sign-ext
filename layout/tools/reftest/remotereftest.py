@@ -13,13 +13,13 @@ import tempfile
 import time
 import traceback
 from contextlib import closing
+from urllib.request import urlopen
 
 import mozcrash
 import reftestcommandline
 from mozdevice import ADBDeviceFactory, RemoteProcessMonitor
 from output import OutputHandler
 from runreftest import RefTest, ReftestResolver, build_obj
-from six.moves.urllib_request import urlopen
 
 # We need to know our current directory so that we can serve our test files from it.
 SCRIPT_DIRECTORY = os.path.abspath(os.path.realpath(os.path.dirname(__file__)))
@@ -92,13 +92,10 @@ class ReftestServer:
         if sys.platform in ("win32", "msys", "cygwin"):
             env["PATH"] = env["PATH"] + ";" + self.xrePath
             bin_suffix = ".exe"
+        elif "LD_LIBRARY_PATH" not in env or env["LD_LIBRARY_PATH"] is None:
+            env["LD_LIBRARY_PATH"] = self.xrePath
         else:
-            if "LD_LIBRARY_PATH" not in env or env["LD_LIBRARY_PATH"] is None:
-                env["LD_LIBRARY_PATH"] = self.xrePath
-            else:
-                env["LD_LIBRARY_PATH"] = ":".join(
-                    [self.xrePath, env["LD_LIBRARY_PATH"]]
-                )
+            env["LD_LIBRARY_PATH"] = ":".join([self.xrePath, env["LD_LIBRARY_PATH"]])
 
         args = [
             "-g",
@@ -332,7 +329,7 @@ class RemoteReftest(RefTest):
             options,
             server=options.remoteWebServer,
             port=options.httpPort,
-            **kwargs
+            **kwargs,
         )
         profileDir = profile.profile
         prefs = {}
@@ -410,7 +407,7 @@ class RemoteReftest(RefTest):
         valgrindPath=None,
         valgrindArgs=None,
         valgrindSuppFiles=None,
-        **profileArgs
+        **profileArgs,
     ):
         if cmdargs is None:
             cmdargs = []

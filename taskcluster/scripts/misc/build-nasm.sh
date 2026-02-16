@@ -16,7 +16,7 @@ index de99d076..47031e12 100644
 +++ b/output/outelf.c
 @@ -3275,7 +3275,7 @@ static void dwarf_generate(void)
      WRITELONG(pbuf,framelen-4); /* initial length */
- 
+
      /* build loc section */
 -    loclen = 16;
 +    loclen = is_elf64() ? 16 : 8;
@@ -36,15 +36,15 @@ case "$1" in
         EXE=.exe
         ;;
     macosx64)
-        export MACOSX_DEPLOYMENT_TARGET=10.12
+        export MACOSX_DEPLOYMENT_TARGET=10.15
         TARGET=x86_64-apple-darwin
-        CC="clang -fuse-ld=lld --target=$TARGET -isysroot $MOZ_FETCHES_DIR/MacOSX14.4.sdk"
+        CC="clang -fuse-ld=lld --target=$TARGET -isysroot $MOZ_FETCHES_DIR/MacOSX26.2.sdk"
         EXE=
 	;;
     macosx64-aarch64)
         export MACOSX_DEPLOYMENT_TARGET=11.0
         TARGET=aarch64-apple-darwin
-        CC="clang -fuse-ld=lld --target=$TARGET -isysroot $MOZ_FETCHES_DIR/MacOSX14.4.sdk"
+        CC="clang -fuse-ld=lld --target=$TARGET -isysroot $MOZ_FETCHES_DIR/MacOSX26.2.sdk"
         EXE=
 	;;
     *)

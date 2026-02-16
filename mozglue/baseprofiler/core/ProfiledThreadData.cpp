@@ -6,9 +6,9 @@
 
 #include "ProfiledThreadData.h"
 
-#include "BaseProfiler.h"
 #include "ProfileBuffer.h"
 
+#include "mozilla/BaseProfiler.h"
 #include "mozilla/BaseProfileJSONWriter.h"
 
 #if defined(GP_OS_darwin)
@@ -49,7 +49,9 @@ void ProfiledThreadData::StreamJSON(const ProfileBuffer& aBuffer,
       }
 
       aWriter.StartArrayProperty("data");
-      { uniqueStacks.SpliceStackTableElements(aWriter); }
+      {
+        uniqueStacks.SpliceStackTableElements(aWriter);
+      }
       aWriter.EndArray();
     }
     aWriter.EndObject();
@@ -69,7 +71,9 @@ void ProfiledThreadData::StreamJSON(const ProfileBuffer& aBuffer,
       }
 
       aWriter.StartArrayProperty("data");
-      { uniqueStacks.SpliceFrameTableElements(aWriter); }
+      {
+        uniqueStacks.SpliceFrameTableElements(aWriter);
+      }
       aWriter.EndArray();
     }
     aWriter.EndObject();

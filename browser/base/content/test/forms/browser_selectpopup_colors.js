@@ -32,7 +32,7 @@ const gSelects = {
     "  #one { background-color: transparent; }" +
     "</style>" +
     "<body><select id='one'>" +
-    '  <option value="One">{"unstyled": "true"}</option>' +
+    '  <option value="One">{"color": "-moz-ComboboxText", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
     '  <option value="Two" selected="true">{"end": "true"}</option>' +
     "</select></body></html>",
 
@@ -245,6 +245,17 @@ const gSelects = {
      <option selected="true">{"end": "true"}</option>
    </select></body></html>
 `,
+
+  BG_IMAGE_ON_SELECT: `
+ <html><head><style>
+   select { background-image: linear-gradient(#fff); }
+   option { color: #2b2b2b; background-color: #fff; }
+ </style></head><body><select id='one'>
+  <option>{"unstyled": "true"}</option>
+  <option>{"unstyled": "true"}</option>
+  <option selected="true">{"end": "true"}</option>
+ </select></body></html>
+`,
 };
 
 function rgbaToString(parsedColor) {
@@ -313,7 +324,7 @@ function computeLabels(tab) {
         ) {
           any = true;
           expected[color] = _rgbaToString(
-            InspectorUtils.colorToRGBA(expected[color], content.document)
+            content.InspectorUtils.colorToRGBA(expected[color])
           );
         }
       }
@@ -414,28 +425,27 @@ async function testSelectColors(selectID, itemCount, options) {
       base = getComputedStyle(selectPopup).backgroundColor;
     }
     info("Parsing background color: " + base);
-    let [, /* unused */ bR, bG, bB] = base.match(/rgb\((\d+), (\d+), (\d+)\)/);
-    bR = parseInt(bR, 10);
-    bG = parseInt(bG, 10);
-    bB = parseInt(bB, 10);
+    let b = InspectorUtils.colorToRGBA(base);
     let topCoat = getComputedStyle(arrowSB).backgroundImage;
     if (topCoat == "none") {
       is(
-        `rgb(${bR}, ${bG}, ${bB})`,
+        b.a == 1
+          ? `rgb(${b.r}, ${b.g}, ${b.b})`
+          : `rgba(${b.r}, ${b.g}, ${b.b}, ${b.a})`,
         options.selectBgColor,
         selectID + " popup has expected background color (top coat)"
       );
     } else {
-      let [, , /* unused */ /* unused */ tR, tG, tB, tA] = topCoat.match(
+      let [, , tR, tG, tB, tA] = topCoat.match(
         /(rgba?\((\d+), (\d+), (\d+)(?:, (0\.\d+))?\)), \1/
       );
       tR = parseInt(tR, 10);
       tG = parseInt(tG, 10);
       tB = parseInt(tB, 10);
       tA = parseFloat(tA) || 1;
-      let actualR = Math.round(tR * tA + bR * (1 - tA));
-      let actualG = Math.round(tG * tA + bG * (1 - tA));
-      let actualB = Math.round(tB * tA + bB * (1 - tA));
+      let actualR = Math.round(tR * tA + b.r * (1 - tA));
+      let actualG = Math.round(tG * tA + b.g * (1 - tA));
+      let actualB = Math.round(tB * tA + b.b * (1 - tA));
       is(
         `rgb(${actualR}, ${actualG}, ${actualB})`,
         options.selectBgColor,
@@ -462,7 +472,10 @@ let kDefaultSelectStyles = {};
 
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
-    set: [["dom.forms.select.customstyling", true]],
+    set: [
+      ["test.wait300msAfterTabSwitch", true],
+      ["dom.forms.select.customstyling", true],
+    ],
   });
   kDefaultSelectStyles = await BrowserTestUtils.withNewTab(
     `data:text/html,<select>`,
@@ -498,7 +511,6 @@ add_task(async function test_colors_applied_to_popup() {
 // This test checks when a <select> element has a transparent background applied to itself.
 add_task(async function test_transparent_applied_to_popup() {
   let options = {
-    unstyled: true,
     skipSelectColorTest: true,
   };
   await testSelectColors("TRANSPARENT_SELECT", 2, options);
@@ -793,14 +805,17 @@ add_task(async function test_scrollbar_props() {
   BrowserTestUtils.removeTab(tab);
 });
 
+add_task(async function test_bg_image() {
+  await testSelectColors("BG_IMAGE_ON_SELECT", 3, {
+    unstyled: true,
+    skipSelectColorTest: true,
+  });
+});
+
 if (AppConstants.platform == "win") {
   add_task(async function test_darkmode() {
-    let lightSelectColor = rgbaToString(
-      InspectorUtils.colorToRGBA("MenuText", document)
-    );
-    let lightSelectBgColor = rgbaToString(
-      InspectorUtils.colorToRGBA("Menu", document)
-    );
+    let lightSelectColor = rgbaToString(InspectorUtils.colorToRGBA("MenuText"));
+    let lightSelectBgColor = rgbaToString(InspectorUtils.colorToRGBA("Menu"));
 
     // Force dark mode:
     let darkModeQuery = matchMedia("(prefers-color-scheme: dark)");
@@ -809,12 +824,8 @@ if (AppConstants.platform == "win") {
     await darkModeChange;
 
     // Determine colours from the main context menu:
-    let darkSelectColor = rgbaToString(
-      InspectorUtils.colorToRGBA("MenuText", document)
-    );
-    let darkSelectBgColor = rgbaToString(
-      InspectorUtils.colorToRGBA("Menu", document)
-    );
+    let darkSelectColor = rgbaToString(InspectorUtils.colorToRGBA("MenuText"));
+    let darkSelectBgColor = rgbaToString(InspectorUtils.colorToRGBA("Menu"));
 
     isnot(lightSelectColor, darkSelectColor);
     isnot(lightSelectBgColor, darkSelectBgColor);

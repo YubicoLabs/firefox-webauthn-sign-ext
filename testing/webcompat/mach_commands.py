@@ -40,11 +40,11 @@ def unzip(fileobj, dest):
 
 def writable_dir(path):
     if not os.path.isdir(path):
-        raise argparse.ArgumentTypeError("{0} is not a valid dir".format(path))
+        raise argparse.ArgumentTypeError(f"{path} is not a valid dir")
     if os.access(path, os.W_OK):
         return path
     else:
-        raise argparse.ArgumentTypeError("{0} is not a writable dir".format(path))
+        raise argparse.ArgumentTypeError(f"{path} is not a writable dir")
 
 
 def create_parser_interventions():
@@ -116,6 +116,13 @@ def create_parser_interventions():
         action="store_true",
         default=False,
         help="Do not save a screenshot for each test failure",
+    )
+    parser.add_argument(
+        "-P",
+        "--platform-override",
+        action="store",
+        choices=["android", "linux", "mac", "windows"],
+        help="Override key navigator properties to match the given platform and/or use responsive design mode to mimic the given platform",
     )
 
     desktop_group = parser.add_argument_group("Desktop-specific arguments")
@@ -235,10 +242,11 @@ class InterventionTest(MozbuildObject):
                 verify_android_device,
             )
 
+            # verify_android_device sets up device/emulator and records selected
+            # one to DEVICE_SERIAL environment.
             verify_android_device(
                 command_context, app=app, network=True, install=InstallIntent.YES
             )
-
             kwargs["device_serial"] = os.environ.get("DEVICE_SERIAL")
 
         # GVE does not have the webcompat addon by default. Add it.
@@ -313,6 +321,7 @@ class InterventionTest(MozbuildObject):
                     log_level=log_level,
                     failure_screenshots_dir=kwargs.get("failure_screenshots_dir"),
                     no_failure_screenshots=kwargs.get("no_failure_screenshots"),
+                    platform_override=kwargs.get("platform_override"),
                 )
 
         if kwargs["shims"] != "none":
@@ -341,6 +350,7 @@ class InterventionTest(MozbuildObject):
                     do2fa=kwargs["do2fa"],
                     failure_screenshots_dir=kwargs.get("failure_screenshots_dir"),
                     no_failure_screenshots=kwargs.get("no_failure_screenshots"),
+                    platform_override=kwargs.get("platform_override"),
                 )
 
         summary = status_handler.summarize()
@@ -368,7 +378,7 @@ def webcompat_addon(command_context):
         def process_includes(path):
             fullpath = os.path.join(src_copy, path)
             in_lines = None
-            with open(fullpath, "r") as f:
+            with open(fullpath) as f:
                 in_lines = f.readlines()
             with open(fullpath, "w") as f:
                 for line in in_lines:
@@ -379,7 +389,7 @@ def webcompat_addon(command_context):
                     include_fullpath = os.path.join(
                         os.path.dirname(fullpath), include_path
                     )
-                    with open(include_fullpath, "r") as inc:
+                    with open(include_fullpath) as inc:
                         f.write(inc.read())
                     f.write("\n")
 

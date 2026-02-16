@@ -5,18 +5,19 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/NavigationHistoryEntry.h"
-#include "mozilla/dom/NavigationHistoryEntryBinding.h"
 
 #include "mozilla/dom/Document.h"
+#include "mozilla/dom/NavigationHistoryEntryBinding.h"
 #include "mozilla/dom/SessionHistoryEntry.h"
 #include "nsDocShell.h"
+#include "nsGlobalWindowInner.h"
 
-extern mozilla::LazyLogModule gNavigationLog;
+extern mozilla::LazyLogModule gNavigationAPILog;
 
 namespace mozilla::dom {
 
-NS_IMPL_CYCLE_COLLECTION_INHERITED(NavigationHistoryEntry, DOMEventTargetHelper,
-                                   mWindow);
+NS_IMPL_CYCLE_COLLECTION_INHERITED(NavigationHistoryEntry,
+                                   DOMEventTargetHelper);
 NS_IMPL_ADDREF_INHERITED(NavigationHistoryEntry, DOMEventTargetHelper)
 NS_IMPL_RELEASE_INHERITED(NavigationHistoryEntry, DOMEventTargetHelper)
 
@@ -24,23 +25,29 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(NavigationHistoryEntry)
 NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
 
 NavigationHistoryEntry::NavigationHistoryEntry(
-    nsPIDOMWindowInner* aWindow, const SessionHistoryInfo* aSHInfo,
+    nsIGlobalObject* aGlobal, const class SessionHistoryInfo* aSHInfo,
     int64_t aIndex)
-    : mWindow(aWindow),
-      mSHInfo(MakeUnique<SessionHistoryInfo>(*aSHInfo)),
+    : DOMEventTargetHelper(aGlobal),
+      mSHInfo(MakeUnique<class SessionHistoryInfo>(*aSHInfo)),
       mIndex(aIndex) {}
 
 NavigationHistoryEntry::~NavigationHistoryEntry() = default;
 
+// https://html.spec.whatwg.org/#dom-navigationhistoryentry-url
 void NavigationHistoryEntry::GetUrl(nsAString& aResult) const {
-  if (!GetCurrentDocument()->IsCurrentActiveDocument()) {
+  if (!HasActiveDocument()) {
     return;
   }
 
+  // HasActiveDocument implies that GetAssociatedDocument returns non-null.
+  MOZ_DIAGNOSTIC_ASSERT(GetAssociatedDocument());
+
   if (!SameDocument()) {
-    auto referrerPolicy = GetCurrentDocument()->ReferrerPolicy();
+    const auto referrerPolicy =
+        GetAssociatedDocument()->ReferrerPolicyUsedToFetchThisDocument();
     if (referrerPolicy == ReferrerPolicy::No_referrer ||
         referrerPolicy == ReferrerPolicy::Origin) {
+      aResult.SetIsVoid(true);
       return;
     }
   }
@@ -53,8 +60,9 @@ void NavigationHistoryEntry::GetUrl(nsAString& aResult) const {
   CopyUTF8toUTF16(uriSpec, aResult);
 }
 
+// https://html.spec.whatwg.org/#dom-navigationhistoryentry-key
 void NavigationHistoryEntry::GetKey(nsAString& aResult) const {
-  if (!GetCurrentDocument()->IsCurrentActiveDocument()) {
+  if (!HasActiveDocument()) {
     return;
   }
 
@@ -63,8 +71,9 @@ void NavigationHistoryEntry::GetKey(nsAString& aResult) const {
   CopyUTF8toUTF16(Substring(keyString.get() + 1, NSID_LENGTH - 3), aResult);
 }
 
+// https://html.spec.whatwg.org/#dom-navigationhistoryentry-id
 void NavigationHistoryEntry::GetId(nsAString& aResult) const {
-  if (!GetCurrentDocument()->IsCurrentActiveDocument()) {
+  if (!HasActiveDocument()) {
     return;
   }
 
@@ -73,51 +82,67 @@ void NavigationHistoryEntry::GetId(nsAString& aResult) const {
   CopyUTF8toUTF16(Substring(idString.get() + 1, NSID_LENGTH - 3), aResult);
 }
 
+// https://html.spec.whatwg.org/#dom-navigationhistoryentry-index
 int64_t NavigationHistoryEntry::Index() const {
   MOZ_ASSERT(mSHInfo);
-  if (!GetCurrentDocument()->IsCurrentActiveDocument()) {
+  if (!HasActiveDocument()) {
     return -1;
   }
   return mIndex;
 }
 
+// https://html.spec.whatwg.org/#dom-navigationhistoryentry-samedocument
 bool NavigationHistoryEntry::SameDocument() const {
+  if (!HasActiveDocument()) {
+    return false;
+  }
+
+  // HasActiveDocument implies that GetAssociatedDocument returns non-null.
+  MOZ_DIAGNOSTIC_ASSERT(GetAssociatedDocument());
+
   MOZ_ASSERT(mSHInfo);
-  auto* docShell = static_cast<nsDocShell*>(mWindow->GetDocShell());
-  return docShell->IsSameDocumentAsActiveEntry(*mSHInfo);
+  auto* docShell = nsDocShell::Cast(GetAssociatedDocument()->GetDocShell());
+  return docShell && docShell->IsSameDocumentAsActiveEntry(*mSHInfo);
 }
 
+// https://html.spec.whatwg.org/#dom-navigationhistoryentry-getstate
 void NavigationHistoryEntry::GetState(JSContext* aCx,
                                       JS::MutableHandle<JS::Value> aResult,
                                       ErrorResult& aRv) const {
-  if (!mSHInfo) {
-    return;
-  }
-  RefPtr<nsStructuredCloneContainer> state = mSHInfo->GetNavigationState();
-  if (!state) {
-    aResult.setUndefined();
+  // Step 1
+  aResult.setUndefined();
+  if (!HasActiveDocument()) {
     return;
   }
 
+  // Step 2
+  RefPtr<nsIStructuredCloneContainer> state = mSHInfo->GetNavigationAPIState();
+  if (!state) {
+    return;
+  }
   nsresult rv = state->DeserializeToJsval(aCx, aResult);
   if (NS_FAILED(rv)) {
-    // TODO change this to specific exception
+    // nsStructuredCloneContainer::DeserializeToJsval suppresses exceptions, so
+    // the best we can do is just re-throw the NS_ERROR_DOM_DATA_CLONE_ERR. When
+    // nsStructuredCloneContainer::DeserializeToJsval throws better exceptions
+    // this should too.
+    // See also: NavigationDestination::GetState
     aRv.Throw(rv);
   }
 }
 
-void NavigationHistoryEntry::SetState(nsStructuredCloneContainer* aState) {
-  RefPtr<nsStructuredCloneContainer> state = mSHInfo->GetNavigationState();
-  state->Copy(*aState);
+void NavigationHistoryEntry::SetNavigationAPIState(
+    nsIStructuredCloneContainer* aState) {
+  mSHInfo->SetNavigationAPIState(aState);
 }
 
 bool NavigationHistoryEntry::IsSameEntry(
-    const SessionHistoryInfo* aSHInfo) const {
+    const class SessionHistoryInfo* aSHInfo) const {
   return mSHInfo->NavigationId() == aSHInfo->NavigationId();
 }
 
 bool NavigationHistoryEntry::SharesDocumentWith(
-    const SessionHistoryInfo& aSHInfo) const {
+    const class SessionHistoryInfo& aSHInfo) const {
   return mSHInfo->SharesDocumentWith(aSHInfo);
 }
 
@@ -126,12 +151,32 @@ JSObject* NavigationHistoryEntry::WrapObject(
   return NavigationHistoryEntry_Binding::Wrap(aCx, this, aGivenProto);
 }
 
-Document* NavigationHistoryEntry::GetCurrentDocument() const {
-  return mWindow->GetDoc();
+Document* NavigationHistoryEntry::GetAssociatedDocument() const {
+  nsGlobalWindowInner* window = GetOwnerWindow();
+  return window ? window->GetDocument() : nullptr;
+}
+
+bool NavigationHistoryEntry::HasActiveDocument() const {
+  if (auto* document = GetAssociatedDocument()) {
+    return document->IsCurrentActiveDocument();
+  }
+
+  return false;
 }
 
 const nsID& NavigationHistoryEntry::Key() const {
   return mSHInfo->NavigationKey();
 }
+
+nsIStructuredCloneContainer* NavigationHistoryEntry::GetNavigationAPIState()
+    const {
+  if (!mSHInfo) {
+    return nullptr;
+  }
+
+  return mSHInfo->GetNavigationAPIState();
+}
+
+void NavigationHistoryEntry::ResetIndexForDisposal() { mIndex = -1; }
 
 }  // namespace mozilla::dom

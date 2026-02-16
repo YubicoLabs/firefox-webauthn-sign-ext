@@ -14,25 +14,23 @@ from session_store_test_case import SessionStoreTestCase
 
 
 def inline(doc):
-    return "data:text/html;charset=utf-8,{}".format(quote(doc))
+    return f"data:text/html;charset=utf-8,{quote(doc)}"
 
 
 class TestSessionRestoreWithPinnedTabs(SessionStoreTestCase):
     def setUp(self):
-        super(TestSessionRestoreWithPinnedTabs, self).setUp(
+        super().setUp(
             startup_page=1,
             include_private=False,
             restore_on_demand=True,
-            test_windows=set(
-                [
-                    # Window 1
-                    (
-                        inline("""<div">ipsum</div>"""),
-                        inline("""<div">dolor</div>"""),
-                        inline("""<div">amet</div>"""),
-                    ),
-                ]
-            ),
+            test_windows=set([
+                # Window 1
+                (
+                    inline("""<div">ipsum</div>"""),
+                    inline("""<div">dolor</div>"""),
+                    inline("""<div">amet</div>"""),
+                ),
+            ]),
         )
 
     def test_no_restore_with_quit(self):

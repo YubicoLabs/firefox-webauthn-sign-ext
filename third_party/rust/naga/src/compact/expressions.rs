@@ -11,6 +11,9 @@ pub struct ExpressionTracer<'tracer> {
     /// The used map for `types`.
     pub types_used: &'tracer mut HandleSet<crate::Type>,
 
+    /// The used map for global variables.
+    pub global_variables_used: &'tracer mut HandleSet<crate::GlobalVariable>,
+
     /// The used map for `constants`.
     pub constants_used: &'tracer mut HandleSet<crate::Constant>,
 
@@ -65,7 +68,7 @@ impl ExpressionTracer<'_> {
                 continue;
             }
 
-            log::trace!("tracing new expression {:?}", expr);
+            log::trace!("tracing new expression {expr:?}");
             self.trace_expression(expr);
         }
     }
@@ -76,9 +79,7 @@ impl ExpressionTracer<'_> {
             // Expressions that do not contain handles that need to be traced.
             Ex::Literal(_)
             | Ex::FunctionArgument(_)
-            | Ex::GlobalVariable(_)
             | Ex::LocalVariable(_)
-            | Ex::CallResult(_)
             | Ex::SubgroupBallotResult
             | Ex::RayQueryProceedResult => {}
 
@@ -134,6 +135,9 @@ impl ExpressionTracer<'_> {
             } => {
                 self.expressions_used.insert(vector);
             }
+            Ex::GlobalVariable(handle) => {
+                self.global_variables_used.insert(handle);
+            }
             Ex::Load { pointer } => {
                 self.expressions_used.insert(pointer);
             }
@@ -146,14 +150,12 @@ impl ExpressionTracer<'_> {
                 offset,
                 ref level,
                 depth_ref,
+                clamp_to_edge: _,
             } => {
                 self.expressions_used
                     .insert_iter([image, sampler, coordinate]);
                 self.expressions_used.insert_iter(array_index);
-                match self.global_expressions_used {
-                    Some(ref mut used) => used.insert_iter(offset),
-                    None => self.expressions_used.insert_iter(offset),
-                }
+                self.expressions_used.insert_iter(offset);
                 use crate::SampleLevel as Sl;
                 match *level {
                     Sl::Auto | Sl::Zero => {}
@@ -184,6 +186,12 @@ impl ExpressionTracer<'_> {
                     Iq::Size { level } => self.expressions_used.insert_iter(level),
                     Iq::NumLevels | Iq::NumLayers | Iq::NumSamples => {}
                 }
+            }
+            Ex::RayQueryVertexPositions {
+                query,
+                committed: _,
+            } => {
+                self.expressions_used.insert(query);
             }
             Ex::Unary { op: _, expr } => {
                 self.expressions_used.insert(expr);
@@ -230,6 +238,10 @@ impl ExpressionTracer<'_> {
             Ex::ArrayLength(expr) => {
                 self.expressions_used.insert(expr);
             }
+            // `CallResult` expressions do contain a function handle, but any used
+            // `CallResult` expression should have an associated `ir::Statement::Call`
+            // that we will trace.
+            Ex::CallResult(_) => {}
             Ex::AtomicResult { ty, comparison: _ }
             | Ex::WorkGroupUniformLoadResult { ty }
             | Ex::SubgroupOperationResult { ty } => {
@@ -240,6 +252,15 @@ impl ExpressionTracer<'_> {
                 committed: _,
             } => {
                 self.expressions_used.insert(query);
+            }
+            Ex::CooperativeLoad { ref data, .. } => {
+                self.expressions_used.insert(data.pointer);
+                self.expressions_used.insert(data.stride);
+            }
+            Ex::CooperativeMultiplyAdd { a, b, c } => {
+                self.expressions_used.insert(a);
+                self.expressions_used.insert(b);
+                self.expressions_used.insert(c);
             }
         }
     }
@@ -264,9 +285,7 @@ impl ModuleMap {
             // Expressions that do not contain handles that need to be adjusted.
             Ex::Literal(_)
             | Ex::FunctionArgument(_)
-            | Ex::GlobalVariable(_)
             | Ex::LocalVariable(_)
-            | Ex::CallResult(_)
             | Ex::SubgroupBallotResult
             | Ex::RayQueryProceedResult => {}
 
@@ -303,6 +322,7 @@ impl ModuleMap {
                 ref mut vector,
                 pattern: _,
             } => adjust(vector),
+            Ex::GlobalVariable(ref mut handle) => self.globals.adjust(handle),
             Ex::Load { ref mut pointer } => adjust(pointer),
             Ex::ImageSample {
                 ref mut image,
@@ -313,14 +333,13 @@ impl ModuleMap {
                 ref mut offset,
                 ref mut level,
                 ref mut depth_ref,
+                clamp_to_edge: _,
             } => {
                 adjust(image);
                 adjust(sampler);
                 adjust(coordinate);
                 operand_map.adjust_option(array_index);
-                if let Some(ref mut offset) = *offset {
-                    self.global_expressions.adjust(offset);
-                }
+                operand_map.adjust_option(offset);
                 self.adjust_sample_level(level, operand_map);
                 operand_map.adjust_option(depth_ref);
             }
@@ -391,6 +410,9 @@ impl ModuleMap {
                 kind: _,
                 convert: _,
             } => adjust(expr),
+            Ex::CallResult(ref mut function) => {
+                self.functions.adjust(function);
+            }
             Ex::AtomicResult {
                 ref mut ty,
                 comparison: _,
@@ -402,6 +424,23 @@ impl ModuleMap {
                 ref mut query,
                 committed: _,
             } => adjust(query),
+            Ex::RayQueryVertexPositions {
+                ref mut query,
+                committed: _,
+            } => adjust(query),
+            Ex::CooperativeLoad { ref mut data, .. } => {
+                adjust(&mut data.pointer);
+                adjust(&mut data.stride);
+            }
+            Ex::CooperativeMultiplyAdd {
+                ref mut a,
+                ref mut b,
+                ref mut c,
+            } => {
+                adjust(a);
+                adjust(b);
+                adjust(c);
+            }
         }
     }
 

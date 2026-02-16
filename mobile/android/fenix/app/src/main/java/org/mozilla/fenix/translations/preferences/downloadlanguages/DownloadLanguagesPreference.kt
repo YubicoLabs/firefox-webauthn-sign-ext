@@ -5,11 +5,9 @@
 package org.mozilla.fenix.translations.preferences.downloadlanguages
 
 import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -20,13 +18,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.Text
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -39,38 +41,44 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
-import mozilla.components.compose.base.Divider
-import mozilla.components.compose.base.annotation.LightDarkPreview
 import mozilla.components.concept.engine.translate.Language
 import mozilla.components.concept.engine.translate.LanguageModel
 import mozilla.components.concept.engine.translate.ModelState
 import mozilla.components.concept.engine.translate.TranslationError
-import mozilla.components.feature.downloads.toMegabyteOrKilobyteString
+import mozilla.components.feature.downloads.DefaultFileSizeFormatter
+import mozilla.components.feature.downloads.FileSizeFormatter
 import org.mozilla.fenix.R
 import org.mozilla.fenix.compose.InfoCard
 import org.mozilla.fenix.compose.InfoType
 import org.mozilla.fenix.compose.LinkText
 import org.mozilla.fenix.compose.LinkTextState
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.theme.PreviewThemeProvider
+import org.mozilla.fenix.theme.Theme
 import org.mozilla.fenix.translations.DownloadIconIndicator
 import org.mozilla.fenix.translations.DownloadInProgressIndicator
 import java.util.Locale
+import mozilla.components.ui.icons.R as iconsR
 
 /**
  * Firefox Download Languages preference screen.
  *
  * @param downloadLanguageItemPreferences List of [DownloadLanguageItemPreference]s that needs to be displayed.
  * @param learnMoreUrl The learn more link for translations website.
+ * @param fileSizeFormatter [FileSizeFormatter] used to format the size of the file item.
  * @param downloadLanguagesError  If a translation error occurs.
  * @param onLearnMoreClicked Invoked when the user clicks on the "Learn More" button.
  * @param onItemClick Invoked when the user clicks on the language item.
  */
-@Suppress("LongMethod", "CyclomaticComplexMethod")
+@Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod")
 @Composable
 fun DownloadLanguagesPreference(
     downloadLanguageItemPreferences: List<DownloadLanguageItemPreference>,
     learnMoreUrl: String,
+    fileSizeFormatter: FileSizeFormatter,
     downloadLanguagesError: TranslationError? = null,
     onLearnMoreClicked: () -> Unit,
     onItemClick: (DownloadLanguageItemPreference) -> Unit,
@@ -127,11 +135,7 @@ fun DownloadLanguagesPreference(
         }
     }
 
-    Column(
-        modifier = Modifier.background(
-            color = FirefoxTheme.colors.layer1,
-        ),
-    ) {
+    Surface {
         LazyColumn {
             item {
                 DownloadLanguagesHeaderPreference(
@@ -165,6 +169,7 @@ fun DownloadLanguagesPreference(
                 item {
                     LanguageItemPreference(
                         item = allLanguagesItemDownloaded,
+                        fileSizeFormatter = fileSizeFormatter,
                         onItemClick = onItemClick,
                     )
                 }
@@ -173,6 +178,7 @@ fun DownloadLanguagesPreference(
             items(downloadedItems) { item: DownloadLanguageItemPreference ->
                 LanguageItemPreference(
                     item = item,
+                    fileSizeFormatter = fileSizeFormatter,
                     onItemClick = onItemClick,
                 )
             }
@@ -188,7 +194,7 @@ fun DownloadLanguagesPreference(
                     allLanguagesItemDownloaded != null
                 ) {
                     item {
-                        Divider(Modifier.padding(top = 8.dp, bottom = 8.dp))
+                        HorizontalDivider(Modifier.padding(top = 8.dp, bottom = 8.dp))
                     }
                 }
 
@@ -205,6 +211,7 @@ fun DownloadLanguagesPreference(
                 item {
                     LanguageItemPreference(
                         item = item,
+                        fileSizeFormatter = fileSizeFormatter,
                         onItemClick = onItemClick,
                     )
                 }
@@ -215,7 +222,7 @@ fun DownloadLanguagesPreference(
     // The pivot model may be deleted when all of the other models are deleted and it may
     // always be downloaded
     pivotLanguage?.enabled = downloadedItems.size == 1 ||
-        pivotLanguage?.languageModel?.status == ModelState.NOT_DOWNLOADED
+        pivotLanguage.languageModel.status == ModelState.NOT_DOWNLOADED
 }
 
 @Composable
@@ -254,7 +261,7 @@ private fun DownloadLanguagesHeader(title: String) {
             .semantics { heading() }
             .defaultMinSize(minHeight = 36.dp)
             .wrapContentHeight(),
-        color = FirefoxTheme.colors.textAccent,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         style = FirefoxTheme.typography.headline8,
     )
 }
@@ -262,6 +269,7 @@ private fun DownloadLanguagesHeader(title: String) {
 @Composable
 private fun LanguageItemPreference(
     item: DownloadLanguageItemPreference,
+    fileSizeFormatter: FileSizeFormatter,
     onItemClick: (DownloadLanguageItemPreference) -> Unit,
 ) {
     val description: String =
@@ -272,9 +280,8 @@ private fun LanguageItemPreference(
         ) {
             stringResource(id = R.string.download_languages_default_system_language_require_preference)
         } else {
-            var size = 0L
-            item.languageModel.size?.let { size = it }
-            size.toMegabyteOrKilobyteString()
+            val size = item.languageModel.size ?: 0L
+            fileSizeFormatter.formatSizeInBytes(size)
         }
 
     val label = if (item.type == DownloadLanguageItemTypePreference.AllLanguages) {
@@ -290,6 +297,7 @@ private fun LanguageItemPreference(
     val contentDescription =
         downloadLanguageItemContentDescriptionPreference(
             item = item,
+            fileSizeFormatter = fileSizeFormatter,
             label = label,
             itemDescription = description,
         )
@@ -367,8 +375,8 @@ private fun DownloadLanguagesHeaderPreference(
                 learnMoreText,
             ),
             linkTextStates = listOf(learnMoreState),
-            style = FirefoxTheme.typography.subtitle1.copy(
-                color = FirefoxTheme.colors.textPrimary,
+            style = FirefoxTheme.typography.body1.copy(
+                color = MaterialTheme.colorScheme.onSurface,
             ),
             linkTextDecoration = TextDecoration.Underline,
         )
@@ -380,6 +388,7 @@ private fun DownloadLanguagesHeaderPreference(
 @Composable
 private fun downloadLanguageItemContentDescriptionPreference(
     item: DownloadLanguageItemPreference,
+    fileSizeFormatter: FileSizeFormatter,
     label: String? = null,
     itemDescription: String,
 ): String {
@@ -412,7 +421,7 @@ private fun downloadLanguageItemContentDescriptionPreference(
                 stringResource(
                     id = R.string.download_languages_item_content_description_download_in_progress_state,
                     item.languageModel.language?.localizedDisplayName ?: "",
-                    item.languageModel.size?.toMegabyteOrKilobyteString() ?: "0",
+                    fileSizeFormatter.formatSizeInBytes(item.languageModel.size ?: 0L),
                 )
         }
     }
@@ -430,10 +439,10 @@ private fun IconDownloadLanguageItemPreference(
             ) {
                 Icon(
                     painter = painterResource(
-                        id = R.drawable.ic_delete,
+                        id = iconsR.drawable.mozac_ic_delete_24,
                     ),
                     contentDescription = null,
-                    tint = FirefoxTheme.colors.iconPrimary,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -441,10 +450,10 @@ private fun IconDownloadLanguageItemPreference(
         ModelState.NOT_DOWNLOADED, ModelState.ERROR_DOWNLOAD -> {
             Icon(
                 painter = painterResource(
-                    id = R.drawable.ic_download,
+                    id = iconsR.drawable.mozac_ic_download_24,
                 ),
                 contentDescription = null,
-                tint = FirefoxTheme.colors.iconPrimary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
@@ -454,7 +463,7 @@ private fun IconDownloadLanguageItemPreference(
 
         ModelState.DELETION_IN_PROGRESS -> {
             DownloadIconIndicator(
-                icon = painterResource(id = R.drawable.mozac_ic_sync_24),
+                icon = painterResource(id = iconsR.drawable.mozac_ic_sync_24),
             )
         }
     }
@@ -504,16 +513,17 @@ private fun TextListItemInlineDescription(
 
             Text(
                 buildAnnotatedString {
-                    withStyle(style = SpanStyle(color = FirefoxTheme.colors.textPrimary)) {
+                    withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.onSurface)) {
                         append(label)
                     }
-                    withStyle(style = SpanStyle(color = FirefoxTheme.colors.textSecondary)) {
+                    withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) {
                         append(text.substringAfter(label))
                     }
                 },
                 style = FirefoxTheme.typography.subtitle1,
             )
         }
+
         IconButton(
             onClick = { onClick.invoke() },
             enabled = enabled,
@@ -536,7 +546,7 @@ internal fun getLanguageListPreference(): List<DownloadLanguageItemPreference> {
                 languageModel = LanguageModel(
                     language = Language(Locale.FRENCH.toLanguageTag(), Locale.FRENCH.displayName),
                     status = ModelState.DOWNLOADED,
-                    size = 100L,
+                    size = 100000L,
                 ),
                 type = DownloadLanguageItemTypePreference.GeneralLanguage,
             ),
@@ -546,7 +556,7 @@ internal fun getLanguageListPreference(): List<DownloadLanguageItemPreference> {
                 languageModel = LanguageModel(
                     language = Language(Locale.GERMAN.toLanguageTag(), Locale.GERMAN.displayName),
                     status = ModelState.NOT_DOWNLOADED,
-                    size = 100L,
+                    size = 1000L,
                 ),
                 type = DownloadLanguageItemTypePreference.GeneralLanguage,
             ),
@@ -556,7 +566,7 @@ internal fun getLanguageListPreference(): List<DownloadLanguageItemPreference> {
                 languageModel = LanguageModel(
                     language = Language(Locale.ITALIAN.toLanguageTag(), Locale.ITALIAN.displayName),
                     status = ModelState.DOWNLOAD_IN_PROGRESS,
-                    size = 100L,
+                    size = 1000000L,
                 ),
                 type = DownloadLanguageItemTypePreference.GeneralLanguage,
             ),
@@ -566,7 +576,7 @@ internal fun getLanguageListPreference(): List<DownloadLanguageItemPreference> {
                 languageModel = LanguageModel(
                     language = Language(Locale.ENGLISH.toLanguageTag(), Locale.ENGLISH.displayName),
                     status = ModelState.DELETION_IN_PROGRESS,
-                    size = 100L,
+                    size = 1000000000L,
                 ),
                 type = DownloadLanguageItemTypePreference.GeneralLanguage,
             ),
@@ -575,21 +585,44 @@ internal fun getLanguageListPreference(): List<DownloadLanguageItemPreference> {
             DownloadLanguageItemPreference(
                 languageModel = LanguageModel(
                     status = ModelState.NOT_DOWNLOADED,
-                    size = 100L,
+                    size = 10000L,
                 ),
                 type = DownloadLanguageItemTypePreference.AllLanguages,
+            ),
+        )
+        add(
+            DownloadLanguageItemPreference(
+                languageModel = LanguageModel(
+                    language = Language(Locale.FRENCH.toLanguageTag(), Locale.FRENCH.displayName),
+                    status = ModelState.ERROR_DELETION,
+                    size = 10000L,
+                ),
+                type = DownloadLanguageItemTypePreference.PivotLanguage,
+            ),
+        )
+        add(
+            DownloadLanguageItemPreference(
+                languageModel = LanguageModel(
+                    language = Language(Locale.CHINESE.toLanguageTag(), Locale.CHINESE.displayName),
+                    status = ModelState.ERROR_DOWNLOAD,
+                    size = 10000L,
+                ),
+                type = DownloadLanguageItemTypePreference.PivotLanguage,
             ),
         )
     }
 }
 
+@Preview
 @Composable
-@LightDarkPreview
-private fun DownloadLanguagesPreferencePreview() {
-    FirefoxTheme {
+private fun DownloadLanguagesPreferencePreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
         DownloadLanguagesPreference(
             downloadLanguageItemPreferences = getLanguageListPreference(),
             learnMoreUrl = "https://www.mozilla.org",
+            fileSizeFormatter = DefaultFileSizeFormatter(LocalContext.current),
             onLearnMoreClicked = {},
             onItemClick = {},
         )

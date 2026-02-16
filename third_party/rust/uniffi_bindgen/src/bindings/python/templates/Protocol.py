@@ -1,8 +1,10 @@
-class {{ protocol_name }}(typing.Protocol):
-    {%- call py::docstring_value(protocol_docstring, 4) %}
-    {%- for meth in methods.iter() %}
-    def {{ meth.name() }}(self, {% call py::arg_list_decl(meth) %}):
-        {%- call py::docstring(meth, 8) %}
+{# misnamed - a generic "abstract base class". Used as both a protocol and an ABC for traits. #}
+class {{ protocol.name }}({{ protocol.base_classes|join(", ") }}):
+    {{ protocol.docstring|docstring(4) -}}
+    {%- for meth in protocol.methods.iter() %}
+    {%- let callable = meth.callable %}
+    {% if callable.is_async %}async {% endif %}def {{ meth.callable.name }}(self, {% include "CallableArgs.py" %}) -> {{ callable.return_type.type_name }}:
+        {{ meth.docstring|docstring(8) -}}
         raise NotImplementedError
     {%- else %}
     pass

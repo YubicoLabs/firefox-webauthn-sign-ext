@@ -7,8 +7,7 @@
  * https://w3c.github.io/webcodecs/#image-decoding
  */
 
-// Bug 1696216: Should be AllowSharedBufferSource or ReadableStream
-typedef ([AllowShared] ArrayBufferView or [AllowShared] ArrayBuffer or ReadableStream) ImageBufferSource;
+typedef (AllowSharedBufferSource or ReadableStream) ImageBufferSource;
 dictionary ImageDecoderInit {
   required DOMString type;
   required ImageBufferSource data;
@@ -29,19 +28,28 @@ dictionary ImageDecodeResult {
   required boolean complete;
 };
 
+dictionary ImageSize {
+  required unsigned long width;
+  required unsigned long height;
+};
+
 [Exposed=(Window,DedicatedWorker),
  SecureContext,
- Pref="dom.media.webcodecs.image-decoder.enabled"]
+ Func="nsRFPService::ExposeWebCodecsAPIImageDecoder"]
 interface ImageTrack {
   readonly attribute boolean animated;
   readonly attribute unsigned long frameCount;
   readonly attribute unrestricted float repetitionCount;
   attribute boolean selected;
+
+  // Mozilla-internal-only addition
+  [ChromeOnly]
+  sequence<ImageSize> getSizes();
 };
 
 [Exposed=(Window,DedicatedWorker),
  SecureContext,
- Pref="dom.media.webcodecs.image-decoder.enabled"]
+ Func="nsRFPService::ExposeWebCodecsAPIImageDecoder"]
 interface ImageTrackList {
   getter ImageTrack (unsigned long index);
 
@@ -53,7 +61,7 @@ interface ImageTrackList {
 
 [Exposed=(Window,DedicatedWorker),
  SecureContext,
- Pref="dom.media.webcodecs.image-decoder.enabled"]
+ Func="nsRFPService::ExposeWebCodecsAPIImageDecoder"]
 interface ImageDecoder {
   [Throws]
   constructor(ImageDecoderInit init);

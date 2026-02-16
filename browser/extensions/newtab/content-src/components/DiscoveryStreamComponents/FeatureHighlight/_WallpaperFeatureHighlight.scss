@@ -1,80 +1,94 @@
-// Custom font sizing for feature highlight
-:root {
-  --newtab-feature-highlight-content-font-size: 11px;
-}
-
 // Default overrides from Feature Highlight
 .wallpaper-feature-highlight {
-  .icon.icon-dismiss {
-    position: absolute;
-    inset-block-start: 0;
-    inset-inline-end: 0;
-  }
-
   .feature-highlight .feature-highlight-modal {
-    width: 248px;
+    --arrow-size: 24px;
 
-    &.inset-inline-start {
-      inset-inline-end: calc(var(--space-medium) * -1);
+    width: auto;
+    padding: var(--space-large);
+
+    .content-wrapper {
+      margin-block: 0;
+    }
+
+    .message-icon {
+      display: none;
+    }
+
+    &.inset-inline-end {
+      inset-inline-start: 0;
 
       &::after {
-        inset-inline-end: calc(var(--space-xxlarge) - 14px);
+        inset-inline-start: 0;
+      }
+    }
+
+    &.inset-inline-start {
+      // Bug 1967304 - Large number (64px)
+      inset-inline-end: calc(var(--space-xxlarge) * 2);
+
+      &::after {
+        inset-inline-end: calc(calc(var(--arrow-size) / 2) * -1);
       }
     }
 
     &.inset-block-end {
-      margin-top: var(--space-medium);
+      margin-block-start: 0;
 
       &::after {
-        inset-block-start: -6px;
+        inset-block-start: 0;
       }
     }
 
-    p {
-      font-size: var(--newtab-feature-highlight-content-font-size);
+    &.inset-block-start {
+      inset-block-end: 0;
+      margin-block-end: calc(-4 * var(--space-xsmall)); // -20px; sit lower on the page
+
+      &::after {
+        // just a nudge (2px) lower than the arrow size to point directly at the Customize icon
+        inset-block-end: calc(var(--arrow-size) - var(--space-xxsmall));
+      }
+    }
+
+    .title {
+      font-weight: var(--heading-font-weight);
+      margin-block: var(--space-medium);
+    }
+
+    .subtitle {
+      margin-block: 0 var(--space-medium);
+    }
+
+    .button-wrapper {
+      display: block;
+      text-align: end;
     }
 
     // Message Arrow Pointer
     &::after {
-      height: 12px;
-      width: 12px;
+      height: var(--arrow-size);
+      width: var(--arrow-size);
+      box-shadow: 4px -4px 6px -2px rgba(0, 0, 0, 15%);
+      pointer-events: none;
+    }
+
+    // The "Dismiss" button in the top right corner of the highlight needs to be in front of the image
+    > moz-button {
+      position: absolute;
+      inset-inline-end: var(--space-large);
+      inset-block-start: var(--space-large);
     }
   }
-}
 
-.customize-icon {
-  -moz-context-properties: fill;
-  fill: var(--icon-color);
-  background-image: url('chrome://browser/skin/customize.svg');
-  background-size: var(--icon-size-default);
-  height: var(--icon-size-default);
-  width: var(--icon-size-default);
-}
+  // Custom override for dismiss-contrast
+  &.is-inverted-dark-dismiss-button {
+    .feature-highlight-modal {
+      @media (prefers-color-scheme: dark) {
 
-.highlightHeader {
-  font-weight: var(--font-weight-bold);
-  margin-block-end: var(--space-small);
-}
-
-.highlight-Content {
-  margin-block-end: var(--space-xsmall);
-}
-
-.wallpaper-feature-highlight-content {
-  padding-inline-end: var(--space-large);
-
-  span {
-    display: block;
-  }
-
-  button {
-    appearance: none;
-    border-radius: var(--border-radius-small);
-    padding: var(--space-xsmall) var(--space-large);
-    border-color: transparent;
-    display: block;
-    margin-inline-start: auto;
-    background-color: var(--button-background-color);
-    margin-block-start: var(--space-small);
+        // override color so that it is visible on the image
+        > moz-button {
+          --button-icon-fill: var(--color-gray-70);
+        }
+      }
+    }
   }
 }

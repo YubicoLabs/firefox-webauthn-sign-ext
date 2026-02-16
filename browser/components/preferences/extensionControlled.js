@@ -46,7 +46,6 @@ const API_PROXY_PREFS = [
 ];
 
 let extensionControlledContentIds = {
-  "privacy.containers": "browserContainersExtensionContent",
   webNotificationsDisabled: "browserNotificationsPermissionExtensionContent",
   "services.passwordSavingEnabled": "passwordManagerExtensionContent",
   "proxy.settings": "proxyExtensionContent",
@@ -59,11 +58,12 @@ let extensionControlledContentIds = {
 };
 
 const extensionControlledL10nKeys = {
-  webNotificationsDisabled: "web-notifications",
-  "services.passwordSavingEnabled": "password-saving",
-  "privacy.containers": "privacy-containers",
-  "websites.trackingProtectionMode": "websites-content-blocking-all-trackers",
-  "proxy.settings": "proxy-config",
+  webNotificationsDisabled: "extension-controlling-web-notifications",
+  "services.passwordSavingEnabled": "extension-controlling-password-saving",
+  "privacy.containers": "extension-controlling-privacy-containers",
+  "websites.trackingProtectionMode":
+    "extension-controlling-websites-content-blocking-all-trackers",
+  "proxy.settings": "extension-controlling-proxy-config",
 };
 
 let extensionControlledIds = {};
@@ -129,7 +129,7 @@ function settingNameToL10nID(settingName) {
       `Unknown extension controlled setting name: ${settingName}`
     );
   }
-  return `extension-controlling-${extensionControlledL10nKeys[settingName]}`;
+  return extensionControlledL10nKeys[settingName];
 }
 
 /**
@@ -271,6 +271,7 @@ function makeDisableControllingExtension(type, settingName) {
 /**
  *  Initialize listeners though the Management API to update the UI
  *  when an extension is controlling a pref.
+ *
  * @param {string} type
  * @param {string} prefId The unique id of the setting
  * @param {HTMLElement} controlledElement

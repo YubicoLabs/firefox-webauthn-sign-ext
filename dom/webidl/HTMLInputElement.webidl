@@ -4,8 +4,8 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * The origin of this IDL file is
- * http://www.whatwg.org/specs/web-apps/current-work/#the-input-element
- * http://www.whatwg.org/specs/web-apps/current-work/#other-elements,-attributes-and-apis
+ * https://html.spec.whatwg.org/multipage/input.html#the-input-element
+ * https://html.spec.whatwg.org/multipage/obsolete.html#other-elements%2C-attributes-and-apis
  * https://wicg.github.io/entries-api/#idl-index
  *
  * © Copyright 2004-2011 Apple Computer, Inc., Mozilla Foundation, and
@@ -28,6 +28,8 @@ interface HTMLInputElement : HTMLElement {
 
   [CEReactions, Pure, SetterThrows]
            attribute DOMString accept;
+  [CEReactions, Pure, SetterThrows, Pref="dom.forms.alpha.enabled"]
+           attribute boolean alpha;
   [CEReactions, Pure, SetterThrows]
            attribute DOMString alt;
   [CEReactions, Pure, SetterThrows]
@@ -38,11 +40,14 @@ interface HTMLInputElement : HTMLElement {
            attribute boolean defaultChecked;
   [Pure]
            attribute boolean checked;
+  [CEReactions, Pure, SetterThrows, Pref="dom.forms.colorspace.enabled"]
+           attribute DOMString colorSpace;
   [CEReactions, Pure, SetterThrows]
            attribute DOMString dirName;
   [CEReactions, Pure, SetterThrows]
            attribute boolean disabled;
-  readonly attribute HTMLFormElement? form;
+  [BinaryName=formForBindings]
+  readonly attribute Element? form;
   [Pure]
            attribute FileList? files;
   [CEReactions, Pure, SetterThrows]
@@ -59,8 +64,8 @@ interface HTMLInputElement : HTMLElement {
            attribute unsigned long height;
   [Pure]
            attribute boolean indeterminate;
-  [Pure]
-  readonly attribute HTMLDataListElement? list;
+  [Pure, BinaryName=listForBindings]
+  readonly attribute Element? list;
   [CEReactions, Pure, SetterThrows]
            attribute DOMString max;
   [CEReactions, Pure, SetterThrows]
@@ -115,6 +120,7 @@ interface HTMLInputElement : HTMLElement {
   boolean reportValidity();
   undefined setCustomValidity(DOMString error);
 
+  [BinaryName=labelsForBindings]
   readonly attribute NodeList? labels;
 
   undefined select();
@@ -176,6 +182,7 @@ partial interface HTMLInputElement {
   [ChromeOnly, NewObject]
   Promise<sequence<(File or Directory)>> getFilesAndDirectories();
 
+  [ChromeOnly]
   boolean mozIsTextField(boolean aExcludePassword);
 
   [ChromeOnly]
@@ -236,8 +243,6 @@ HTMLInputElement includes MozImageLoadingContent;
 
 HTMLInputElement includes PopoverInvokerElement;
 
-HTMLInputElement includes InvokerElement;
-
 // https://wicg.github.io/entries-api/#idl-index
 partial interface HTMLInputElement {
   [Pref="dom.webkitBlink.filesystem.enabled", Frozen, Cached, Pure]
@@ -246,6 +251,8 @@ partial interface HTMLInputElement {
   [Pref="dom.webkitBlink.dirPicker.enabled", BinaryName="WebkitDirectoryAttr", SetterThrows]
           attribute boolean webkitdirectory;
 };
+
+// Chrome-only functions for datetime picker
 
 dictionary DateTimeValue {
   long hour;
@@ -272,13 +279,10 @@ partial interface HTMLInputElement {
   undefined openDateTimePicker(optional DateTimeValue initialValue = {});
 
   [Func="IsChromeOrUAWidget"]
-  undefined updateDateTimePicker(optional DateTimeValue value = {});
-
-  [Func="IsChromeOrUAWidget"]
   undefined closeDateTimePicker();
 
   [Func="IsChromeOrUAWidget"]
-  undefined setDateTimePickerState(boolean aIsOpen);
+  undefined setOpenState(boolean aIsOpen);
 
   [Func="IsChromeOrUAWidget"]
   undefined setFocusState(boolean aIsFocused);
@@ -291,4 +295,24 @@ partial interface HTMLInputElement {
 
   [Func="IsChromeOrUAWidget", BinaryName="getStepBaseAsDouble"]
   double getStepBase();
+};
+
+// Chrome-only functions for color picker
+
+dictionary InputPickerColor {
+  required float component1;
+  required float component2;
+  required float component3;
+
+  required unrestricted float alpha;
+  // bug 2009748
+  // required InputColorSpace colorSpace;
+};
+
+partial interface HTMLInputElement {
+  [Func="IsChromeOrUAWidget"]
+  InputPickerColor getColor();
+
+  [Func="IsChromeOrUAWidget"]
+  undefined setUserInputColor(InputPickerColor aColor);
 };

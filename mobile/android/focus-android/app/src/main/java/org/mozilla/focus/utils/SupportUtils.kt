@@ -14,7 +14,7 @@ import androidx.fragment.app.FragmentActivity
 import mozilla.components.browser.state.state.ExternalAppType
 import mozilla.components.browser.state.state.SessionState
 import mozilla.components.feature.customtabs.createCustomTabConfigFromIntent
-import mozilla.components.support.utils.ext.getPackageInfoCompat
+import mozilla.components.support.utils.ext.packageManagerCompatHelper
 import org.mozilla.focus.BuildConfig
 import org.mozilla.focus.R
 import org.mozilla.focus.activity.CustomTabActivity
@@ -31,7 +31,7 @@ object SupportUtils {
     const val RATE_APP_URL = "market://details?id=" + BuildConfig.APPLICATION_ID
     const val DEFAULT_BROWSER_URL = "https://support.mozilla.org/kb/set-firefox-focus-default-browser-android"
     const val PRIVACY_NOTICE_URL = "https://www.mozilla.org/privacy/firefox-focus/"
-    const val PRIVACY_NOTICE_KLAR_URL = "https://www.mozilla.org/de/privacy/firefox-klar/"
+    const val TERMS_OF_USE_URL = "https://www.mozilla.org/about/legal/terms/firefox-focus/"
 
     const val OPEN_WITH_DEFAULT_BROWSER_URL = "https://www.mozilla.org/openGeneralSettings" // Fake URL
     val manifestoURL: String
@@ -44,8 +44,8 @@ object SupportUtils {
      * Paths for specific pages on the Mozilla website.
      */
     enum class MozillaPage(internal val path: String) {
-        PRIVATE_NOTICE("privacy/firefox/"),
-        TERMS_OF_SERVICE("about/legal/terms/services/"),
+        PRIVATE_NOTICE("privacy/firefox-focus/"),
+        TERMS_OF_SERVICE("about/legal/terms/firefox-focus/"),
     }
 
     /**
@@ -64,11 +64,8 @@ object SupportUtils {
         ADD_SEARCH_ENGINE("add-search-engine"),
         AUTOCOMPLETE("autofill-domain-android"),
         TRACKERS("trackers"),
-        USAGE_DATA("usage-data"),
         USAGE_PING_SETTINGS("usage-ping-settings-mobile"),
         SEARCH_SUGGESTIONS("search-suggestions-focus-android"),
-        ALLOWLIST("focus-android-allowlist"),
-        STUDIES("how-opt-out-studies-firefox-focus-android"),
         HTTPS_ONLY("https-only-prefs-focus"),
         COOKIE_BANNER("cookie-banner-reduction-firefox-focus-android"),
     }
@@ -108,7 +105,10 @@ object SupportUtils {
      */
     fun getAppVersion(context: Context): String {
         try {
-            return context.packageManager.getPackageInfoCompat(context.packageName, 0).versionName ?: ""
+            return context.packageManagerCompatHelper.getPackageInfoCompat(
+                context.packageName,
+                0,
+            ).versionName ?: ""
         } catch (e: PackageManager.NameNotFoundException) {
             // This should be impossible - we should always be able to get information about ourselves:
             throw IllegalStateException("Unable find package details for Focus", e)

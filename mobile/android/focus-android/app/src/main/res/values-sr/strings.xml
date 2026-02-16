@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">Историја прегледања је обрисана</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">Историја прегледања језичка је избрисана.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">Претражи %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Подели…</string>
@@ -52,7 +62,7 @@
   <string name="menu_settings">Поставке</string>
   <string name="menu_about">О Focus-у за Android</string>
   <string name="menu_help">Помоћ</string>
-  <string name="menu_rights">Ваша права</string>
+  <string name="menu_terms_of_use">Услови коришћења</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -143,19 +153,10 @@
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Тражи у Focus Nightly-ју</string>
   <!--
-    Content of about focus. Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
-    Argument 2 is the url for the learn-more link.
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
   -->
-  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote">&lt;p&gt;%1$s вам даје контролу.&lt;/p&gt;
-&lt;p&gt;Користите га као приватни прегледач:
-  &lt;ul&gt;
-    &lt;li&gt;Претражујте и сурфујте директно у апликацији&lt;/li&gt;
-    &lt;li&gt;Блокирајте елементе за праћење (или их омогућите у подешавањима)&lt;/li&gt;
-    &lt;li&gt;Избришите све колачиће као и историју прегледања и претраге&lt;/li&gt;
-  &lt;/ul&gt;
-&lt;/p&gt;
-&lt;p&gt;%1$s је створила Mozilla. Наша мисија је неговање здравог и отвореног интернета.&lt;br/&gt;
-&lt;a href="%2$s"&gt;Сазнајте више&lt;/a&gt;&lt;/p&gt;</string>
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s вам даје контролу.</p>\n<p>Користите га као приватни прегледач:\n<ul>\n<li>Претражујте и сурфујте директно у апликацији</li>\n<li>Блокирајте елементе за праћење (или их омогућите у подешавањима)</li>\n<li>Избришите све колачиће као и историју прегледања и претраге</li>\n</ul> </p>\n<p>%1$s је створила Mozilla. Наша мисија је неговање здравог и отвореног интернета.<br/>\n<a href=\"%2$s\">Сазнајте више</a></p>]]></string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">Приватност и безбедност</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -207,14 +208,14 @@
   <string name="preference_switch_autocomplete_topsites">За врхунске сајтове</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">Омогућите да %s аутоматски завршава преко 450 популарних URL адреса у адресној траци.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">За сајтове које додате</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">Омогућите да %s аутоматски довршава ваше омиљене URL адресе.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -289,8 +290,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">Ако %s има отворене веб странице или додане пречице, користите отисак прста за откључавање.</string>
   <!--
@@ -326,15 +327,21 @@
   <string name="preference_mozilla_telemetry_summary">Сазнајте више</string>
   <!-- %1$s will be replaced with the name of the app (e.g. Firefox Focus) -->
   <string name="preference_mozilla_telemetry_summary2">Mozilla тежи ка прикупљању само оних података који су потребни да бисмо пружали и побољшали %1$s за све.</string>
+  <!-- Preference switch for daily usage ping data collection -->
+  <string name="preference_daily_usage_ping_title">Пинг дневног коришћења</string>
+  <string name="preference_daily_usage_ping_description">Овако Mozilla боље процењује број активних корисника.</string>
+  <string name="preference_daily_usage_ping_learn_more">Сазнајте више</string>
   <!-- In-app link (in settings) to Focus privacy notice. -->
   <string name="preference_privacy_notice">Обавештење о приватности</string>
   <!-- In-app link (in settings) to Focus licensing information. -->
   <string name="preference_licensing_info">Подаци о лиценцирању</string>
   <!-- Link to Focus licensing information from other libraries that we use. -->
   <string name="preference_libraries_we_use">Библиотеке које користимо</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Link to Focus Crash reports list. -->
+  <string name="preference_crashes">Падови</string>
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s | библиотеке отвореног кода</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">О %1$s</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">Инсталирани претраживачи</string>
@@ -358,7 +365,7 @@
   <string name="search_add_manually_name_hint">Име претраживача</string>
   <string name="search_add_manually_string">Претражи текст за коришћење</string>
   <string name="search_add_manually_save">Сачувај</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">Пример: example.com/search/?q=%s</string>
   <string name="search_add_confirmation">Нови претраживач додат.</string>
   <string name="search_add_error_empty_name">Унесите име претраживача</string>
@@ -430,19 +437,19 @@
   <string name="external_app_prompt_title">Отворите везу у другој апликацији</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">Можете угасити %1$s да отворите ову везу у %2$s.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">Пронађите апликацију која може отворити ову везу</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">Ниједна апликација на вашем уређају не може отворити ову везу. Можете угасити %1$s и претражити %2$s да бисте нашли неку.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">Изаћи из приватног режима?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s завршено</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">Отвори</string>
@@ -452,13 +459,35 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">Добродошли у %1$s</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
   <string name="onboarding_first_screen_subtitle">Брзо. Приватно. Без ометања.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_terms_of_use_link as text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_text_2" tools:ignore="UnusedResources">Наставком прихватате %1$s.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use link'
+
+    Text for the link used in onboarding_first_screen_terms_of_use_text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_link_2" tools:ignore="BrandUsage">Firefox услови коришћења</string>
+  <!--
+    New Onboarding flow first screen 'privacy notice' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_privacy_notice_link as text
+  -->
+  <string name="onboarding_first_screen_privacy_notice_text_2" tools:ignore="BrandUsage">Firefox брине о вашој приватности. Сазнајте више у %1$s.</string>
+  <!-- Text for the link used in onboarding_first_screen_privacy_notice_text -->
+  <string name="onboarding_first_screen_privacy_notice_link_2">Обавештењу о приватности</string>
   <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">Започните</string>
+  <string name="onboarding_first_screen_button_agree_and_continue_2">Настави</string>
+  <!-- In the first screen of new onboarding flow, additional accessibility description for content that contain urls. -->
+  <string name="a11y_link_available">Веза је доступна</string>
   <!--
     Onboarding second screen: Title
 
@@ -536,36 +565,6 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">Преузмите Firefox</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">%1$s је бесплатан софтвер и отвореног кода направљен од стране Mozilla-е и других доприносиоца.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s вам је омогућен под условима &lt;a href="%2$s"&gt;Mozilla јавне лиценце&lt;/a&gt; и других лиценци отвореног кода.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">Немате никаква права нити лиценцу на заштитне знакове Mozilla фондације нити било шта слично, укључујући и Mozilla, Firefox или %1$s имена или логотипе. Додатне информације можете пронаћи &lt;a href="%2$s"&gt;овде&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">Додатни изворни код за %1$s је доступан под различитим бесплатним и &lt;a href="%2$s"&gt;лиценцама&lt;/a&gt; отвореног кода.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s такође користи блок-листе пружане од стране Disconnect инкорпорације као одвојени и независни радови под &lt;a href="%2$s"&gt;GNU General Public License v3&lt;/a&gt; и доступним &lt;a href="%3$s"&gt;овде&lt;/a&gt;.</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">Корисничко име</string>
   <string name="gv_prompt_password_hint">Лозинка</string>
@@ -587,13 +586,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">Пронађи на страници</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">%1$d од %2$d</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -640,13 +641,13 @@
   <string name="cookie_banner_exception_panel_switch_state_off">ИСКЉУЧЕНО за овај сајт</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">УКЉУЧЕНО за овај сајт</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">Укључити смањење банера колачића за %1$s?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">Икључити смањење банера колачича за %1$s?</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">%1$s ће обрисати колачиће и освежити страницу. Брисање колачића може да вас одјави са сајта или да испразни вашу корпу за куповину.</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">%1$s може аутоматски да одбије захтеве за колачиће.</string>
   <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_description_site_is_not_supported">Смањење банера колачића тренутно није подржано за овај сајт. Да ли бисте желели да наш тим прегледа овај сајт и подржи га у будућности?</string>
@@ -673,11 +674,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Идите на Android подешавања</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. Додирните &lt;b&gt;Дозволе&lt;/b&gt;</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. Додирните <b>Дозволе</b>]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">Иди у подешавања</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. Пребаците &lt;b&gt;%1$s&lt;/b&gt; на УКЉУЧЕНО</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. Пребаците <b>%1$s</b> на УКЉУЧЕНО]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">Камера</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -704,20 +705,6 @@
   <string name="preference_block_autoplay_audio_only_summary">Препоручено</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">Блокирај звук и видео</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">Студије</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Firefox може с времена на време инсталирати и спровести студије.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">Сазнајте више</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">Апликација ће се затворити како би применила промене</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">Уклони</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">Активно</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">Завршено</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">Удаљено отклањање грешака уз USB/Wi-Fi</string>
   <!-- Text Button for show biometric prompt -->
@@ -764,28 +751,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">Сајт се понаша чудно?\n Покушајте искључити заштиту од праћења</string>
+  <string name="tip_disable_tracking_protection">Сајт се понаша чудно?\nПокушајте искључити заштиту од праћења</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">Подесите приступ сајтовима које користите највише, једним кликом%1$s Мени &gt; Додај на почетни екран</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">Отвори сваку везу у %1$s-у\n Постави %1$s као подразумевани прегледач</string>
+  <string name="tip_set_default_browser">Отвори сваку везу у %1$s-у\nПостави %1$s као подразумевани прегледач</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">Аутоматско завршавање URLs за сајтове које користите највише\n Дуго држите URL у адресној траци</string>
+  <string name="tip_autocomplete_url">Аутоматско завршавање URLs за сајтове које користите највише\nДуго држите URL у адресној траци</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">Отвори везу у новом језичку\n Дуго држите на било којој вези на страници</string>
+  <string name="tip_open_in_new_tab">Отвори везу у новом језичку\nДуго држите на било којој вези на страници</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">Искључите савете на почетном екрану</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -826,29 +813,29 @@
   <string name="crash_report_send_crash_label">Пошаљите Mozilla-и извештај о паду</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">Трагача блокирано од %s</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">Садржај</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">Маркетинг</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">Друштвене мреже</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">Аналитика</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">Побољшана заштита од праћења</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">Заштита је ИСКЉУЧЕНА за овај сајт</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">Заштита је УКЉУЧЕНА за овај сајт</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">Веза је безбедна</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">Веза није безбедна</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">Трагачи и скрипте за блокирање</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">Иди назад</string>
   <!--
     Top Sites
@@ -866,7 +853,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">Дељене или сачуване слике &lt;b&gt;неће&lt;/b&gt; бити избрисане када обришете %1$s историју</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[Дељене или сачуване слике <b>неће</b> бити избрисане када обришете %1$s историју]]></string>
   <!--
     Theme Preferences
 
@@ -884,25 +871,16 @@
   <!-- The title of the error page for websites that do not support HTTPS when HTTPS-Only is turned on -->
   <string name="errorpage_httpsonly_title2">Овај сајт не подржава HTTPS</string>
   <!--
-    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s will get replaced with the name of the app (e.g. "Firefox Focus").
-    Contains a button that will redirect the user to Privacy & Security Screen
+    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"),
+    %2$s is a URL to a support article. Contains a button that will redirect the user to Privacy & Security Screen.
   -->
-  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote">%1$s покушава да користи HTTPS везу кад год је могуће ради додатне безбедности.
-     &lt;a href="%2$s"&gt;Сазнајте више&lt;/a&gt; &lt;br/&gt;&lt;br/&gt;
-     Промените ову поставку у Подешавања &gt; Приватност и безбедност &gt; Безбедност.</string>
+  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[%1$s покушава да користи HTTPS везу кад год је могуће ради додатне безбедности. <a href=\"%2$s\">Сазнајте више</a> <br/><br/> Промените ову поставку у Подешавања > Приватност и безбедност > Безбедност.]]></string>
   <!-- The document title and heading of the error page shown when a website has an invalid or expired SSL certificate. -->
   <string name="mozac_browser_errorpages_security_bad_cert_title">Веза није безбедна</string>
   <!-- The error message shown when a website has an invalid or expired SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_message">
-    Можда је проблем у конфигурацији сервера, а можда неко покушава да имитира сервер. &lt;br/&gt;&lt;br/&gt;
-   Ако сте се раније успешно повезали са овим сервером, могуће је да проблем привремен.
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_message"><![CDATA[Можда је проблем у конфигурацији сервера, а можда неко покушава да имитира сервер. <br/><br/> Ако сте се раније успешно повезали са овим сервером, могуће је да проблем привремен.]]></string>
   <!-- The advanced certificate information shown when a website has an invalid SSL certificate. The %1$s will be replaced by the app name and %2$s will be replaced by website URL. It's only shown when a website has an invalid SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_techInfo">
-        &lt;label&gt;Неко можда покушава да имитира сајт и настављање на исти је тада ризично.&lt;/label&gt;
-        &lt;br&gt;&lt;br&gt;
-        &lt;label&gt;%1$s нема поверења у &lt;b&gt;%2$s&lt;/b&gt; зато што му је издавач сертификата непознат, сертификат је самопотписан или сервер не шаље исправне посредничке сертификате.&lt;/label&gt;
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_techInfo"><![CDATA[<label>Неко можда покушава да имитира сајт и настављање на исти је тада ризично.</label> <br><br>\n<label>%1$s нема поверења у <b>%2$s</b> зато што му је издавач сертификата непознат, сертификат је самопотписан или сервер не шаље исправне посредничке сертификате.</label>]]></string>
   <!--
     Sessions List
 
@@ -965,13 +943,13 @@
 
     Message shown to explain how to exit fullscreen mode when gesture navigation is enabled.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_gesture_short">Превуците одозго и користите покрет уназад за излаз</string>
   <!--
     Message shown to explain how to exit fullscreen mode when using back button navigation.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_back_button_short">Превуците одозго и притисните назад за излаз</string>
 </resources>

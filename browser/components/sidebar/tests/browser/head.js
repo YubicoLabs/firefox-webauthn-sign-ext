@@ -14,24 +14,35 @@ function imageBufferFromDataURI(encodedImageData) {
   return Uint8Array.from(decodedImageData, byte => byte.charCodeAt(0)).buffer;
 }
 
+const SIDEBAR_VISIBILITY_PREF = "sidebar.visibility";
+const POSITION_SETTING_PREF = "sidebar.position_start";
+const VERTICAL_TABS_PREF = "sidebar.verticalTabs";
 const kPrefCustomizationState = "browser.uiCustomization.state";
 const kPrefCustomizationHorizontalTabstrip =
   "browser.uiCustomization.horizontalTabstrip";
 const kPrefCustomizationNavBarWhenVerticalTabs =
   "browser.uiCustomization.navBarWhenVerticalTabs";
-const kPrefSidebarTools = "sidebar.main.tools";
 
 const MODIFIED_PREFS = Object.freeze([
   kPrefCustomizationState,
   kPrefCustomizationHorizontalTabstrip,
   kPrefCustomizationNavBarWhenVerticalTabs,
-  kPrefSidebarTools,
+  "sidebar.new-sidebar.has-used",
+  "browser.engagement.home-button.has-removed",
+  "browser.engagement.home-button.has-removed",
+  "browser.engagement.sidebar-button.has-used",
+  "browser.toolbarbuttons.introduced.sidebar-button",
+  "sidebar.verticalTabs.dragToPinPromo.dismissed",
 ]);
 
-// Ensure we clear any previous pref values
-for (const pref of MODIFIED_PREFS) {
-  Services.prefs.clearUserPref(pref);
+function clearModifiedPrefs() {
+  for (const pref of MODIFIED_PREFS) {
+    Services.prefs.clearUserPref(pref);
+  }
 }
+
+// Ensure we clear any previous pref values
+clearModifiedPrefs();
 
 /* global browser */
 const extData = {
@@ -88,11 +99,29 @@ const extData = {
         case "set-title":
           await browser.sidebarAction.setTitle({ title: data });
           break;
+        case "reload-extension":
+          browser.runtime.reload();
+          break;
       }
       browser.test.sendMessage("done");
     });
   },
 };
+
+// Ensure each test leaves the sidebar in its initial state when it completes
+const initialSidebarState = { ...SidebarController.getUIState(), command: "" };
+async function resetSidebarToInitialState() {
+  info(
+    `Restoring sidebar state from: ${JSON.stringify(SidebarController.getUIState())}, back to: ${JSON.stringify(initialSidebarState)}`
+  );
+  await SidebarController.initializeUIState(initialSidebarState);
+}
+registerCleanupFunction(async () => {
+  await resetSidebarToInitialState();
+  // Reset the Glean events after each test.
+  Services.fog.testResetFOG();
+  clearModifiedPrefs();
+});
 
 function waitForBrowserWindowActive(win) {
   // eslint-disable-next-line consistent-return
@@ -105,40 +134,22 @@ function waitForBrowserWindowActive(win) {
   });
 }
 
-function openAndWaitForContextMenu(popup, button, onShown, onHidden) {
-  return new Promise(resolve => {
-    function onPopupShown() {
-      info("onPopupShown");
-      popup.removeEventListener("popupshown", onPopupShown);
+async function openAndWaitForContextMenu(popup, button, onShown) {
+  const menuShownPromise = BrowserTestUtils.waitForPopupEvent(popup, "shown");
+  button.scrollIntoView();
 
-      onShown && onShown();
-
-      // Use setTimeout() to get out of the popupshown event.
-      popup.addEventListener("popuphidden", onPopupHidden);
-      setTimeout(() => popup.hidePopup(), 0);
-    }
-    function onPopupHidden() {
-      info("onPopupHidden");
-      popup.removeEventListener("popuphidden", onPopupHidden);
-
-      onHidden && onHidden();
-
-      resolve(popup);
-    }
-
-    popup.addEventListener("popupshown", onPopupShown);
-
-    info("wait for the context menu to open");
-
-    button.scrollIntoView();
-    const eventDetails = { type: "contextmenu", button: 2 };
-    EventUtils.synthesizeMouseAtCenter(
-      button,
-      eventDetails,
-      // eslint-disable-next-line mozilla/use-ownerGlobal
-      button.ownerDocument.defaultView
-    );
-  });
+  const eventDetails = { type: "contextmenu", button: 2 };
+  EventUtils.synthesizeMouseAtCenter(
+    button,
+    eventDetails,
+    // eslint-disable-next-line mozilla/use-ownerGlobal
+    button.ownerDocument.defaultView
+  );
+  await menuShownPromise;
+  if (onShown) {
+    await onShown();
+  }
+  return popup;
 }
 
 function isActiveElement(el) {
@@ -149,6 +160,30 @@ async function toggleSidebarPanel(win, commandID) {
   const promiseFocused = BrowserTestUtils.waitForEvent(win, "SidebarFocused");
   win.SidebarController.toggle(commandID);
   await promiseFocused;
+}
+
+async function ensureSidebarLauncherIsVisible(win = window) {
+  const {
+    promiseInitialized,
+    toolbarButton,
+    sidebarMain: sidebarLauncher,
+    sidebarContainer,
+  } = win.SidebarController;
+  await promiseInitialized;
+  // Show the sidebar launcher if the container is hidden
+  if (sidebarContainer.hidden) {
+    toolbarButton.doCommand();
+    await sidebarLauncher.updateComplete;
+    await BrowserTestUtils.waitForMutationCondition(
+      sidebarContainer,
+      { attributes: true, attributeFilter: ["hidden"] },
+      () => !sidebarContainer.hidden
+    );
+  }
+  Assert.ok(
+    BrowserTestUtils.isVisible(sidebarLauncher),
+    "Sidebar launcher is visible"
+  );
 }
 
 async function waitForTabstripOrientation(
@@ -171,11 +206,6 @@ async function waitForTabstripOrientation(
   await win.SidebarController.sidebarMain?.updateComplete;
 }
 
-// Reset the Glean events after each test.
-registerCleanupFunction(() => {
-  Services.fog.testResetFOG();
-});
-
 /**
  * Wait until Style and Layout information have been calculated and the paint
  * has occurred.
@@ -189,4 +219,96 @@ async function waitForRepaint() {
       Services.tm.dispatchToMainThread(resolve);
     })
   );
+}
+
+function cleanUpExtraTabs() {
+  while (window.gBrowser.tabs.length > 1) {
+    BrowserTestUtils.removeTab(window.gBrowser.tabs.at(-1));
+  }
+}
+
+async function showHistorySidebar({ waitForPendingHistory = true } = {}) {
+  if (SidebarController.currentID !== "viewHistorySidebar") {
+    await SidebarController.show("viewHistorySidebar");
+  }
+  const { contentDocument, contentWindow } = SidebarController.browser;
+  const component = contentDocument.querySelector("sidebar-history");
+  if (waitForPendingHistory) {
+    await BrowserTestUtils.waitForCondition(
+      () => !component.controller.isHistoryPending
+    );
+  }
+  await component.updateComplete;
+  return { component, contentWindow };
+}
+
+/**
+ * Insert visits for history testing.
+ *
+ * @returns {{ URLs: string[]; dates: Date[]; }}
+ */
+async function populateHistory() {
+  const URLs = [
+    "http://mochi.test:8888/browser/",
+    "https://www.example.com/",
+    "https://example.net/",
+    "https://example.org/",
+  ];
+
+  const today = new Date();
+  const yesterday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - 1
+  );
+  // Get date for the second-last day of the previous month.
+  // (Do not use the last day, since that could be the same as yesterday's date.)
+  const lastMonth = new Date(today.getFullYear(), today.getMonth(), -2);
+
+  const dates = [today, yesterday, lastMonth];
+  await PlacesUtils.history.clear();
+  const pageInfos = URLs.flatMap((url, i) =>
+    dates.map(date => ({
+      url,
+      title: `Example Domain ${i}`,
+      visits: [{ date }],
+    }))
+  );
+  await PlacesUtils.history.insertMany(pageInfos);
+  return { URLs, dates };
+}
+
+/**
+ * Synthesize a key press and wait for an element to be focused.
+ *
+ * @param {Element} element
+ * @param {string} keyCode
+ * @param {ChromeWindow} contentWindow
+ */
+async function focusWithKeyboard(element, keyCode, contentWindow) {
+  await SimpleTest.promiseFocus(contentWindow);
+  const focused = BrowserTestUtils.waitForEvent(
+    element,
+    "focus",
+    contentWindow
+  );
+  EventUtils.synthesizeKey(keyCode, {}, contentWindow);
+  await focused;
+}
+
+/**
+ * Perform a task function and wait for a specific URL to load.
+ *
+ * @param {Function} pageLoadTask
+ * @param {string} expectedUrl
+ */
+async function waitForPageLoadTask(pageLoadTask, expectedUrl) {
+  const promiseTabOpen = BrowserTestUtils.waitForEvent(
+    window.gBrowser.tabContainer,
+    "TabOpen"
+  );
+  await pageLoadTask();
+  await promiseTabOpen;
+  await BrowserTestUtils.browserLoaded(window.gBrowser, false, expectedUrl);
+  info(`Navigated to ${expectedUrl}.`);
 }

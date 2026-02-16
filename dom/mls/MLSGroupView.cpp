@@ -5,19 +5,18 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "MLSGroupView.h"
-#include "mozilla/dom/MLSBinding.h"
-#include "mozilla/dom/TypedArray.h"
-#include "mozilla/dom/Promise.h"
-#include "nsTArray.h"
-#include "mozilla/dom/MLSTransactionChild.h"
-#include "mozilla/dom/MLSTransactionMessage.h"
+
+#include "MLSTypeUtils.h"
 #include "ipc/IPCMessageUtilsSpecializations.h"
 #include "mozilla/BasePrincipal.h"
-#include "nsTArray.h"
 #include "mozilla/Logging.h"
-#include "mozilla/Span.h"
+#include "mozilla/dom/MLSBinding.h"
+#include "mozilla/dom/MLSTransactionChild.h"
+#include "mozilla/dom/MLSTransactionMessage.h"
+#include "mozilla/dom/Promise.h"
+#include "mozilla/dom/TypedArray.h"
 #include "nsDebug.h"
-#include "MLSTypeUtils.h"
+#include "nsTArray.h"
 namespace mozilla::dom {
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_WITH_JS_MEMBERS(MLSGroupView, (mMLS),
@@ -947,6 +946,163 @@ already_AddRefed<Promise> MLSGroupView::Receive(
                     ("IPC call rejected with reason: %d",
                      static_cast<int>(aReason)));
             promise->MaybeRejectWithUnknownError("Failed to receive message");
+          });
+
+  return promise.forget();
+}
+
+already_AddRefed<Promise> MLSGroupView::HasPendingProposals(ErrorResult& aRv) {
+  MOZ_LOG(gMlsLog, mozilla::LogLevel::Debug,
+          ("MLSGroupView::HasPendingProposals()"));
+
+  // Create a new Promise object for the result
+  RefPtr<Promise> promise = Promise::Create(mMLS->GetParentObject(), aRv);
+  if (NS_WARN_IF(aRv.Failed())) {
+    return nullptr;
+  }
+
+  // Receive the message
+  mMLS->mTransactionChild->SendRequestHasPendingProposals(mGroupId, mClientId)
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [promise, self = RefPtr<MLSGroupView>(this)](bool&& received) {
+            // Get the context from the GlobalObject
+            AutoJSAPI jsapi;
+            if (NS_WARN_IF(!jsapi.Init(self->mMLS->GetParentObject()))) {
+              MOZ_LOG(gMlsLog, mozilla::LogLevel::Error,
+                      ("Failed to initialize JSAPI"));
+              promise->MaybeRejectWithUnknownError(
+                  "Failed to initialize JSAPI");
+              return;
+            }
+
+            // Resolve the promise directly with the boolean value
+            promise->MaybeResolve(received);
+          },
+          [promise](::mozilla::ipc::ResponseRejectReason aReason) {
+            MOZ_LOG(gMlsLog, mozilla::LogLevel::Error,
+                    ("IPC call rejected with reason: %d",
+                     static_cast<int>(aReason)));
+            promise->MaybeRejectWithUnknownError(
+                "Failed to determine if there are pending proposals");
+          });
+
+  return promise.forget();
+}
+
+already_AddRefed<Promise> MLSGroupView::ClearPendingProposals(
+    ErrorResult& aRv) {
+  MOZ_LOG(gMlsLog, mozilla::LogLevel::Debug,
+          ("MLSGroupView::ClearPendingProposals()"));
+
+  // Create a new Promise object for the result
+  RefPtr<Promise> promise = Promise::Create(mMLS->GetParentObject(), aRv);
+  if (NS_WARN_IF(aRv.Failed())) {
+    return nullptr;
+  }
+
+  // Receive the message
+  mMLS->mTransactionChild->SendRequestClearPendingProposals(mGroupId, mClientId)
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [promise, self = RefPtr<MLSGroupView>(this)](bool&& received) {
+            // Get the context from the GlobalObject
+            AutoJSAPI jsapi;
+            if (NS_WARN_IF(!jsapi.Init(self->mMLS->GetParentObject()))) {
+              MOZ_LOG(gMlsLog, mozilla::LogLevel::Error,
+                      ("Failed to initialize JSAPI"));
+              promise->MaybeRejectWithUnknownError(
+                  "Failed to initialize JSAPI");
+              return;
+            }
+
+            // Resolve the promise directly with the boolean value
+            promise->MaybeResolve(received);
+          },
+          [promise](::mozilla::ipc::ResponseRejectReason aReason) {
+            MOZ_LOG(gMlsLog, mozilla::LogLevel::Error,
+                    ("IPC call rejected with reason: %d",
+                     static_cast<int>(aReason)));
+            promise->MaybeRejectWithUnknownError(
+                "Failed to clear pending proposals");
+          });
+
+  return promise.forget();
+}
+
+already_AddRefed<Promise> MLSGroupView::HasPendingCommit(ErrorResult& aRv) {
+  MOZ_LOG(gMlsLog, mozilla::LogLevel::Debug,
+          ("MLSGroupView::HasPendingCommit()"));
+
+  // Create a new Promise object for the result
+  RefPtr<Promise> promise = Promise::Create(mMLS->GetParentObject(), aRv);
+  if (NS_WARN_IF(aRv.Failed())) {
+    return nullptr;
+  }
+
+  // Receive the message
+  mMLS->mTransactionChild->SendRequestHasPendingCommit(mGroupId, mClientId)
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [promise, self = RefPtr<MLSGroupView>(this)](bool&& received) {
+            // Get the context from the GlobalObject
+            AutoJSAPI jsapi;
+            if (NS_WARN_IF(!jsapi.Init(self->mMLS->GetParentObject()))) {
+              MOZ_LOG(gMlsLog, mozilla::LogLevel::Error,
+                      ("Failed to initialize JSAPI"));
+              promise->MaybeRejectWithUnknownError(
+                  "Failed to initialize JSAPI");
+              return;
+            }
+
+            // Resolve the promise directly with the boolean value
+            promise->MaybeResolve(received);
+          },
+          [promise](::mozilla::ipc::ResponseRejectReason aReason) {
+            MOZ_LOG(gMlsLog, mozilla::LogLevel::Error,
+                    ("IPC call rejected with reason: %d",
+                     static_cast<int>(aReason)));
+            promise->MaybeRejectWithUnknownError(
+                "Failed to determine if there is a pending commit");
+          });
+
+  return promise.forget();
+}
+
+already_AddRefed<Promise> MLSGroupView::ClearPendingCommit(ErrorResult& aRv) {
+  MOZ_LOG(gMlsLog, mozilla::LogLevel::Debug,
+          ("MLSGroupView::ClearPendingCommit()"));
+
+  // Create a new Promise object for the result
+  RefPtr<Promise> promise = Promise::Create(mMLS->GetParentObject(), aRv);
+  if (NS_WARN_IF(aRv.Failed())) {
+    return nullptr;
+  }
+
+  // Receive the message
+  mMLS->mTransactionChild->SendRequestClearPendingCommit(mGroupId, mClientId)
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [promise, self = RefPtr<MLSGroupView>(this)](bool&& received) {
+            // Get the context from the GlobalObject
+            AutoJSAPI jsapi;
+            if (NS_WARN_IF(!jsapi.Init(self->mMLS->GetParentObject()))) {
+              MOZ_LOG(gMlsLog, mozilla::LogLevel::Error,
+                      ("Failed to initialize JSAPI"));
+              promise->MaybeRejectWithUnknownError(
+                  "Failed to initialize JSAPI");
+              return;
+            }
+
+            // Resolve the promise directly with the boolean value
+            promise->MaybeResolve(received);
+          },
+          [promise](::mozilla::ipc::ResponseRejectReason aReason) {
+            MOZ_LOG(gMlsLog, mozilla::LogLevel::Error,
+                    ("IPC call rejected with reason: %d",
+                     static_cast<int>(aReason)));
+            promise->MaybeRejectWithUnknownError(
+                "Failed to clear pending commit");
           });
 
   return promise.forget();

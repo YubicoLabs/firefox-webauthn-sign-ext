@@ -16,6 +16,8 @@ interface nsIWebAuthnRegisterResult : nsISupports {
     // the authenticator data.
     readonly attribute Array<octet> attestationObject;
 
+    readonly attribute boolean attestationConsentPromptShown;
+
     // The Credential ID field of the Attestation Object's Attested
     // Credential Data. This is used to construct the rawID field of a
     // WebAuthn PublicKeyCredential without having to parse the
@@ -27,6 +29,8 @@ interface nsIWebAuthnRegisterResult : nsISupports {
     readonly attribute boolean hmacCreateSecret;
 
     [must_use] attribute boolean credPropsRk;
+
+    readonly attribute boolean largeBlobSupported;
 
     readonly attribute boolean prfEnabled;
     readonly attribute Array<octet> prfResultsFirst;
@@ -70,6 +74,9 @@ interface nsIWebAuthnSignResult : nsISupports {
 
     // appId field of AuthenticationExtensionsClientOutputs (Optional)
     [must_use] attribute boolean usedAppId;
+
+    readonly attribute Array<octet> largeBlobValue;
+    readonly attribute boolean largeBlobWritten;
 
     readonly attribute boolean prfMaybe; // prf output can be present but empty
     readonly attribute Array<octet> prfResultsFirst;

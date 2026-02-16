@@ -4,14 +4,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_Document_h___
-#define mozilla_dom_Document_h___
+#ifndef mozilla_dom_Document_h_
+#define mozilla_dom_Document_h_
 
 #include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <new>
-#include <utility>
+
 #include "ErrorList.h"
 #include "MainThreadUtils.h"
 #include "Units.h"
@@ -22,21 +22,21 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/BasicEvents.h"
-#include "mozilla/BitSet.h"
-#include "mozilla/OriginTrials.h"
-#include "mozilla/ContentBlockingNotifier.h"
 #include "mozilla/CORSMode.h"
 #include "mozilla/CallState.h"
+#include "mozilla/ContentBlockingNotifier.h"
 #include "mozilla/FlushType.h"
 #include "mozilla/FunctionRef.h"
-#include "mozilla/HashTable.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/NotNull.h"
+#include "mozilla/OriginTrials.h"
+#include "mozilla/PageloadEvent.h"
 #include "mozilla/PointerLockManager.h"
 #include "mozilla/PreloadService.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/RenderingPhase.h"
 #include "mozilla/Result.h"
 #include "mozilla/SegmentedVector.h"
 #include "mozilla/ServoStyleSet.h"
@@ -47,15 +47,16 @@
 #include "mozilla/WeakPtr.h"
 #include "mozilla/css/StylePreloadKind.h"
 #include "mozilla/dom/AnimationFrameProvider.h"
+#include "mozilla/dom/AnimationTimelinesController.h"
 #include "mozilla/dom/DocumentOrShadowRoot.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/EventTarget.h"
+#include "mozilla/dom/LargestContentfulPaint.h"
 #include "mozilla/dom/Nullable.h"
 #include "mozilla/dom/RadioGroupContainer.h"
 #include "mozilla/dom/TreeOrderedArray.h"
-#include "mozilla/dom/ViewportMetaData.h"
-#include "mozilla/dom/LargestContentfulPaint.h"
 #include "mozilla/dom/UserActivation.h"
+#include "mozilla/dom/ViewportMetaData.h"
 #include "mozilla/dom/WakeLockBinding.h"
 #include "nsAtom.h"
 #include "nsCOMArray.h"
@@ -64,12 +65,12 @@
 #include "nsCompatibility.h"
 #include "nsContentListDeclarations.h"
 #include "nsCycleCollectionParticipant.h"
-#include "nsTHashMap.h"
 #include "nsDebug.h"
 #include "nsGkAtoms.h"
 #include "nsHashKeys.h"
 #include "nsIChannel.h"
 #include "nsIChannelEventSink.h"
+#include "nsIClassifiedChannel.h"
 #include "nsID.h"
 #include "nsIDocumentViewer.h"
 #include "nsIInterfaceRequestor.h"
@@ -96,6 +97,7 @@
 #include "nsRefPtrHashtable.h"
 #include "nsString.h"
 #include "nsTArray.h"
+#include "nsTHashMap.h"
 #include "nsTHashSet.h"
 #include "nsTLiteralString.h"
 #include "nsTObserverArray.h"
@@ -103,7 +105,6 @@
 #include "nsURIHashKey.h"
 #include "nsWeakReference.h"
 #include "nsWindowSizes.h"
-#include "nsXULElement.h"
 #include "nscore.h"
 
 // XXX We need to include this here to ensure that DefaultDeleter for Servo
@@ -130,6 +131,7 @@ class InfallibleAllocPolicy;
 class JSObject;
 class JSTracer;
 class PLDHashTable;
+class PolicyContainer;
 class gfxUserFontSet;
 class mozIDOMWindowProxy;
 class nsCachableElementsByNameNodeList;
@@ -165,7 +167,7 @@ class nsIInputStream;
 class nsILayoutHistoryState;
 class nsIObjectLoadingContent;
 class nsIPermissionDelegateHandler;
-class nsIRadioVisitor;
+class nsIPolicyContainer;
 class nsIRequest;
 class nsIRunnable;
 class nsIScriptGlobalObject;
@@ -182,6 +184,7 @@ class nsTextNode;
 class nsViewManager;
 class nsViewportInfo;
 class nsXULPrototypeDocument;
+class nsXULPrototypeElement;
 struct JSContext;
 struct nsFont;
 
@@ -199,6 +202,7 @@ class FullscreenExit;
 class FullscreenRequest;
 class HTMLEditor;
 struct LangGroupFontPrefs;
+class PendingFullscreenEvent;
 class PermissionDelegateHandler;
 class PresShell;
 class ScrollTimelineAnimationTracker;
@@ -223,6 +227,7 @@ class Rule;
 namespace dom {
 class AnonymousContent;
 class Attr;
+class AutoSuppressNotifyingDevToolsOfNodeRemovals;
 class XULBroadcastManager;
 class XULPersist;
 class BrowserBridgeChild;
@@ -255,7 +260,7 @@ class HTMLDialogElement;
 class HTMLSharedElement;
 class HTMLVideoElement;
 class HTMLImageElement;
-class ImageTracker;
+class IntegrityPolicy;
 enum class InteractiveWidget : uint8_t;
 struct LifecycleCallbackArgs;
 class Link;
@@ -266,6 +271,7 @@ class NodeFilter;
 class NodeInfo;
 class NodeIterator;
 enum class OrientationType : uint8_t;
+enum class PopoverAttributeState : uint8_t;
 class ProcessingInstruction;
 class Promise;
 class ScriptLoader;
@@ -284,7 +290,7 @@ class TrustedHTMLOrString;
 class OwningTrustedHTMLOrString;
 enum class ViewportFitType : uint8_t;
 class ViewTransition;
-class ViewTransitionUpdateCallback;
+class ViewTransitionUpdateCallbackOrStartViewTransitionOptions;
 class WakeLockSentinel;
 class WindowContext;
 class WindowGlobalChild;
@@ -323,12 +329,10 @@ enum BFCacheStatus {
   BEFOREUNLOAD_LISTENER = 1 << 15,       // Status 15
   ACTIVE_LOCK = 1 << 16,                 // Status 16
   ACTIVE_WEBTRANSPORT = 1 << 17,         // Status 17
+  PAGE_LOADING = 1 << 18,                // Status 18
 };
 
 }  // namespace dom
-namespace glean::perf {
-struct PageLoadExtra;
-}
 }  // namespace mozilla
 
 namespace mozilla::net {
@@ -340,6 +344,8 @@ class EarlyHintConnectArgs;
 #define NS_IDOCUMENT_IID \
   {0xce1f7627, 0x7109, 0x4977, {0xba, 0x77, 0x49, 0x0f, 0xfd, 0xe0, 0x7a, 0xaa}}
 
+using mozilla::performance::pageload_event::PageloadEventData;
+
 namespace mozilla::dom {
 
 class Document;
@@ -350,15 +356,16 @@ class PostMessageEvent;
 
 #define DEPRECATED_OPERATION(_op) e##_op,
 enum class DeprecatedOperations : uint16_t {
-#include "nsDeprecatedOperationList.h"
+#include "nsDeprecatedOperationList.inc"
   eDeprecatedOperationCount
 };
 #undef DEPRECATED_OPERATION
 
 class ExternalResourceMap {
-  using SubDocEnumFunc = FunctionRef<CallState(Document&)>;
-
  public:
+  using SubDocEnumFunc = FunctionRef<CallState(Document&)>;
+  using SubDocTestFunc = FunctionRef<bool(const Document* aDocument)>;
+
   /**
    * A class that represents an external resource load that has begun but
    * doesn't have a document yet.  Observers can be registered on this object,
@@ -399,7 +406,11 @@ class ExternalResourceMap {
    * Enumerate the resource documents.  See
    * Document::EnumerateExternalResources.
    */
-  void EnumerateResources(SubDocEnumFunc aCallback);
+  void EnumerateResources(SubDocEnumFunc aCallback) const;
+
+  /** Recursively collect subresources and their subdocuments too */
+  void CollectDescendantDocuments(nsTArray<RefPtr<Document>>& aDocs,
+                                  SubDocTestFunc) const;
 
   /**
    * Traverse ourselves for cycle-collection
@@ -535,6 +546,14 @@ enum class SheetPreloadStatus : uint8_t {
 
 //----------------------------------------------------------------------
 
+enum class LoadedAsData : uint8_t {
+  // Not "loaded as data"
+  No,
+  // The "loaded as data" case: scripting disabled and CSS loader creation made
+  // lazy
+  AsData,
+};
+
 // Document interface.  This is implemented by all document objects in
 // Gecko.
 class Document : public nsINode,
@@ -548,7 +567,7 @@ class Document : public nsINode,
   friend class LinkedListElement<Document>;
 
  protected:
-  explicit Document(const char* aContentType);
+  Document(const char* aContentType, LoadedAsData aLoadedAsData);
   virtual ~Document();
 
   Document(const Document&) = delete;
@@ -569,7 +588,7 @@ class Document : public nsINode,
    */
   static void Shutdown();
 
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IDOCUMENT_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_IDOCUMENT_IID)
 
   NS_DECL_ISUPPORTS_INHERITED
   NS_IMETHOD_(void) DeleteCycleCollectable() override;
@@ -651,6 +670,8 @@ class Document : public nsINode,
     }
   };
 
+  void ApplyCspFromLoadInfo(nsILoadInfo* aLoadInfo);
+
   /**
    * Let the document know that we're starting to load data into it.
    * @param aCommand The parser command. Must not be null.
@@ -695,10 +716,16 @@ class Document : public nsINode,
   virtual bool SuppressParserErrorConsoleMessages() { return false; }
 
   // nsINode
-  void InsertChildBefore(nsIContent* aKid, nsIContent* aBeforeThis,
-                         bool aNotify, ErrorResult& aRv) override;
+  void InsertChildBefore(
+      nsIContent* aKid, nsIContent* aBeforeThis, bool aNotify, ErrorResult& aRv,
+      nsINode* aOldParent = nullptr,
+      MutationEffectOnScript aMutationEffectOnScript =
+          MutationEffectOnScript::DropTrustWorthiness) override;
   void RemoveChildNode(nsIContent* aKid, bool aNotify,
-                       const BatchRemovalState* = nullptr) final;
+                       const BatchRemovalState* = nullptr,
+                       nsINode* aNewParent = nullptr,
+                       MutationEffectOnScript aMutationEffectOnScript =
+                           MutationEffectOnScript::DropTrustWorthiness) final;
   nsresult Clone(dom::NodeInfo* aNodeInfo, nsINode** aResult) const override {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
@@ -742,13 +769,6 @@ class Document : public nsINode,
   nsIURI* GetOriginalURI() const { return mOriginalURI; }
 
   /**
-   * Return the base domain of the document.  This has been computed using
-   * mozIThirdPartyUtil::GetBaseDomain() and can be used for third-party
-   * checks.  When the URI of the document changes, this value is recomputed.
-   */
-  nsCString GetBaseDomain() const { return mBaseDomain; }
-
-  /**
    * Set the URI for the document.  This also sets the document's original URI,
    * if it's null.
    */
@@ -776,9 +796,6 @@ class Document : public nsINode,
    * available yet, hence we sync CSP of document and Client when the
    * Client becomes available within nsGlobalWindowInner::EnsureClientSource().
    */
-  nsIContentSecurityPolicy* GetCsp() const;
-  void SetCsp(nsIContentSecurityPolicy* aCSP);
-
   nsIContentSecurityPolicy* GetPreloadCsp() const;
   void SetPreloadCsp(nsIContentSecurityPolicy* aPreloadCSP);
 
@@ -788,6 +805,9 @@ class Document : public nsINode,
    * Set referrer policy and upgrade-insecure-requests flags
    */
   void ApplySettingsFromCSP(bool aSpeculative);
+
+  nsIPolicyContainer* GetPolicyContainer() const;
+  void SetPolicyContainer(nsIPolicyContainer* aPolicyContainer);
 
   already_AddRefed<nsIParser> CreatorParserOrNull() {
     nsCOMPtr<nsIParser> parser = mParser;
@@ -815,6 +835,16 @@ class Document : public nsINode,
    * GetReferrerPolicy() for Document.webidl.
    */
   ReferrerPolicyEnum ReferrerPolicy() const { return GetReferrerPolicy(); }
+
+  /**
+   * The referrer policy that was used for the fetch of this document, what the
+   * spec calls "request referrer policy". Not to be confused with the history
+   * policy container's referrer policy, which dictates the policy for fetches
+   * made by this document (see ReferrerPolicy()).
+   *
+   * See: https://html.spec.whatwg.org/#document-state-request-referrer-policy
+   */
+  ReferrerPolicyEnum ReferrerPolicyUsedToFetchThisDocument() const;
 
   /**
    * If true, this flag indicates that all mixed content subresource
@@ -998,24 +1028,72 @@ class Document : public nsINode,
    */
   void SetBidiEnabled() { mBidiEnabled = true; }
 
-  void SetMathMLEnabled() { mMathMLEnabled = true; }
-
   /**
-   * Ask this document whether it's the initial document in its window.
+   * Whether a document is the initial document in its window, and if so,
+   * which stage of initialness it is in.
    */
-  bool IsInitialDocument() const { return mIsInitialDocumentInWindow; }
+  enum class InitialStatus : uint8_t {
+    // The first stage of an initial document. No navigation has occured,
+    // we might navigate away or commit to this document by firing load.
+    IsInitialUncommitted,
+    // An explicit navigation to `about:blank` occured. Load was fired or will
+    // be soon.
+    IsInitialCommitted,
+    // document.open() was called on the initial document.
+    IsInitialButExplicitlyOpened,
+    // This document is not initial
+    NeverInitial,
+  };
 
   /**
-   * Ask this document whether it has ever been a initial document in its
+   * Ask this document if the "is initial about:blank" flag is set, i.e.
+   * it is the initial document in its window.
+   * https://html.spec.whatwg.org/#is-initial-about:blank
+   */
+  bool IsInitialDocument() const {
+    return mInitialStatus == InitialStatus::IsInitialUncommitted ||
+           mInitialStatus == InitialStatus::IsInitialCommitted;
+  }
+
+  /**
+   * Ask this document whether it has ever been an initial document in its
    * window.
    */
-  bool IsEverInitialDocument() const { return mIsEverInitialDocumentInWindow; }
+  bool IsEverInitialDocument() const {
+    return mInitialStatus != InitialStatus::NeverInitial;
+  }
 
   /**
-   * Tell this document that it's the initial document in its window.  See
-   * comments on mIsInitialDocumentInWindow for when this should be called.
+   * Ask this document whether it is the initial document in its window and
+   * no navigation to about:blank has yet occured that would cause us to commit
+   * to it.
    */
-  void SetIsInitialDocument(bool aIsInitialDocument);
+  bool IsUncommittedInitialDocument() const {
+    return mInitialStatus == InitialStatus::IsInitialUncommitted;
+  }
+
+  InitialStatus GetInitialStatus() const { return mInitialStatus; }
+
+  /**
+   * Tell this document whether it's the initial document in its window.
+   * Should be called when creating the initial `about:blank`, when committing
+   * to it, and from `document.open()`.
+   */
+  void SetInitialStatus(Document::InitialStatus aStatus);
+
+  /**
+   * Returns true if this is the initial document in its window
+   * and we are currently committing to it.
+   */
+  bool InitialAboutBlankLoadCompleting() const {
+    return mInitialAboutBlankLoadCompleting;
+  }
+
+  void BeginInitialAboutBlankLoadCompleting(nsIChannel* aChannel);
+
+  void EndInitialAboutBlankLoadCompleting() {
+    mInitialAboutBlankLoadCompleting = false;
+  }
 
   void SetLoadedAsData(bool aLoadedAsData, bool aConsiderForMemoryReporting);
 
@@ -1145,7 +1223,7 @@ class Document : public nsINode,
    * presshell if the presshell should observe document mutations.
    */
   MOZ_CAN_RUN_SCRIPT already_AddRefed<PresShell> CreatePresShell(
-      nsPresContext* aContext, nsViewManager* aViewManager);
+      nsPresContext* aContext, nsSubDocumentFrame* aEmbedderFrame);
   void DeletePresShell();
 
   PresShell* GetPresShell() const {
@@ -1235,19 +1313,13 @@ class Document : public nsINode,
 
   StorageAccessAPIHelper::PerformPermissionGrant CreatePermissionGrantPromise(
       nsPIDOMWindowInner* aInnerWindow, nsIPrincipal* aPrincipal,
-      bool aHasUserInteraction, bool aRequireUserInteraction,
-      const Maybe<nsCString>& aTopLevelBaseDomain, bool aFrameOnly);
+      bool aHasUserInteraction, bool aRequireUserInteraction, bool aFrameOnly);
 
   already_AddRefed<Promise> RequestStorageAccess(ErrorResult& aRv);
 
   already_AddRefed<Promise> RequestStorageAccessForOrigin(
       const nsAString& aThirdPartyOrigin, const bool aRequireUserInteraction,
       ErrorResult& aRv);
-
-  already_AddRefed<Promise> RequestStorageAccessUnderSite(
-      const nsAString& aSerializedSite, ErrorResult& aRv);
-  already_AddRefed<Promise> CompleteStorageAccessRequestFromSite(
-      const nsAString& aSerializedOrigin, ErrorResult& aRv);
 
   bool UseRegularPrincipal() const;
 
@@ -1301,20 +1373,18 @@ class Document : public nsINode,
    */
   nsresult GetSrcdocData(nsAString& aSrcdocData);
 
-  already_AddRefed<AnonymousContent> InsertAnonymousContent(bool aForce,
-                                                            ErrorResult&);
+  already_AddRefed<AnonymousContent> InsertAnonymousContent(ErrorResult&);
   void RemoveAnonymousContent(AnonymousContent&);
-  /**
-   * If aNode is a descendant of anonymous content inserted by
-   * InsertAnonymousContent, this method returns the root element of the
-   * inserted anonymous content (in other words, the clone of the aElement
-   * that was passed to InsertAnonymousContent).
-   */
-  Element* GetAnonRootIfInAnonymousContentContainer(nsINode* aNode) const;
   nsTArray<RefPtr<AnonymousContent>>& GetAnonymousContents() {
     return mAnonymousContents;
   }
+  Element* GetCustomContentContainer() const { return mCustomContentContainer; }
 
+ private:
+  void CreateCustomContentContainerIfNeeded();
+  void RemoveCustomContentContainer();
+
+ public:
   TimeStamp GetPageUnloadingEventTimeStamp() const {
     if (!mParentDocument) {
       return mPageUnloadingEventTimeStamp;
@@ -1405,6 +1475,12 @@ class Document : public nsINode,
 
   // Returns the cookie jar settings for this and sub contexts.
   nsICookieJarSettings* CookieJarSettings();
+
+  // Set the cookieJarSettings to the document.
+  void SetCookieJarSettings(nsICookieJarSettings* aCookieJarSettings) {
+    MOZ_ASSERT(aCookieJarSettings);
+    mCookieJarSettings = aCookieJarSettings;
+  }
 
   // Returns whether this document is using unpartitioned cookies
   bool UsingStorageAccess();
@@ -1523,9 +1599,12 @@ class Document : public nsINode,
  protected:
   friend class nsUnblockOnloadEvent;
 
+  nsresult InitPolicyContainer(nsIChannel* aChannel);
   nsresult InitCSP(nsIChannel* aChannel);
+  nsresult InitIntegrityPolicy(nsIChannel* aChannel);
   nsresult InitCOEP(nsIChannel* aChannel);
   nsresult InitDocPolicy(nsIChannel* aChannel);
+  nsresult InitTLSCertificateBinding(nsIChannel* aChannel);
 
   nsresult InitReferrerInfo(nsIChannel* aChannel);
 
@@ -1550,7 +1629,7 @@ class Document : public nsINode,
 
   // Call this before the document does something that will unbind all content.
   // That will stop us from doing a lot of work as each element is removed.
-  void DestroyElementMaps();
+  void WillRemoveRoot();
 
   Element* GetRootElementInternal() const;
 
@@ -1694,16 +1773,50 @@ class Document : public nsINode,
   size_t FindDocStyleSheetInsertionPoint(const StyleSheet& aSheet);
 
   /**
-   * Get this document's CSSLoader.  This is guaranteed to not return null.
+   * Get this document's CSSLoader. This is guaranteed not to return null
+   * during normal loads but will return null when loading as data if
+   * EnsureCSSLoader() or EnsureStyleImageLoader() hasn't been
+   * called previously.
    */
-  css::Loader* CSSLoader() const { return mCSSLoader; }
+  css::Loader* GetExistingCSSLoader() const { return mCSSLoader; }
 
   /**
-   * Get this document's StyleImageLoader.  This is guaranteed to not return
-   * null.
+   * Get this document's CSS loader. If it doesn't already exist, which
+   * is possible in the loaded as data case, this first creates the CSS
+   * loader and style image loader and then returns the former.
    */
-  css::ImageLoader* StyleImageLoader() const { return mStyleImageLoader; }
+  css::Loader& EnsureCSSLoader() {
+    if (!mCSSLoader) {
+      CreateCSSAndStyleImageLoaders();
+    }
+    return *mCSSLoader;
+  }
 
+  /**
+   * Get this document's StyleImageLoader. This is guaranteed not to return null
+   * during normal loads but will return null when loading as data with
+   * styling disabled.
+   */
+  css::ImageLoader* GetExistingStyleImageLoader() const {
+    return mStyleImageLoader;
+  }
+
+  /**
+   * Get this document's style image loader. If it doesn't already exist,
+   * which is possible in the loaded as data case, this first creates the CSS
+   * loader and style image loader and then returns the latter.
+   */
+  css::ImageLoader& EnsureStyleImageLoader() {
+    if (!mStyleImageLoader) {
+      CreateCSSAndStyleImageLoaders();
+    }
+    return *mStyleImageLoader;
+  }
+
+ private:
+  void CreateCSSAndStyleImageLoaders(bool aLazy = true);
+
+ public:
   /**
    * Get the channel that was passed to StartDocumentLoad or Reset for this
    * document.  Note that this may be null in some cases (eg if
@@ -1803,9 +1916,10 @@ class Document : public nsINode,
   }
 
   /**
-   * Get the script loader for this document
+   * Get the script loader for this document. Non-null for normal loads
+   * and null when loaded as data.
    */
-  dom::ScriptLoader* ScriptLoader() { return mScriptLoader; }
+  dom::ScriptLoader* GetScriptLoader() { return mScriptLoader; }
 
   /**
    * Add/Remove an element to the document's id and name hashes
@@ -1814,6 +1928,9 @@ class Document : public nsINode,
   void RemoveFromIdTable(Element* aElement, nsAtom* aId);
   void AddToNameTable(Element* aElement, nsAtom* aName);
   void RemoveFromNameTable(Element* aElement, nsAtom* aName);
+  void AddToDocumentNameTable(nsGenericHTMLElement* aElement, nsAtom* aName);
+  void RemoveFromDocumentNameTable(nsGenericHTMLElement* aElement,
+                                   nsAtom* aName);
 
   /**
    * Returns all elements in the top layer in the insertion order.
@@ -1863,6 +1980,11 @@ class Document : public nsINode,
   MOZ_CAN_RUN_SCRIPT bool TryAutoFocusCandidate(Element& aElement);
 
  public:
+  void SetAncestorOriginsList(nsTArray<nsString>&& aAncestorOriginsList);
+  Span<const nsString> GetAncestorOriginsList() const;
+  // https://html.spec.whatwg.org/#concept-location-ancestor-origins-list
+  already_AddRefed<DOMStringList> AncestorOrigins() const;
+
   // Removes all the elements with fullscreen flag set from the top layer, and
   // clears their fullscreen flag.
   void CleanupFullscreenState();
@@ -1879,6 +2001,10 @@ class Document : public nsINode,
   // Whether we has pending fullscreen request.
   bool HasPendingFullscreenRequests();
 
+  void AddPendingFullscreenEvent(UniquePtr<PendingFullscreenEvent>);
+
+  MOZ_CAN_RUN_SCRIPT void RunFullscreenSteps();
+
   /**
    * When Esc key is pressed, cancel the dialog element if the document is
    * blocked by the dialog or hide popover if popover is shown.
@@ -1891,8 +2017,25 @@ class Document : public nsINode,
    */
   MOZ_CAN_RUN_SCRIPT void ProcessCloseRequest();
 
+  /**
+   * When pointer events on the document occur, close the top-most
+   * light-dismiss dialog as mLastDialogPointerdownTarget.
+   */
+  MOZ_CAN_RUN_SCRIPT void HandleLightDismissOpenDialogs(WidgetEvent*);
+
   void AddModalDialog(HTMLDialogElement&);
   void RemoveModalDialog(HTMLDialogElement&);
+  void AddOpenDialog(HTMLDialogElement&);
+  void RemoveOpenDialog(HTMLDialogElement&);
+  bool HasOpenDialogs() const;
+  HTMLDialogElement* GetTopMostOpenDialog();
+  bool DialogIsInOpenDialogsList(HTMLDialogElement&);
+
+  void SetLastDialogPointerdownTarget(HTMLDialogElement&);
+  void ClearLastDialogPointerdownTarget() {
+    mLastDialogPointerdownTarget = nullptr;
+  }
+  HTMLDialogElement* GetLastDialogPointerdownTarget();
 
   /**
    * Called when a frame in a child process has entered fullscreen or when a
@@ -2169,7 +2312,6 @@ class Document : public nsINode,
   }
   bool IsXMLDocument() const { return !IsHTMLDocument(); }
   bool IsSVGDocument() const { return mType == eSVG; }
-  bool IsUnstyledDocument() { return IsLoadedAsData(); }
   bool LoadsFullXULStyleSheetUpFront() {
     if (IsSVGDocument()) {
       return false;
@@ -2183,6 +2325,10 @@ class Document : public nsINode,
    * Returns true if this document was created from a nsXULPrototypeDocument.
    */
   bool LoadedFromPrototype() const { return mPrototypeDocument; }
+
+  /* Returns true if we're currently in Android's PiP mode. */
+  bool InAndroidPipMode() const;
+
   /**
    * Returns the prototype the document was created from, or null if it was not
    * created from a prototype.
@@ -2200,6 +2346,9 @@ class Document : public nsINode,
   }
 
   void ProcessMETATag(HTMLMetaElement* aMetaElement);
+
+  void TerminateParserAndDisableScripts();
+
   /**
    * Create an element with the specified name, prefix and namespace ID.
    * Returns null if element name parsing failed.
@@ -2249,11 +2398,12 @@ class Document : public nsINode,
   static bool CallerIsTrustedAboutCertError(JSContext* aCx, JSObject* aObject);
 
   /**
-   * This function checks if the privilege storage access api is available for
-   * the caller. We only allow privilege SSA to be called by system principal
-   * and webcompat extension.
+   * This function checks if the caller has access to privileged chrome APIs
+   * such as the storage access API and inAndroidPipMode. We only allow such
+   * APIs to be called by system principal and the built-in webcompat addon.
    */
-  static bool CallerCanAccessPrivilegeSSA(JSContext* aCx, JSObject* aObject);
+  static bool CallerIsSystemPrincipalOrWebCompatAddon(JSContext* aCx,
+                                                      JSObject* aObject);
 
   /**
    * Get the security info (i.e. certificate validity, errorCode, etc) for a
@@ -2303,16 +2453,19 @@ class Document : public nsINode,
    * enumerating, or CallState::Stop to stop.  This will never get passed a null
    * aDocument.
    */
-  using SubDocEnumFunc = FunctionRef<CallState(Document&)>;
+  using SubDocEnumFunc = dom::ExternalResourceMap::SubDocEnumFunc;
   void EnumerateSubDocuments(SubDocEnumFunc aCallback);
 
   /**
    * Collect all the descendant documents for which |aCalback| returns true.
    * The callback function must not mutate any state for the given document.
+   * Note that, unlike EnumerateSubDocuments, this recurses into nested
+   * subdocuments.
    */
-  using nsDocTestFunc = bool (*)(const Document* aDocument);
+  using SubDocTestFunc = dom::ExternalResourceMap::SubDocTestFunc;
+  enum class IncludeSubResources : bool { No, Yes };
   void CollectDescendantDocuments(nsTArray<RefPtr<Document>>& aDescendants,
-                                  nsDocTestFunc aCallback) const;
+                                  IncludeSubResources, SubDocTestFunc) const;
 
   /**
    * Check whether it is safe to cache the presentation of this document
@@ -2352,6 +2505,9 @@ class Document : public nsINode,
    * Destroy() is only called on documents that have a content viewer.
    */
   virtual void Destroy();
+
+  // https://wicg.github.io/document-picture-in-picture/#close-on-destroy
+  void CloseAnyAssociatedDocumentPiPWindows();
 
   /**
    * Notify the document that its associated DocumentViewer is no longer
@@ -2485,19 +2641,6 @@ class Document : public nsINode,
   bool HaveFiredDOMTitleChange() const { return mHaveFiredTitleChange; }
 
   /**
-   * To batch DOMSubtreeModified, document needs to be informed when
-   * a mutation event might be dispatched, even if the event isn't actually
-   * created because there are no listeners for it.
-   *
-   * @param aTarget is the target for the mutation event.
-   */
-  void MayDispatchMutationEvent(nsINode* aTarget) {
-    if (mSubtreeModifiedDepth > 0) {
-      mSubtreeModifiedTargets.AppendObject(aTarget);
-    }
-  }
-
-  /**
    * Marks as not-going-to-be-collected for the given generation of
    * cycle collection.
    */
@@ -2528,7 +2671,7 @@ class Document : public nsINode,
            !NodePrincipal()->SchemeIs("file");
   }
 
-  bool IsLoadedAsData() { return mLoadedAsData; }
+  bool IsLoadedAsData() const { return mLoadedAsData; }
 
   void SetAddedToMemoryReportAsDataDocument() {
     mAddedToMemoryReportingAsDataDocument = true;
@@ -2632,7 +2775,7 @@ class Document : public nsINode,
    * enumerating, or CallState::Stop to stop.  This callback will never get
    * passed a null aDocument.
    */
-  void EnumerateExternalResources(SubDocEnumFunc aCallback);
+  void EnumerateExternalResources(SubDocEnumFunc aCallback) const;
 
   dom::ExternalResourceMap& ExternalResourceMap() {
     return mExternalResourceMap;
@@ -2644,11 +2787,19 @@ class Document : public nsINode,
    * called yet.
    */
   bool IsShowing() const { return mIsShowing; }
+
   /**
    * Return whether the document is currently visible (in the sense of
    * OnPageHide having been called and OnPageShow not yet having been called)
    */
   bool IsVisible() const { return mVisible; }
+
+  /**
+   * Return whether the document has completely finished loading, in the spec
+   * sense. We only store a bool though, whereas spec stores when loading
+   * finished. See https://html.spec.whatwg.org/#completely-loaded-time
+   */
+  bool IsCompletelyLoaded() const { return mIsCompletelyLoaded; }
 
   void SetSuppressedEventListener(EventListener* aListener);
 
@@ -2675,6 +2826,30 @@ class Document : public nsINode,
     nsPIDOMWindowInner* inner = GetInnerWindow();
     return inner && inner->IsCurrentInnerWindow() && inner->GetDoc() == this;
   }
+
+  /*
+   * Return true if the documents current url can be re-written to `aTargetURL`.
+   * This implements https://html.spec.whatwg.org/#can-have-its-url-rewritten.
+   */
+  bool CanRewriteURL(nsIURI* aTargetURL, bool aReportErrors = true) const;
+
+  /**
+   * Return true if this document is fully active as described by spec.
+   * https://html.spec.whatwg.org/multipage/document-sequences.html#fully-active
+   */
+  bool IsFullyActive() const {
+    nsPIDOMWindowInner* inner = GetInnerWindow();
+    return inner && inner->IsFullyActive();
+  }
+
+  /*
+   * Return if this document has been scrolled since the given last scroll
+   * generation.
+   *
+   * Similar to: https://html.spec.whatwg.org/#has-been-scrolled-by-the-user.
+   */
+  bool HasBeenScrolledSince(const uint32_t& aLastScrollGeneration) const;
+  uint32_t LastScrollGeneration() const;
 
   /**
    * Returns whether this document should perform image loads.
@@ -2752,17 +2927,21 @@ class Document : public nsINode,
     return !EventHandlingSuppressed() && mScriptGlobalObject;
   }
 
-  void MaybeScheduleFrameRequestCallbacks();
-  bool ShouldFireFrameRequestCallbacks() const {
-    // If this condition changes make sure to call
-    // MaybeScheduleFrameRequestCallbacks at the right places.
-    return mPresShell && IsEventHandlingEnabled();
+  void MaybeScheduleRenderingPhases(RenderingPhases);
+  void MaybeScheduleRendering() {
+    MaybeScheduleRenderingPhases(AllRenderingPhases());
   }
+  void MaybeScheduleFrameRequestCallbacks() {
+    if (HasFrameRequestCallbacks()) {
+      MaybeScheduleRenderingPhases({RenderingPhase::AnimationFrameCallbacks});
+    }
+  }
+  bool IsRenderingSuppressed() const;
 
   void DecreaseEventSuppression() {
     MOZ_ASSERT(mEventsSuppressed);
     --mEventsSuppressed;
-    MaybeScheduleFrameRequestCallbacks();
+    MaybeScheduleRendering();
   }
 
   /**
@@ -2791,8 +2970,6 @@ class Document : public nsINode,
    * Run any suspended postMessage events, or clear them.
    */
   void FireOrClearPostMessageEvents(bool aFireEvents);
-
-  void SetHasDelayedRefreshEvent() { mHasDelayedRefreshEvent = true; }
 
   /**
    * Flag whether we're about to fire the window's load event for this document.
@@ -2986,13 +3163,6 @@ class Document : public nsINode,
                                   const nsAString& aFetchPriority);
 
   /**
-   * Called by the chrome registry to load style sheets.
-   *
-   * This always does a synchronous load, and parses as a normal document sheet.
-   */
-  RefPtr<StyleSheet> LoadChromeSheetSync(nsIURI* aURI);
-
-  /**
    * Returns true if the locale used for the document specifies a direction of
    * right to left. For chrome documents, this comes from the chrome registry.
    * This is used to determine the current state for the :-moz-locale-dir
@@ -3058,7 +3228,12 @@ class Document : public nsINode,
   using DocumentOrShadowRoot::GetElementsByTagNameNS;
 
   DocumentTimeline* Timeline();
-  LinkedList<DocumentTimeline>& Timelines() { return mTimelines; }
+  const AnimationTimelinesController& TimelinesController() const {
+    return mTimelinesController;
+  }
+  AnimationTimelinesController& TimelinesController() {
+    return mTimelinesController;
+  }
   void UpdateHiddenByContentVisibilityForAnimations();
 
   SVGSVGElement* GetSVGRootElement() const;
@@ -3071,28 +3246,19 @@ class Document : public nsINode,
   void CancelVideoFrameCallbacks(HTMLVideoElement* aElement);
 
   /**
-   * Returns true if the handle refers to a callback that was canceled that
-   * we did not find in our list of callbacks (e.g. because it is one of those
-   * in the set of callbacks currently queued to be run).
-   */
-  bool IsCanceledFrameRequestCallback(uint32_t aHandle) const;
-
-  /**
    * Put this document's video frame request callbacks into the provided
    * list, and forget about them.
    */
   void TakeVideoFrameRequestCallbacks(
       nsTArray<RefPtr<HTMLVideoElement>>& aVideoCallbacks);
 
-  /**
-   * Put this document's frame request callbacks into the provided
-   * list, and forget about them.
-   */
-  void TakeFrameRequestCallbacks(nsTArray<FrameRequest>& aCallbacks);
-
   /** Whether we have any scheduled frame request */
   bool HasFrameRequestCallbacks() const {
     return !mFrameRequestManager.IsEmpty();
+  }
+
+  dom::FrameRequestManager& FrameRequestManager() {
+    return mFrameRequestManager;
   }
 
   /**
@@ -3105,7 +3271,20 @@ class Document : public nsINode,
   // This returns true when the document tree is being teared down.
   bool InUnlinkOrDeletion() { return mInUnlinkOrDeletion; }
 
-  dom::ImageTracker* ImageTracker();
+  void TrackImage(imgIRequest*);
+  enum class RequestDiscard : bool { No = false, Yes };
+  void UntrackImage(imgIRequest*, RequestDiscard = RequestDiscard::No);
+
+  // Makes the images on this document locked/unlocked. By default, the locking
+  // state is unlocked/false.
+  bool GetLockingImages() const { return mLockingImages; }
+  void SetLockingImages(bool);
+
+  // Makes the images on this document capable of having their animation
+  // active or suspended. An Image will animate as long as at least one of its
+  // owning Documents needs it to animate; otherwise it can suspend.
+  void SetImageAnimationState(bool);
+  void PropagateMediaFeatureChangeToTrackedImages(const MediaFeatureChange&);
 
   // Adds an element to mResponsiveContent when the element is
   // added to the tree.
@@ -3167,8 +3346,9 @@ class Document : public nsINode,
 
   void SetNavigationTiming(nsDOMNavigationTiming* aTiming);
 
-  inline void SetPageloadEventFeature(uint32_t aFeature) {
-    mPageloadEventFeatures |= aFeature;
+  inline void SetPageloadEventFeature(
+      performance::pageload_event::DocumentFeature aFeature) {
+    mPageloadEventData.SetDocumentFeature(aFeature);
   }
 
   nsContentList* ImageMapList();
@@ -3186,7 +3366,7 @@ class Document : public nsINode,
 
 #define DOCUMENT_WARNING(_op) e##_op,
   enum DocumentWarnings {
-#include "nsDocumentWarningList.h"
+#include "nsDocumentWarningList.inc"
     eDocumentWarningCount
   };
 #undef DOCUMENT_WARNING
@@ -3205,6 +3385,9 @@ class Document : public nsINode,
 
   // Posts an event to call UpdateVisibilityState.
   void PostVisibilityUpdateEvent();
+
+  // https://html.spec.whatwg.org/#reveal
+  void Reveal();
 
   bool IsSyntheticDocument() const { return mIsSyntheticDocument; }
 
@@ -3348,10 +3531,10 @@ class Document : public nsINode,
   void Close(mozilla::ErrorResult& rv);
   MOZ_CAN_RUN_SCRIPT void Write(
       const mozilla::dom::Sequence<OwningTrustedHTMLOrString>& aText,
-      mozilla::ErrorResult& rv);
+      nsIPrincipal* aSubjectPrincipal, mozilla::ErrorResult& rv);
   MOZ_CAN_RUN_SCRIPT void Writeln(
       const mozilla::dom::Sequence<OwningTrustedHTMLOrString>& aText,
-      mozilla::ErrorResult& rv);
+      nsIPrincipal* aSubjectPrincipal, mozilla::ErrorResult& rv);
   Nullable<WindowProxyHolder> GetDefaultView() const;
   Element* GetActiveElement();
   enum class IncludeChromeOnly : bool { No, Yes };
@@ -3388,7 +3571,7 @@ class Document : public nsINode,
   MOZ_CAN_RUN_SCRIPT bool QueryCommandState(const nsAString& aHTMLCommandName,
                                             mozilla::ErrorResult& aRv);
   MOZ_CAN_RUN_SCRIPT bool QueryCommandSupported(
-      const nsAString& aHTMLCommandName, mozilla::dom::CallerType aCallerType,
+      const nsAString& aHTMLCommandName, nsIPrincipal& aSubjectPrincipal,
       mozilla::ErrorResult& aRv);
   MOZ_CAN_RUN_SCRIPT void QueryCommandValue(const nsAString& aHTMLCommandName,
                                             nsAString& aValue,
@@ -3414,31 +3597,41 @@ class Document : public nsINode,
   MOZ_CAN_RUN_SCRIPT void GetWireframe(bool aIncludeNodes,
                                        Nullable<Wireframe>&);
 
+  // https://html.spec.whatwg.org/#close-entire-popover-list
+  MOZ_CAN_RUN_SCRIPT void CloseEntirePopoverList(PopoverAttributeState aMode,
+                                                 bool aFocusPreviousElement,
+                                                 bool aFireEvents);
+
   // Hides all popovers until the given end point, see
   // https://html.spec.whatwg.org/multipage/popover.html#hide-all-popovers-until
   MOZ_CAN_RUN_SCRIPT void HideAllPopoversUntil(nsINode& aEndpoint,
                                                bool aFocusPreviousElement,
                                                bool aFireEvents);
 
+  // Hides all popovers, until the given end point, see
+  // https://html.spec.whatwg.org/#hide-popover-stack-until
+  MOZ_CAN_RUN_SCRIPT void HidePopoverStackUntil(PopoverAttributeState aMode,
+                                                nsINode& aEndpoint,
+                                                bool aFocusPreviousElement,
+                                                bool aFireEvents);
+
   // Hides the given popover element, see
   // https://html.spec.whatwg.org/multipage/popover.html#hide-popover-algorithm
   MOZ_CAN_RUN_SCRIPT void HidePopover(Element& popover,
                                       bool aFocusPreviousElement,
-                                      bool aFireEvents, ErrorResult& aRv);
+                                      bool aFireEvents, Element* aSource,
+                                      ErrorResult& aRv);
 
   // Returns a list of all the elements in the Document's top layer whose
-  // popover attribute is in the auto state.
+  // popover opened in mode is in the given state.
   // See https://html.spec.whatwg.org/multipage/popover.html#auto-popover-list
-  nsTArray<Element*> AutoPopoverList() const;
+  // See https://html.spec.whatwg.org/#showing-hint-popover-list
+  nsTArray<Element*> PopoverListOf(PopoverAttributeState aMode) const;
 
-  // Return document's auto popover list's last element.
+  // Return document's popover list's last element of a particular mode.
   // See
   // https://html.spec.whatwg.org/multipage/popover.html#topmost-auto-popover
-  Element* GetTopmostAutoPopover() const;
-
-  // Adds/removes an element to/from the auto popover list.
-  void AddToAutoPopoverList(Element&);
-  void RemoveFromAutoPopoverList(Element&);
+  Element* GetTopmostPopoverOf(PopoverAttributeState aMode) const;
 
   void AddPopoverToTopLayer(Element&);
   void RemovePopoverFromTopLayer(Element&);
@@ -3476,7 +3669,11 @@ class Document : public nsINode,
   bool Hidden() const { return mVisibilityState != VisibilityState::Visible; }
   dom::VisibilityState VisibilityState() const { return mVisibilityState; }
 
- public:
+  bool RenderingSuppressedForViewTransitions() const {
+    return mRenderingSuppressedForViewTransitions;
+  }
+  void SetRenderingSuppressedForViewTransitions(bool);
+
   void GetSelectedStyleSheetSet(nsAString& aSheetSet);
   void SetSelectedStyleSheetSet(const nsAString& aSheetSet);
   void GetLastStyleSheetSet(nsAString& aSheetSet) {
@@ -3539,17 +3736,20 @@ class Document : public nsINode,
   void SetStyleSheetChangeEventsEnabled(bool aValue) {
     mStyleSheetChangeEventsEnabled = aValue;
   }
-
   bool StyleSheetChangeEventsEnabled() const {
     return mStyleSheetChangeEventsEnabled;
   }
-
   void SetDevToolsAnonymousAndShadowEventsEnabled(bool aValue) {
     mDevToolsAnonymousAndShadowEventsEnabled = aValue;
   }
   bool DevToolsAnonymousAndShadowEventsEnabled() const {
     return mDevToolsAnonymousAndShadowEventsEnabled;
   }
+  void SetPausedByDevTools(bool aValue) { mPausedByDevTools = aValue; }
+  bool PausedByDevTools() const { return mPausedByDevTools; }
+
+  void SetForceNonNativeTheme(bool);
+  bool ForceNonNativeTheme() const { return mForceNonNativeTheme; }
 
   already_AddRefed<Promise> BlockParsing(Promise& aPromise,
                                          const BlockParsingOptions& aOptions,
@@ -3582,7 +3782,7 @@ class Document : public nsINode,
   void SetDevToolsWatchingDOMMutations(bool aValue);
 
   // https://drafts.csswg.org/cssom-view/#evaluate-media-queries-and-report-changes
-  void EvaluateMediaQueriesAndReportChanges(bool aRecurse);
+  void EvaluateMediaQueriesAndReportChanges();
 
   nsTHashSet<RefPtr<WakeLockSentinel>>& ActiveWakeLocks(WakeLockType aType);
 
@@ -3637,6 +3837,12 @@ class Document : public nsINode,
   // effect once per document, and so is called during document destruction.
   void ReportDocumentUseCounters();
 
+  // Report the names of the HTMLDocument properties that had
+  // been shadowed using ID/name, and which were subsequently accessed
+  // ("DOM clobbering"). This data is collected by the corresponding NamedGetter
+  // method and limited to 10 unique entries.
+  void ReportShadowedProperties();
+
   // Reports largest contentful paint via telemetry. We want the most up to
   // date value for LCP and so this is called during document destruction.
   void ReportLCP();
@@ -3670,10 +3876,17 @@ class Document : public nsINode,
   // can.
   void PropagateImageUseCounters(Document* aReferencingDocument);
 
+  void CollectShadowedHTMLFormElementProperty(const nsAString& aName);
+
   // Called to track whether this document has had any interaction.
   // This is used to track whether we should permit "beforeunload".
+  // Note: These APIs are deprecated (bug 1766214), and should not be used in
+  // new code. Please use HasBeenUserGestureActivated() or
+  // HasValidTransientUserGestureActivation() APIs which align with the spec
+  // (https://html.spec.whatwg.org/multipage/interaction.html#tracking-user-activation)
+  // more and also support fission nicer.
   void SetUserHasInteracted();
-  bool UserHasInteracted() { return mUserHasInteracted; }
+  bool UserHasInteracted() const { return mUserHasInteracted; }
   void ResetUserInteractionTimer();
 
   // Whether we're cloning the contents of an SVG use element.
@@ -3682,9 +3895,14 @@ class Document : public nsINode,
   // If this is true, we're ignoring scrolling to a fragment.
   bool ForceLoadAtTop() const { return mForceLoadAtTop; }
 
-  // https://html.spec.whatwg.org/#concept-document-fire-mutation-events-flag
-  bool FireMutationEvents() const { return mFireMutationEvents; }
-  void SetFireMutationEvents(bool aFire) { mFireMutationEvents = aFire; }
+  /**
+   * Return false if it's allowed to notify DevTools of node removals in this
+   * document.
+   */
+  [[nodiscard]] bool SuppressedNotifyingDevToolsOfNodeRemovals() const {
+    return mSuppressNotifyingDevToolsOfNodeRemovals;
+  }
+  friend class AutoSuppressNotifyingDevToolsOfNodeRemovals;
 
   // https://w3c.github.io/trusted-types/dist/spec/#require-trusted-types-for-csp-directive
   bool HasPolicyWithRequireTrustedTypesForDirective() const {
@@ -3698,10 +3916,6 @@ class Document : public nsINode,
   bool IsClipboardCopyTriggered() const { return mClipboardCopyTriggered; }
   void ClearClipboardCopyTriggered() { mClipboardCopyTriggered = false; }
   void SetClipboardCopyTriggered() { mClipboardCopyTriggered = true; }
-
-  // Even if mutation events are disabled by default,
-  // dom.mutation_events.forceEnable can be used to enable them per site.
-  bool MutationEventsEnabled();
 
   // This should be called when this document receives events which are likely
   // to be user interaction with the document, rather than the byproduct of
@@ -3748,7 +3962,10 @@ class Document : public nsINode,
 
   bool HasScriptsBlockedBySandbox() const;
 
-  void ReportHasScrollLinkedEffect(const TimeStamp& aTimeStamp);
+  enum class ReportToConsole : bool { No, Yes };
+  void ReportHasScrollLinkedEffect(
+      const TimeStamp& aTimeStamp,
+      ReportToConsole aReportToConsole = ReportToConsole::Yes);
   bool HasScrollLinkedEffect() const;
 
 #ifdef DEBUG
@@ -3816,10 +4033,23 @@ class Document : public nsINode,
   // The URLs passed to this function should match what
   // JS::DescribeScriptedCaller() returns, since this API is used to
   // determine whether some code is being called from a tracking script.
-  void NoteScriptTrackingStatus(const nsACString& aURL, bool isTracking);
+  void NoteScriptTrackingStatus(const nsACString& aURL,
+                                net::ClassificationFlags& aFlags);
   // The JSContext passed to this method represents the context that we want to
   // determine if it belongs to a tracker.
   bool IsScriptTracking(JSContext* aCx) const;
+
+  // Acquires the script tracking flags for the currently executing script. If
+  // the currently executing script is not a tracker, it will return the
+  // classification flags of the document.
+  net::ClassificationFlags GetScriptTrackingFlags() const;
+
+  net::ClassificationFlags GetClassificationFlags() {
+    return mClassificationFlags;
+  }
+  void SetClassificationFlags(net::ClassificationFlags aFlags) {
+    mClassificationFlags = aFlags;
+  }
 
   // ResizeObserver usage.
   void AddResizeObserver(ResizeObserver& aObserver) {
@@ -3832,7 +4062,7 @@ class Document : public nsINode,
   }
   bool HasResizeObservers() const { return !mResizeObservers.IsEmpty(); }
 
-  void ScheduleResizeObserversNotification() const;
+  void ScheduleResizeObserversNotification();
   /**
    * Calls GatherActiveObservations(aDepth) for all ResizeObservers.
    * All observations in each ResizeObserver with element's depth more than
@@ -3864,14 +4094,17 @@ class Document : public nsINode,
   DetermineProximityToViewportAndNotifyResizeObservers();
 
   already_AddRefed<ViewTransition> StartViewTransition(
-      const Optional<OwningNonNull<ViewTransitionUpdateCallback>>&);
+      const ViewTransitionUpdateCallbackOrStartViewTransitionOptions&);
   ViewTransition* GetActiveViewTransition() const {
     return mActiveViewTransition;
   }
   void ClearActiveViewTransition();
-  void PerformPendingViewTransitionOperations();
+  MOZ_CAN_RUN_SCRIPT void PerformPendingViewTransitionOperations();
   void EnsureViewTransitionOperationsHappen();
   void MaybeSkipTransitionAfterVisibilityChange();
+
+  void ScheduleViewTransitionUpdateCallback(ViewTransition* aVt);
+  MOZ_CAN_RUN_SCRIPT void FlushViewTransitionUpdateCallbackQueue();
 
   // Getter for PermissionDelegateHandler. Performs lazy initialization.
   PermissionDelegateHandler* GetPermissionDelegateHandler();
@@ -3984,6 +4217,8 @@ class Document : public nsINode,
 
   bool DOMNotificationsSuspended() const { return mSuspendDOMNotifications; }
 
+  bool IsExpectingEndLoad() { return mDidCallBeginLoad; }
+
  protected:
   RefPtr<DocumentL10n> mDocumentL10n;
 
@@ -3996,6 +4231,10 @@ class Document : public nsINode,
 
  private:
   bool IsErrorPage() const;
+
+  // Notifies the pres context that an image we track may have started or
+  // stopped animating.
+  void AnimatedImageStateMaybeChanged(bool aAnimating);
 
   // Takes the bits from mStyleUseCounters if appropriate, and sets them in
   // mUseCounters.
@@ -4091,12 +4330,15 @@ class Document : public nsINode,
     --mThrowOnDynamicMarkupInsertionCounter;
   }
 
+  // https://html.spec.whatwg.org/#unload-counter
   bool ShouldIgnoreOpens() const { return mIgnoreOpensDuringUnloadCounter; }
 
+  // https://html.spec.whatwg.org/#unload-counter
   void IncrementIgnoreOpensDuringUnloadCounter() {
     ++mIgnoreOpensDuringUnloadCounter;
   }
 
+  // https://html.spec.whatwg.org/#unload-counter
   void DecrementIgnoreOpensDuringUnloadCounter() {
     MOZ_ASSERT(mIgnoreOpensDuringUnloadCounter);
     --mIgnoreOpensDuringUnloadCounter;
@@ -4215,7 +4457,7 @@ class Document : public nsINode,
 
   // Recompute the current resist fingerprinting state. Returns true when
   // the state was changed.
-  bool RecomputeResistFingerprinting();
+  bool RecomputeResistFingerprinting(bool aForceRefreshRTPCallerType = false);
 
   // Recompute the partitionKey for this document if needed. This is for
   // handling the case where the principal of the document is changed during the
@@ -4310,11 +4552,13 @@ class Document : public nsINode,
 
   MOZ_CAN_RUN_SCRIPT void WriteCommon(const nsAString& aText,
                                       bool aNewlineTerminate, bool aIsTrusted,
+                                      nsIPrincipal* aSubjectPrincipal,
                                       mozilla::ErrorResult& aRv);
   // A version of WriteCommon used by WebIDL bindings
   MOZ_CAN_RUN_SCRIPT void WriteCommon(
       const mozilla::dom::Sequence<OwningTrustedHTMLOrString>& aText,
-      bool aNewlineTerminate, mozilla::ErrorResult& rv);
+      bool aNewlineTerminate, nsIPrincipal* aSubjectPrincipal,
+      mozilla::ErrorResult& rv);
 
   void* GenerateParserKey(void);
 
@@ -4437,6 +4681,7 @@ class Document : public nsINode,
    *                            execCommand().
    * @param aValue              The value which is set to the 3rd parameter
    *                            of execCommand().
+   * @param aSubjectPrincipal   Principal used for execCommand().
    * @param aRv                 ErrorResult used for Trusted Type conversion.
    * @param aAdjustedValue      [out] Must be empty string if set non-nullptr.
    *                            Will be set to adjusted value for executing
@@ -4452,7 +4697,8 @@ class Document : public nsINode,
    */
   MOZ_CAN_RUN_SCRIPT InternalCommandData ConvertToInternalCommand(
       const nsAString& aHTMLCommandName,
-      const TrustedHTMLOrString* aValue = nullptr, ErrorResult* aRv = nullptr,
+      const TrustedHTMLOrString* aValue = nullptr,
+      nsIPrincipal* aSubjectPrincipal = nullptr, ErrorResult* aRv = nullptr,
       nsAString* aAdjustedValue = nullptr);
 
   /**
@@ -4520,16 +4766,6 @@ class Document : public nsINode,
   // Never ever call this. Only call AllowXULXBL!
   bool InternalAllowXULXBL();
 
-  /**
-   * These methods should be called before and after dispatching
-   * a mutation event.
-   * To make this easy and painless, use the mozAutoSubtreeModified helper
-   * class.
-   */
-  void WillDispatchMutationEvent(nsINode* aTarget);
-  void MutationEventDispatched(nsINode* aTarget);
-  friend class mozAutoSubtreeModified;
-
   virtual Element* GetNameSpaceElement() override { return GetRootElement(); }
 
   nsCString GetContentTypeInternal() const { return mContentType; }
@@ -4561,6 +4797,10 @@ class Document : public nsINode,
 
   nsCOMPtr<nsIReferrerInfo> mPreloadReferrerInfo;
   nsCOMPtr<nsIReferrerInfo> mReferrerInfo;
+  // A request referrer policy, which is a referrer policy, initially the
+  // default referrer policy.
+  ReferrerPolicyEnum mRequestReferrerPolicy =
+      ReferrerPolicyEnum::Strict_origin_when_cross_origin;
 
   nsString mLastModified;
 
@@ -4569,9 +4809,6 @@ class Document : public nsINode,
   nsCOMPtr<nsIURI> mChromeXHRDocURI;
   nsCOMPtr<nsIURI> mDocumentBaseURI;
   nsCOMPtr<nsIURI> mChromeXHRDocBaseURI;
-
-  // The base domain of the document for third-party checks.
-  nsCString mBaseDomain;
 
   // A lazily-constructed URL data for style system to resolve URL values.
   RefPtr<URLExtraData> mCachedURLData;
@@ -4606,7 +4843,7 @@ class Document : public nsINode,
   RefPtr<AttributeStyles> mAttributeStyles;
 
   // Tracking for images in the document.
-  RefPtr<dom::ImageTracker> mImageTracker;
+  nsTHashMap<nsPtrHashKey<imgIRequest>, uint32_t> mTrackedImages;
 
   // A hashtable of ShadowRoots belonging to the composed doc.
   //
@@ -4684,6 +4921,13 @@ class Document : public nsINode,
   // GetPermissionDelegateHandler
   RefPtr<PermissionDelegateHandler> mPermissionDelegateHandler;
 
+  // https://html.spec.whatwg.org/#is-initial-about:blank
+  // Track the initial about:blank status of this document.
+  // We track both whether the document was previously initial,
+  // and whether it is an initial about:blank which has had document.open called
+  // on it (see bug 1995397).
+  InitialStatus mInitialStatus;
+
   bool mCachedStateObjectValid : 1;
   bool mBlockAllMixedContent : 1;
   bool mBlockAllMixedContentPreloads : 1;
@@ -4691,29 +4935,26 @@ class Document : public nsINode,
   bool mUpgradeInsecurePreloads : 1;
   bool mDevToolsWatchingDOMMutations : 1;
 
+  // Indicates whether this document is normal as in navigation or loaded as
+  // data as in XHR or DOMParser.
+  bool mLoadedAsData : 1;
+
+  // https://drafts.csswg.org/css-view-transitions-1/#document-rendering-suppression-for-view-transitions
+  bool mRenderingSuppressedForViewTransitions : 1;
+
   // True if BIDI is enabled.
   bool mBidiEnabled : 1;
   // True if we may need to recompute the language prefs for this document.
   bool mMayNeedFontPrefsUpdate : 1;
-  // True if a MathML element has ever been owned by this document.
-  bool mMathMLEnabled : 1;
 
-  // True if this document is the initial document for a window.  This should
-  // basically be true only for documents that exist in newly-opened windows or
-  // documents created to satisfy a GetDocument() on a window when there's no
-  // document in it.
-  bool mIsInitialDocumentInWindow : 1;
-
-  // True if this document has ever been the initial document for a window. This
-  // is useful to determine if a document that was the initial document at one
-  // point, and became non-initial later.
-  bool mIsEverInitialDocumentInWindow : 1;
+  // True if we are trying to fire the load event for the initial about:blank.
+  // Since the initial about:blank is already in READYSTATE_COMPLETE when
+  // firing the load event, a different indicator is needed.
+  // IsInitialDocument() isn't a sufficient indicator, because it
+  // remains set, when navigating back in history.
+  bool mInitialAboutBlankLoadCompleting : 1;
 
   bool mIgnoreDocGroupMismatches : 1;
-
-  // True if we're loaded as data and therefor has any dangerous stuff, such
-  // as scripts and plugins, disabled.
-  bool mLoadedAsData : 1;
 
   // True if the document is considered for memory reporting as a
   // data document
@@ -4736,6 +4977,10 @@ class Document : public nsINode,
   // OnPageHide happens, and becomes true again when OnPageShow happens.  So
   // it's false only when we're in bfcache or unloaded.
   bool mVisible : 1;
+
+  // State for IsCompletelyLoaded. Starts off false and becomes true after
+  // pageshow has fired. Doesn't reset after that.
+  bool mIsCompletelyLoaded : 1;
 
   // True if our content viewer has been removed from the docshell
   // (it may still be displayed, but in zombie state). Form control data
@@ -4805,6 +5050,11 @@ class Document : public nsINode,
   // will be dispatched for this document.
   bool mDevToolsAnonymousAndShadowEventsEnabled : 1;
 
+  // Whether DevTools is pausing the page (in which case we don't really want to
+  // stop rendering).
+  bool mPausedByDevTools : 1;
+  // If true, (-moz-native-theme) media query always evaluates to false.
+  bool mForceNonNativeTheme : 1;
   // Whether the document was created by a srcdoc iframe.
   bool mIsSrcdocDocument : 1;
 
@@ -4864,6 +5114,7 @@ class Document : public nsINode,
 
   bool mDelayFrameLoaderInitialization : 1;
 
+  // True if we should fire load events synchronously
   bool mSynchronousDOMContentLoaded : 1;
 
   // Set to true when the document is possibly controlled by the ServiceWorker.
@@ -4878,6 +5129,9 @@ class Document : public nsINode,
   bool mValidMaxScale : 1;
   bool mWidthStrEmpty : 1;
 
+  bool mLockingImages : 1;
+  bool mAnimatingImages : 1;
+
   // Parser aborted. True if the parser of this document was forcibly
   // terminated instead of letting it finish at its own pace.
   bool mParserAborted : 1;
@@ -4891,10 +5145,6 @@ class Document : public nsINode,
   bool mReportedDocumentUseCounters : 1;
 
   bool mHasReportedShadowDOMUsage : 1;
-
-  // Whether an event triggered by the refresh driver was delayed because this
-  // document has suppressed events.
-  bool mHasDelayedRefreshEvent : 1;
 
   // The HTML spec has a "iframe load in progress" flag, but that doesn't seem
   // to have the right semantics.  See
@@ -4983,7 +5233,7 @@ class Document : public nsINode,
 
   bool mForceLoadAtTop : 1;
 
-  bool mFireMutationEvents : 1;
+  bool mSuppressNotifyingDevToolsOfNodeRemovals : 1;
 
   // Whether the document's CSP contains a require-trusted-types-for directive.
   bool mHasPolicyWithRequireTrustedTypesForDirective : 1;
@@ -4992,7 +5242,8 @@ class Document : public nsINode,
   // while a paste event is being handled in JS.
   bool mClipboardCopyTriggered : 1;
 
-  Maybe<bool> mMutationEventsEnabled;
+  // https://html.spec.whatwg.org/#has-been-revealed
+  bool mHasBeenRevealed : 1;
 
   // The fingerprinting protections overrides for this document. The value will
   // override the default enabled fingerprinting protections for this document.
@@ -5078,14 +5329,13 @@ class Document : public nsINode,
   // The channel that got passed to Document::StartDocumentLoad(), if any.
   nsCOMPtr<nsIChannel> mChannel;
 
-  // The CSP for every load lives in the Client within the LoadInfo. For all
-  // document-initiated subresource loads we can use that cached version of the
-  // CSP so we do not have to deserialize the CSP from the Client all the time.
-  nsCOMPtr<nsIContentSecurityPolicy> mCSP;
   nsCOMPtr<nsIContentSecurityPolicy> mPreloadCSP;
+  RefPtr<PolicyContainer> mPolicyContainer;
 
  private:
   nsCString mContentType;
+
+  nsTArray<nsString> mAncestorOriginsList;
 
  protected:
   // The document's security info
@@ -5104,9 +5354,6 @@ class Document : public nsINode,
   uint32_t mMarkedCCGeneration;
 
   PresShell* mPresShell;
-
-  nsCOMArray<nsINode> mSubtreeModifiedTargets;
-  uint32_t mSubtreeModifiedDepth;
 
   // All images in process of being preloaded.  This is a hashtable so
   // we can remove them as the real image loads start; that way we
@@ -5168,7 +5415,7 @@ class Document : public nsINode,
 
   nsCOMPtr<nsIDocumentEncoder> mCachedEncoder;
 
-  FrameRequestManager mFrameRequestManager;
+  dom::FrameRequestManager mFrameRequestManager;
 
   // This object allows us to evict ourself from the back/forward cache.  The
   // pointer is non-null iff we're currently in the bfcache.
@@ -5185,6 +5432,10 @@ class Document : public nsINode,
   UniquePtr<dom::XPathEvaluator> mXPathEvaluator;
 
   nsTArray<RefPtr<AnonymousContent>> mAnonymousContents;
+
+  // The <div class="moz-custom-content-container"> that we use to wrap all the
+  // mAnonymousContents roots. It's a NAC root, child of the root element.
+  RefPtr<Element> mCustomContentContainer;
 
   uint32_t mBlockDOMContentLoaded;
 
@@ -5216,10 +5467,10 @@ class Document : public nsINode,
 
   RefPtr<nsCommandManager> mMidasCommandManager;
 
-  // The set of all the tracking script URLs.  URLs are added to this set by
+  // The hashmap of all the tracking script URLs.  URLs are added to this map by
   // calling NoteScriptTrackingStatus().  Currently we assume that a URL not
-  // existing in the set means the corresponding script isn't a tracking script.
-  nsTHashSet<nsCString> mTrackingScripts;
+  // existing in the map means the corresponding script isn't a tracking script.
+  nsTHashMap<nsCStringHashKey, net::ClassificationFlags> mTrackingScripts;
 
   // Pointer to our parser if we're currently in the process of being
   // parsed into.
@@ -5303,6 +5554,14 @@ class Document : public nsINode,
   // Stack of top layer elements.
   nsTArray<nsWeakPtr> mTopLayer;
 
+  // Stack of open dialogs
+  // https://html.spec.whatwg.org/#open-dialogs-list
+  nsTArray<HTMLDialogElement*> mOpenDialogs;
+
+  // The last dialog pointer-down target
+  // https://html.spec.whatwg.org/#dialog-pointerdown-target
+  nsWeakPtr mLastDialogPointerdownTarget;
+
   // The root of the doc tree in which this document is in. This is only
   // non-null when this document is in fullscreen mode.
   WeakPtr<Document> mFullscreenRoot;
@@ -5314,8 +5573,11 @@ class Document : public nsINode,
   // A set of responsive images keyed by address pointer.
   nsTHashSet<HTMLImageElement*> mResponsiveContent;
 
+  // The default document timeline associated to this document.
   RefPtr<DocumentTimeline> mDocumentTimeline;
-  LinkedList<DocumentTimeline> mTimelines;
+  // The timeline controller which holds the timelines attached to this
+  // document.
+  AnimationTimelinesController mTimelinesController;
 
   RefPtr<dom::ScriptLoader> mScriptLoader;
 
@@ -5393,7 +5655,9 @@ class Document : public nsINode,
   nsTHashSet<RefPtr<nsAtom>> mLanguagesUsed;
 
   // TODO(emilio): Is this hot enough to warrant to be cached?
-  RefPtr<nsAtom> mLanguageFromCharset;
+  // EncodingToLang.cpp keeps the atom alive until shutdown, so
+  // no need for a RefPtr.
+  nsAtom* mLanguageFromCharset;
 
   // Restyle root for servo's style system.
   //
@@ -5423,8 +5687,12 @@ class Document : public nsINode,
 
   RefPtr<HTMLAllCollection> mAll;
 
+  // The active view transition.
   // https://drafts.csswg.org/css-view-transitions-1/#document-active-view-transition
   RefPtr<ViewTransition> mActiveViewTransition;
+  // The update callback queue.
+  // https://drafts.csswg.org/css-view-transitions-1/#document-update-callback-queue
+  nsTArray<RefPtr<ViewTransition>> mViewTransitionUpdateCallbacks;
 
   nsTHashSet<RefPtr<WorkerDocumentListener>> mWorkerListeners;
 
@@ -5434,6 +5702,8 @@ class Document : public nsINode,
   nsCOMPtr<nsICookieJarSettings> mCookieJarSettings;
 
   bool mHasStoragePermission;
+
+  net::ClassificationFlags mClassificationFlags;
 
   // Document generation. Gets incremented everytime it changes.
   int32_t mGeneration;
@@ -5456,6 +5726,9 @@ class Document : public nsINode,
   // which is required due to its CloneDocHelper() call site.  :-(
   mutable nsCOMPtr<nsIPrincipal> mActiveCookiePrincipal;
 
+  // https://fullscreen.spec.whatwg.org/#list-of-pending-fullscreen-events
+  nsTArray<UniquePtr<PendingFullscreenEvent>> mPendingFullscreenEvents;
+
   // See GetNextFormNumber and GetNextControlNumber.
   int32_t mNextFormNumber;
   int32_t mNextControlNumber;
@@ -5471,21 +5744,21 @@ class Document : public nsINode,
   // See SetNotifyFormOrPasswordRemoved and ShouldNotifyFormOrPasswordRemoved.
   bool mShouldNotifyFormOrPasswordRemoved;
 
-  // Bitfield to be collected in the pageload event, recording relevant features
-  // used in the document
-  uint32_t mPageloadEventFeatures = 0;
+  // Used by the shadowed_html_document_property_access telemetry probe to
+  // collected shadowed HTMLDocument properties. (Limited to 10 entries)
+  nsTArray<nsString> mShadowedHTMLDocumentProperties;
+
+  // Collection of data used by the pageload event.
+  PageloadEventData mPageloadEventData;
 
   // Record page load telemetry
-  void RecordPageLoadEventTelemetry(
-      glean::perf::PageLoadExtra& aEventTelemetryData);
+  void RecordPageLoadEventTelemetry();
 
   // Accumulate JS telemetry collected
-  void AccumulateJSTelemetry(
-      glean::perf::PageLoadExtra& aEventTelemetryDataOut);
+  void AccumulateJSTelemetry();
 
   // Accumulate page load metrics
-  void AccumulatePageLoadTelemetry(
-      glean::perf::PageLoadExtra& aEventTelemetryDataOut);
+  void AccumulatePageLoadTelemetry();
 
   // The OOP counterpart to nsDocLoader::mChildrenInOnload.
   // Not holding strong refs here since we don't actually use the BBCs.
@@ -5496,11 +5769,15 @@ class Document : public nsINode,
 
   // Used for tracking a number of recent canvas extractions (e.g. toDataURL),
   // this is used for a canvas fingerprinter detection heuristic.
-  nsTArray<CanvasUsage> mCanvasUsage;
-  uint64_t mLastCanvasUsage = 0;
+  // Store all recent usages in a single nsTArray instead of a hash map.
+  nsTArray<CanvasUsage> mCanvasUsageData;
+  // Timestamp (PR_Now microseconds) of the last update to mCanvasUsageData.
+  uint64_t mCanvasUsageLastTimestamp = 0;
 
   RefPtr<class FragmentDirective> mFragmentDirective;
   UniquePtr<RadioGroupContainer> mRadioGroupContainer;
+
+  nsCOMPtr<nsIURI> mTLSCertificateBindingURI;
 
  public:
   // Needs to be public because the bindings code pokes at it.
@@ -5517,45 +5794,17 @@ class Document : public nsINode,
 
   MOZ_CAN_RUN_SCRIPT static already_AddRefed<Document> ParseHTMLUnsafe(
       GlobalObject& aGlobal, const TrustedHTMLOrString& aHTML,
+      const SetHTMLUnsafeOptions& aOptions, nsIPrincipal* aSubjectPrincipal,
       ErrorResult& aError);
-};
 
-NS_DEFINE_STATIC_IID_ACCESSOR(Document, NS_IDOCUMENT_IID)
+  static already_AddRefed<Document> ParseHTML(GlobalObject& aGlobal,
+                                              const nsAString& aHTML,
+                                              const SetHTMLOptions& aOptions,
+                                              ErrorResult& aError);
 
-/**
- * mozAutoSubtreeModified batches DOM mutations so that a DOMSubtreeModified
- * event is dispatched, if necessary, when the outermost mozAutoSubtreeModified
- * object is deleted.
- */
-class MOZ_STACK_CLASS mozAutoSubtreeModified {
- public:
-  /**
-   * @param aSubTreeOwner The document in which a subtree will be modified.
-   * @param aTarget       The target of the possible DOMSubtreeModified event.
-   *                      Can be nullptr, in which case mozAutoSubtreeModified
-   *                      is just used to batch DOM mutations.
-   */
-  mozAutoSubtreeModified(Document* aSubtreeOwner, nsINode* aTarget) {
-    UpdateTarget(aSubtreeOwner, aTarget);
+  nsIURI* GetTlsCertificateBindingURI() const {
+    return mTLSCertificateBindingURI;
   }
-
-  ~mozAutoSubtreeModified() { UpdateTarget(nullptr, nullptr); }
-
-  void UpdateTarget(Document* aSubtreeOwner, nsINode* aTarget) {
-    if (mSubtreeOwner) {
-      mSubtreeOwner->MutationEventDispatched(mTarget);
-    }
-
-    mTarget = aTarget;
-    mSubtreeOwner = aSubtreeOwner;
-    if (mSubtreeOwner) {
-      mSubtreeOwner->WillDispatchMutationEvent(mTarget);
-    }
-  }
-
- private:
-  nsCOMPtr<nsINode> mTarget;
-  RefPtr<Document> mSubtreeOwner;
 };
 
 enum class SyncOperationBehavior { eSuspendInput, eAllowInput };
@@ -5622,6 +5871,31 @@ class MOZ_RAII IgnoreOpensDuringUnload final {
   Document* mDoc;
 };
 
+/**
+ * Suppress notifying DevTools of node removals in the given document even if
+ * DevTools wants to know that.  This guarantees the lifetime of the given
+ * document while the instance is alive.
+ */
+class MOZ_RAII AutoSuppressNotifyingDevToolsOfNodeRemovals final {
+ public:
+  explicit AutoSuppressNotifyingDevToolsOfNodeRemovals(Document& aDoc)
+      : mDoc(aDoc),
+        mDidSuppress(
+            static_cast<bool>(aDoc.mSuppressNotifyingDevToolsOfNodeRemovals)) {
+    mDoc->mSuppressNotifyingDevToolsOfNodeRemovals = true;
+  }
+  ~AutoSuppressNotifyingDevToolsOfNodeRemovals() {
+    MOZ_ASSERT(mDoc->mSuppressNotifyingDevToolsOfNodeRemovals);
+    mDoc->mSuppressNotifyingDevToolsOfNodeRemovals = mDidSuppress;
+  }
+
+  Document& Doc() const { return mDoc; }
+
+ private:
+  const OwningNonNull<Document> mDoc;
+  bool mDidSuppress;
+};
+
 bool IsInFocusedTab(Document* aDoc);
 
 // This covers all cases covered by IsInFocusedTab, but also ensures that
@@ -5633,20 +5907,21 @@ bool IsInActiveTab(Document* aDoc);
 NON_VIRTUAL_ADDREF_RELEASE(mozilla::dom::Document)
 
 // XXX These belong somewhere else
-nsresult NS_NewHTMLDocument(mozilla::dom::Document** aInstancePtrResult,
-                            nsIPrincipal* aPrincipal,
-                            nsIPrincipal* aPartitionedPrincipal,
-                            bool aLoadedAsData = false);
+nsresult NS_NewHTMLDocument(
+    mozilla::dom::Document** aInstancePtrResult, nsIPrincipal* aPrincipal,
+    nsIPrincipal* aPartitionedPrincipal,
+    mozilla::dom::LoadedAsData aLoadedAsData = mozilla::dom::LoadedAsData::No);
 
-nsresult NS_NewXMLDocument(mozilla::dom::Document** aInstancePtrResult,
-                           nsIPrincipal* aPrincipal,
-                           nsIPrincipal* aPartitionedPrincipal,
-                           bool aLoadedAsData = false,
-                           bool aIsPlainDocument = false);
+nsresult NS_NewXMLDocument(
+    mozilla::dom::Document** aInstancePtrResult, nsIPrincipal* aPrincipal,
+    nsIPrincipal* aPartitionedPrincipal,
+    mozilla::dom::LoadedAsData aLoadedAsData = mozilla::dom::LoadedAsData::No,
+    bool aIsPlainDocument = false);
 
-nsresult NS_NewSVGDocument(mozilla::dom::Document** aInstancePtrResult,
-                           nsIPrincipal* aPrincipal,
-                           nsIPrincipal* aPartitionedPrincipal);
+nsresult NS_NewSVGDocument(
+    mozilla::dom::Document** aInstancePtrResult, nsIPrincipal* aPrincipal,
+    nsIPrincipal* aPartitionedPrincipal,
+    mozilla::dom::LoadedAsData aLoadedAsData = mozilla::dom::LoadedAsData::No);
 
 nsresult NS_NewImageDocument(mozilla::dom::Document** aInstancePtrResult,
                              nsIPrincipal* aPrincipal,
@@ -5657,12 +5932,12 @@ nsresult NS_NewVideoDocument(mozilla::dom::Document** aInstancePtrResult,
                              nsIPrincipal* aPartitionedPrincipal);
 
 // Enum for requesting a particular type of document when creating a doc
-enum DocumentFlavor {
-  DocumentFlavorLegacyGuess,  // compat with old code until made HTML5-compliant
-  DocumentFlavorHTML,         // HTMLDocument with HTMLness bit set to true
-  DocumentFlavorSVG,          // SVGDocument
-  DocumentFlavorXML,          // XMLDocument
-  DocumentFlavorPlain,        // Just a Document
+enum class DocumentFlavor : uint8_t {
+  LegacyGuess,  // compat with old code until made HTML5-compliant
+  HTML,         // HTMLDocument with HTMLness bit set to true
+  SVG,          // SVGDocument
+  XML,          // XMLDocument
+  Plain,        // Just a Document
 };
 
 // Note: it's the caller's responsibility to create or get aPrincipal as needed
@@ -5672,7 +5947,8 @@ nsresult NS_NewDOMDocument(
     mozilla::dom::Document** aInstancePtrResult, const nsAString& aNamespaceURI,
     const nsAString& aQualifiedName, mozilla::dom::DocumentType* aDoctype,
     nsIURI* aDocumentURI, nsIURI* aBaseURI, nsIPrincipal* aPrincipal,
-    bool aLoadedAsData, nsIGlobalObject* aEventObject, DocumentFlavor aFlavor);
+    mozilla::dom::LoadedAsData aLoadedAsData, nsIGlobalObject* aEventObject,
+    DocumentFlavor aFlavor);
 
 inline mozilla::dom::Document* nsINode::GetOwnerDocument() const {
   mozilla::dom::Document* ownerDoc = OwnerDoc();
@@ -5696,4 +5972,4 @@ inline nsISupports* ToSupports(mozilla::dom::Document* aDoc) {
   return static_cast<nsINode*>(aDoc);
 }
 
-#endif /* mozilla_dom_Document_h___ */
+#endif /* mozilla_dom_Document_h_ */

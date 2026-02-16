@@ -83,7 +83,7 @@ add_task(async function () {
     BrowserTestUtils.removeTab(tabToClose);
     await promise;
     checkTabs(3);
-    undoCloseTab();
+    SessionWindowUI.undoCloseTab(window);
     checkTabs(4);
     is(
       gBrowser.tabContainer.selectedIndex,
@@ -151,11 +151,11 @@ add_task(async function () {
   {
     info("Bug 1731050: test hidden tabs");
     checkTabs(1);
-    await BrowserTestUtils.addTab(gBrowser);
-    await BrowserTestUtils.addTab(gBrowser);
-    await BrowserTestUtils.addTab(gBrowser);
-    await BrowserTestUtils.addTab(gBrowser);
-    FirefoxViewHandler.tab = await BrowserTestUtils.addTab(gBrowser);
+    BrowserTestUtils.addTab(gBrowser);
+    BrowserTestUtils.addTab(gBrowser);
+    BrowserTestUtils.addTab(gBrowser);
+    BrowserTestUtils.addTab(gBrowser);
+    FirefoxViewHandler.tab = BrowserTestUtils.addTab(gBrowser);
 
     gBrowser.hideTab(FirefoxViewHandler.tab);
     FirefoxViewHandler.openTab();
@@ -201,8 +201,8 @@ add_task(async function () {
       set: [["browser.pagethumbnails.capturing_disabled", false]],
     });
 
-    await BrowserTestUtils.addTab(gBrowser);
-    await BrowserTestUtils.addTab(gBrowser);
+    BrowserTestUtils.addTab(gBrowser);
+    BrowserTestUtils.addTab(gBrowser);
 
     let tab = await BrowserTestUtils.openNewForegroundTab(
       gBrowser,
@@ -218,8 +218,8 @@ add_task(async function () {
     let observedPreview = ctrlTab.previews[0];
     is(observedPreview._tab, tab, "The observed preview is for the new tab");
     ok(
-      !observedPreview._canvas.firstElementChild,
-      "The preview <canvas> does not exist yet"
+      HTMLImageElement.isInstance(observedPreview._canvas.firstElementChild),
+      "The preview <canvas> does not exist yet, there's a placeholder <img> instead"
     );
 
     let emptyCanvas = PageThumbs.createCanvas(window);

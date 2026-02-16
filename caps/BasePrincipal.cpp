@@ -546,7 +546,7 @@ BasePrincipal::EqualsForPermission(nsIPrincipal* aOther, bool aExactHost,
 
   // This loop will not loop forever, as GetNextSubDomain will eventually fail
   // with NS_ERROR_INSUFFICIENT_DOMAIN_LEVELS.
-  while (otherHost != ourHost) {
+  while (otherHost != ourHost && otherHost.Length() > ourHost.Length()) {
     rv = tldService->GetNextSubDomain(otherHost, otherHost);
     if (NS_FAILED(rv)) {
       if (rv == NS_ERROR_INSUFFICIENT_DOMAIN_LEVELS) {
@@ -556,7 +556,7 @@ BasePrincipal::EqualsForPermission(nsIPrincipal* aOther, bool aExactHost,
     }
   }
 
-  *aResult = true;
+  *aResult = otherHost == ourHost;
   return NS_OK;
 }
 
@@ -1067,6 +1067,12 @@ NS_IMETHODIMP
 BasePrincipal::IsURIInPrefList(const char* aPref, bool* aResult) {
   AssertIsOnMainThread();
   *aResult = false;
+
+  if (Kind() != eContentPrincipal) {
+    // We don't store prefs for non-content principals.
+    return NS_OK;
+  }
+
   nsCOMPtr<nsIURI> prinURI;
   nsresult rv = GetURI(getter_AddRefs(prinURI));
   if (NS_FAILED(rv) || !prinURI) {
@@ -1612,3 +1618,9 @@ void BasePrincipal::WriteJSONProperty(JSONWriter& aWriter,
 }
 
 }  // namespace mozilla
+
+uint32_t nsIPrincipal::GetHashValue() const {
+  auto* bp = mozilla::BasePrincipal::Cast(this);
+  return mozilla::HashGeneric(bp->GetOriginNoSuffixHash(),
+                              bp->GetOriginSuffixHash());
+}

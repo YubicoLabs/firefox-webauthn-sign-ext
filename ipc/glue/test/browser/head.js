@@ -159,7 +159,7 @@ function audioTestData() {
     {
       src: "small-shot.m4a",
       expectations: {
-        // Add Android after Bug 1771196
+        // Add Android after Bug 1934009
         Linux: {
           process: "Utility Generic",
           decoder: "ffmpeg audio decoder",
@@ -226,7 +226,7 @@ async function addMediaTab(src) {
     forceNewProcess: true,
   });
   const browser = gBrowser.getBrowserForTab(tab);
-  await BrowserTestUtils.browserLoaded(browser);
+  await BrowserTestUtils.browserLoaded(browser, { wantLoad: "about:blank" });
   await SpecialPowers.spawn(browser, [src], createAudioElement);
   return tab;
 }

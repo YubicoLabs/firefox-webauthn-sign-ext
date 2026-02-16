@@ -18,11 +18,9 @@ testnum = 1
 def start_test(line):
     global testnum
     output.write(
-        """
-    def test_{0}(self):
-        # {1}...\n""".format(
-            testnum, line[0:80]
-        )
+        f"""
+    def test_{testnum}(self):
+        # {line[0:80]}...\n"""
     )
     testnum += 1
 
@@ -30,10 +28,8 @@ def start_test(line):
 def set_default(d):
     output.write(
         """
-        if self.default_is is not {0}:
-            return\n""".format(
-            "True" if d == "T" else "False"
-        )
+        if self.default_is is not {}:
+            return\n""".format("True" if d == "T" else "False")
     )
 
 
@@ -42,16 +38,12 @@ def enroll(e):
         e = e[:-2]
         output.write("\n        # Re-set enrollment pref, like Normandy would do\n")
     output.write(
-        "        self.set_enrollment_status(ExperimentStatus.ENROLLED_{0})\n".format(
-            e.upper()
-        )
+        f"        self.set_enrollment_status(ExperimentStatus.ENROLLED_{e.upper()})\n"
     )
 
 
 def set_pref(enabled):
-    output.write(
-        "\n        self.marionette.set_pref(Prefs.WIN32K, {0})\n".format(str(enabled))
-    )
+    output.write(f"\n        self.marionette.set_pref(Prefs.WIN32K, {str(enabled)})\n")
 
 
 def set_e10s(enable):
@@ -81,7 +73,7 @@ def set_header(enable):
 def set_bad_requirements(enabled):
     output.write(
         """
-        self.marionette.set_pref(Prefs.WEBGL, {0})\n""".format(
+        self.marionette.set_pref(Prefs.WEBGL, {})\n""".format(
             "False" if enabled else "True"
         )
     )
@@ -97,24 +89,22 @@ def print_assertion(assertion):
     output.write(
         """
         self.check_win32k_status(
-            status=ContentWin32kLockdownState.{0},
-            sessionStatus=ContentWin32kLockdownState.{1},
-            experimentStatus=ExperimentStatus.{2},
-            pref={3},
-            enrollmentStatusPref=ExperimentStatus.{4},
-        )\n""".format(
-            *assertion
-        )
+            status=ContentWin32kLockdownState.{},
+            sessionStatus=ContentWin32kLockdownState.{},
+            experimentStatus=ExperimentStatus.{},
+            pref={},
+            enrollmentStatusPref=ExperimentStatus.{},
+        )\n""".format(*assertion)
     )
 
 
 # ======================================================================
 # ======================================================================
 
-TESTS = open("win32k_tests.txt", "r").readlines()
+TESTS = open("win32k_tests.txt").readlines()
 
 output = open("test_win32k_enrollment.py", "w", newline="\n")
-header = open("test_win32k_enrollment.template.py", "r")
+header = open("test_win32k_enrollment.template.py")
 for l in header:
     output.write(l)
 
@@ -150,7 +140,7 @@ for line in TESTS:
         continue
 
     if not RE_DEFAULT.match(line):
-        raise Exception("'{0}' does not match the default regex".format(line))
+        raise Exception(f"'{line}' does not match the default regex")
     default = RE_DEFAULT.search(line).groups(1)[0]
 
     start_test(line)

@@ -14,10 +14,10 @@
 #include "nsICacheEntry.h"  // for nsICacheEntryMetaDataVisitor
 #include "nsIFile.h"
 #include "mozilla/ScopeExit.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/glean/NetwerkMetrics.h"
+#include "nsCRT.h"
 #include "prnetdb.h"
 
 namespace mozilla::net {
@@ -246,7 +246,8 @@ nsresult CacheFileMetadata::WriteMetadata(
     memcpy(p, mBuf, mElementsSize);
     p += mElementsSize;
   }
-
+  LOG(("CacheFileMetadata::WriteMetadata() [this=%p, key=%s, mElementsSize=%d]",
+       this, mKey.get(), mElementsSize));
   CacheHash::Hash32_t hash;
   hash = CacheHash::Hash(mWriteBuf + sizeof(uint32_t),
                          p - mWriteBuf - sizeof(uint32_t));
@@ -355,6 +356,12 @@ nsresult CacheFileMetadata::SyncReadMetadata(nsIFile* aFile) {
   return NS_OK;
 }
 
+void CacheFileMetadata::HandleCorruptMetaData() const {
+  if (mHandle) {
+    CacheFileIOManager::DoomFile(mHandle, nullptr);
+  }
+}
+
 const char* CacheFileMetadata::GetElement(const char* aKey) {
   const char* data = mBuf;
   const char* limit = mBuf + mElementsSize;
@@ -362,21 +369,22 @@ const char* CacheFileMetadata::GetElement(const char* aKey) {
   while (data != limit) {
     size_t maxLen = limit - data;
     size_t keyLen = strnlen(data, maxLen);
-    MOZ_RELEASE_ASSERT(keyLen != maxLen,
-                       "Metadata elements corrupted. Key "
-                       "isn't null terminated!");
-    MOZ_RELEASE_ASSERT(keyLen + 1 != maxLen,
-                       "Metadata elements corrupted. "
-                       "There is no value for the key!");
+
+    if (keyLen == maxLen ||      // Key isn't null terminated!
+        keyLen + 1 == maxLen) {  // There is no value for the key!
+      HandleCorruptMetaData();
+      return nullptr;
+    }
 
     const char* value = data + keyLen + 1;
     maxLen = limit - value;
     size_t valueLen = strnlen(value, maxLen);
-    MOZ_RELEASE_ASSERT(valueLen != maxLen,
-                       "Metadata elements corrupted. Value "
-                       "isn't null terminated!");
+    if (valueLen == maxLen) {  // Value isn't null terminated
+      HandleCorruptMetaData();
+      return nullptr;
+    }
 
-    if (strcmp(data, aKey) == 0) {
+    if (nsCRT::strcasecmp(data, aKey) == 0) {
       LOG(("CacheFileMetadata::GetElement() - Key found [this=%p, key=%s]",
            this, aKey));
       return value;

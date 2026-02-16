@@ -7,11 +7,18 @@
 }
 
 .important {
-  font-weight: bold;
+  font-weight: var(--font-weight-bold);
 }
 
 .details {
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
+}
+
+.info-box-container {
+  background-color: var(--background-color-box-info);
+  padding: 9px;
+  border: 1px solid transparent;
+  border-radius: 4px;
 }

@@ -6,12 +6,15 @@
 <script>
 const NON_CONTENT_ACCESSIBLE_ENV_VARS = [
   "-moz-gtk-csd-titlebar-radius",
+  "-moz-gtk-csd-tooltip-radius",
   "-moz-gtk-csd-minimize-button-position",
   "-moz-gtk-csd-maximize-button-position",
   "-moz-gtk-csd-close-button-position",
   "-moz-content-preferred-color-scheme",
   "-moz-overlay-scrollbar-fade-duration",
   "scrollbar-inline-size",
+  // Pending https://github.com/w3c/csswg-drafts/issues/3720
+  "hairline",
 ];
 
 function testInWin(win) {

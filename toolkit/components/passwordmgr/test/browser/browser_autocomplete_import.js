@@ -4,7 +4,7 @@ const { ChromeMigrationUtils } = ChromeUtils.importESModule(
 const { ExperimentAPI } = ChromeUtils.importESModule(
   "resource://nimbus/ExperimentAPI.sys.mjs"
 );
-const { ExperimentFakes } = ChromeUtils.importESModule(
+const { NimbusTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/NimbusTestUtils.sys.mjs"
 );
 const { sinon } = ChromeUtils.importESModule(
@@ -38,7 +38,7 @@ add_setup(async function setup() {
     .stub(MigrationUtils, "getMigrator")
     .resolves(gTestMigrator);
 
-  const doExperimentCleanup = await ExperimentFakes.enrollWithFeatureConfig({
+  const doExperimentCleanup = await NimbusTestUtils.enrollWithFeatureConfig({
     featureId: "password-autocomplete",
     value: { directMigrateSingleProfile: true },
   });
@@ -46,8 +46,8 @@ add_setup(async function setup() {
   // This makes the last autocomplete test *not* show import suggestions.
   Services.prefs.setIntPref("signon.suggestImportCount", 3);
 
-  registerCleanupFunction(() => {
-    doExperimentCleanup();
+  registerCleanupFunction(async () => {
+    await doExperimentCleanup();
     debounce.restore();
     importable.restore();
     migrator.restore();
@@ -145,10 +145,13 @@ add_task(async function import_suggestion_learn_more() {
       const learnMoreItem = popup.querySelector(`[type="importableLearnMore"]`);
       Assert.ok(learnMoreItem, "Got importable learn more richlistitem");
 
-      await BrowserTestUtils.waitForCondition(
-        () => !learnMoreItem.collapsed,
-        "Wait for importable learn more to show"
-      );
+      // Wait for the layout to stabilize by waiting for possible reflow;
+      // otherwise, the synthesized mouse event might not be dispatched
+      // correctly.
+      await new Promise(requestAnimationFrame);
+      await BrowserTestUtils.waitForCondition(() => {
+        return !learnMoreItem.collapsed && !EventUtils.isHidden(learnMoreItem);
+      }, "Wait for importable learn more to show");
 
       info("Clicking on importable learn more");
       const supportTabPromise = BrowserTestUtils.waitForNewTab(

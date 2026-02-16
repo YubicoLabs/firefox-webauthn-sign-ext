@@ -7,14 +7,14 @@
 const {
   Component,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const {
   connect,
 } = require("resource://devtools/client/shared/vendor/react-redux.js");
 const {
   FILTER_SEARCH_DELAY,
 } = require("resource://devtools/client/netmonitor/src/constants.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const Actions = require("resource://devtools/client/netmonitor/src/actions/index.js");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
 const {
@@ -57,6 +57,7 @@ class Toolbar extends Component {
 
   /**
    * Handles what we do when key is pressed in search input.
+   *
    * @param event
    * @param conn
    */
@@ -123,7 +124,7 @@ class Toolbar extends Component {
       type: "search",
       delay: FILTER_SEARCH_DELAY,
       ref: this.props.searchboxRef,
-      value: query,
+      initialValue: query,
       onClearButtonClick: () => clearSearchResultAndCancel(),
       onChange: newQuery => addSearchQuery(newQuery),
       onKeyDown: event => this.onKeyDown(event, connector),

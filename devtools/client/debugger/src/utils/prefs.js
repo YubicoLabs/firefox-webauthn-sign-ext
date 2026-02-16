@@ -60,7 +60,6 @@ if (isNode()) {
   pref("devtools.debugger.features.log-points", true);
   pref("devtools.debugger.features.inline-preview", true);
   pref("devtools.debugger.features.javascript-tracing", false);
-  pref("devtools.debugger.features.codemirror-next", true);
   pref("devtools.editor.tabsize", 2);
   pref("devtools.editor.expandtab", false);
   pref("devtools.editor.autoclosebrackets", false);
@@ -97,12 +96,6 @@ export const prefs = new PrefsHelper("devtools", {
   expressions: ["Json", "debugger.expressions", []],
   searchOptions: ["Json", "debugger.search-options"],
   debuggerPrefsSchemaVersion: ["Int", "debugger.prefs-schema-version"],
-  projectDirectoryRoot: ["Char", "debugger.project-directory-root", ""],
-  projectDirectoryRootName: [
-    "Char",
-    "debugger.project-directory-root-name",
-    "",
-  ],
   skipPausing: ["Bool", "debugger.skip-pausing"],
   mapScopes: ["Bool", "debugger.map-scopes-enabled"],
   logActions: ["Bool", "debugger.log-actions"],
@@ -131,6 +124,7 @@ export const prefs = new PrefsHelper("devtools", {
     "Bool",
     "debugger.source-map-ignore-list-enabled",
   ],
+  pausedOverlayEnabled: ["Bool", "debugger.features.overlay"],
 });
 
 // The pref may not be defined. Defaulting to null isn't viable (cursor never blinks).
@@ -149,7 +143,7 @@ export const features = new PrefsHelper("devtools.debugger.features", {
   inlinePreview: ["Bool", "inline-preview"],
   windowlessServiceWorkers: ["Bool", "windowless-service-workers"],
   javascriptTracing: ["Bool", "javascript-tracing"],
-  codemirrorNext: ["Bool", "codemirror-next"],
+  stylesheetsInDebugger: ["Bool", "stylesheets-in-debugger"],
 });
 
 // Import the asyncStore already spawned by the TargetMixin class
@@ -163,7 +157,7 @@ export function resetSchemaVersion() {
 export function verifyPrefSchema() {
   if (prefs.debuggerPrefsSchemaVersion < prefsSchemaVersion) {
     asyncStore.pendingBreakpoints = {};
-    asyncStore.tabs = [];
+    asyncStore.openedURLs = [];
     asyncStore.xhrBreakpoints = [];
     asyncStore.eventListenerBreakpoints = undefined;
     asyncStore.blackboxedRanges = {};

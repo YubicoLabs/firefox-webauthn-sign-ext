@@ -31,7 +31,7 @@
 #include "nsUnicharUtils.h"
 #include "nsGkAtoms.h"
 #include "nsCRT.h"
-#include "nsBaseWidget.h"
+#include "nsIWidget.h"
 
 #include "nsIContent.h"
 #include "nsIDocumentObserver.h"
@@ -45,6 +45,11 @@ using namespace mozilla::dom;
 
 static bool gConstructingMenu = false;
 static bool gMenuMethodsSwizzled = false;
+
+// Protect against really deep menu nestings, for example from recursive
+// bookmark folders. This avoids hangs when the system enumerates the entire
+// menu tree.
+static const size_t kMaxMenuNestingDepth = 20;
 
 int32_t nsMenuX::sIndexingMenuLevel = 0;
 
@@ -86,7 +91,10 @@ static void SwizzleDynamicIndexingMethods() {
 
 nsMenuX::nsMenuX(nsMenuParentX* aParent, nsMenuGroupOwnerX* aMenuGroupOwner,
                  nsIContent* aContent)
-    : mContent(aContent), mParent(aParent), mMenuGroupOwner(aMenuGroupOwner) {
+    : mContent(aContent),
+      mParent(aParent),
+      mMenuGroupOwner(aMenuGroupOwner),
+      mNestingDepth(aParent ? aParent->NestingDepth() + 1 : 0) {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
 
   MOZ_COUNT_CTOR(nsMenuX);
@@ -121,10 +129,14 @@ nsMenuX::nsMenuX(nsMenuParentX* aParent, nsMenuGroupOwnerX* aMenuGroupOwner,
                                              keyEquivalent:@""];
   mNativeMenuItem.submenu = mNativeMenu;
 
+  if (mNestingDepth > kMaxMenuNestingDepth) {
+    // If we're nested too deep, turn this item into a regular item without a
+    // submenu.
+    mNativeMenuItem.submenu = nil;
+  }
+
   SetEnabled(!mContent->IsElement() ||
-             !mContent->AsElement()->AttrValueIs(
-                 kNameSpaceID_None, nsGkAtoms::disabled, nsGkAtoms::_true,
-                 eCaseMatters));
+             !mContent->AsElement()->GetBoolAttr(nsGkAtoms::disabled));
 
   // We call RebuildMenu here because keyboard commands are dependent upon
   // native menu items being created. If we only call RebuildMenu when a menu
@@ -141,7 +153,7 @@ nsMenuX::nsMenuX(nsMenuParentX* aParent, nsMenuGroupOwnerX* aMenuGroupOwner,
   mIcon = MakeUnique<nsMenuItemIconX>(this);
 
   if (mVisible) {
-    if (!isXULWindowMenu) {
+    if (!isXULWindowMenu && !IsXULEditMenu(mContent)) {
       SetRebuild(true);
     }
     SetupIcon();
@@ -363,7 +375,7 @@ Maybe<nsMenuX::MenuChild> nsMenuX::GetVisibleItemAt(uint32_t aPos) {
     return GetItemAt(aPos);
   }
 
-  // Otherwise, traverse the array until we find the the item we're looking for.
+  // Otherwise, traverse the array until we find the item we're looking for.
   uint32_t visibleNodeIndex = 0;
   for (uint32_t i = 0; i < count; i++) {
     MenuChild item = *GetItemAt(i);
@@ -1012,6 +1024,18 @@ bool nsMenuX::IsXULWindowMenu(nsIContent* aMenuContent) {
   return retval;
 }
 
+bool nsMenuX::IsXULEditMenu(nsIContent* aMenuContent) {
+  bool retval = false;
+  if (aMenuContent && aMenuContent->IsElement()) {
+    nsAutoString id;
+    aMenuContent->AsElement()->GetAttr(nsGkAtoms::id, id);
+    if (id.Equals(u"edit-menu"_ns)) {
+      retval = true;
+    }
+  }
+  return retval;
+}
+
 //
 // nsChangeObserver
 //
@@ -1027,9 +1051,7 @@ void nsMenuX::ObserveAttributeChanged(dom::Document* aDocument,
   }
 
   if (aAttribute == nsGkAtoms::disabled) {
-    SetEnabled(!mContent->AsElement()->AttrValueIs(
-        kNameSpaceID_None, nsGkAtoms::disabled, nsGkAtoms::_true,
-        eCaseMatters));
+    SetEnabled(!mContent->AsElement()->GetBoolAttr(nsGkAtoms::disabled));
   } else if (aAttribute == nsGkAtoms::label) {
     mContent->AsElement()->GetAttr(nsGkAtoms::label, mLabel);
     NSString* newCocoaLabelString =

@@ -10,21 +10,16 @@
  * via XMLHttpRequest).
  */
 
-#ifndef nsNoDataProtocolContentPolicy_h__
-#define nsNoDataProtocolContentPolicy_h__
+#ifndef nsNoDataProtocolContentPolicy_h_
+#define nsNoDataProtocolContentPolicy_h_
 
 /* ac9e3e82-bfbd-4f26-941e-f58c8ee178c1 */
-#define NS_NODATAPROTOCOLCONTENTPOLICY_CID           \
-  {                                                  \
-    0xac9e3e82, 0xbfbd, 0x4f26, {                    \
-      0x94, 0x1e, 0xf5, 0x8c, 0x8e, 0xe1, 0x78, 0xc1 \
-    }                                                \
-  }
+#define NS_NODATAPROTOCOLCONTENTPOLICY_CID \
+  {0xac9e3e82, 0xbfbd, 0x4f26, {0x94, 0x1e, 0xf5, 0x8c, 0x8e, 0xe1, 0x78, 0xc1}}
 #define NS_NODATAPROTOCOLCONTENTPOLICY_CONTRACTID \
   "@mozilla.org/no-data-protocol-content-policy;1"
 
 #include "nsIContentPolicy.h"
-#include "mozilla/Attributes.h"
 
 class nsNoDataProtocolContentPolicy final : public nsIContentPolicy {
   ~nsNoDataProtocolContentPolicy() = default;
@@ -36,4 +31,4 @@ class nsNoDataProtocolContentPolicy final : public nsIContentPolicy {
   nsNoDataProtocolContentPolicy() = default;
 };
 
-#endif /* nsNoDataProtocolContentPolicy_h__ */
+#endif /* nsNoDataProtocolContentPolicy_h_ */

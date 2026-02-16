@@ -13,7 +13,6 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
 
-#include <string.h>
 #include <type_traits>
 
 #include "jstypes.h"
@@ -597,9 +596,6 @@ struct UnusedGCThingSizes {
       case JS::TraceKind::RegExpShared:
         regExpShared += n;
         break;
-      case JS::TraceKind::SmallBuffer:
-        smallBuffer += n;
-        break;
       default:
         MOZ_CRASH("Bad trace kind for UnusedGCThingSizes");
     }
@@ -675,11 +671,11 @@ struct ZoneStats {
   MACRO(Other, MallocHeap, scopesMallocHeap)               \
   MACRO(Other, GCHeapUsed, regExpSharedsGCHeap)            \
   MACRO(Other, MallocHeap, regExpSharedsMallocHeap)        \
-  MACRO(Other, GCHeapUsed, smallBuffersGCHeap)             \
   MACRO(Other, MallocHeap, zoneObject)                     \
   MACRO(Other, MallocHeap, regexpZone)                     \
   MACRO(Other, MallocHeap, jitZone)                        \
   MACRO(Other, MallocHeap, cacheIRStubs)                   \
+  MACRO(Other, MallocHeap, objectFuses)                    \
   MACRO(Other, MallocHeap, uniqueIdMap)                    \
   MACRO(Other, MallocHeap, initialPropMapTable)            \
   MACRO(Other, MallocHeap, shapeTables)                    \
@@ -933,15 +929,11 @@ extern JS_PUBLIC_API size_t UserRealmCount(JSContext* cx);
 
 extern JS_PUBLIC_API size_t PeakSizeOfTemporary(const JSContext* cx);
 
-extern JS_PUBLIC_API bool AddSizeOfTab(JSContext* cx, JS::HandleObject obj,
+extern JS_PUBLIC_API bool AddSizeOfTab(JSContext* cx, JS::Zone* zone,
                                        mozilla::MallocSizeOf mallocSizeOf,
                                        ObjectPrivateVisitor* opv,
-                                       TabSizes* sizes);
-
-extern JS_PUBLIC_API bool AddServoSizeOf(JSContext* cx,
-                                         mozilla::MallocSizeOf mallocSizeOf,
-                                         ObjectPrivateVisitor* opv,
-                                         ServoSizes* sizes);
+                                       TabSizes* sizes,
+                                       const JS::AutoRequireNoGC& nogc);
 
 }  // namespace JS
 

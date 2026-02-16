@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozPersonalDictionary_h__
-#define mozPersonalDictionary_h__
+#ifndef mozPersonalDictionary_h_
+#define mozPersonalDictionary_h_
 
 #include "nsCOMPtr.h"
 #include "nsString.h"
@@ -19,12 +19,12 @@
 
 #define MOZ_PERSONALDICTIONARY_CONTRACTID \
   "@mozilla.org/spellchecker/personaldictionary;1"
-#define MOZ_PERSONALDICTIONARY_CID                   \
-  { /* 7EF52EAF-B7E1-462B-87E2-5D1DBACA9048 */       \
-    0X7EF52EAF, 0XB7E1, 0X462B, {                    \
-      0X87, 0XE2, 0X5D, 0X1D, 0XBA, 0XCA, 0X90, 0X48 \
-    }                                                \
-  }
+#define MOZ_PERSONALDICTIONARY_CID            \
+  {/* 7EF52EAF-B7E1-462B-87E2-5D1DBACA9048 */ \
+   0X7EF52EAF,                                \
+   0XB7E1,                                    \
+   0X462B,                                    \
+   {0X87, 0XE2, 0X5D, 0X1D, 0XBA, 0XCA, 0X90, 0X48}}
 
 class mozPersonalDictionaryLoader;
 class mozPersonalDictionarySave;

@@ -50,7 +50,7 @@ async function testToolbarButtons(aActions) {
       "nav-bar": defaultPlacements,
     },
   });
-  CustomizableUIInternal._updateForNewProtonVersion();
+  CustomizableUIInternal.updateForNewProtonVersion();
 
   let navbarPlacements =
     CustomizableUI.getTestOnlyInternalProp("gSavedState").placements["nav-bar"];
@@ -76,9 +76,9 @@ async function testToolbarButtons(aActions) {
 
   let toolbarVersion = Services.prefs.getIntPref(kPrefProtonToolbarVersion);
   if (shouldUpdateVersion) {
-    Assert.ok(toolbarVersion >= 1, "Toolbar proton version updated");
+    Assert.greaterOrEqual(toolbarVersion, 1, "Toolbar proton version updated");
   } else {
-    Assert.ok(toolbarVersion == 0, "Toolbar proton version not updated");
+    Assert.equal(toolbarVersion, 0, "Toolbar proton version not updated");
   }
 
   // Cleanup
@@ -191,10 +191,17 @@ add_task(async function testNullSavedState() {
   let CustomizableUIInternal = CustomizableUI.getTestOnlyInternalProp(
     "CustomizableUIInternal"
   );
+  // Calling initialize() wants to add this observer again.
+  // TODO: Having a test-only testReset() method could avoid this hack.
+  Services.obs.removeObserver(
+    CustomizableUIInternal,
+    "browser-set-toolbar-visibility"
+  );
   CustomizableUIInternal.initialize();
 
-  Assert.ok(
-    Services.prefs.getIntPref(kPrefProtonToolbarVersion) >= 1,
+  Assert.greaterOrEqual(
+    Services.prefs.getIntPref(kPrefProtonToolbarVersion),
+    1,
     "Toolbar proton version updated"
   );
   let navbarPlacements = CustomizableUI.getTestOnlyInternalProp("gAreas")
@@ -223,7 +230,12 @@ add_task(async function testNullSavedState() {
   // Cleanup
   CustomizableUI.setTestOnlyInternalProp("gSavedState", oldState);
   await SpecialPowers.popPrefEnv();
+
   // Re-initialize to prevent future test failures
+  Services.obs.removeObserver(
+    CustomizableUIInternal,
+    "browser-set-toolbar-visibility"
+  );
   CustomizableUIInternal.initialize();
 });
 
@@ -250,7 +262,7 @@ add_task(async function testNoNavbarPlacements() {
   CustomizableUI.setTestOnlyInternalProp("gSavedState", {
     placements: { "widget-overflow-fixed-list": [] },
   });
-  CustomizableUIInternal._updateForNewProtonVersion();
+  CustomizableUIInternal.updateForNewProtonVersion();
 
   Assert.ok(true, "_updateForNewProtonVersion didn't throw");
 
@@ -281,7 +293,7 @@ add_task(async function testNullPlacements() {
   );
 
   CustomizableUI.setTestOnlyInternalProp("gSavedState", {});
-  CustomizableUIInternal._updateForNewProtonVersion();
+  CustomizableUIInternal.updateForNewProtonVersion();
 
   Assert.ok(true, "_updateForNewProtonVersion didn't throw");
 

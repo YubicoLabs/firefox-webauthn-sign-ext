@@ -15,6 +15,7 @@ import mozilla.components.concept.storage.HistoryMetadata
 import mozilla.components.concept.storage.HistoryMetadataStorage
 import mozilla.components.concept.storage.HistoryStorage
 import mozilla.components.feature.awesomebar.facts.emitHistorySuggestionClickedFact
+import mozilla.components.feature.awesomebar.facts.emitHistorySuggestionRemovedFact
 import mozilla.components.feature.session.SessionUseCases
 import mozilla.components.support.ktx.android.net.sameHostWithoutMobileSubdomainAs
 import java.util.UUID
@@ -64,12 +65,11 @@ class HistoryMetadataSuggestionProvider(
     }
 
     override suspend fun onInputChanged(text: String): List<AwesomeBar.Suggestion> {
-        historyStorage.cancelReads(text)
-
         if (text.isNullOrBlank()) {
             return emptyList()
         }
 
+        historyStorage.cancelReads(text)
         val suggestions = when (resultsUriFilter) {
             null -> getHistorySuggestions(text)
             else -> getHistorySuggestionsFromHost(resultsUriFilter, text)
@@ -118,9 +118,13 @@ internal suspend fun Iterable<HistoryMetadata>.into(
             title = result.title,
             description = result.key.url,
             editSuggestion = if (showEditSuggestion) result.key.url else null,
+            isRemovalAllowed = true,
             onSuggestionClicked = {
                 loadUrlUseCase(result.key.url)
                 emitHistorySuggestionClickedFact()
+            },
+            onRemovalClicked = {
+                emitHistorySuggestionRemovedFact()
             },
         )
     }

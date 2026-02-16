@@ -15,7 +15,11 @@ const ENGINE_URL =
   "https://example.com/browser/browser/components/search/test/browser/mozsearch.sjs";
 
 add_setup(async function () {
-  await Services.search.init();
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
+
+  await SearchService.init();
 
   await SearchTestUtils.installSearchExtension(
     {

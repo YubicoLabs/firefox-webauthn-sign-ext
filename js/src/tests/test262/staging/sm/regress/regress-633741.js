@@ -4,9 +4,8 @@
  */
 
 /*---
-includes: [sm/non262-shell.js, sm/non262.js]
 flags:
-- noStrict
+  - noStrict
 info: |
   preventExtensions on global
 description: |

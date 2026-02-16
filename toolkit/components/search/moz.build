@@ -11,15 +11,9 @@ XPCSHELL_TESTS_MANIFESTS += [
     "tests/xpcshell/xpcshell.toml",
 ]
 
-XPIDL_SOURCES += [
-    "nsISearchService.idl",
-]
-
-XPIDL_MODULE = "toolkit_search"
-
-EXTRA_JS_MODULES += [
+MOZ_SRC_FILES += [
     "AddonSearchEngine.sys.mjs",
-    "AppProvidedSearchEngine.sys.mjs",
+    "ConfigSearchEngine.sys.mjs",
     "OpenSearchEngine.sys.mjs",
     "OpenSearchLoader.sys.mjs",
     "PolicySearchEngine.sys.mjs",
@@ -30,9 +24,12 @@ EXTRA_JS_MODULES += [
     "SearchShortcuts.sys.mjs",
     "SearchStaticData.sys.mjs",
     "SearchSuggestionController.sys.mjs",
-    "SearchSuggestions.sys.mjs",
     "SearchUtils.sys.mjs",
     "UserSearchEngine.sys.mjs",
+]
+
+EXTRA_JS_MODULES += [
+    "SearchSuggestions.sys.mjs",
 ]
 
 XPCOM_MANIFESTS += [

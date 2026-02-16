@@ -8,13 +8,13 @@
 
 #include "AsyncEventRunner.h"
 #include "mozilla/ErrorResult.h"
+#include "mozilla/Logging.h"
 #include "mozilla/dom/SourceBufferListBinding.h"
 #include "mozilla/mozalloc.h"
 #include "nsCOMPtr.h"
 #include "nsIRunnable.h"
 #include "nsString.h"
 #include "nsThreadUtils.h"
-#include "mozilla/Logging.h"
 
 extern mozilla::LogModule* GetMediaSourceLog();
 extern mozilla::LogModule* GetMediaSourceAPILog();
@@ -110,10 +110,11 @@ void SourceBufferList::RangeRemoval(double aStart, double aEnd) {
   }
 }
 
-void SourceBufferList::Ended() {
+void SourceBufferList::SetEnded(
+    const Optional<MediaSourceEndOfStreamError>& aError) {
   MOZ_ASSERT(NS_IsMainThread());
   for (uint32_t i = 0; i < mSourceBuffers.Length(); ++i) {
-    mSourceBuffers[i]->Ended();
+    mSourceBuffers[i]->SetEnded(aError);
   }
 }
 

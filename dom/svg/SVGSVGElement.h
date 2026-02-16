@@ -10,18 +10,15 @@
 #include "SVGAnimatedEnumeration.h"
 #include "SVGViewportElement.h"
 #include "mozilla/SVGImageContext.h"
+#include "nsString.h"
 
 nsresult NS_NewSVGSVGElement(
     nsIContent** aResult, already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo,
     mozilla::dom::FromParser aFromParser);
 
 // {4b83982c-e5e9-4ca1-abd4-14d27e8b3531}
-#define MOZILLA_SVGSVGELEMENT_IID                    \
-  {                                                  \
-    0x4b83982c, 0xe5e9, 0x4ca1, {                    \
-      0xab, 0xd4, 0x14, 0xd2, 0x7e, 0x8b, 0x35, 0x31 \
-    }                                                \
-  }
+#define MOZILLA_SVGSVGELEMENT_IID \
+  {0x4b83982c, 0xe5e9, 0x4ca1, {0xab, 0xd4, 0x14, 0xd2, 0x7e, 0x8b, 0x35, 0x31}}
 
 namespace mozilla {
 class AutoSVGViewHandler;
@@ -44,10 +41,10 @@ class SVGView {
  public:
   SVGView();
 
-  SVGAnimatedEnumeration mZoomAndPan;
   SVGAnimatedViewBox mViewBox;
+  std::unique_ptr<SVGAnimatedTransformList> mTransforms;
   SVGAnimatedPreserveAspectRatio mPreserveAspectRatio;
-  UniquePtr<SVGAnimatedTransformList> mTransforms;
+  SVGAnimatedEnumeration mZoomAndPan;
 };
 
 using SVGSVGElementBase = SVGViewportElement;
@@ -76,7 +73,7 @@ class SVGSVGElement final : public SVGSVGElementBase {
   NS_IMPL_FROMNODE_WITH_TAG(SVGSVGElement, kNameSpaceID_SVG, svg)
 
   // interfaces:
-  NS_DECLARE_STATIC_IID_ACCESSOR(MOZILLA_SVGSVGELEMENT_IID)
+  NS_INLINE_DECL_STATIC_IID(MOZILLA_SVGSVGELEMENT_IID)
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(SVGSVGElement, SVGSVGElementBase)
 
@@ -108,11 +105,12 @@ class SVGSVGElement final : public SVGSVGElementBase {
   void UnsuspendRedrawAll();
   void ForceRedraw();
   void PauseAnimations();
+  void PauseAnimationsAt(float seconds);
   void UnpauseAnimations();
   bool AnimationsPaused();
   float GetCurrentTimeAsFloat();
   void SetCurrentTime(float seconds);
-  void DeselectAll();
+  MOZ_CAN_RUN_SCRIPT void DeselectAll();
   already_AddRefed<DOMSVGNumber> CreateSVGNumber();
   already_AddRefed<DOMSVGLength> CreateSVGLength();
   already_AddRefed<DOMSVGAngle> CreateSVGAngle();
@@ -130,16 +128,16 @@ class SVGSVGElement final : public SVGSVGElementBase {
 
   nsresult BindToTree(BindContext&, nsINode& aParent) override;
   void UnbindFromTree(UnbindContext&) override;
-  SVGAnimatedTransformList* GetAnimatedTransformList(
-      uint32_t aFlags = 0) override;
 
   // SVGSVGElement methods:
 
   // Returns true IFF our attributes are currently overridden by a <view>
   // element and that element's ID matches the passed-in string.
   bool IsOverriddenBy(const nsAString& aViewID) const {
-    return mCurrentViewID && mCurrentViewID->Equals(aViewID);
+    return !mCurrentViewID.IsVoid() && mCurrentViewID.Equals(aViewID);
   }
+
+  SVGAnimatedTransformList* GetViewTransformList() const;
 
   SMILTimeContainer* GetTimedDocumentRoot();
 
@@ -202,33 +200,30 @@ class SVGSVGElement final : public SVGSVGElementBase {
 
   EnumAttributesInfo GetEnumInfo() override;
 
+  // The time container for animations within this SVG document fragment. Set
+  // for all outermost <svg> elements (not nested <svg> elements).
+  std::unique_ptr<SMILTimeContainer> mTimedDocumentRoot;
+
+  // mCurrentViewID and mSVGView are mutually exclusive.
+  nsString mCurrentViewID = VoidString();
+  std::unique_ptr<SVGView> mSVGView;
+
+  SVGPoint mCurrentTranslate;
+  float mCurrentScale = 1.0f;
+
   enum { ZOOMANDPAN };
   SVGAnimatedEnumeration mEnumAttributes[1];
   static SVGEnumMapping sZoomAndPanMap[];
   static EnumInfo sEnumInfo[1];
 
-  // The time container for animations within this SVG document fragment. Set
-  // for all outermost <svg> elements (not nested <svg> elements).
-  UniquePtr<SMILTimeContainer> mTimedDocumentRoot;
-
-  SVGPoint mCurrentTranslate;
-  float mCurrentScale;
-
   // For outermost <svg> elements created from parsing, animation is started by
   // the onload event in accordance with the SVG spec, but for <svg> elements
   // created by script or promoted from inner <svg> to outermost <svg> we need
   // to manually kick off animation when they are bound to the tree.
-  bool mStartAnimationOnBindToTree;
+  bool mStartAnimationOnBindToTree : 1;
 
-  bool mImageNeedsTransformInvalidation;
-
-  // mCurrentViewID and mSVGView are mutually exclusive; we can have
-  // at most one non-null.
-  UniquePtr<nsString> mCurrentViewID;
-  UniquePtr<SVGView> mSVGView;
+  bool mImageNeedsTransformInvalidation : 1 = false;
 };
-
-NS_DEFINE_STATIC_IID_ACCESSOR(SVGSVGElement, MOZILLA_SVGSVGELEMENT_IID)
 
 }  // namespace dom
 

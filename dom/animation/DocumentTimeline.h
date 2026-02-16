@@ -7,11 +7,11 @@
 #ifndef mozilla_dom_DocumentTimeline_h
 #define mozilla_dom_DocumentTimeline_h
 
-#include "mozilla/dom/Document.h"
-#include "mozilla/dom/DocumentTimelineBinding.h"
+#include "AnimationTimeline.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/TimeStamp.h"
-#include "AnimationTimeline.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/DocumentTimelineBinding.h"
 #include "nsDOMNavigationTiming.h"  // for DOMHighResTimeStamp
 #include "nsRefreshDriver.h"
 
@@ -64,6 +64,8 @@ class DocumentTimeline final : public AnimationTimeline,
 
   bool IsMonotonicallyIncreasing() const override { return true; }
 
+  void PostUpdateForAllAnimations();
+
  protected:
   TimeStamp GetCurrentTimeStamp() const;
   nsRefreshDriver* GetRefreshDriver() const;
@@ -75,6 +77,9 @@ class DocumentTimeline final : public AnimationTimeline,
   // iframe).
   TimeStamp mLastRefreshDriverTime;
   TimeDuration mOriginTime;
+
+ private:
+  TimeStamp EnsureValidTimestamp(const TimeStamp& aTimestamp) const;
 };
 
 }  // namespace mozilla::dom

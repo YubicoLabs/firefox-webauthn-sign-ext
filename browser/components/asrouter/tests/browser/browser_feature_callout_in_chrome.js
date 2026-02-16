@@ -1,11 +1,14 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
+const { ASRouterTriggerListeners } = ChromeUtils.importESModule(
+  "resource:///modules/asrouter/ASRouterTriggerListeners.sys.mjs"
+);
 const { CustomizableUITestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/CustomizableUITestUtils.sys.mjs"
 );
 const { DefaultBrowserCheck } = ChromeUtils.importESModule(
-  "resource:///modules/BrowserGlue.sys.mjs"
+  "moz-src:///browser/components/DefaultBrowserCheck.sys.mjs"
 );
 
 const PDF_TEST_URL =
@@ -462,6 +465,150 @@ add_task(async function triggered_feature_tour_with_custom_pref() {
   );
 });
 
+// Test that a feature callout message can be loaded into ASRouter and displayed
+// via a standard trigger. Also test that the callout can be a feature tour
+// without requiring a tour pref to be used.
+add_task(async function triggered_feature_tour_with_advance_screens() {
+  let sandbox = sinon.createSandbox();
+  const TEST_MESSAGES = [
+    {
+      id: "TEST_FEATURE_TOUR",
+      template: "feature_callout",
+      content: {
+        id: "TEST_FEATURE_TOUR",
+        template: "multistage",
+        backdrop: "transparent",
+        transitions: false,
+        disableHistoryUpdates: true,
+        screens: [
+          {
+            id: "FEATURE_CALLOUT_1",
+            anchors: [
+              {
+                selector: "#PanelUI-menu-button",
+                arrow_position: "top-center-arrow-end",
+              },
+            ],
+            content: {
+              position: "callout",
+              title: { string_id: "callout-pdfjs-edit-title" },
+              subtitle: { string_id: "callout-pdfjs-edit-body-b" },
+              primary_button: {
+                label: { string_id: "callout-pdfjs-edit-button" },
+                action: { advance_screens: { direction: 1 } },
+              },
+            },
+          },
+          {
+            id: "FEATURE_CALLOUT_2",
+            anchors: [
+              {
+                selector: "#back-button",
+                arrow_position: "top-center-arrow-start",
+              },
+            ],
+            content: {
+              position: "callout",
+              title: { string_id: "callout-pdfjs-draw-title" },
+              subtitle: { string_id: "callout-pdfjs-draw-body-b" },
+              primary_button: {
+                label: { raw: "Go forward" },
+                action: {
+                  advance_screens: { direction: 1 },
+                },
+              },
+              secondary_button: {
+                label: { raw: "Go back" },
+                action: {
+                  advance_screens: { direction: -1 },
+                },
+              },
+            },
+          },
+        ],
+      },
+      priority: 2,
+      targeting: "true",
+      trigger: { id: "nthTabClosed" },
+    },
+  ];
+  const getMessagesStub = sandbox.stub(FeatureCalloutMessages, "getMessages");
+  getMessagesStub.returns(TEST_MESSAGES);
+  await ASRouter._updateMessageProviders();
+  await ASRouter.loadMessagesFromAllProviders(
+    ASRouter.state.providers.filter(p => p.id === "onboarding")
+  );
+
+  // Test that callout is triggered and shown in browser chrome
+  const win1 = await BrowserTestUtils.openNewBrowserWindow();
+  win1.focus();
+  const tab1 = await BrowserTestUtils.openNewForegroundTab(win1.gBrowser);
+  await TestUtils.waitForTick();
+  win1.gBrowser.removeTab(tab1);
+  await waitForCalloutScreen(
+    win1.document,
+    TEST_MESSAGES[0].content.screens[0].id
+  );
+  ok(
+    win1.document.querySelector(calloutSelector),
+    "Feature Callout is rendered in the browser chrome when a message is available"
+  );
+
+  // Test that the callout advances screen
+  win1.document.querySelector(`#${calloutId} .primary`).click();
+  await waitForCalloutScreen(
+    win1.document,
+    TEST_MESSAGES[0].content.screens[1].id
+  );
+  ok(
+    win1.document.querySelector(calloutSelector),
+    "Feature Callout screen 2 is rendered"
+  );
+
+  // Test that the callout goes backward
+  win1.document.querySelector(`#${calloutId} .secondary`).click();
+  await waitForCalloutScreen(
+    win1.document,
+    TEST_MESSAGES[0].content.screens[0].id
+  );
+  ok(
+    win1.document.querySelector(calloutSelector),
+    "Feature Callout screen 1 is rendered again"
+  );
+
+  // Go forward again
+  win1.document.querySelector(`#${calloutId} .primary`).click();
+  await waitForCalloutScreen(
+    win1.document,
+    TEST_MESSAGES[0].content.screens[1].id
+  );
+  ok(
+    win1.document.querySelector(calloutSelector),
+    "Feature Callout screen 2 is rendered again"
+  );
+
+  // Test that the tour ends when advancing past the last screen
+  win1.document.querySelector(`#${calloutId} .primary`).click();
+  await waitForCalloutRemoved(win1.document);
+  ok(
+    !win1.document.querySelector(calloutSelector),
+    "Feature Callout is not rendered after the tour ends"
+  );
+  await BrowserTestUtils.waitForCondition(
+    () => !FeatureCalloutBroker.isCalloutShowing,
+    "Waiting for all callouts to empty from the callout broker"
+  );
+
+  BrowserTestUtils.closeWindow(win1);
+
+  sandbox.restore();
+  await ASRouter.resetMessageState();
+  await ASRouter._updateMessageProviders();
+  await ASRouter.loadMessagesFromAllProviders(
+    ASRouter.state.providers.filter(p => p.id === "onboarding")
+  );
+});
+
 add_task(async function callout_not_shown_if_dialog_open() {
   const win = await BrowserTestUtils.openNewBrowserWindow();
   let dialogPromise = BrowserTestUtils.promiseAlertDialog(null, undefined, {
@@ -478,7 +625,7 @@ add_task(async function callout_not_shown_if_dialog_open() {
     },
     isSubDialog: true,
   });
-  DefaultBrowserCheck.prompt(win);
+  await DefaultBrowserCheck.prompt(win);
   await dialogPromise;
 
   await BrowserTestUtils.closeWindow(win);
@@ -761,6 +908,42 @@ add_task(
 );
 
 add_task(
+  async function newtab_feature_callout_does_not_appear_if_newtab_disabled() {
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.newtabpage.enabled", false]],
+    });
+    const sandbox = sinon.createSandbox();
+    const trigger = ASRouterTriggerListeners.get("newtabFeatureCalloutCheck");
+    const showFeatureCalloutTourSpy = sandbox.spy(
+      trigger,
+      "showFeatureCalloutTour"
+    );
+    const getMessagesStub = sandbox.stub(FeatureCalloutMessages, "getMessages");
+    const TEST_MESSAGES = [newtabTestMessage];
+    getMessagesStub.returns(TEST_MESSAGES);
+    await ASRouter._updateMessageProviders();
+    await ASRouter.loadMessagesFromAllProviders();
+
+    const win = await BrowserTestUtils.openNewBrowserWindow();
+    const tab1 = await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "about:newtab"
+    );
+    tab1.focus();
+    ok(
+      showFeatureCalloutTourSpy.notCalled,
+      "Newtab feature callout not shown when newtab pref is disabled"
+    );
+
+    await BrowserTestUtils.closeWindow(win);
+    sandbox.restore();
+    await SpecialPowers.popPrefEnv();
+    await ASRouter._updateMessageProviders();
+    await ASRouter.loadMessagesFromAllProviders();
+  }
+);
+
+add_task(
   async function newtab_feature_callout_does_not_appear_in_browser_chrome_on_new_window() {
     const sandbox = sinon.createSandbox();
     const getMessagesStub = sandbox.stub(FeatureCalloutMessages, "getMessages");
@@ -979,70 +1162,6 @@ add_task(
   }
 );
 
-add_task(async function feature_callout_dismissed_on_escape() {
-  const sandbox = sinon.createSandbox();
-  const sendTriggerStub = sandbox.stub(ASRouter, "sendTriggerMessage");
-  sendTriggerStub.withArgs(pdfMatch).resolves(testMessage);
-  sendTriggerStub.callThrough();
-
-  const win = await BrowserTestUtils.openNewBrowserWindow();
-  await openURLInWindow(win, PDF_TEST_URL);
-  const doc = win.document;
-  await waitForCalloutScreen(doc, testMessageScreenId);
-  const container = doc.querySelector(calloutSelector);
-  ok(
-    container,
-    "Feature Callout is rendered in the browser chrome with a new window when a message is available"
-  );
-
-  // Ensure the browser is focused
-  win.gBrowser.selectedBrowser.focus();
-
-  // Press Escape to close
-  EventUtils.synthesizeKey("KEY_Escape", {}, win);
-  await waitForCalloutRemoved(doc);
-  ok(true, "Feature callout dismissed after pressing Escape");
-
-  await BrowserTestUtils.closeWindow(win);
-  sandbox.restore();
-});
-
-add_task(
-  async function feature_callout_not_dismissed_on_escape_with_interactive_elm_focused() {
-    const sandbox = sinon.createSandbox();
-    const sendTriggerStub = sandbox.stub(ASRouter, "sendTriggerMessage");
-    sendTriggerStub.withArgs(pdfMatch).resolves(testMessage);
-    sendTriggerStub.callThrough();
-
-    const win = await BrowserTestUtils.openNewBrowserWindow();
-    await openURLInWindow(win, PDF_TEST_URL);
-    const doc = win.document;
-    await waitForCalloutScreen(doc, testMessageScreenId);
-    const container = doc.querySelector(calloutSelector);
-    ok(
-      container,
-      "Feature Callout is rendered in the browser chrome with a new window when a message is available"
-    );
-
-    // Ensure an interactive element is focused
-    win.gURLBar.focus();
-
-    // Press Escape to close
-    EventUtils.synthesizeKey("KEY_Escape", {}, win);
-    await TestUtils.waitForTick();
-    // Wait 500ms for transition to complete
-    // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
-    await new Promise(resolve => setTimeout(resolve, 500));
-    ok(
-      doc.querySelector(calloutSelector),
-      "Feature callout is not dismissed after pressing Escape because an interactive element is focused"
-    );
-
-    await BrowserTestUtils.closeWindow(win);
-    sandbox.restore();
-  }
-);
-
 add_task(async function first_anchor_selected_is_valid() {
   const win = await BrowserTestUtils.openNewBrowserWindow();
   const config = {
@@ -1152,4 +1271,177 @@ add_task(async function test_triggerTab_selector() {
   await waitForCalloutRemoved(win.document);
   await BrowserTestUtils.closeWindow(win);
   sandbox.restore();
+});
+
+add_task(async function test_triggeredTabBookmark_selector() {
+  // Currently not supported on Linux, see Bug 1927472
+  if (AppConstants.platform === "linux") {
+    return;
+  }
+
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.toolbars.bookmarks.visibility", "always"]],
+  });
+  registerCleanupFunction(async () => {
+    await PlacesUtils.bookmarks.eraseEverything();
+    await SpecialPowers.popPrefEnv();
+  });
+
+  const win = await BrowserTestUtils.openNewBrowserWindow();
+  const browser = win.gBrowser.selectedBrowser;
+  const testURL = "https://example.com/";
+  BrowserTestUtils.startLoadingURIString(browser, testURL);
+  await BrowserTestUtils.browserLoaded(browser);
+
+  await PlacesUtils.bookmarks.insert({
+    parentGuid: PlacesUtils.bookmarks.toolbarGuid,
+    title: "Test",
+    url: testURL,
+  });
+
+  const config = {
+    win,
+    location: "chrome",
+    context: "chrome",
+    browser,
+    theme: { preset: "chrome" },
+  };
+
+  const message = JSON.parse(JSON.stringify(testMessage.message));
+  message.content.screens[0].anchors[0].selector = "%triggeredTabBookmark%";
+
+  const sandbox = sinon.createSandbox();
+  const doc = win.document;
+  const featureCallout = new FeatureCallout(config);
+  const getAnchorSpy = sandbox.spy(featureCallout, "_getAnchor");
+
+  await featureCallout.showFeatureCallout(message);
+  await waitForCalloutScreen(doc, message.content.screens[0].id);
+
+  const [anchor] = getAnchorSpy.returnValues;
+
+  Assert.strictEqual(
+    anchor?.element?.classList.contains("bookmark-item"),
+    true,
+    "Resolved anchor element is a bookmark item"
+  );
+
+  Assert.strictEqual(
+    anchor.element?._placesNode?.uri,
+    testURL,
+    "Resolved bookmark matches triggered tab URI"
+  );
+
+  doc.querySelector(calloutCTASelector).click();
+  await waitForCalloutRemoved(doc);
+
+  sandbox.restore();
+  await BrowserTestUtils.closeWindow(win);
+});
+
+add_task(async function test_triggeredTabBookmark_selector_fallback_overflow() {
+  // Currently not supported on Linux, see Bug 1927472
+  if (AppConstants.platform === "linux") {
+    return;
+  }
+
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.toolbars.bookmarks.visibility", "always"]],
+  });
+  registerCleanupFunction(async () => {
+    await PlacesUtils.bookmarks.eraseEverything();
+    await SpecialPowers.popPrefEnv();
+  });
+
+  const win = await BrowserTestUtils.openNewBrowserWindow();
+  const browser = win.gBrowser.selectedBrowser;
+  const testURL = "https://example.com/";
+  BrowserTestUtils.startLoadingURIString(browser, testURL);
+  await BrowserTestUtils.browserLoaded(browser);
+
+  // Add filler bookmark first
+  await PlacesUtils.bookmarks.insert({
+    parentGuid: PlacesUtils.bookmarks.toolbarGuid,
+    title: "Filler Bookmark",
+    url: testURL,
+  });
+
+  const placesToolbarItems = win.document.getElementById("PlacesToolbarItems");
+  const placesChevron = win.document.getElementById("PlacesChevron");
+
+  // Resize the toolbar to force overflow
+  placesToolbarItems.style.maxWidth = "10px";
+  await TestUtils.waitForCondition(
+    () => !placesChevron.collapsed,
+    "Waiting for bookmarks toolbar to overflow"
+  );
+
+  await TestUtils.waitForCondition(
+    async () => (await win.PlacesToolbarHelper.getIsEmpty()) === false,
+    "Waiting for the Bookmarks toolbar to have been rebuilt and not be empty"
+  );
+  if (
+    win.PlacesToolbarHelper._viewElt._placesView._updateNodesVisibilityTimer
+  ) {
+    await BrowserTestUtils.waitForEvent(
+      win,
+      "BookmarksToolbarVisibilityUpdated"
+    );
+  }
+
+  // Add the target bookmark so it overflows
+  await PlacesUtils.bookmarks.insert({
+    parentGuid: PlacesUtils.bookmarks.toolbarGuid,
+    title: "Overflow Bookmark",
+    url: testURL,
+  });
+
+  await new Promise(resolve => win.requestAnimationFrame(resolve));
+
+  await TestUtils.waitForCondition(() => {
+    const match = [
+      ...placesToolbarItems.querySelectorAll(".bookmark-item"),
+    ].find(el => el._placesNode?.uri === testURL);
+    if (!match) {
+      return false;
+    }
+    const style = win.getComputedStyle(match);
+    return style.visibility === "hidden" || style.display === "none";
+  }, "Waiting for test bookmark to be hidden due to overflow");
+
+  const config = {
+    win,
+    location: "chrome",
+    context: "chrome",
+    browser,
+    theme: { preset: "chrome" },
+  };
+
+  const message = JSON.parse(JSON.stringify(testMessage.message));
+  message.content.screens[0].anchors = [
+    { selector: "%triggeredTabBookmark%", arrow_position: "top" },
+    { selector: "#PlacesToolbarItems", arrow_position: "top" },
+  ];
+
+  const sandbox = sinon.createSandbox();
+  const doc = win.document;
+  const featureCallout = new FeatureCallout(config);
+  const getAnchorSpy = sandbox.spy(featureCallout, "_getAnchor");
+
+  await featureCallout.showFeatureCallout(message);
+  await waitForCalloutScreen(doc, message.content.screens[0].id);
+
+  const [anchor] = getAnchorSpy.returnValues;
+
+  Assert.strictEqual(
+    anchor?.element?.id,
+    "PlacesToolbarItems",
+    "Anchor resolved to fallback when triggeredTabBookmark was overflowed"
+  );
+
+  doc.querySelector(calloutCTASelector).click();
+  await waitForCalloutRemoved(doc);
+  placesToolbarItems.style.removeProperty("max-width");
+  sandbox.restore();
+  await BrowserTestUtils.closeWindow(win);
 });

@@ -18,6 +18,7 @@
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_media.h"
 #include "mozilla/glean/GfxMetrics.h"
+#include "mozilla/glean/IpcMetrics.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/TelemetryIPC.h"
 #include "mozilla/dom/CheckerboardReportService.h"
@@ -25,12 +26,8 @@
 #include "mozilla/dom/MemoryReportRequest.h"
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/gfxVars.h"
-#if defined(XP_WIN)
-#  include "mozilla/gfx/DeviceManagerDx.h"
-#endif
 #include "mozilla/HangDetails.h"
-#include "mozilla/RemoteDecoderManagerChild.h"  // For RemoteDecodeIn
-#include "mozilla/Unused.h"
+#include "mozilla/RemoteMediaManagerChild.h"  // For RemoteMediaIn
 #include "mozilla/ipc/Endpoint.h"
 #include "mozilla/layers/APZInputBridgeChild.h"
 #include "mozilla/layers/LayerTreeOwnerTracker.h"
@@ -49,7 +46,7 @@ GPUChild::GPUChild(GPUProcessHost* aHost) : mHost(aHost), mGPUReady(false) {}
 
 GPUChild::~GPUChild() = default;
 
-void GPUChild::Init() {
+RefPtr<GPUChild::InitPromiseType> GPUChild::Init() {
   nsTArray<GfxVarUpdate> updates = gfxVars::FetchNonDefaultVars();
 
   DevicePrefs devicePrefs;
@@ -58,7 +55,6 @@ void GPUChild::Init() {
       gfxConfig::GetValue(Feature::D3D11_COMPOSITING);
   devicePrefs.oglCompositing() =
       gfxConfig::GetValue(Feature::OPENGL_COMPOSITING);
-  devicePrefs.useD2D1() = gfxConfig::GetValue(Feature::DIRECT2D);
   devicePrefs.d3d11HwAngle() = gfxConfig::GetValue(Feature::D3D11_HW_ANGLE);
 
   nsTArray<LayerTreeIdMapping> mappings;
@@ -74,22 +70,36 @@ void GPUChild::Init() {
     features = gfxInfoRaw->GetAllFeatures();
   }
 
-  SendInit(updates, devicePrefs, mappings, features,
-           GPUProcessManager::Get()->AllocateNamespace());
+  RefPtr<InitPromiseType> promise =
+      SendInit(updates, devicePrefs, mappings, features,
+               GPUProcessManager::Get()->AllocateNamespace())
+          ->Then(
+              GetCurrentSerialEventTarget(), __func__,
+              [self = RefPtr{this}](GPUDeviceData&& aData) {
+                self->OnInitComplete(aData);
+                return InitPromiseType::CreateAndResolve(Ok{}, __func__);
+              },
+              [](ipc::ResponseRejectReason) {
+                return InitPromiseType::CreateAndReject(Ok{}, __func__);
+              });
 
   gfxVars::AddReceiver(this);
 
-  Unused << SendInitProfiler(ProfilerParent::CreateForProcess(OtherPid()));
+  (void)SendInitProfiler(ProfilerParent::CreateForProcess(OtherPid()));
+
+  return promise;
 }
 
-void GPUChild::OnVarChanged(const GfxVarUpdate& aVar) { SendUpdateVar(aVar); }
+void GPUChild::OnVarChanged(const nsTArray<GfxVarUpdate>& aVar) {
+  SendUpdateVar(aVar);
+}
 
-bool GPUChild::EnsureGPUReady() {
+bool GPUChild::EnsureGPUReady(bool aForceSync /* = false */) {
   // On our initial process launch, we want to block on the GetDeviceStatus
   // message. Additionally, we may have updated our compositor configuration
   // through the gfxVars after fallback, in which case we want to ensure the
   // GPU process has handled any updates before creating compositor sessions.
-  if (mGPUReady && !mWaitForVarUpdate) {
+  if (mGPUReady && !aForceSync) {
     return true;
   }
 
@@ -98,15 +108,7 @@ bool GPUChild::EnsureGPUReady() {
     return false;
   }
 
-  // Only import and collect telemetry for the initial GPU process launch.
-  if (!mGPUReady) {
-    gfxPlatform::GetPlatform()->ImportGPUDeviceData(data);
-    glean::gpu_process::launch_time.AccumulateRawDuration(
-        TimeStamp::Now() - mHost->GetLaunchTime());
-    mGPUReady = true;
-  }
-
-  mWaitForVarUpdate = false;
+  OnInitComplete(data);
   return true;
 }
 
@@ -139,17 +141,20 @@ void GPUChild::DeletePairedMinidump() {
   }
 }
 
-mozilla::ipc::IPCResult GPUChild::RecvInitComplete(const GPUDeviceData& aData) {
-  // We synchronously requested GPU parameters before this arrived.
+void GPUChild::OnInitComplete(const GPUDeviceData& aData) {
+  // This function may be called multiple times, for example if we synchronously
+  // requested GPU parameters before the asynchronous SendInit completed, or if
+  // EnsureGPUReady is called after launch to force a synchronization after a
+  // configuration change. We only want to import device data and collect
+  // telemetry for the initial GPU process launch.
   if (mGPUReady) {
-    return IPC_OK();
+    return;
   }
 
   gfxPlatform::GetPlatform()->ImportGPUDeviceData(aData);
   glean::gpu_process::launch_time.AccumulateRawDuration(TimeStamp::Now() -
                                                         mHost->GetLaunchTime());
   mGPUReady = true;
-  return IPC_OK();
 }
 
 mozilla::ipc::IPCResult GPUChild::RecvDeclareStable() {
@@ -320,10 +325,9 @@ mozilla::ipc::IPCResult GPUChild::RecvAddMemoryReport(
 
 void GPUChild::ActorDestroy(ActorDestroyReason aWhy) {
   if (aWhy == AbnormalShutdown || mUnexpectedShutdown) {
-    Telemetry::Accumulate(
-        Telemetry::SUBPROCESS_ABNORMAL_ABORT,
-        nsDependentCString(XRE_GeckoProcessTypeToString(GeckoProcessType_GPU)),
-        1);
+    nsAutoCString processType(
+        XRE_GeckoProcessTypeToString(GeckoProcessType_GPU));
+    glean::subprocess::abnormal_abort.Get(processType).Add(1);
 
     nsAutoString dumpId;
     if (!mCreatedPairedMinidumps) {
@@ -338,6 +342,7 @@ void GPUChild::ActorDestroy(ActorDestroyReason aWhy) {
       RefPtr<nsHashPropertyBag> props = new nsHashPropertyBag();
       props->SetPropertyAsBool(u"abnormal"_ns, true);
       props->SetPropertyAsAString(u"dumpID"_ns, dumpId);
+      props->SetPropertyAsACString(u"processType"_ns, processType);
       obsvc->NotifyObservers((nsIPropertyBag2*)props,
                              "compositor:process-aborted", nullptr);
     }
@@ -390,16 +395,27 @@ mozilla::ipc::IPCResult GPUChild::RecvUpdateMediaCodecsSupported(
     trimedSupported -= mozilla::media::MediaCodecsSupport::HEVCHardwareDecode;
   }
   dom::ContentParent::BroadcastMediaCodecsSupportedUpdate(
-      RemoteDecodeIn::GpuProcess, trimedSupported);
+      RemoteMediaIn::GpuProcess, trimedSupported);
 #else
   dom::ContentParent::BroadcastMediaCodecsSupportedUpdate(
-      RemoteDecodeIn::GpuProcess, aSupported);
+      RemoteMediaIn::GpuProcess, aSupported);
 #endif
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult GPUChild::RecvFOGData(ByteBuf&& aBuf) {
   glean::FOGData(std::move(aBuf));
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult GPUChild::RecvReportGLStrings(
+    GfxInfoGLStrings&& aStrings) {
+  nsCOMPtr<nsIGfxInfo> gfxInfo = components::GfxInfo::Service();
+  if (gfxInfo) {
+    static_cast<widget::GfxInfoBase*>(gfxInfo.get())
+        ->ReportGLStrings(std::move(aStrings));
+  }
+
   return IPC_OK();
 }
 

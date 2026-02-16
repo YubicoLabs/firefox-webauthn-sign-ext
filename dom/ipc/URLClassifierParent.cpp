@@ -5,14 +5,16 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "URLClassifierParent.h"
+
+#include "mozilla/net/UrlClassifierFeatureResult.h"
 #include "nsComponentManagerUtils.h"
 #include "nsIUrlClassifierFeature.h"
 #include "nsNetCID.h"
-#include "mozilla/net/UrlClassifierFeatureResult.h"
-#include "mozilla/Unused.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
+
+class nsIUrlClassifierExceptionList;
 
 /////////////////////////////////////////////////////////////////////
 // URLClassifierParent.
@@ -88,8 +90,7 @@ class IPCFeature final : public nsIUrlClassifierFeature {
   }
 
   NS_IMETHOD
-  GetExceptionHostList(nsACString& aList) override {
-    aList = mIPCFeature.exceptionHostList();
+  GetExceptionList(nsIUrlClassifierExceptionList** aList) override {
     return NS_OK;
   }
 
@@ -180,7 +181,7 @@ URLClassifierLocalParent::OnClassifyComplete(
       ipcResult->matchingList() = r->List();
     }
 
-    Unused << Send__delete__(this, ipcResults);
+    (void)Send__delete__(this, ipcResults);
   }
   return NS_OK;
 }
@@ -236,7 +237,7 @@ URLClassifierLocalByNameParent::OnClassifyComplete(
       ipcResult->matchingList() = r->List();
     }
 
-    Unused << Send__delete__(this, ipcResults);
+    (void)Send__delete__(this, ipcResults);
   }
   return NS_OK;
 }

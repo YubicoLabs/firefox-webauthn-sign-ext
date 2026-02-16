@@ -19,6 +19,7 @@ module.exports = {
     "Services-mock": `${fixturesDir}/Services`,
     "ChromeUtils-mock": `${fixturesDir}/ChromeUtils`,
 
+    "^Glean": `${fixturesDir}/Glean`,
     "^promise": `${fixturesDir}/promise`,
     "^resource://devtools/client/shared/fluent-l10n/fluent-l10n.js": `${fixturesDir}/fluent-l10n`,
     "^resource://devtools/client/shared/unicode-url.js": `${fixturesDir}/unicode-url`,
@@ -31,6 +32,8 @@ module.exports = {
     "devtools/shared/plural-form$": `${fixturesDir}/plural-form`,
     // Sometimes returning an empty object is enough
     "^resource://devtools/client/shared/link": `${fixturesDir}/empty-module`,
+    "resource://devtools/shared/validate-breakpoint.sys.mjs": `${fixturesDir}/empty-module`,
+    "resource://services-settings/remote-settings.sys.mjs": `${fixturesDir}/empty-module`,
     "^devtools/shared/flags": `${fixturesDir}/empty-module`,
     "^resource://devtools/shared/indexed-db.js": `${fixturesDir}/indexed-db`,
     "^devtools/shared/layout/utils": `${fixturesDir}/empty-module`,
@@ -39,5 +42,8 @@ module.exports = {
     // Map all require("devtools/...") to the real devtools root.
     "^devtools/(.*)": `${__dirname}/../../../$1`,
     "^resource://devtools/(.*)": `${__dirname}/../../../$1`,
+  },
+  transform: {
+    "\\.m?js$": "babel-jest",
   },
 };

@@ -7,6 +7,7 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   AppInfo: "chrome://remote/content/shared/AppInfo.sys.mjs",
+  BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
 });
 
 import { RemotePageChild } from "resource://gre/actors/RemotePageChild.sys.mjs";
@@ -19,14 +20,15 @@ export class NetErrorChild extends RemotePageChild {
     // to allow content-privileged about:neterror or about:certerror to use it.
     const exportableFunctions = [
       "RPMGetAppBuildID",
-      "RPMGetInnerMostURI",
-      "RPMAddToHistogram",
+      "RPMGetHostForDisplay",
+      "RPMGetInnermostAsciiHost",
       "RPMRecordGleanEvent",
       "RPMCheckAlternateHostAvailable",
       "RPMGetHttpResponseHeader",
       "RPMIsTRROnlyFailure",
       "RPMIsFirefox",
       "RPMOpenPreferences",
+      "RPMHasConnectivity",
       "RPMGetTRRSkipReason",
       "RPMGetTRRDomain",
       "RPMIsSiteSpecificTRRError",
@@ -37,13 +39,15 @@ export class NetErrorChild extends RemotePageChild {
     this.exportFunctions(exportableFunctions);
   }
 
-  getFailedCertChain(docShell) {
+  getHandshakeCertificates(docShell) {
     let securityInfo =
       docShell.failedChannel && docShell.failedChannel.securityInfo;
     if (!securityInfo) {
       return [];
     }
-    return securityInfo.failedCertChain.map(cert => cert.getBase64DERString());
+    return securityInfo.handshakeCertificates.map(cert =>
+      cert.getBase64DERString()
+    );
   }
 
   handleEvent(aEvent) {
@@ -51,35 +55,47 @@ export class NetErrorChild extends RemotePageChild {
     let doc = aEvent.originalTarget.ownerDocument || aEvent.originalTarget;
 
     switch (aEvent.type) {
-      case "click":
+      case "click": {
         let elem = aEvent.originalTarget;
         if (elem.id == "viewCertificate") {
           // Call through the superclass to avoid the security check.
           this.sendAsyncMessage("Browser:CertExceptionError", {
             location: doc.location.href,
             elementId: elem.id,
-            failedCertChain: this.getFailedCertChain(doc.defaultView.docShell),
+            handshakeCertificates: this.getHandshakeCertificates(
+              doc.defaultView.docShell
+            ),
           });
         }
         break;
+      }
     }
   }
 
-  RPMGetInnerMostURI(uriString) {
-    let uri = Services.io.newURI(uriString);
+  RPMGetHostForDisplay(document) {
+    // Note: not document.documentURIObject, which will be the network error
+    // page's URI - we want the URI of the page that failed to load.
+    let uri = document.mozDocumentURIIfNotForErrorPages;
+    return lazy.BrowserUtils.formatURIForDisplay(uri);
+  }
+
+  /**
+   * Use this to get the ascii host for the load that showed an error.
+   * Do NOT rely on `document.location.href` or similar as it will not work
+   * reliably for nested URLs like view-source.
+   *
+   * @returns {string} ASCII (potentially punycode) version of the hostname.
+   */
+  RPMGetInnermostAsciiHost() {
+    let uri = this.contentWindow.document.mozDocumentURIIfNotForErrorPages;
     if (uri instanceof Ci.nsINestedURI) {
       uri = uri.QueryInterface(Ci.nsINestedURI).innermostURI;
     }
-
-    return uri.spec;
+    return uri.asciiHost;
   }
 
   RPMGetAppBuildID() {
     return Services.appinfo.appBuildID;
-  }
-
-  RPMAddToHistogram(histID, bin) {
-    Services.telemetry.getHistogramById(histID).add(bin);
   }
 
   RPMRecordGleanEvent(category, name, extra) {
@@ -134,11 +150,15 @@ export class NetErrorChild extends RemotePageChild {
       },
     };
 
-    Services.uriFixup.checkHost(
-      info.fixedURI,
-      onLookupCompleteListener,
-      this.document.nodePrincipal.originAttributes
-    );
+    try {
+      Services.uriFixup.checkHost(
+        info.fixedURI,
+        onLookupCompleteListener,
+        this.document.nodePrincipal.originAttributes
+      );
+    } catch (ex) {
+      // Ignore errors.
+    }
   }
 
   // Get the header from the http response of the failed channel. This function
@@ -174,6 +194,11 @@ export class NetErrorChild extends RemotePageChild {
 
   RPMIsFirefox() {
     return lazy.AppInfo.isFirefox;
+  }
+
+  RPMHasConnectivity() {
+    // Whether the browser has active network interfaces or not.
+    return Services.io.connectivity;
   }
 
   _getTRRSkipReason() {

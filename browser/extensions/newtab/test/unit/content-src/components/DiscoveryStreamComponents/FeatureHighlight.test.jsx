@@ -1,7 +1,7 @@
-import { FeatureHighlight } from "content-src/components/DiscoveryStreamComponents/FeatureHighlight/FeatureHighlight";
-import { SponsoredContentHighlight } from "content-src/components/DiscoveryStreamComponents/FeatureHighlight/SponsoredContentHighlight";
 import React from "react";
 import { mount } from "enzyme";
+
+import { FeatureHighlight } from "content-src/components/DiscoveryStreamComponents/FeatureHighlight/FeatureHighlight";
 
 describe("<FeatureHighlight>", () => {
   let wrapper;
@@ -26,7 +26,7 @@ describe("<FeatureHighlight>", () => {
     assert.ok(wrapper.find(".feature-highlight-modal.closed").exists());
     wrapper.find(".toggle-button").simulate("click");
     assert.ok(wrapper.find(".feature-highlight-modal.opened").exists());
-    wrapper.find(".icon-dismiss").simulate("click");
+    wrapper.find("moz-button").simulate("click");
     assert.ok(wrapper.find(".feature-highlight-modal.closed").exists());
   });
 
@@ -44,17 +44,36 @@ describe("<FeatureHighlight>", () => {
     wrapper.find(".toggle-button").simulate("click");
     fakeWindow.document.handleOutsideClick({ target: null });
   });
-});
 
-describe("<SponsoredContentHighlight>", () => {
-  let wrapper;
+  it("should call outsideClickCallback on Escape key press", () => {
+    const outsideClickCallback = sinon.spy();
 
-  beforeEach(() => {
-    wrapper = mount(<SponsoredContentHighlight />);
-  });
+    fakeWindow = {
+      document: {
+        addEventListener: (event, handler) => {
+          if (event === "keydown") {
+            fakeWindow.document.keydownHandler = handler;
+          }
+        },
+        removeEventListener: () => {},
+      },
+    };
 
-  it("should render", () => {
-    assert.ok(wrapper.exists());
-    assert.ok(wrapper.find(".sponsored-content-highlight").exists());
+    wrapper = mount(
+      <FeatureHighlight
+        windowObj={fakeWindow}
+        outsideClickCallback={outsideClickCallback}
+      />
+    );
+
+    // Open the modal so we can test closing it with Escape
+    wrapper.find(".toggle-button").simulate("click");
+    assert(wrapper.find(".feature-highlight-modal.opened").exists());
+
+    // Simulate Escape key press
+    fakeWindow.document.keydownHandler({ key: "Escape" });
+
+    assert.calledOnce(outsideClickCallback);
+    assert(wrapper.find(".feature-highlight-modal.closed").exists);
   });
 });

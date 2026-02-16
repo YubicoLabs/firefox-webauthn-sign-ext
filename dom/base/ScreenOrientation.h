@@ -8,10 +8,10 @@
 #define mozilla_dom_ScreenOrientation_h
 
 #include "mozilla/DOMEventTargetHelper.h"
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/ScreenOrientationBinding.h"
 #include "mozilla/HalScreenConfiguration.h"
 #include "mozilla/MozPromise.h"
+#include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/ScreenOrientationBinding.h"
 
 class nsScreen;
 
@@ -32,6 +32,15 @@ class ScreenOrientation final : public DOMEventTargetHelper {
 
   // Called when the orientation may have changed.
   void MaybeChanged();
+
+  // Called when we might need to dispatch orientation change event.
+  void MaybeDispatchChangeEvent(BrowsingContext* aBrowsingContext);
+
+  // Called when we might need to dispatch orientation change events
+  // in case of orientation override being set, updated or removed.
+  void MaybeDispatchEventsForOverride(BrowsingContext* aBrowsingContext,
+                                      bool aOldHasOrientationOverride,
+                                      bool aOverrideIsDifferentThanDevice);
 
   ScreenOrientation(nsPIDOMWindowInner* aWindow, nsScreen* aScreen);
 
@@ -55,6 +64,10 @@ class ScreenOrientation final : public DOMEventTargetHelper {
   static void UpdateActiveOrientationLock(hal::ScreenOrientation aOrientation);
   static void AbortInProcessOrientationPromises(
       BrowsingContext* aBrowsingContext);
+
+  // Dispatch change event then resolve the promise.
+  // aBrowsingContext must be top level in process.
+  static void DispatchChangeEventToChildren(BrowsingContext* aBrowsingContext);
 
  private:
   virtual ~ScreenOrientation();
@@ -90,7 +103,12 @@ class ScreenOrientation final : public DOMEventTargetHelper {
 
   nsCOMPtr<nsIRunnable> DispatchChangeEventAndResolvePromise();
 
-  LockPermission GetLockOrientationPermission(bool aCheckSandbox) const;
+  // The common safety checks
+  static bool CommonSafetyChecks(nsPIDOMWindowInner* aOwner,
+                                 Document* aDocument, ErrorResult& aRv);
+
+  static LockPermission GetLockOrientationPermission(nsPIDOMWindowInner* aOwner,
+                                                     Document* aDocument);
 
   // Gets the responsible document as defined in the spec.
   Document* GetResponsibleDocument() const;

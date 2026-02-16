@@ -13,9 +13,8 @@
 #include <utility>
 
 #include "jsapi.h"
-#include "jsmath.h"
-#include "jsnum.h"
 
+#include "builtin/Number.h"
 #include "gc/GCContext.h"
 #include "gc/HashUtil.h"
 #include "js/CharacterEncoding.h"
@@ -28,6 +27,7 @@
 #include "js/Stack.h"
 #include "js/Vector.h"
 #include "util/DifferentialTesting.h"
+#include "util/RandomSeed.h"
 #include "util/StringBuilder.h"
 #include "vm/Compartment.h"
 #include "vm/FrameIter.h"
@@ -1594,13 +1594,20 @@ bool SavedStacks::insertFrames(JSContext* cx, MutableHandle<SavedFrame*> frame,
     // stack.
     //
     // Captures using FirstSubsumedFrame expect us to ignore async parents.
-    //
+    bool hasAsyncStackToAdopt =
+        iter.activation() != &activation && activation.asyncStack() &&
+        (activation.asyncCallIsExplicit() || iter.done()) &&
+        !capture.is<JS::FirstSubsumedFrame>();
+
     // If we're censoring the stack for Error.captureStackTrace we also
     // don't want to re-parent an empty stack trace, so make sure
-    // we actually saw a frame.
-    if (iter.activation() != &activation && activation.asyncStack() &&
-        (activation.asyncCallIsExplicit() || iter.done()) &&
-        !capture.is<JS::FirstSubsumedFrame>() && seenStartAt) {
+    // we actually saw a frame; stop walking the trace if we haven't
+    // seen anything.
+    if (hasAsyncStackToAdopt && stackChain.length() == 0) {
+      break;
+    }
+
+    if (hasAsyncStackToAdopt) {
       // Atomize the async cause string. There should only be a few
       // different strings used.
       const char* cause = activation.asyncCause();
@@ -1838,7 +1845,7 @@ SavedFrame* SavedStacks::getOrCreateSavedFrame(
     return *p;
   }
 
-  Rooted<SavedFrame*> frame(cx, createFrameFromLookup(cx, lookup));
+  SavedFrame* frame = createFrameFromLookup(cx, lookup);
   if (!frame) {
     return nullptr;
   }
@@ -2012,10 +2019,10 @@ JSObject* SavedStacks::MetadataBuilder::build(
 const SavedStacks::MetadataBuilder SavedStacks::metadataBuilder;
 
 /* static */
-MOZ_CONSTINIT ReconstructedSavedFramePrincipals
+constinit ReconstructedSavedFramePrincipals
     ReconstructedSavedFramePrincipals::IsSystem;
 /* static */
-MOZ_CONSTINIT ReconstructedSavedFramePrincipals
+constinit ReconstructedSavedFramePrincipals
     ReconstructedSavedFramePrincipals::IsNotSystem;
 
 UniqueChars BuildUTF8StackString(JSContext* cx, JSPrincipals* principals,

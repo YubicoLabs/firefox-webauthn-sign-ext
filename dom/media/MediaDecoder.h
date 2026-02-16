@@ -15,7 +15,6 @@
 #  include "MediaMetadataManager.h"
 #  include "MediaPromiseDefs.h"
 #  include "MediaResource.h"
-#  include "MediaStatistics.h"
 #  include "SeekTarget.h"
 #  include "TelemetryProbesReporter.h"
 #  include "TimeUnits.h"
@@ -39,7 +38,6 @@ namespace mozilla {
 
 class AbstractThread;
 class DOMMediaStream;
-class DecoderBenchmark;
 class ProcessedMediaTrack;
 class FrameStatistics;
 class VideoFrameContainer;
@@ -205,20 +203,46 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   // replaying after the input as ended. In the latter case, the new source is
   // not connected to streams created by captureStreamUntilEnded.
 
+  // Capture: Output is captured into output tracks.
+  // Halt: A capturing media sink is used, but capture is halted.
+  // None: Output is not captured.
   MOZ_DEFINE_ENUM_CLASS_WITH_TOSTRING_AT_CLASS_SCOPE(OutputCaptureState,
                                                      (Capture, Halt, None));
 
+  struct OutputCaptureInfo {
+    explicit OutputCaptureInfo(OutputCaptureState aState);
+
+    OutputCaptureInfo(OutputCaptureState aState, SharedDummyTrack* aDummyTrack,
+                      bool aShouldConfigAudioOutput, AudioDeviceInfo* aDevice);
+
+    OutputCaptureInfo(const OutputCaptureInfo& aOther);
+    OutputCaptureInfo& operator=(const OutputCaptureInfo& aOther);
+
+    OutputCaptureInfo(OutputCaptureInfo&& aOther) noexcept;
+    OutputCaptureInfo& operator=(OutputCaptureInfo&& aOther) noexcept;
+
+    bool operator==(const OutputCaptureInfo& aOther) const;
+    bool operator!=(const OutputCaptureInfo& aOther) const {
+      return !(*this == aOther);
+    }
+
+    ~OutputCaptureInfo();
+
+    // A state indicating whether output is being captured. If it's Capture,
+    // mDummyTrack must be provided.
+    OutputCaptureState mState;
+    // A SharedDummyTrack the capturing media sink can use to access a
+    // MediaTrackGraph, so it can create tracks even when there are no output
+    // tracks available.
+    nsMainThreadPtrHandle<SharedDummyTrack> mDummyTrack;
+    // True if the audio output should also be configured to mDevice.
+    bool mShouldConfigAudioOutput;
+    RefPtr<AudioDeviceInfo> mDevice;
+  };
+
   // Set the output capture state of this decoder.
-  // @param aState Capture: Output is captured into output tracks, and
-  //                        aDummyTrack must be provided.
-  //               Halt:    A capturing media sink is used, but capture is
-  //                        halted.
-  //               None:    Output is not captured.
-  // @param aDummyTrack A SharedDummyTrack the capturing media sink can use to
-  //                    access a MediaTrackGraph, so it can create tracks even
-  //                    when there are no output tracks available.
-  void SetOutputCaptureState(OutputCaptureState aState,
-                             SharedDummyTrack* aDummyTrack = nullptr);
+  void SetOutputCaptureState(OutputCaptureInfo aInfo);
+
   // Add an output track. All decoder output for the track's media type will be
   // sent to the track.
   // Note that only one audio track and one video track is supported by
@@ -490,7 +514,7 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
     DurationChanged();
   }
 
-  virtual void OnPlaybackEvent(MediaPlaybackEvent&& aEvent);
+  virtual void OnPlaybackEvent(const MediaPlaybackEvent& aEvent);
 
   // Called when the metadata from the media file has been loaded by the
   // state machine. Call on the main thread only.
@@ -562,12 +586,14 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   void OnSecondaryVideoContainerInstalled(
       const RefPtr<VideoFrameContainer>& aSecondaryVideoContainer);
 
-  void OnStoreDecoderBenchmark(const VideoInfo& aInfo);
-
   void FinishShutdown();
 
   void ConnectMirrors(MediaDecoderStateMachineBase* aObject);
   void DisconnectMirrors();
+#  ifdef MOZ_WMF_MEDIA_ENGINE
+  // Return true if we switched to a new state machine.
+  bool SwitchStateMachine(const MediaResult& aError);
+#  endif
 
   virtual bool CanPlayThroughImpl() = 0;
 
@@ -603,9 +629,6 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
 
   // Counters related to decode and presentation of frames.
   const RefPtr<FrameStatistics> mFrameStats;
-
-  // Store a benchmark of the decoder based on FrameStatistics.
-  RefPtr<DecoderBenchmark> mDecoderBenchmark;
 
   RefPtr<VideoFrameContainer> mVideoFrameContainer;
 
@@ -671,7 +694,6 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   MediaEventListener mOnNextFrameStatus;
   MediaEventListener mOnTrackInfoUpdated;
   MediaEventListener mOnSecondaryVideoContainerInstalled;
-  MediaEventListener mOnStoreDecoderBenchmark;
 
   // True if we have suspended video decoding.
   bool mIsVideoDecodingSuspended = false;
@@ -712,13 +734,10 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   // should not suspend the decoder.
   Canonical<RefPtr<VideoFrameContainer>> mSecondaryVideoContainer;
 
-  // Whether this MediaDecoder's output is captured, halted or not captured.
-  // When captured, all decoded data must be played out through mOutputTracks.
-  Canonical<OutputCaptureState> mOutputCaptureState;
-
-  // A dummy track used to access the right MediaTrackGraph instance. Needed
-  // since there's no guarantee that output tracks are present.
-  Canonical<nsMainThreadPtrHandle<SharedDummyTrack>> mOutputDummyTrack;
+  // Stream capture information. When the state is Capturing, it contains a
+  // dummy track used to access the correct MediaTrackGraph instance, along with
+  // an indication of whether audio playback should remain active.
+  Canonical<OutputCaptureInfo> mOutputCaptureInfo;
 
   // Tracks that, if set, will get data routed through them.
   Canonical<CopyableTArray<RefPtr<ProcessedMediaTrack>>> mOutputTracks;
@@ -768,12 +787,8 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   Canonical<RefPtr<VideoFrameContainer>>& CanonicalSecondaryVideoContainer() {
     return mSecondaryVideoContainer;
   }
-  Canonical<OutputCaptureState>& CanonicalOutputCaptureState() {
-    return mOutputCaptureState;
-  }
-  Canonical<nsMainThreadPtrHandle<SharedDummyTrack>>&
-  CanonicalOutputDummyTrack() {
-    return mOutputDummyTrack;
+  Canonical<OutputCaptureInfo>& CanonicalOutputCaptureInfo() {
+    return mOutputCaptureInfo;
   }
   Canonical<CopyableTArray<RefPtr<ProcessedMediaTrack>>>&
   CanonicalOutputTracks() {

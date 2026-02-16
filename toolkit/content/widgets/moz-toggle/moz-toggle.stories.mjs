@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { html, ifDefined } from "../vendor/lit.all.mjs";
+import { html, ifDefined, classMap } from "../vendor/lit.all.mjs";
 import "./moz-toggle.mjs";
 import "../moz-support-link/moz-support-link.mjs";
 
@@ -13,8 +13,10 @@ export default {
     l10nId: {
       options: [
         "moz-toggle-label",
+        "moz-toggle-only",
         "moz-toggle-aria-label",
         "moz-toggle-description",
+        "moz-toggle-long-label",
       ],
       control: { type: "select" },
     },
@@ -26,12 +28,17 @@ export default {
     },
     fluent: `
 moz-toggle-aria-label =
+  .label = This is the label
   .aria-label = This is the aria-label
+moz-toggle-only =
+  .aria-label = This is the toggle-only aria-label
 moz-toggle-label =
   .label = This is the label
 moz-toggle-description =
   .label = This is the label
   .description = This is the description.
+moz-toggle-long-label =
+  .label = Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vestibulum libero enim, luctus eu ante a, maximus imperdiet mi. Suspendisse sodales, nisi et commodo malesuada, lectus.
     `,
   },
 };
@@ -48,6 +55,8 @@ const Template = ({
   iconSrc,
   hasSlottedSupportLink,
   nestedFields,
+  ellipsized,
+  inputLayout,
 }) => {
   let toggleTemplate = html`
     <moz-toggle
@@ -60,6 +69,8 @@ const Template = ({
       accesskey=${ifDefined(accessKey)}
       support-page=${ifDefined(supportPage)}
       iconsrc=${ifDefined(iconSrc)}
+      inputlayout=${ifDefined(inputLayout)}
+      class=${classMap({ "text-truncated-ellipsis": ellipsized })}
     >
       ${hasSlottedSupportLink
         ? html`<a slot="support-link" href="www.example.com">Click me!</a>`
@@ -92,6 +103,7 @@ Default.args = {
   iconSrc: "",
   hasSlottedSupportLink: false,
   nestedFields: false,
+  inputLayout: null,
 };
 
 export const Disabled = Template.bind({});
@@ -103,13 +115,14 @@ Disabled.args = {
 export const ToggleOnly = Template.bind({});
 ToggleOnly.args = {
   ...Default.args,
-  l10nId: "moz-toggle-aria-label",
+  l10nId: "moz-toggle-only",
 };
 
 export const WithAccesskey = Template.bind({});
 WithAccesskey.args = {
   ...Default.args,
   accessKey: "h",
+  l10nId: "moz-toggle-aria-label",
 };
 
 export const WithDescription = Template.bind({});
@@ -139,5 +152,47 @@ WithIcon.args = {
 export const WithNestedFields = Template.bind({});
 WithNestedFields.args = {
   ...Default.args,
+  nestedFields: true,
+};
+
+export const WithEllipsizedLabel = Template.bind({});
+WithEllipsizedLabel.args = {
+  ...Default.args,
+  ellipsized: true,
+  l10nId: "moz-toggle-long-label",
+};
+
+export const InlineEndLayout = Template.bind({});
+InlineEndLayout.args = {
+  ...Default.args,
+  inputLayout: "inline-end",
+};
+
+export const InlineEndWithDescription = Template.bind({});
+InlineEndWithDescription.args = {
+  ...Default.args,
+  inputLayout: "inline-end",
+  l10nId: "moz-toggle-description",
+};
+
+export const InlineEndWithSupportLink = Template.bind({});
+InlineEndWithSupportLink.args = {
+  ...Default.args,
+  inputLayout: "inline-end",
+  l10nId: "moz-toggle-description",
+  supportPage: "addons",
+};
+
+export const InlineEndDisabled = Template.bind({});
+InlineEndDisabled.args = {
+  ...Default.args,
+  inputLayout: "inline-end",
+  disabled: true,
+};
+
+export const InlineEndWithNestedFields = Template.bind({});
+InlineEndWithNestedFields.args = {
+  ...Default.args,
+  inputLayout: "inline-end",
   nestedFields: true,
 };

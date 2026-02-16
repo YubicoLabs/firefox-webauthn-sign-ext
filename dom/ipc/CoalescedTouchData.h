@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom__CoalescedTouchData_h
-#define mozilla_dom__CoalescedTouchData_h
+#ifndef mozilla_dom_CoalescedTouchData_h
+#define mozilla_dom_CoalescedTouchData_h
 
 #include "CoalescedInputData.h"
 #include "mozilla/TouchEvents.h"
@@ -26,6 +26,8 @@ class CoalescedTouchData final : public CoalescedInputData<WidgetTouchEvent> {
                    const nsEventStatus& aApzResponse);
 
   nsEventStatus GetApzResponse() { return mApzResponse; }
+
+  void NotifyTouchRawUpdateOfHandled(const WidgetTouchEvent& aEvent);
 
  private:
   Touch* GetTouch(int32_t aIdentifier);

@@ -9,13 +9,15 @@
 
 #include "mozilla/ErrorResult.h"
 #include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/BufferSourceBindingFwd.h"
 #include "mozilla/dom/NonRefcountedDOMObject.h"
 #include "mozilla/dom/TestFunctionsBinding.h"
 #include "nsString.h"
+#include "nsWrapperCache.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
+class MaybeSharedInt8ArrayOrMaybeSharedInt16Array;
 class Promise;
 class PromiseReturner;
 class WrapperCachedNonISupportsTestInterface;
@@ -105,16 +107,21 @@ class TestFunctions : public NonRefcountedDOMObject {
   void TestAllowShared(const ArrayBufferView& aBuffer);
   void TestAllowShared(const ArrayBuffer& aBuffer);
   void TestDictWithAllowShared(const DictWithAllowSharedBufferSource& aDict);
-  void TestUnionOfBuffferSource(
+  void TestUnionOfBufferSource(
       const ArrayBufferOrArrayBufferViewOrString& aUnion);
-  void TestUnionOfAllowSharedBuffferSource(
-      const MaybeSharedArrayBufferOrMaybeSharedArrayBufferView& aUnion);
+  void TestUnionOfAllowSharedBufferSource(
+      const AllowSharedBufferSource& aUnion);
+  void TestUnionWithAllowShared(
+      const MaybeSharedInt8ArrayOrMaybeSharedInt16Array& aUnion);
 
   bool StaticAndNonStaticOverload() { return false; }
   static bool StaticAndNonStaticOverload(GlobalObject& aGlobal,
                                          const Optional<uint32_t>& aLength) {
     return true;
   }
+
+  static already_AddRefed<TestChromeOnlyInterface>
+  CreateTestChromeOnlyInterface(GlobalObject& aGlobal);
 
   static bool ObjectFromAboutBlank(JSContext* aCx, JSObject* aObj);
 
@@ -132,7 +139,23 @@ class TestFunctions : public NonRefcountedDOMObject {
   Nullable<uint8_t> mEnforcedNullableOctet;
 };
 
-}  // namespace dom
-}  // namespace mozilla
+class TestChromeOnlyInterface : public nsWrapperCache {
+ public:
+  explicit TestChromeOnlyInterface(nsISupports* aParent) : mParent(aParent) {}
+
+  NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(TestChromeOnlyInterface)
+  NS_DECL_CYCLE_COLLECTION_NATIVE_WRAPPERCACHE_CLASS(TestChromeOnlyInterface)
+
+  nsISupports* GetParentObject() const { return mParent; }
+  JSObject* WrapObject(JSContext* aCx,
+                       JS::Handle<JSObject*> aGivenProto) override;
+
+ private:
+  virtual ~TestChromeOnlyInterface() = default;
+
+  nsCOMPtr<nsISupports> mParent;
+};
+
+}  // namespace mozilla::dom
 
 #endif  // mozilla_dom_TestFunctions_h

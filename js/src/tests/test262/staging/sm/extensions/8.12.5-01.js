@@ -4,9 +4,8 @@
  */
 
 /*---
-includes: [sm/non262-extensions-shell.js, sm/non262-shell.js, sm/non262.js]
 flags:
-- noStrict
+  - noStrict
 description: |
   pending
 esid: pending
@@ -19,9 +18,6 @@ var summary =
 var actual = "Early failure";
 var expect = "No errors";
 
-
-printBugNumber(BUGNUMBER);
-printStatus(summary);
 
 var o = { get p() { return "a"; } };
 

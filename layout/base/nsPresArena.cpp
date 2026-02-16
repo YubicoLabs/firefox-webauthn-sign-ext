@@ -9,16 +9,15 @@
 
 #include "nsPresArena.h"
 
+#include <inttypes.h>
+
+#include "mozilla/ComputedStyle.h"
+#include "mozilla/ComputedStyleInlines.h"
 #include "mozilla/Poison.h"
 #include "nsDebug.h"
 #include "nsDisplayList.h"
 #include "nsPrintfCString.h"
-#include "mozilla/ArrayUtils.h"
-#include "mozilla/ComputedStyle.h"
-#include "mozilla/ComputedStyleInlines.h"
 #include "nsWindowSizes.h"
-
-#include <inttypes.h>
 
 using namespace mozilla;
 
@@ -149,7 +148,7 @@ void nsPresArena<ArenaSize, ObjectId, ObjectIdCount>::AddSizeOfExcludingThis(
   case eArenaObjectID_##name_:                                   \
     aSizes.mArenaSizes.NS_ARENA_SIZES_FIELD(name_) += totalSize; \
     break;
-#include "nsPresArenaObjectList.h"
+#include "nsPresArenaObjectList.inc"
 #undef PRES_ARENA_OBJECT
         default:
           MOZ_ASSERT_UNREACHABLE("Unknown arena object type");
@@ -161,7 +160,7 @@ void nsPresArena<ArenaSize, ObjectId, ObjectIdCount>::AddSizeOfExcludingThis(
   case DisplayListArenaObjectId::name_:                          \
     aSizes.mArenaSizes.NS_ARENA_SIZES_FIELD(name_) += totalSize; \
     break;
-#include "nsDisplayListArenaTypes.h"
+#include "nsDisplayListArenaTypes.inc"
 #undef DISPLAY_LIST_ARENA_OBJECT
         default:
           MOZ_ASSERT_UNREACHABLE("Unknown display item arena type");

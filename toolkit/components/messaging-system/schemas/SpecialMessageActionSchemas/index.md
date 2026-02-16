@@ -39,6 +39,12 @@ Opens a new private browsing window.
 
 Opens a sidebar pane.
 
+### `OPEN_TAB_IN_SPLITVIEW`
+
+* args: (none)
+
+Opens the selected tab in a splitview with about:opentabs.
+
 ### `OPEN_URL`
 
 * args: `string` (a url)
@@ -136,6 +142,14 @@ window or tab closed before sign-in could be completed. In messaging surfaces us
 
 Encodes some information that the origin was from about:welcome by default.
 
+### `FXA_AIWINDOW_SIGNIN_FLOW`
+
+Opens a customized AI Window Firefox accounts sign-up or sign-in flow, and redirects user to AI Window after successful authentication.
+
+Returns a Promise that resolves to `true` if sign-in succeeded, or to `false` if the sign-in
+window or tab closed before sign-in could be completed.
+
+- args: (none)
 
 ### `SHOW_MIGRATION_WIZARD`
 
@@ -279,30 +293,12 @@ Disable a message by adding to an indexedDb list of blocked messages
 
 Action for setting various browser prefs
 
-Prefs that can be changed with this action are:
-
-- `browser.dataFeatureRecommendations.enabled`
-- `browser.migrate.content-modal.about-welcome-behavior`
-- `browser.migrate.content-modal.import-all.enabled`
-- `browser.migrate.preferences-entrypoint.enabled`
-- `browser.shopping.experience2023.active`
-- `browser.shopping.experience2023.optedIn`
-- `browser.shopping.experience2023.survey.optedInTime`
-- `browser.shopping.experience2023.survey.hasSeen`
-- `browser.shopping.experience2023.survey.pdpVisits`
-- `browser.startup.homepage`
-- `browser.startup.windowsLaunchOnLogin.disableLaunchOnLoginPrompt`
-- `browser.privateWindowSeparation.enabled`
-- `browser.firefox-view.feature-tour`
-- `browser.pdfjs.feature-tour`
-- `browser.newtab.feature-tour`
-- `cookiebanners.service.mode`
-- `cookiebanners.service.mode.privateBrowsing`
-- `cookiebanners.service.detectOnly`
-- `messaging-system.askForFeedback`
+Prefs that can be changed with this action can be found in the `allowList`
+definition for Special Message Actions in
+<a href="https://searchfox.org/mozilla-central/search?q=allowedPrefs&path=toolkit%2Fcomponents%2Fmessaging-system&case=false&regexp=false">SearchFox</a>.
 
 Any pref that begins with `messaging-system-action.` is also allowed.
-Alternatively, if the pref is not present in the list above and does not begin
+If the pref is not present in the list above and does not begin
 with `messaging-system-action.`, it will be created and prepended with
 `messaging-system-action.`. For example, `example.pref` will be created as
 `messaging-system-action.example.pref`.
@@ -323,8 +319,23 @@ Action for running multiple actions. Actions should be included in an array of a
 
 * args:
 ```ts
-{
-  actions: Array<UserAction>
+interface MultiAction {
+  type: "MULTI_ACTION";
+  data: {
+    actions: Array<UserAction>;
+    // Set to true if the actions should be executed in the order they are
+    // listed in the `actions` array. If false, the actions will be executed in
+    // parallel, with no guarantee of order. Defaults to false. If collectSelect
+    // is true and there are multiselect actions, they will be executed in the
+    // order they are rendered in the UI.
+    orderedExecution?: boolean;
+  };
+  // Set to true if this action is for the primary button and you're using the
+  // "multiselect" tile. This is what allows the primary button to perform the
+  // actions specified by the user's checkbox/radio selections. It will combine
+  // all the actions for all the selected checkboxes/radios into the above
+  // `actions` array before executing them.
+  collectSelect?: boolean;
 }
 ```
 
@@ -341,7 +352,8 @@ Action for running multiple actions. Actions should be included in an array of a
       {
         "type": "OPEN_AWESOME_BAR"
       }
-    ]
+    ],
+    "orderedExecution": true
   }
 }
 ```
@@ -392,9 +404,9 @@ Sets the visibility of the bookmarks toolbar.
 ```
 
 
-### `DATAREPORTING_NOTIFY_DATA_POLICY_INTERACTED`
+### `SET_TERMS_OF_USE_INTERACTED`
 
-Notify Firefox that the notification policy was interacted with.
+Notify Firefox that the Terms of Use policy was interacted with.
 
 - args: (none)
 
@@ -409,5 +421,75 @@ Any message that uses this action should have `canCreateSelectableProfiles` as p
 ### `SUBMIT_ONBOARDING_OPT_OUT_PING`
 
 Submits a Glean `onboarding-opt-out` ping.  Should only be used during preonboarding (but this is not enforced).
+
+- args: (none)
+
+### `SET_SEARCH_MODE`
+
+Sets search mode for a specific browser instance and focuses the urlbar.
+
+- args:
+
+```ts
+interface SearchMode {
+  // The name of the search engine to restrict to. Can be left empty to use source
+  // restriction instead.
+  engineName?: string;
+  // A result source to restrict to. One of the values in UrlbarUtils.RESULT_SOURCE.
+  // Defaults to 3 (SEARCH).
+  source?: number;
+  // How search mode was entered. This is recorded in event telemetry. One of the
+  // values in UrlbarUtils.SEARCH_MODE_ENTRY. Defaults to "other".
+  entry?: string;
+  // If true, we will preview search mode. Search mode preview does not record
+  // telemetry and has slighly different UI behavior. The preview is exited in
+  // favor of full search mode when a query is executed. False should be
+  // passed if the caller needs to enter search mode but expects it will not
+  // be interacted with right away. Defaults to true.
+  isPreview?: boolean;
+}
+```
+
+* example:
+
+```json
+"action": {
+  "type": "SET_SEARCH_MODE",
+  "data": {
+    "engineName": "test_engine",
+    "source": 3,
+    "entry": "other",
+    "isPreview": false,
+  }
+}
+```
+
+### `SUMMARIZE_PAGE`
+
+Summarize current page content.
+
+* args: optional `string` entry value to identify initiator default "message"
+
+### `OPEN_PANEL`
+
+Open a panel associated with a given widget.
+
+* args:
+```ts
+{
+  data: {
+    // id of the anchor or widget to attach the panel to
+    anchor_id: string,
+    widget_id: string,
+    // id of the panel to open
+    panel_id: string,
+  }
+}
+```
+
+
+### `CREATE_TASKBAR_TAB`
+
+Creates a taskbar tab from the current URL and asks to pin it to the taskbar. Windows only.
 
 - args: (none)

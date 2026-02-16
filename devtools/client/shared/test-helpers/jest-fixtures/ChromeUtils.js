@@ -15,10 +15,11 @@ const mockedESM = {
 module.exports = {
   import: () => ({}),
   addProfilerMarker: () => {},
+  now: () => performance.now(),
   defineESModuleGetters: (lazy, dict) => {
     for (const key in dict) {
       lazy[key] = mockedESM[key];
     }
   },
-  importESModule: () => ({}),
+  importESModule: path => require(path) || {},
 };

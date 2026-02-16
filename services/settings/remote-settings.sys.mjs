@@ -8,6 +8,8 @@ import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  ClientEnvironmentBase:
+    "resource://gre/modules/components-utils/ClientEnvironment.sys.mjs",
   Database: "resource://services-settings/Database.sys.mjs",
   FilterExpressions:
     "resource://gre/modules/components-utils/FilterExpressions.sys.mjs",
@@ -73,27 +75,76 @@ XPCOMUtils.defineLazyPreferenceGetter(
 );
 
 /**
- * Default entry filtering function, in charge of excluding remote settings entries
- * where the JEXL expression evaluates into a falsy value.
- * @param {Object}            entry       The Remote Settings entry to be excluded or kept.
- * @param {ClientEnvironment} environment Information about version, language, platform etc.
- * @returns {?Object} the entry or null if excluded.
+ * cacheProxy returns an object Proxy that will memoize properties of the target.
+ *
+ * @param {object} target the object to wrap.
+ * @returns {Proxy}
  */
-export async function jexlFilterFunc(entry, environment) {
-  const { filter_expression } = entry;
-  if (!filter_expression) {
-    return entry;
-  }
-  let result;
-  try {
-    const context = {
+function cacheProxy(target) {
+  const cache = new Map();
+  return new Proxy(target, {
+    get(innerTarget, prop) {
+      if (!cache.has(prop)) {
+        cache.set(prop, innerTarget[prop]);
+      }
+      return cache.get(prop);
+    },
+  });
+}
+
+class JexlFilter {
+  constructor(environment, collectionName) {
+    this._environment = environment;
+    this._collectionName = collectionName;
+    this._cachedResultForExpression = new Map();
+    this._context = {
       env: environment,
     };
-    result = await lazy.FilterExpressions.eval(filter_expression, context);
-  } catch (e) {
-    console.error(e);
   }
-  return result ? entry : null;
+
+  /**
+   * Default entry filtering function, in charge of excluding remote settings entries
+   * where the JEXL expression evaluates into a falsy value.
+   *
+   * @param {object} entry The Remote Settings entry to be excluded or kept.
+   * @returns {?object} the entry or null if excluded.
+   */
+  async filterEntry(entry) {
+    const { filter_expression } = entry;
+    if (!filter_expression) {
+      return entry;
+    }
+    let result = this._cachedResultForExpression.get(filter_expression);
+    if (result === undefined) {
+      try {
+        result = Boolean(
+          await lazy.FilterExpressions.eval(filter_expression, this._context)
+        );
+      } catch (e) {
+        console.error(
+          e,
+          "Full expression: " + filter_expression,
+          this._collectionName
+        );
+      }
+      this._cachedResultForExpression.set(filter_expression, result);
+    }
+    return result ? entry : null;
+  }
+}
+
+/**
+ * Creates the default entry filter, in charge of excluding remote settings entries
+ * where the JEXL expression evaluates into a falsy value.
+ *
+ * @param {ClientEnvironment} environment Information about version, language, platform etc.
+ * @param {string}            collectionName
+ *    Which collection includes this entry. This is used for error reporting.
+ * @returns {RemoteSettingsEntryFilter} The entry filter.
+ */
+export async function jexlFilterCreator(environment, collectionName) {
+  const cachedEnvironment = cacheProxy(environment);
+  return new JexlFilter(cachedEnvironment, collectionName);
 }
 
 function remoteSettingsFunction() {
@@ -103,14 +154,14 @@ function remoteSettingsFunction() {
   // If not explicitly specified, use the default signer.
   const defaultOptions = {
     signerName: DEFAULT_SIGNER,
-    filterFunc: jexlFilterFunc,
+    filterCreator: jexlFilterCreator,
   };
 
   /**
    * RemoteSettings constructor.
    *
-   * @param {String} collectionName The remote settings identifier
-   * @param {Object} options Advanced options
+   * @param {string} collectionName The remote settings identifier
+   * @param {object} options Advanced options
    * @returns {RemoteSettingsClient} An instance of a Remote Settings client.
    */
   const remoteSettings = function (collectionName, options) {
@@ -170,6 +221,7 @@ function remoteSettingsFunction() {
   /**
    * Helper to introspect the synchronization history and determine whether it is
    * consistently failing and thus, broken.
+   *
    * @returns {bool} true if broken.
    */
   async function isSynchronizationBroken() {
@@ -289,7 +341,7 @@ function remoteSettingsFunction() {
   /**
    * Main polling method, called by the ping mechanism.
    *
-   * @param {Object} options
+   * @param {object} options
 .  * @param {Object} options.expectedTimestamp (optional) The expected timestamp to be received — used by servers for cache busting.
    * @param {string} options.trigger           (optional) label to identify what triggered this sync (eg. ``"timer"``, default: `"manual"`)
    * @param {bool}   options.full              (optional) Ignore last polling status and fetch all changes (default: `false`)
@@ -430,13 +482,8 @@ function remoteSettingsFunction() {
       throw new Error(`Polling for changes failed: ${e.message}.`);
     }
 
-    const {
-      serverTimeMillis,
-      changes,
-      currentEtag,
-      backoffSeconds,
-      ageSeconds,
-    } = pollResult;
+    const { serverTimeMillis, changes, timestamp, backoffSeconds, ageSeconds } =
+      pollResult;
 
     // Report age of server data in Telemetry.
     pollTelemetryArgs = { age: ageSeconds, ...pollTelemetryArgs };
@@ -513,7 +560,7 @@ function remoteSettingsFunction() {
     const syncTelemetryArgs = {
       source: TELEMETRY_SOURCE_SYNC,
       duration: durationMilliseconds,
-      timestamp: `${currentEtag}`,
+      timestamp,
       trigger,
     };
 
@@ -527,7 +574,7 @@ function remoteSettingsFunction() {
       );
       // Keep track of sync failure in history.
       await lazy.gSyncHistory
-        .store(currentEtag, status, {
+        .store(timestamp, status, {
           expectedTimestamp,
           errorName: firstError.name,
         })
@@ -559,7 +606,7 @@ function remoteSettingsFunction() {
     }
 
     // Save current Etag for next poll.
-    lazy.gPrefs.setStringPref(PREF_SETTINGS_LAST_ETAG, currentEtag);
+    lazy.gPrefs.setStringPref(PREF_SETTINGS_LAST_ETAG, timestamp);
 
     // Report the global synchronization success.
     const status = lazy.UptakeTelemetry.STATUS.SUCCESS;
@@ -570,7 +617,7 @@ function remoteSettingsFunction() {
     );
     // Keep track of sync success in history.
     await lazy.gSyncHistory
-      .store(currentEtag, status)
+      .store(timestamp, status)
       .catch(error => console.error(error));
 
     lazy.console.info(
@@ -598,7 +645,8 @@ function remoteSettingsFunction() {
   /**
    * Returns an object with polling status information and the list of
    * known remote settings collections.
-   * @param {Object} options
+   *
+   * @param {object} options
    * @param {boolean?} options.localOnly (optional) If set to `true`, do not contact the server.
    */
   remoteSettings.inspect = async (options = {}) => {
@@ -609,7 +657,7 @@ function remoteSettingsFunction() {
     if (!localOnly) {
       // Make sure we fetch the latest server info, use a random cache bust value.
       const randomCacheBust = 99990000 + Math.floor(Math.random() * 9999);
-      ({ changes, currentEtag: serverTimestamp } =
+      ({ changes, timestamp: serverTimestamp } =
         await lazy.Utils.fetchLatestChanges(lazy.Utils.SERVER_URL, {
           expected: randomCacheBust,
         }));
@@ -637,6 +685,28 @@ function remoteSettingsFunction() {
       })
     );
 
+    // Turn the JEXL context object into a simple object that can be
+    // serialized into JSON.
+    // Here we only select the fields that are shared between clients
+    // implementations (application-services and Gecko).
+    const jexlContext = {
+      ...["channel", "version", "locale", "country", "formFactor"].reduce(
+        (acc, key) => {
+          acc[key] = lazy.ClientEnvironmentBase[key];
+          return acc;
+        },
+        {}
+      ),
+      os: ["name", "version"].reduce((acc, key) => {
+        acc[key] = lazy.ClientEnvironmentBase.os?.[key];
+        return acc;
+      }, {}),
+      appinfo: ["ID", "OS"].reduce((acc, key) => {
+        acc[key] = lazy.ClientEnvironmentBase.appinfo?.[key];
+        return acc;
+      }, {}),
+    };
+
     return {
       serverURL: lazy.Utils.SERVER_URL,
       pollingEndpoint: lazy.Utils.SERVER_URL + lazy.Utils.CHANGES_PATH,
@@ -653,6 +723,7 @@ function remoteSettingsFunction() {
         [TELEMETRY_SOURCE_SYNC]: await lazy.gSyncHistory.list(),
       },
       isSynchronizationBroken: await isSynchronizationBroken(),
+      jexlContext,
     };
   };
 
@@ -719,7 +790,7 @@ export var remoteSettingsBroadcastHandler = {
     );
 
     return RemoteSettings.pollChanges({
-      expectedTimestamp: version.replace('"', ""),
+      expectedTimestamp: version.replaceAll('"', ""),
       trigger: isStartup ? "startup" : "broadcast",
     });
   },

@@ -4,20 +4,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsINodeList_h___
-#define nsINodeList_h___
+#ifndef nsINodeList_h_
+#define nsINodeList_h_
 
-#include "nsWrapperCache.h"
-#include "nsISupports.h"
 #include "nsIContent.h"
+#include "nsISupports.h"
+#include "nsWrapperCache.h"
 
 // IID for the nsINodeList interface
-#define NS_INODELIST_IID                             \
-  {                                                  \
-    0xadb5e54c, 0x6e96, 0x4102, {                    \
-      0x8d, 0x40, 0xe0, 0x12, 0x3d, 0xcf, 0x48, 0x7a \
-    }                                                \
-  }
+#define NS_INODELIST_IID \
+  {0xadb5e54c, 0x6e96, 0x4102, {0x8d, 0x40, 0xe0, 0x12, 0x3d, 0xcf, 0x48, 0x7a}}
 
 class nsIContent;
 class nsINode;
@@ -27,7 +23,7 @@ class nsINode;
  */
 class nsINodeList : public nsISupports, public nsWrapperCache {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_INODELIST_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_INODELIST_IID)
 
   /**
    * Get the index of the given node in the list.  Will return -1 if the node
@@ -49,6 +45,4 @@ class nsINodeList : public nsISupports, public nsWrapperCache {
   }
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsINodeList, NS_INODELIST_IID)
-
-#endif /* nsINodeList_h___ */
+#endif /* nsINodeList_h_ */

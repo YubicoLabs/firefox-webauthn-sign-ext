@@ -58,11 +58,11 @@ class AwesomeBarFeatureTest {
 
         verify(awesomeBar).onInputStarted()
 
-        listener!!.onTextChanged("Hello")
+        listener.onTextChanged("Hello")
 
         verify(awesomeBar).onInputChanged("Hello")
 
-        listener!!.onStopEditing()
+        listener.onStopEditing()
 
         verify(awesomeBar).onInputCancelled()
     }
@@ -98,7 +98,7 @@ class AwesomeBarFeatureTest {
 
         verify(awesomeBar, never()).addProviders(any())
 
-        feature.addSessionProvider(resources, mock(), mock())
+        feature.addSessionProvider(resources, BrowserStore(), mock())
 
         verify(awesomeBar).addProviders(any())
     }
@@ -127,8 +127,8 @@ class AwesomeBarFeatureTest {
 
         verify(awesomeBar, never()).addProviders(any())
 
-        val store: BrowserStore = mock()
-        feature.addSearchProvider(testContext, store = store, searchUseCase = mock(), fetchClient = mock())
+        val store = BrowserStore()
+        feature.addSearchProvider(store = store, searchUseCase = mock(), fetchClient = mock())
 
         val provider = argumentCaptor<SearchSuggestionProvider>()
         verify(awesomeBar).addProviders(provider.capture())
@@ -142,13 +142,13 @@ class AwesomeBarFeatureTest {
         val awesomeBar: AwesomeBar = mock()
 
         val feature = AwesomeBarFeature(awesomeBar, mock())
-        feature.addSearchProvider(testContext, mock(), mock(), mock(), engine = engine)
+        feature.addSearchProvider(searchEngine = mock(), mock(), mock(), engine = engine)
 
         val provider = argumentCaptor<SearchSuggestionProvider>()
         verify(awesomeBar).addProviders(provider.capture())
         assertSame(engine, provider.value.engine)
 
-        feature.addSearchProvider(mock(), mock(), mock(), engine = engine)
+        feature.addSearchProvider(searchEngine = mock(), mock(), mock(), engine = engine)
         verify(awesomeBar, times(2)).addProviders(provider.capture())
         assertSame(engine, provider.allValues.last().engine)
     }
@@ -261,7 +261,7 @@ class AwesomeBarFeatureTest {
 
         verify(awesomeBar, never()).addProviders(any())
 
-        feature.addSearchActionProvider(mock(), mock())
+        feature.addSearchActionProvider(BrowserStore(), mock())
 
         verify(awesomeBar).addProviders(any())
     }
@@ -297,7 +297,7 @@ class AwesomeBarFeatureTest {
         assertFalse(completeInvoked)
         startInvoked = false
 
-        listener!!.onStopEditing()
+        listener.onStopEditing()
 
         assertFalse(startInvoked)
         assertTrue(completeInvoked)
@@ -323,8 +323,8 @@ class AwesomeBarFeatureTest {
 
         assertTrue("Nothing to cancel when editing has started.", listener!!.onCancelEditing())
 
-        listener!!.onStartEditing()
+        listener.onStartEditing()
 
-        assertFalse("Cancelling because edit has started.", listener!!.onCancelEditing())
+        assertFalse("Cancelling because edit has started.", listener.onCancelEditing())
     }
 }

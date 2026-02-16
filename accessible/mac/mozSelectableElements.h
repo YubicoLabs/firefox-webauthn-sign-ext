@@ -5,6 +5,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#ifndef ACCESSIBLE_MAC_MOZSELECTABLEELEMENTS_H_
+#define ACCESSIBLE_MAC_MOZSELECTABLEELEMENTS_H_
+
 #import <Cocoa/Cocoa.h>
 #import "mozAccessible.h"
 
@@ -108,9 +111,6 @@
 @interface mozMenuItemAccessible : mozSelectableChildAccessible
 
 // override
-- (NSString*)moxLabel;
-
-// override
 - (BOOL)moxIgnoreWithParent:(mozAccessible*)parent;
 
 // override
@@ -126,3 +126,5 @@
 - (void)moxPerformPress;
 
 @end
+
+#endif  // ACCESSIBLE_MAC_MOZSELECTABLEELEMENTS_H_

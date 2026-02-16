@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsHostResolver_h__
-#define nsHostResolver_h__
+#ifndef nsHostResolver_h_
+#define nsHostResolver_h_
 
 #include "nscore.h"
 #include "prnetdb.h"
@@ -20,13 +20,11 @@
 #include "mozilla/net/DashboardTypes.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/UniquePtr.h"
 #include "nsHostRecord.h"
 #include "nsRefPtrHashtable.h"
 #include "nsIThreadPool.h"
 #include "mozilla/net/NetworkConnectivityService.h"
 #include "mozilla/net/DNSByTypeRecord.h"
-#include "mozilla/Maybe.h"
 #include "mozilla/StaticPrefs_network.h"
 
 namespace mozilla {
@@ -168,7 +166,7 @@ class nsHostResolver : public nsISupports, public AHostResolver {
   /**
    * Flush the DNS cache.
    */
-  void FlushCache(bool aTrrToo);
+  void FlushCache(bool aTrrToo, bool aFlushEvictionQueue = false);
 
   LookupStatus CompleteLookup(nsHostRecord*, nsresult, mozilla::net::AddrInfo*,
                               bool pb, const nsACString& aOriginsuffix,
@@ -235,8 +233,10 @@ class nsHostResolver : public nsISupports, public AHostResolver {
   nsresult ConditionallyCreateThread(nsHostRecord* rec) MOZ_REQUIRES(mLock);
 
   /**
-   * Starts a new lookup in the background for entries that are in the grace
-   * period with a failed connect or all cached entries are negative.
+   * Starts a new lookup in the background for cached entries that are in the
+   * grace period or that are are negative.
+   *
+   * Also records telemetry for type of cache hit (HIT/NEGATIVE_HIT/RENEWAL).
    */
   nsresult ConditionallyRefreshRecord(nsHostRecord* rec, const nsACString& host,
                                       const mozilla::MutexAutoLock& aLock)
@@ -266,8 +266,8 @@ class nsHostResolver : public nsISupports, public AHostResolver {
   already_AddRefed<nsHostRecord> FromUnspecEntry(
       nsHostRecord* aRec, const nsACString& aHost, const nsACString& aTrrServer,
       const nsACString& aOriginSuffix, uint16_t aType,
-      nsIDNSService::DNSFlags aFlags, uint16_t af, bool aPb, nsresult& aStatus)
-      MOZ_REQUIRES(mLock);
+      nsIDNSService::DNSFlags aFlags, uint16_t af, bool aPb, nsresult& aStatus,
+      const mozilla::MutexAutoLock& aLock) MOZ_REQUIRES(mLock);
 
   enum {
     METHOD_HIT = 1,
@@ -309,4 +309,4 @@ class nsHostResolver : public nsISupports, public AHostResolver {
   static bool IsNativeHTTPSEnabled();
 };
 
-#endif  // nsHostResolver_h__
+#endif  // nsHostResolver_h_

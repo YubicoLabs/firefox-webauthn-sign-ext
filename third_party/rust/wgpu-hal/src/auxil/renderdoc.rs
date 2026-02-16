@@ -1,6 +1,7 @@
 //! RenderDoc integration - <https://renderdoc.org/>
 #![cfg_attr(not(any(feature = "gles", feature = "vulkan")), allow(dead_code))]
 
+use alloc::format;
 use alloc::string::String;
 use core::{ffi, ptr};
 
@@ -71,13 +72,12 @@ impl RenderDoc {
         };
 
         let get_api: libloading::Symbol<GetApiFn> =
-            match unsafe { renderdoc_lib.get(b"RENDERDOC_GetAPI\0") } {
+            match unsafe { renderdoc_lib.get(c"RENDERDOC_GetAPI".to_bytes()) } {
                 Ok(api) => api,
                 Err(e) => {
                     return RenderDoc::NotAvailable {
                         reason: format!(
-                            "Unable to get RENDERDOC_GetAPI from renderdoc library '{}': {e:?}",
-                            renderdoc_filename
+                            "Unable to get RENDERDOC_GetAPI from renderdoc library '{renderdoc_filename}': {e:?}"
                         ),
                     }
                 }
@@ -92,8 +92,7 @@ impl RenderDoc {
             },
             return_value => RenderDoc::NotAvailable {
                 reason: format!(
-                    "Unable to get API from renderdoc library '{}': {}",
-                    renderdoc_filename, return_value
+                    "Unable to get API from renderdoc library '{renderdoc_filename}': {return_value}"
                 ),
             },
         }
@@ -122,7 +121,7 @@ impl RenderDoc {
                 true
             }
             Self::NotAvailable { ref reason } => {
-                log::warn!("Could not start RenderDoc frame capture: {}", reason);
+                log::warn!("Could not start RenderDoc frame capture: {reason}");
                 false
             }
         }
@@ -135,7 +134,7 @@ impl RenderDoc {
                 unsafe { entry.api.EndFrameCapture.unwrap()(device_handle, window_handle) };
             }
             Self::NotAvailable { ref reason } => {
-                log::warn!("Could not end RenderDoc frame capture: {}", reason)
+                log::warn!("Could not end RenderDoc frame capture: {reason}")
             }
         };
     }

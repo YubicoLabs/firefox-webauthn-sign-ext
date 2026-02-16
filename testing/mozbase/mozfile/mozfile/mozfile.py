@@ -434,19 +434,17 @@ def tree(directory, sort_key=lambda x: x.lower()):
         # add the files
         if filenames:
             last_file = filenames[-1]
-            retval.extend(
-                [
-                    (
-                        "%s%s%s"
-                        % (
-                            "".join(indent),
-                            files_end if filename == last_file else item_marker,
-                            filename,
-                        )
+            retval.extend([
+                (
+                    "%s%s%s"
+                    % (
+                        "".join(indent),
+                        files_end if filename == last_file else item_marker,
+                        filename,
                     )
-                    for index, filename in enumerate(filenames)
-                ]
-            )
+                )
+                for index, filename in enumerate(filenames)
+            ])
 
     return "\n".join(retval)
 
@@ -522,7 +520,7 @@ def which(cmd, mode=os.F_OK | os.X_OK, path=None, exts=None, extra_search_dirs=(
 # utilities for temporary resources
 
 
-class NamedTemporaryFile(object):
+class NamedTemporaryFile:
     """
     Like tempfile.NamedTemporaryFile except it works on Windows
     in the case where you open the created file a second time.

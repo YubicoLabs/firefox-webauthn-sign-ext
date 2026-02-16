@@ -5,6 +5,7 @@
 package org.mozilla.fenix.components.toolbar
 
 import android.content.Context
+import androidx.annotation.ColorInt
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.content.ContextCompat
@@ -20,20 +21,22 @@ import mozilla.components.feature.toolbar.ToolbarBehaviorController
 import mozilla.components.feature.toolbar.ToolbarFeature
 import mozilla.components.feature.toolbar.ToolbarPresenter
 import mozilla.components.support.base.feature.LifecycleAwareFeature
+import mozilla.components.support.ktx.android.content.getColorFromAttr
 import mozilla.components.support.ktx.android.view.hideKeyboard
+import mozilla.components.support.utils.ColorUtils.getReadableTextColor
+import mozilla.components.support.utils.ColorUtils.getSecondaryReadableTextColor
 import mozilla.components.ui.tabcounter.TabCounterMenu
-import mozilla.telemetry.glean.private.NoExtras
-import org.mozilla.fenix.GleanMetrics.AddressToolbar
 import org.mozilla.fenix.R
-import org.mozilla.fenix.browser.tabstrip.isTabStripEnabled
 import org.mozilla.fenix.components.menu.MenuAccessPoint
 import org.mozilla.fenix.components.toolbar.interactor.BrowserToolbarInteractor
-import org.mozilla.fenix.components.toolbar.navbar.shouldAddNavigationBar
 import org.mozilla.fenix.components.toolbar.ui.createShareBrowserAction
 import org.mozilla.fenix.ext.components
-import org.mozilla.fenix.ext.isLargeWindow
 import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.telemetry.ACTION_SHARE_CLICKED
+import org.mozilla.fenix.telemetry.SOURCE_ADDRESS_BAR
 import org.mozilla.fenix.theme.ThemeManager
+import mozilla.components.ui.icons.R as iconsR
+import org.mozilla.fenix.GleanMetrics.Toolbar as GleanMetricsToolbar
 
 /**
  * Feature configuring the toolbar when in display mode.
@@ -43,11 +46,11 @@ abstract class ToolbarIntegration(
     private val context: Context,
     private val toolbar: BrowserToolbar,
     scrollableToolbar: ScrollableToolbar,
-    toolbarMenu: ToolbarMenu,
     private val interactor: BrowserToolbarInteractor,
     private val customTabId: String?,
     isPrivate: Boolean,
     renderStyle: ToolbarFeature.RenderStyle,
+    @param:ColorInt val backgroundColor: Int? = null,
 ) : LifecycleAwareFeature {
 
     val store = context.components.core.store
@@ -58,7 +61,16 @@ abstract class ToolbarIntegration(
         shouldDisplaySearchTerms = true,
         urlRenderConfiguration = ToolbarFeature.UrlRenderConfiguration(
             context.components.publicSuffixList,
-            ThemeManager.resolveAttribute(R.attr.textPrimary, context),
+            if (backgroundColor != null && !isPrivate) {
+                getReadableTextColor(backgroundColor)
+            } else {
+                context.getColorFromAttr(R.attr.textPrimary)
+            },
+            if (backgroundColor != null && !isPrivate) {
+                getSecondaryReadableTextColor(backgroundColor)
+            } else {
+                context.getColorFromAttr(R.attr.textSecondary)
+            },
             renderStyle = renderStyle,
         ),
     )
@@ -69,13 +81,9 @@ abstract class ToolbarIntegration(
     private val toolbarController = ToolbarBehaviorController(scrollableToolbar, store, customTabId)
 
     init {
-        if (!context.settings().enableMenuRedesign) {
-            toolbar.display.menuBuilder = toolbarMenu.menuBuilder
-        }
-
         toolbar.private = isPrivate
 
-        if (context.settings().enableMenuRedesign && customTabId == null) {
+        if (customTabId == null) {
             addMenuBrowserAction()
         }
     }
@@ -100,12 +108,9 @@ abstract class ToolbarIntegration(
         val menuAction = Toolbar.ActionButton(
             imageDrawable = AppCompatResources.getDrawable(
                 context,
-                R.drawable.mozac_ic_ellipsis_vertical_24,
+                iconsR.drawable.mozac_ic_ellipsis_vertical_24,
             )!!,
             contentDescription = context.getString(R.string.content_description_menu),
-            visible = {
-                context.settings().enableMenuRedesign && !context.shouldAddNavigationBar()
-            },
             weight = { Int.MAX_VALUE },
             iconTintColorResource = ThemeManager.resolveAttribute(R.attr.textPrimary, context),
             listener = {
@@ -128,7 +133,6 @@ class DefaultToolbarIntegration(
     private val context: Context,
     private val toolbar: BrowserToolbar,
     scrollableToolbar: ScrollableToolbar,
-    toolbarMenu: ToolbarMenu,
     private val lifecycleOwner: LifecycleOwner,
     customTabId: String? = null,
     private val isPrivate: Boolean,
@@ -137,11 +141,10 @@ class DefaultToolbarIntegration(
     context = context,
     toolbar = toolbar,
     scrollableToolbar = scrollableToolbar,
-    toolbarMenu = toolbarMenu,
     interactor = interactor,
     customTabId = customTabId,
     isPrivate = isPrivate,
-    renderStyle = ToolbarFeature.RenderStyle.UncoloredUrl,
+    renderStyle = ToolbarFeature.RenderStyle.ColoredUrl,
 ) {
 
     @VisibleForTesting
@@ -161,7 +164,7 @@ class DefaultToolbarIntegration(
             DisplayToolbar.Indicators.HIGHLIGHT,
         )
 
-        if (context.isTabStripEnabled()) {
+        if (context.settings().isTabStripEnabled) {
             addShareBrowserAction()
         } else {
             addNewTabBrowserAction()
@@ -171,11 +174,9 @@ class DefaultToolbarIntegration(
 
     private fun addNewTabBrowserAction() {
         val newTabAction = BrowserToolbar.Button(
-            imageDrawable = AppCompatResources.getDrawable(context, R.drawable.mozac_ic_plus_24)!!,
+            imageDrawable = AppCompatResources.getDrawable(context, iconsR.drawable.mozac_ic_plus_24)!!,
             contentDescription = context.getString(R.string.library_new_tab),
-            visible = {
-                context.settings().navigationToolbarEnabled && !context.shouldAddNavigationBar()
-            },
+            visible = { false },
             weight = { NEW_TAB_ACTION_WEIGHT },
             iconTintColorResource = ThemeManager.resolveAttribute(R.attr.textPrimary, context),
             listener = interactor::onNewTabButtonClicked,
@@ -193,7 +194,7 @@ class DefaultToolbarIntegration(
             },
             store = store,
             menu = buildTabCounterMenu(),
-            visible = { !context.shouldAddNavigationBar() },
+            visible = { true },
             weight = { TAB_COUNTER_ACTION_WEIGHT },
         )
 
@@ -213,7 +214,12 @@ class DefaultToolbarIntegration(
             BrowserToolbar.createShareBrowserAction(
                 context = context,
                 listener = {
-                    AddressToolbar.shareTapped.record((NoExtras()))
+                    GleanMetricsToolbar.buttonTapped.record(
+                        GleanMetricsToolbar.ButtonTappedExtra(
+                            source = SOURCE_ADDRESS_BAR,
+                            item = ACTION_SHARE_CLICKED,
+                        ),
+                    )
                     interactor.onShareActionClicked()
                 },
             ),
@@ -230,22 +236,19 @@ class DefaultToolbarIntegration(
         super.stop()
     }
 
-    private fun buildTabCounterMenu(): TabCounterMenu? =
-        when ((context.settings().navigationToolbarEnabled && context.isLargeWindow())) {
-            true -> null
-            false -> FenixTabCounterMenu(
-                context = context,
-                onItemTapped = {
-                    interactor.onTabCounterMenuItemTapped(it)
-                },
-                iconColor = if (isPrivate) {
-                    ContextCompat.getColor(context, R.color.fx_mobile_private_icon_color_primary)
-                } else {
-                    null
-                },
-            ).also {
-                it.updateMenu(context.settings().toolbarPosition)
-            }
+    private fun buildTabCounterMenu(): TabCounterMenu =
+        FenixTabCounterMenu(
+            context = context,
+            onItemTapped = {
+                interactor.onTabCounterMenuItemTapped(it)
+            },
+            iconColor = if (isPrivate) {
+                ContextCompat.getColor(context, R.color.fx_mobile_private_icon_color_primary)
+            } else {
+                null
+            },
+        ).also {
+            it.updateMenu(context.settings().toolbarPosition)
         }
 
     companion object {

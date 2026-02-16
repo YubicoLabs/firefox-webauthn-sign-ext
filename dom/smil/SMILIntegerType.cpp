@@ -6,19 +6,20 @@
 
 #include "SMILIntegerType.h"
 
+#include <cmath>
+
 #include "mozilla/SMILValue.h"
 #include "nsDebug.h"
-#include <math.h>
 
 namespace mozilla {
 
-void SMILIntegerType::Init(SMILValue& aValue) const {
+void SMILIntegerType::InitValue(SMILValue& aValue) const {
   MOZ_ASSERT(aValue.IsNull(), "Unexpected value type");
   aValue.mU.mInt = 0;
   aValue.mType = this;
 }
 
-void SMILIntegerType::Destroy(SMILValue& aValue) const {
+void SMILIntegerType::DestroyValue(SMILValue& aValue) const {
   MOZ_ASSERT(aValue.mType == this, "Unexpected SMIL value");
   aValue.mU.mInt = 0;
   aValue.mType = SMILNullType::Singleton();
@@ -53,7 +54,7 @@ nsresult SMILIntegerType::ComputeDistance(const SMILValue& aFrom,
                                           double& aDistance) const {
   MOZ_ASSERT(aFrom.mType == aTo.mType, "Trying to compare different types");
   MOZ_ASSERT(aFrom.mType == this, "Unexpected source type");
-  aDistance = fabs(double(aTo.mU.mInt - aFrom.mU.mInt));
+  aDistance = std::abs(double(aTo.mU.mInt - aFrom.mU.mInt));
   return NS_OK;
 }
 

@@ -21,6 +21,14 @@ const double DateTimeInputTypeBase::kMaximumMonthInMaximumYear = 9;
 const double DateTimeInputTypeBase::kMaximumWeekInMaximumYear = 37;
 const double DateTimeInputTypeBase::kMsPerDay = 24 * 60 * 60 * 1000;
 
+static double PositiveFmod(double aValue, double aModulus) {
+  double result = std::fmod(aValue, aModulus);
+  if (result < 0) {
+    result += aModulus;
+  }
+  return result;
+}
+
 bool DateTimeInputTypeBase::IsMutable() const {
   return !mInputElement->IsDisabledOrReadOnly();
 }
@@ -172,7 +180,7 @@ auto DateInputType::ConvertStringToNumber(const nsAString& aValue) const
   return {Decimal::fromDouble(time.toDouble())};
 }
 
-bool DateInputType::ConvertNumberToString(Decimal aValue,
+bool DateInputType::ConvertNumberToString(Decimal aValue, Localized,
                                           nsAString& aResultString) const {
   MOZ_ASSERT(aValue.isFinite(), "aValue must be a valid non-Infinite number.");
 
@@ -210,18 +218,21 @@ auto TimeInputType::ConvertStringToNumber(const nsAString& aValue) const
   return {Decimal(int32_t(milliseconds))};
 }
 
-bool TimeInputType::ConvertNumberToString(Decimal aValue,
+bool TimeInputType::ConvertNumberToString(Decimal aValue, Localized,
                                           nsAString& aResultString) const {
   MOZ_ASSERT(aValue.isFinite(), "aValue must be a valid non-Infinite number.");
 
   aResultString.Truncate();
 
-  aValue = aValue.floor();
   // Per spec, we need to truncate |aValue| and we should only represent
   // times inside a day [00:00, 24:00[, which means that we should do a
   // modulo on |aValue| using the number of milliseconds in a day (86400000).
-  uint32_t value =
-      NS_floorModulo(aValue, Decimal::fromDouble(kMsPerDay)).toDouble();
+  double value = PositiveFmod(std::floor(aValue.toDouble()), kMsPerDay);
+  // Technically value could be NaN here since Decimal has a wider range
+  // than double.
+  if (!std::isfinite(value)) {
+    return false;
+  }
 
   uint16_t milliseconds, seconds, minutes, hours;
   if (!GetTimeFromMs(value, &hours, &minutes, &seconds, &milliseconds)) {
@@ -332,7 +343,7 @@ auto WeekInputType::ConvertStringToNumber(const nsAString& aValue) const
   return {Decimal::fromDouble(days * kMsPerDay)};
 }
 
-bool WeekInputType::ConvertNumberToString(Decimal aValue,
+bool WeekInputType::ConvertNumberToString(Decimal aValue, Localized,
                                           nsAString& aResultString) const {
   MOZ_ASSERT(aValue.isFinite(), "aValue must be a valid non-Infinite number.");
 
@@ -411,7 +422,7 @@ auto MonthInputType::ConvertStringToNumber(const nsAString& aValue) const
   return {Decimal(int32_t(months))};
 }
 
-bool MonthInputType::ConvertNumberToString(Decimal aValue,
+bool MonthInputType::ConvertNumberToString(Decimal aValue, Localized,
                                            nsAString& aResultString) const {
   MOZ_ASSERT(aValue.isFinite(), "aValue must be a valid non-Infinite number.");
 
@@ -460,24 +471,26 @@ auto DateTimeLocalInputType::ConvertStringToNumber(
 }
 
 bool DateTimeLocalInputType::ConvertNumberToString(
-    Decimal aValue, nsAString& aResultString) const {
+    Decimal aValue, Localized, nsAString& aResultString) const {
   MOZ_ASSERT(aValue.isFinite(), "aValue must be a valid non-Infinite number.");
 
   aResultString.Truncate();
 
-  aValue = aValue.floor();
+  double value = std::floor(aValue.toDouble());
 
-  uint32_t timeValue =
-      NS_floorModulo(aValue, Decimal::fromDouble(kMsPerDay)).toDouble();
+  double timeValue = PositiveFmod(value, kMsPerDay);
+  if (!std::isfinite(timeValue)) {
+    return false;
+  }
 
   uint16_t milliseconds, seconds, minutes, hours;
   if (!GetTimeFromMs(timeValue, &hours, &minutes, &seconds, &milliseconds)) {
     return false;
   }
 
-  double year = JS::YearFromTime(aValue.toDouble());
-  double month = JS::MonthFromTime(aValue.toDouble());
-  double day = JS::DayFromTime(aValue.toDouble());
+  double year = JS::YearFromTime(value);
+  double month = JS::MonthFromTime(value);
+  double day = JS::DayFromTime(value);
 
   if (std::isnan(year) || std::isnan(month) || std::isnan(day)) {
     return false;

@@ -3,7 +3,6 @@ use super::{Null, Value, ValueRef};
 use crate::vtab::array::Array;
 use crate::{Error, Result};
 use std::borrow::Cow;
-use std::convert::TryFrom;
 
 /// `ToSqlOutput` represents the possible output types for implementers of the
 /// [`ToSql`] trait.
@@ -19,17 +18,14 @@ pub enum ToSqlOutput<'a> {
     /// A BLOB of the given length that is filled with
     /// zeroes.
     #[cfg(feature = "blob")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "blob")))]
     ZeroBlob(i32),
 
     /// n-th arg of an SQL scalar function
     #[cfg(feature = "functions")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "functions")))]
     Arg(usize),
 
     /// `feature = "array"`
     #[cfg(feature = "array")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "array")))]
     Array(Array),
 }
 
@@ -92,15 +88,12 @@ from_value!(non_zero std::num::NonZeroU32);
 // `i128` needs in `Into<Value>`, but it's probably fine for the moment, and not
 // worth adding another case to Value.
 #[cfg(feature = "i128_blob")]
-#[cfg_attr(docsrs, doc(cfg(feature = "i128_blob")))]
 from_value!(i128);
 
 #[cfg(feature = "i128_blob")]
-#[cfg_attr(docsrs, doc(cfg(feature = "i128_blob")))]
 from_value!(non_zero std::num::NonZeroI128);
 
 #[cfg(feature = "uuid")]
-#[cfg_attr(docsrs, doc(cfg(feature = "uuid")))]
 from_value!(uuid::Uuid);
 
 impl ToSql for ToSqlOutput<'_> {
@@ -201,15 +194,12 @@ to_sql_self!(std::num::NonZeroU16);
 to_sql_self!(std::num::NonZeroU32);
 
 #[cfg(feature = "i128_blob")]
-#[cfg_attr(docsrs, doc(cfg(feature = "i128_blob")))]
 to_sql_self!(i128);
 
 #[cfg(feature = "i128_blob")]
-#[cfg_attr(docsrs, doc(cfg(feature = "i128_blob")))]
 to_sql_self!(std::num::NonZeroI128);
 
 #[cfg(feature = "uuid")]
-#[cfg_attr(docsrs, doc(cfg(feature = "uuid")))]
 to_sql_self!(uuid::Uuid);
 
 macro_rules! to_sql_self_fallible(
@@ -311,9 +301,23 @@ impl<T: ToSql> ToSql for Option<T> {
 
 #[cfg(test)]
 mod test {
-    use super::ToSql;
+    use super::{ToSql, ToSqlOutput};
+    use crate::{types::Value, types::ValueRef, Result};
 
     fn is_to_sql<T: ToSql>() {}
+
+    #[test]
+    fn to_sql() -> Result<()> {
+        assert_eq!(
+            ToSqlOutput::Borrowed(ValueRef::Null).to_sql()?,
+            ToSqlOutput::Borrowed(ValueRef::Null)
+        );
+        assert_eq!(
+            ToSqlOutput::Owned(Value::Null).to_sql()?,
+            ToSqlOutput::Borrowed(ValueRef::Null)
+        );
+        Ok(())
+    }
 
     #[test]
     fn test_integral_types() {
@@ -432,7 +436,7 @@ mod test {
 
     #[cfg(feature = "i128_blob")]
     #[test]
-    fn test_i128() -> crate::Result<()> {
+    fn test_i128() -> Result<()> {
         use crate::Connection;
         let db = Connection::open_in_memory()?;
         db.execute_batch("CREATE TABLE foo (i128 BLOB, desc TEXT)")?;
@@ -471,7 +475,7 @@ mod test {
 
     #[cfg(feature = "i128_blob")]
     #[test]
-    fn test_non_zero_i128() -> crate::Result<()> {
+    fn test_non_zero_i128() -> Result<()> {
         use std::num::NonZeroI128;
         macro_rules! nz {
             ($x:expr) => {
@@ -519,7 +523,7 @@ mod test {
 
     #[cfg(feature = "uuid")]
     #[test]
-    fn test_uuid() -> crate::Result<()> {
+    fn test_uuid() -> Result<()> {
         use crate::{params, Connection};
         use uuid::Uuid;
 

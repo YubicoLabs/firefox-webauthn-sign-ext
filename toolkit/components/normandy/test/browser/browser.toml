@@ -18,13 +18,15 @@ head = "head.js"
 ["browser_AddonRollouts.js"]
 
 ["browser_AddonStudies.js"]
-skip-if = ["verify && os == 'linux'"]
 
 ["browser_BaseAction.js"]
 
 ["browser_CleanupManager.js"]
 
 ["browser_ClientEnvironment.js"]
+skip-if = [
+  "verify-standalone",
+]
 
 ["browser_EventEmitter.js"]
 
@@ -46,6 +48,9 @@ skip-if = ["verify && os == 'linux'"]
 
 ["browser_RecipeRunner.js"]
 tags = "remote-settings"
+skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && tsan", # Bug 1775749
+]
 
 ["browser_ShieldPreferences.js"]
 
@@ -65,8 +70,6 @@ https_first_disabled = true
 ["browser_actions_BranchedAddonStudyAction.js"]
 
 ["browser_actions_ConsoleLogAction.js"]
-
-["browser_actions_MessagingExperimentAction.js"]
 
 ["browser_actions_PreferenceExperimentAction.js"]
 

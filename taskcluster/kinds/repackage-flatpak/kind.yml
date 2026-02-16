@@ -19,17 +19,21 @@ kind-dependencies:
     - l10n
     - shippable-l10n-signing
 
+task-defaults:
+    run-on-repo-type: [hg]
+
 only-for-build-platforms:
     - linux64/opt
     - linux64-shippable/opt
     - linux64-aarch64/opt
+    - linux64-aarch64-shippable/opt
 
 tasks:
     repackage-flatpak:
         from-deps:
             group-by: platform
             unique-kinds: false
-        worker-type: b-linux-gcp
+        worker-type: b-linux
         worker:
             max-run-time: 2700
             docker-image: {in-tree: debian12-flatpak}

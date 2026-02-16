@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as Bidi from 'chromium-bidi/lib/cjs/protocol/protocol.js';
+import * as Bidi from 'webdriver-bidi-protocol';
 
 import type {Observable} from '../../third_party/rxjs/rxjs.js';
 import {
@@ -21,13 +21,14 @@ import {
   switchMap,
 } from '../../third_party/rxjs/rxjs.js';
 import type {CDPSession} from '../api/CDPSession.js';
+import type {DeviceRequestPrompt} from '../api/DeviceRequestPrompt.js';
 import {
   Frame,
   throwIfDetached,
   type GoToOptions,
   type WaitForOptions,
 } from '../api/Frame.js';
-import {PageEvent} from '../api/Page.js';
+import {PageEvent, type WaitTimeoutOptions} from '../api/Page.js';
 import {Accessibility} from '../cdp/Accessibility.js';
 import type {ConsoleMessageType} from '../common/ConsoleMessage.js';
 import {
@@ -52,7 +53,7 @@ import type {Request} from './core/Request.js';
 import {BidiDeserializer} from './Deserializer.js';
 import {BidiDialog} from './Dialog.js';
 import type {BidiElementHandle} from './ElementHandle.js';
-import {ExposeableFunction} from './ExposedFunction.js';
+import {ExposableFunction} from './ExposedFunction.js';
 import {BidiHTTPRequest, requests} from './HTTPRequest.js';
 import type {BidiHTTPResponse} from './HTTPResponse.js';
 import {BidiJSHandle} from './JSHandle.js';
@@ -136,7 +137,11 @@ export class BidiFrame extends Frame {
     });
 
     this.browsingContext.on('request', ({request}) => {
-      const httpRequest = BidiHTTPRequest.from(request, this);
+      const httpRequest = BidiHTTPRequest.from(
+        request,
+        this,
+        this.page().isNetworkInterceptionEnabled,
+      );
       request.once('success', () => {
         this.page().trustedEmitter.emit(PageEvent.RequestFinished, httpRequest);
       });
@@ -195,6 +200,7 @@ export class BidiFrame extends Frame {
             args,
             getStackTraceLocations(entry.stackTrace),
             this,
+            undefined,
           ),
         );
       } else if (isJavaScriptLogEntry(entry)) {
@@ -406,11 +412,7 @@ export class BidiFrame extends Frame {
                 raceWith(
                   fromEmitterEvent(navigation, 'fragment'),
                   fromEmitterEvent(navigation, 'failed'),
-                  fromEmitterEvent(navigation, 'aborted').pipe(
-                    map(({url}) => {
-                      throw new Error(`Navigation aborted: ${url}`);
-                    }),
-                  ),
+                  fromEmitterEvent(navigation, 'aborted'),
                 ),
                 switchMap(() => {
                   if (navigation.request) {
@@ -474,15 +476,18 @@ export class BidiFrame extends Frame {
     );
   }
 
-  override waitForDevicePrompt(): never {
-    throw new UnsupportedOperation();
+  override waitForDevicePrompt(
+    options: WaitTimeoutOptions = {},
+  ): Promise<DeviceRequestPrompt> {
+    const {timeout = this.timeoutSettings.timeout(), signal} = options;
+    return this.browsingContext.waitForDevicePrompt(timeout, signal);
   }
 
   override get detached(): boolean {
     return this.browsingContext.closed;
   }
 
-  #exposedFunctions = new Map<string, ExposeableFunction<never[], unknown>>();
+  #exposedFunctions = new Map<string, ExposableFunction<never[], unknown>>();
   async exposeFunction<Args extends unknown[], Ret>(
     name: string,
     apply: (...args: Args) => Awaitable<Ret>,
@@ -492,8 +497,8 @@ export class BidiFrame extends Frame {
         `Failed to add page binding with name ${name}: globalThis['${name}'] already exists!`,
       );
     }
-    const exposeable = await ExposeableFunction.from(this, name, apply);
-    this.#exposedFunctions.set(name, exposeable);
+    const exposable = await ExposableFunction.from(this, name, apply);
+    this.#exposedFunctions.set(name, exposable);
   }
 
   async removeExposedFunction(name: string): Promise<void> {

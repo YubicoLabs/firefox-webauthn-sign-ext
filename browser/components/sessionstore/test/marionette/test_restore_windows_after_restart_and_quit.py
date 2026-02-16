@@ -12,9 +12,7 @@ from session_store_test_case import SessionStoreTestCase
 
 
 def inline(title):
-    return "data:text/html;charset=utf-8,<html><head><title>{}</title></head><body></body></html>".format(
-        title
-    )
+    return f"data:text/html;charset=utf-8,<html><head><title>{title}</title></head><body></body></html>"
 
 
 class TestSessionStoreEnabledAllWindows(SessionStoreTestCase):
@@ -23,9 +21,7 @@ class TestSessionStoreEnabledAllWindows(SessionStoreTestCase):
 
         :param include_private: Whether to open private windows.
         """
-        super(TestSessionStoreEnabledAllWindows, self).setUp(
-            include_private=include_private, startup_page=3
-        )
+        super().setUp(include_private=include_private, startup_page=3)
 
     def test_with_variety(self):
         """Test opening and restoring both standard and private windows.
@@ -50,9 +46,7 @@ class TestSessionStoreEnabledAllWindows(SessionStoreTestCase):
 
 class TestSessionStoreEnabledNoPrivateWindows(TestSessionStoreEnabledAllWindows):
     def setUp(self):
-        super(TestSessionStoreEnabledNoPrivateWindows, self).setUp(
-            include_private=False
-        )
+        super().setUp(include_private=False)
 
 
 class TestSessionStoreDisabled(SessionStoreTestCase):

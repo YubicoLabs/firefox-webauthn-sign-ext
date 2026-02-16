@@ -18,20 +18,20 @@
   // Editing PDFs is not supported on mobile
   pref("pdfjs.annotationEditorMode", -1);
 
+  pref("pdfjs.capCanvasAreaFactor", 100);
+
 #else
 
   pref("pdfjs.enableUpdatedAddImage", true);
-
-  #if defined(EARLY_BETA_OR_EARLIER)
-    pref("pdfjs.enableHighlightFloatingButton", true);
-
-    // Enable adding a signature in the PDF viewer.
-    pref("pdfjs.enableSignatureEditor", true);
-  #else
-    pref("pdfjs.enableHighlightFloatingButton", false);
-    pref("pdfjs.enableSignatureEditor", false);
-  #endif
+  pref("pdfjs.enableSignatureEditor", true);
+  pref("pdfjs.enableComment", true);
+  pref("pdfjs.enableHighlightFloatingButton", true);
 
   pref("pdfjs.enableAltTextForEnglish", false);
+  pref("pdfjs.enableAltText", true);
+  pref("pdfjs.enableAltTextModelDownload", false);
+  pref("pdfjs.enableGuessAltText", false);
+
+  pref("pdfjs.enableHWA", true);
 
 #endif

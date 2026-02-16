@@ -7,9 +7,10 @@
 #ifndef ChildIterator_h
 #define ChildIterator_h
 
+#include <stdint.h>
+
 #include "nsIContent.h"
 #include "nsIContentInlines.h"
-#include <stdint.h>
 
 class nsIContent;
 
@@ -44,6 +45,10 @@ class FlattenedChildIterator {
   nsIContent* GetPreviousChild();
 
   bool ShadowDOMInvolved() const { return mShadowDOMInvolved; }
+
+  static uint32_t GetLength(const nsINode* aParent);
+  static Maybe<uint32_t> GetIndexOf(const nsINode* aParent,
+                                    const nsINode* aPossibleChild);
 
  protected:
   // The parent of the children being iterated. For shadow hosts this will point
@@ -87,7 +92,7 @@ class AllChildrenIterator : private FlattenedChildIterator {
       : FlattenedChildIterator(aNode, aStartAtBeginning),
         mAnonKidsIdx(aStartAtBeginning ? UINT32_MAX : 0),
         mFlags(aFlags),
-        mPhase(aStartAtBeginning ? eAtBegin : eAtEnd) {}
+        mPhase(aStartAtBeginning ? Phase::AtBegin : Phase::AtEnd) {}
 
 #ifdef DEBUG
   AllChildrenIterator(AllChildrenIterator&&) = default;
@@ -115,18 +120,18 @@ class AllChildrenIterator : private FlattenedChildIterator {
   nsIContent* GetNextChild();
   nsIContent* GetPreviousChild();
 
-  enum IteratorPhase {
-    eAtBegin,
-    eAtMarkerKid,
-    eAtBeforeKid,
-    eAtFlatTreeKids,
-    eAtAnonKids,
-    eAtAfterKid,
-    eAtEnd
-  };
-  IteratorPhase Phase() const { return mPhase; }
-
  private:
+  enum class Phase : uint8_t {
+    AtBegin,
+    AtBackdropKid,
+    AtMarkerKid,
+    AtBeforeKid,
+    AtFlatTreeKids,
+    AtAnonKids,
+    AtAfterKid,
+    AtEnd
+  };
+
   // Helpers.
   void AppendNativeAnonymousChildren();
 
@@ -140,7 +145,7 @@ class AllChildrenIterator : private FlattenedChildIterator {
   uint32_t mAnonKidsIdx;
 
   uint32_t mFlags;
-  IteratorPhase mPhase;
+  Phase mPhase;
 #ifdef DEBUG
   // XXX we should really assert there are no frame tree changes as well, but
   // there's no easy way to do that.

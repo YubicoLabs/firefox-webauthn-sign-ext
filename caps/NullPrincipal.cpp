@@ -10,8 +10,6 @@
  * same-origin with anything but themselves.
  */
 
-#include "mozilla/ArrayUtils.h"
-
 #include "mozilla/dom/BlobURLProtocolHandler.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "nsDocShell.h"
@@ -156,8 +154,6 @@ nsresult NullPrincipal::GetScriptLocation(nsACString& aStr) {
 /**
  * nsIPrincipal implementation
  */
-
-uint32_t NullPrincipal::GetHashValue() { return (NS_PTR_TO_INT32(this) >> 2); }
 
 NS_IMETHODIMP
 NullPrincipal::GetURI(nsIURI** aURI) {

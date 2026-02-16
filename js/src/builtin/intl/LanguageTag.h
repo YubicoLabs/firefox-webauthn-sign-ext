@@ -14,15 +14,13 @@
 
 #include "js/Result.h"
 #include "js/RootingAPI.h"
+#include "js/Utility.h"
 
 struct JS_PUBLIC_API JSContext;
 class JSLinearString;
-class JS_PUBLIC_API JSString;
 class JS_PUBLIC_API JSTracer;
 
-namespace js {
-
-namespace intl {
+namespace js::intl {
 
 /**
  * Parse a string Unicode BCP 47 locale identifier. If successful, store in
@@ -53,11 +51,20 @@ namespace intl {
     JS::Handle<JSLinearString*> str, mozilla::intl::RegionSubtag& result);
 
 /**
+ * Parse a string as a standalone |variant| tag sequence. If |str| is a
+ * standalone variant tag sequence, store all variant tags in |result| and
+ * return true. Otherwise return false.
+ */
+[[nodiscard]] bool ParseStandaloneVariantTag(
+    JS::Handle<JSLinearString*> str,
+    mozilla::intl::Locale::VariantsVector& result, bool* success);
+
+/**
  * Parse a string as an ISO-639 language code. Return |nullptr| in the result if
  * the input could not be parsed or the canonical form of the resulting language
  * tag contains more than a single language subtag.
  */
-JS::Result<JSString*> ParseStandaloneISO639LanguageTag(
+JS::Result<JSLinearString*> ParseStandaloneISO639LanguageTag(
     JSContext* cx, JS::Handle<JSLinearString*> str);
 
 class UnicodeExtensionKeyword final {
@@ -84,8 +91,10 @@ class UnicodeExtensionKeyword final {
     JSContext* cx, mozilla::intl::Locale& tag,
     JS::HandleVector<UnicodeExtensionKeyword> keywords);
 
-}  // namespace intl
+JS::UniqueChars FormatLocale(
+    JSContext* cx, JS::Handle<JSLinearString*> locale,
+    JS::HandleVector<UnicodeExtensionKeyword> keywords);
 
-}  // namespace js
+}  // namespace js::intl
 
 #endif /* builtin_intl_LanguageTag_h */

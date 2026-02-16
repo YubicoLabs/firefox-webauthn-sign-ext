@@ -2,9 +2,6 @@
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
 description: |
   pending
 esid: pending
@@ -16,7 +13,7 @@ var o = {
 };
 
 // Delazify
-assertThrowsInstanceOf(o.access, TypeError);
+assert.throws(TypeError, o.access);
 
 
 reportCompare(0, 0);

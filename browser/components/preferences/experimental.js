@@ -9,12 +9,13 @@ ChromeUtils.defineESModuleGetters(this, {
   FirefoxLabs: "resource://nimbus/FirefoxLabs.sys.mjs",
 });
 
-const STUDIES_ENABLED_CHANGED = "nimbus:studies-enabled-changed";
-
 const gExperimentalPane = {
   inited: false,
   _featureGatesContainer: null,
   _firefoxLabs: null,
+
+  /** @type {Promise<void>} */
+  _renderingPromise: Promise.resolve(),
 
   async init() {
     if (this.inited) {
@@ -28,7 +29,6 @@ const gExperimentalPane = {
 
     this._onCheckboxChanged = this._onCheckboxChanged.bind(this);
     this._onNimbusUpdate = this._onNimbusUpdate.bind(this);
-    this._onStudiesEnabledChanged = this._onStudiesEnabledChanged.bind(this);
     this._resetAllFeatures = this._resetAllFeatures.bind(this);
 
     setEventListener(
@@ -37,16 +37,32 @@ const gExperimentalPane = {
       this._resetAllFeatures
     );
 
-    Services.obs.addObserver(
-      this._onStudiesEnabledChanged,
-      STUDIES_ENABLED_CHANGED
-    );
     window.addEventListener("unload", () => this._removeObservers());
 
-    await this._maybeRenderLabsRecipes();
+    await this._queueRender();
+
+    Services.obs.addObserver(this, ExperimentAPI.ENROLLMENTS_UPDATED);
+  },
+
+  /**
+   * Queue the page to re-render.
+   *
+   * This function ensures at most one render happens at once.
+   *
+   * @returns {Promise<void>}
+   */
+  _queueRender() {
+    this._renderingPromise = this._renderingPromise.then(() =>
+      this._maybeRenderLabsRecipes()
+    );
+    return this._renderingPromise;
   },
 
   async _maybeRenderLabsRecipes() {
+    this._featureGatesContainer
+      .querySelectorAll(".featureGate")
+      .forEach(el => el.remove());
+
     this._firefoxLabs = await FirefoxLabs.create();
 
     const shouldHide = this._firefoxLabs.count === 0;
@@ -56,6 +72,10 @@ const gExperimentalPane = {
       return;
     }
 
+    this._renderLabsRecipes();
+  },
+
+  _renderLabsRecipes() {
     const frag = document.createDocumentFragment();
 
     const groups = new Map();
@@ -102,7 +122,7 @@ const gExperimentalPane = {
         document.l10n.setAttributes(checkbox, optIn.firefoxLabsTitle);
 
         checkbox.checked =
-          ExperimentAPI._manager.store.get(optIn.slug)?.active ?? false;
+          ExperimentAPI.manager.store.get(optIn.slug)?.active ?? false;
         checkbox.addEventListener("change", this._onCheckboxChanged);
 
         checkbox.append(description);
@@ -114,17 +134,9 @@ const gExperimentalPane = {
 
     this._featureGatesContainer.appendChild(frag);
 
-    ExperimentAPI._manager.store.on("update", this._onNimbusUpdate);
+    ExperimentAPI.manager.store.on("update", this._onNimbusUpdate);
 
     Services.obs.notifyObservers(window, "experimental-pane-loaded");
-  },
-
-  _removeLabsRecipes() {
-    ExperimentAPI._manager.store.off("update", this._onNimbusUpdate);
-
-    this._featureGatesContainer
-      .querySelectorAll(".featureGate")
-      .forEach(el => el.remove());
   },
 
   async _onCheckboxChanged(event) {
@@ -133,9 +145,7 @@ const gExperimentalPane = {
     const slug = target.dataset.nimbusSlug;
     const branchSlug = target.dataset.nimbusBranchSlug;
 
-    const enrolling = !(
-      ExperimentAPI._manager.store.get(slug)?.active ?? false
-    );
+    const enrolling = !(ExperimentAPI.manager.store.get(slug)?.active ?? false);
 
     let shouldRestart = false;
     if (this._firefoxLabs.get(slug).requiresRestart) {
@@ -173,31 +183,17 @@ const gExperimentalPane = {
     }
   },
 
-  async _onStudiesEnabledChanged() {
-    const studiesEnabled = ExperimentAPI._manager.studiesEnabled;
-
-    if (studiesEnabled) {
-      await this._maybeRenderLabsRecipes();
-    } else {
-      this._setCategoryVisibility(true);
-      this._removeLabsRecipes();
-      this._firefoxLabs = null;
-    }
-  },
-
   _removeObservers() {
-    ExperimentAPI._manager.store.off("update", this._onNimbusUpdate);
-    Services.obs.removeObserver(
-      this._onStudiesEnabledChanged,
-      STUDIES_ENABLED_CHANGED
-    );
+    ExperimentAPI.manager.store.off("update", this._onNimbusUpdate);
+
+    Services.obs.removeObserver(this, ExperimentAPI.ENROLLMENTS_UPDATED);
   },
 
   // Reset the features to their default values
   async _resetAllFeatures() {
     for (const optIn of this._firefoxLabs.all()) {
       const enrolled =
-        (await ExperimentAPI._manager.store.get(optIn.slug)?.active) ?? false;
+        (await ExperimentAPI.manager.store.get(optIn.slug)?.active) ?? false;
       if (enrolled) {
         this._firefoxLabs.unenroll(optIn.slug);
       }
@@ -220,6 +216,13 @@ const gExperimentalPane = {
     ) {
       // Leave the 'experimental' category if there are no available features
       gotoPref("general");
+    }
+  },
+
+  observe(_subject, topic, _data) {
+    switch (topic) {
+      case ExperimentAPI.ENROLLMENTS_UPDATED:
+        void this._queueRender();
     }
   },
 };

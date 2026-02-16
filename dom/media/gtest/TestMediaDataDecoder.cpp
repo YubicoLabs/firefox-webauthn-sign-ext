@@ -3,94 +3,141 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include <type_traits>
+
+#include "H264.h"
+#include "PDMFactory.h"
 #include "gtest/gtest.h"
-#include "Benchmark.h"
-#include "MockMediaResource.h"
-#include "DecoderTraits.h"
-#include "MediaContainerType.h"
-#include "MP4Demuxer.h"
-#include "MP4Decoder.h"
-#include "WebMDecoder.h"
-#include "WebMDemuxer.h"
-#include "mozilla/AbstractThread.h"
-#include "mozilla/gtest/MozAssertions.h"
-#include "mozilla/SpinEventLoopUntil.h"
-#include "nsMimeTypes.h"
+#include "mozilla/UniquePtr.h"
+#include "mozilla/gtest/WaitFor.h"
 
 using namespace mozilla;
 
-class BenchmarkRunner {
+using MDD = MediaDataDecoder;
+using ParamType = std::underlying_type<MDD::PropertyName>::type;
+
+class PropertyTest : public ::testing::TestWithParam<ParamType> {
  public:
-  explicit BenchmarkRunner(Benchmark* aBenchmark) : mBenchmark(aBenchmark) {}
-
-  uint32_t Run() {
-    bool done = false;
-    uint32_t result = 0;
-
-    mBenchmark->Init();
-    mBenchmark->Run()->Then(
-        // Non DocGroup-version of AbstractThread::MainThread() is fine for
-        // testing.
-        AbstractThread::MainThread(), __func__,
-        [&](uint32_t aDecodeFps) {
-          result = aDecodeFps;
-          done = true;
-        },
-        [&]() { done = true; });
-
-    // Wait until benchmark completes.
-    SpinEventLoopUntil("BenchmarkRunner::Run"_ns, [&]() { return done; });
-    return result;
+  static void SetUpTestSuite() {
+    sFactory = MakeRefPtr<PDMFactory>();
+    sAVCInfo = MakeUnique<VideoInfo>(sDummyVideoSize);
+    sAVCInfo->mMimeType = "video/avc"_ns;
+    sAVCInfo->mExtraData = H264::CreateExtraData(
+        H264_PROFILE::H264_PROFILE_BASE, 0 /* constraint */,
+        H264_LEVEL::H264_LEVEL_1, sDummyVideoSize);
+    sVP9Info = MakeUnique<VideoInfo>(sDummyVideoSize);
+    sVP9Info->mMimeType = "video/vp9"_ns;
+    sVP9Info->SetAlpha(true);
   }
 
- private:
-  RefPtr<Benchmark> mBenchmark;
+  static void TearDownTestSuite() {
+    sFactory = nullptr;
+    sTaskQueue = nullptr;
+    sAVCInfo.reset();
+    sVP9Info.reset();
+  }
+
+  static constexpr gfx::IntSize sDummyVideoSize{640, 480};
+  static RefPtr<PDMFactory> sFactory;
+  static RefPtr<TaskQueue> sTaskQueue;
+  static UniquePtr<VideoInfo> sAVCInfo;
+  static UniquePtr<VideoInfo> sVP9Info;
 };
 
-TEST(MediaDataDecoder, H264)
-{
-  if (!MP4Decoder::IsSupportedType(MediaContainerType(MEDIAMIMETYPE(VIDEO_MP4)),
-                                   /* DecoderDoctorDiagnostics* */ nullptr)) {
-    EXPECT_TRUE(true);
-  } else {
-    RefPtr<MockMediaResource> resource = new MockMediaResource("gizmo.mp4");
-    nsresult rv = resource->Open();
-    EXPECT_NS_SUCCEEDED(rv);
+constinit RefPtr<PDMFactory> PropertyTest::sFactory;
+constinit RefPtr<TaskQueue> PropertyTest::sTaskQueue;
+constinit UniquePtr<VideoInfo> PropertyTest::sAVCInfo;
+constinit UniquePtr<VideoInfo> PropertyTest::sVP9Info;
 
-    BenchmarkRunner runner(new Benchmark(new MP4Demuxer(resource)));
-    EXPECT_GT(runner.Run(), 0u);
-  }
+void CheckEquals(VideoInfo& aVideoInfo, MDD::PropertyName aPropertyName,
+                 const Maybe<MDD::PropertyValue>&& aExpectedValue,
+                 const char* aCallSite) {
+  using V = Maybe<MDD::PropertyValue>;
+  auto d = WaitFor(
+      PropertyTest::sFactory->CreateDecoder(CreateDecoderParams{aVideoInfo}));
+  EXPECT_TRUE(d.isOk());
+  RefPtr<MDD> dec = d.unwrap();
+  auto t = WaitFor(dec->Init());
+  EXPECT_TRUE(t.isOk());
+  EXPECT_EQ(t.unwrap(), TrackInfo::TrackType::kVideoTrack);
+  const V v = dec->GetDecodeProperty(aPropertyName);
+  // Although Maybe supports operator<<(), PropertyValue/Variant doesn't and
+  // needs special care.
+  auto maybeStr = [](const V& v) -> std::string {
+    if (v.isNothing()) {
+      return "undefined";
+    }
+    // Only uint32_t for now.
+    return std::to_string(v.ref().match([](uint32_t x) { return x; }));
+  };
+
+  EXPECT_TRUE(v == aExpectedValue)
+      << "[" << aCallSite << "] "
+      << "Decode property: " << MDD::EnumValueToString(aPropertyName)
+      << std::endl
+      << "  Actual: " << maybeStr(v)
+      << "  Expected: " << maybeStr(aExpectedValue);
 }
 
-// Decoding AV1 via. ffvpx is supported on Linux only.
-#if defined(MOZ_AV1) && defined(MOZ_WIDGET_GTK) && !defined(MOZ_FFVPX_AUDIOONLY)
-TEST(MediaDataDecoder, AV1)
-{
-  if (!MP4Decoder::IsSupportedType(MediaContainerType(MEDIAMIMETYPE(VIDEO_MP4)),
-                                   /* DecoderDoctorDiagnostics* */ nullptr)) {
-    EXPECT_TRUE(true);
-  } else {
-    RefPtr<MockMediaResource> resource = new MockMediaResource("av1.mp4");
-    nsresult rv = resource->Open();
-    EXPECT_NS_SUCCEEDED(rv);
+#define CHECK_NOT_DEFINED(info, prop)             \
+  do {                                            \
+    CheckEquals(info, prop, Nothing(), __func__); \
+  } while (0)
 
-    BenchmarkRunner runner(new Benchmark(new MP4Demuxer(resource)));
-    EXPECT_GT(runner.Run(), 0u);
+#ifdef MOZ_WIDGET_ANDROID
+void CheckAndroid(VideoInfo& aVideoInfo, MDD::PropertyName aProperty) {
+  switch (aProperty) {
+    case MDD::PropertyName::MaxNumVideoBuffers:
+      [[fallthrough]];
+    case MDD::PropertyName::MinNumVideoBuffers:
+      CheckEquals(aVideoInfo, aProperty, Some(MDD::PropertyValue(3U)),
+                  __func__);
+      break;
+    case MDD::PropertyName::MaxNumCurrentImages:
+      CheckEquals(aVideoInfo, aProperty, Some(MDD::PropertyValue(1U)),
+                  __func__);
+      break;
+    default:
+      CHECK_NOT_DEFINED(aVideoInfo, aProperty);
   }
 }
 #endif
 
-TEST(MediaDataDecoder, VP9)
-{
-  if (!WebMDecoder::IsSupportedType(
-          MediaContainerType(MEDIAMIMETYPE(VIDEO_WEBM)))) {
-    EXPECT_TRUE(true);
-  } else {
-    RefPtr<MockMediaResource> resource = new MockMediaResource("vp9cake.webm");
-    nsresult rv = resource->Open();
-    EXPECT_NS_SUCCEEDED(rv);
-
-    BenchmarkRunner runner(new Benchmark(new WebMDemuxer(resource)));
-    EXPECT_GT(runner.Run(), 0u);
+#ifdef MOZ_APPLEMEDIA
+void CheckApple(VideoInfo& aVideoInfo, MDD::PropertyName aProperty) {
+  switch (aProperty) {
+    case MDD::PropertyName::MinNumVideoBuffers:
+      CheckEquals(aVideoInfo, aProperty, Some(MDD::PropertyValue(10U)),
+                  __func__);
+      break;
+    default:
+      CHECK_NOT_DEFINED(aVideoInfo, aProperty);
   }
 }
+#endif
+
+INSTANTIATE_TEST_SUITE_P(TestMediaDataDecoder, PropertyTest,
+                         ::testing::Range<ParamType>(0,
+                                                     MDD::sPropertyNameCount),
+                         [](const ::testing::TestParamInfo<ParamType>& info) {
+                           return std::string(MDD::EnumValueToString(
+                               static_cast<MDD::PropertyName>(info.param)));
+                         });
+
+TEST_P(PropertyTest, DefaultValues) {
+  auto param = static_cast<MDD::PropertyName>(GetParam());
+#ifdef MOZ_WIDGET_ANDROID
+  CheckAndroid(*sAVCInfo, param);
+#elif defined(MOZ_APPLEMEDIA)
+  CheckApple(*sAVCInfo, param);
+#else
+  CHECK_NOT_DEFINED(*sAVCInfo, param);
+#endif
+}
+
+// On Android, VP9 video with alpha channel is decoded with libvpx.
+#ifdef MOZ_WIDGET_ANDROID
+TEST_P(PropertyTest, NotDefinedForVP9WithAlphaOnAndroid) {
+  CHECK_NOT_DEFINED(*sVP9Info, static_cast<MDD::PropertyName>(GetParam()));
+}
+#endif

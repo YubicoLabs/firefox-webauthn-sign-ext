@@ -152,7 +152,7 @@ MODERN_MERCURIAL_VERSION = Version("4.9")
 MODERN_RUST_VERSION = Version(MINIMUM_RUST_VERSION)
 
 
-class BaseBootstrapper(object):
+class BaseBootstrapper:
     """Base class for system bootstrappers."""
 
     def __init__(self, no_interactive=False, no_system_changes=False):
@@ -168,12 +168,6 @@ class BaseBootstrapper(object):
         Platform-specific implementations should check the environment and offer advice/warnings
         to the user, if necessary.
         """
-
-    def suggest_install_pip3(self):
-        """Called if pip3 can't be found."""
-        print(
-            "Try installing pip3 with your system's package manager.", file=sys.stderr
-        )
 
     def install_system_packages(self):
         """
@@ -372,7 +366,7 @@ class BaseBootstrapper(object):
 
         if self.no_interactive:
             print(prompt)
-            print('Selecting "{}" because context is not interactive.'.format(default))
+            print(f'Selecting "{default}" because context is not interactive.')
             return default
 
         while True:
@@ -438,8 +432,9 @@ class BaseBootstrapper(object):
 
         process = subprocess.run(
             [str(path), version_param],
+            check=False,
             env=env,
-            universal_newlines=True,
+            text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
@@ -666,18 +661,16 @@ class BaseBootstrapper(object):
             rustup_init.chmod(mode | stat.S_IRWXU)
             print("Ok")
             print("Running rustup-init...")
-            subprocess.check_call(
-                [
-                    str(rustup_init),
-                    "-y",
-                    "--default-toolchain",
-                    "stable",
-                    "--default-host",
-                    platform,
-                    "--component",
-                    "rustfmt",
-                ]
-            )
+            subprocess.check_call([
+                str(rustup_init),
+                "-y",
+                "--default-toolchain",
+                "stable",
+                "--default-host",
+                platform,
+                "--component",
+                "rustfmt",
+            ])
             cargo_home, cargo_bin = self.cargo_home()
             self.print_rust_path_advice(RUST_INSTALL_COMPLETE, cargo_home, cargo_bin)
         finally:

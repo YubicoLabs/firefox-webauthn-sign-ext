@@ -3,6 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 """module for tooltool operations"""
+
 import os
 import sys
 
@@ -24,7 +25,7 @@ _mozbuild_action_path = os.path.normpath(
 _mozbuild_action_abspath = os.path.join("python", "mozbuild", "mozbuild", "action")
 
 
-class TooltoolMixin(object):
+class TooltoolMixin:
     """Mixin class for handling tooltool manifests.
     To use a tooltool server other than the Mozilla server, set
     TOOLTOOL_HOST in the environment.
@@ -71,9 +72,10 @@ class TooltoolMixin(object):
 
         if self.topsrcdir:
             cmd.extend(["--tooltool-manifest", manifest])
-            cmd.extend(
-                ["--artifact-manifest", os.path.join(self.topsrcdir, "toolchains.json")]
-            )
+            cmd.extend([
+                "--artifact-manifest",
+                os.path.join(self.topsrcdir, "toolchains.json"),
+            ])
         else:
             cmd.extend(["fetch", "-m", manifest, "-o"])
 

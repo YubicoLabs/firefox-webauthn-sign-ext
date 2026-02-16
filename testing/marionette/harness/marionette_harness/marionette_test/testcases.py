@@ -12,7 +12,6 @@ import warnings
 import weakref
 from unittest.case import SkipTest
 
-import six
 from marionette_driver.errors import TimeoutException, UnresponsiveInstanceException
 from mozfile import load_source
 from mozlog import get_default_logger
@@ -30,7 +29,7 @@ class expectedFailure(Exception):
     """
 
     def __init__(self, exc_info):
-        super(expectedFailure, self).__init__()
+        super().__init__()
         self.exc_info = exc_info
 
 
@@ -49,7 +48,7 @@ def _wraps_parameterized(func, func_suffix, args, kwargs):
         return func(self, *args, **kwargs)
 
     wrapper.__name__ = func.__name__ + "_" + str(func_suffix)
-    wrapper.__doc__ = "[{0}] {1}".format(func_suffix, func.__doc__)
+    wrapper.__doc__ = f"[{func_suffix}] {func.__doc__}"
     return wrapper
 
 
@@ -71,9 +70,7 @@ class MetaParameterized(type):
                     wrapper = _wraps_parameterized(v, func_suffix, args, kwargs)
                     if wrapper.__name__ in attrs:
                         raise KeyError(
-                            "{0} is already a defined method on {1}".format(
-                                wrapper.__name__, name
-                            )
+                            f"{wrapper.__name__} is already a defined method on {name}"
                         )
                     attrs[wrapper.__name__] = wrapper
                 del attrs[k]
@@ -81,14 +78,13 @@ class MetaParameterized(type):
         return type.__new__(cls, name, bases, attrs)
 
 
-@six.add_metaclass(MetaParameterized)
-class CommonTestCase(unittest.TestCase):
+class CommonTestCase(unittest.TestCase, metaclass=MetaParameterized):
     match_re = None
     failureException = AssertionError
     pydebugger = None
 
     def __init__(self, methodName, marionette_weakref, fixtures, **kwargs):
-        super(CommonTestCase, self).__init__(methodName)
+        super().__init__(methodName)
         self.methodName = methodName
 
         self._marionette_weakref = marionette_weakref
@@ -118,13 +114,12 @@ class CommonTestCase(unittest.TestCase):
     def assertRaisesRegxp(
         self, expected_exception, expected_regexp, callable_obj=None, *args, **kwargs
     ):
-        return six.assertRaisesRegex(
-            self,
+        return self.assertRaisesRegex(
             expected_exception,
             expected_regexp,
             callable_obj=None,
             *args,
-            **kwargs
+            **kwargs,
         )
 
     def run(self, result=None):
@@ -137,8 +132,7 @@ class CommonTestCase(unittest.TestCase):
                 addExpectedFailure(self, exc_info)
             else:
                 warnings.warn(
-                    "TestResult has no addExpectedFailure method, "
-                    "reporting as passes",
+                    "TestResult has no addExpectedFailure method, reporting as passes",
                     RuntimeWarning,
                 )
                 result.addSuccess(self)
@@ -271,7 +265,7 @@ class CommonTestCase(unittest.TestCase):
         marionette,
         fixtures,
         testvars,
-        **kwargs
+        **kwargs,
     ):
         """Add all the tests in the specified file to the specified suite."""
         raise NotImplementedError
@@ -282,9 +276,7 @@ class CommonTestCase(unittest.TestCase):
         if os.path.exists(self.filepath):
             rel_path = self._fix_test_path(self.filepath)
 
-        return "{0} {1}.{2}".format(
-            rel_path, self.__class__.__name__, self._testMethodName
-        )
+        return f"{rel_path} {self.__class__.__name__}.{self._testMethodName}"
 
     def id(self):
         # TBPL starring requires that the "test name" field of a failure message
@@ -304,7 +296,7 @@ class CommonTestCase(unittest.TestCase):
             self.marionette.start_session()
         self.marionette.timeout.reset()
 
-        super(CommonTestCase, self).setUp()
+        super().setUp()
 
     def cleanTest(self):
         self._delete_session()
@@ -315,7 +307,7 @@ class CommonTestCase(unittest.TestCase):
         if self.marionette.session is not None:
             try:
                 self.marionette.delete_session()
-            except IOError:
+            except OSError:
                 # Gecko has crashed?
                 pass
         self.marionette = None
@@ -323,7 +315,7 @@ class CommonTestCase(unittest.TestCase):
     def _fix_test_path(self, path):
         """Normalize a logged test path from the test package."""
         test_path_prefixes = [
-            "tests{}".format(os.path.sep),
+            f"tests{os.path.sep}",
         ]
 
         path = os.path.relpath(path)
@@ -345,11 +337,11 @@ class MarionetteTestCase(CommonTestCase):
         self.filepath = filepath
         self.testvars = kwargs.pop("testvars", None)
 
-        super(MarionetteTestCase, self).__init__(
+        super().__init__(
             methodName,
             marionette_weakref=marionette_weakref,
             fixtures=fixtures,
-            **kwargs
+            **kwargs,
         )
 
     @classmethod
@@ -362,7 +354,7 @@ class MarionetteTestCase(CommonTestCase):
         marionette,
         fixtures,
         testvars,
-        **kwargs
+        **kwargs,
     ):
         # since load_source caches modules, if a module is loaded with the same
         # name as another one the module would just be reloaded.
@@ -381,7 +373,7 @@ class MarionetteTestCase(CommonTestCase):
 
         for name in dir(test_mod):
             obj = getattr(test_mod, name)
-            if isinstance(obj, six.class_types) and issubclass(obj, unittest.TestCase):
+            if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
                 testnames = testloader.getTestCaseNames(obj)
                 for testname in testnames:
                     suite.addTest(
@@ -391,12 +383,12 @@ class MarionetteTestCase(CommonTestCase):
                             methodName=testname,
                             filepath=filepath,
                             testvars=testvars,
-                            **kwargs
+                            **kwargs,
                         )
                     )
 
     def setUp(self):
-        super(MarionetteTestCase, self).setUp()
+        super().setUp()
         self.marionette.test_name = self.test_name
 
     def tearDown(self):
@@ -407,7 +399,7 @@ class MarionetteTestCase(CommonTestCase):
 
         self.marionette.test_name = None
 
-        super(MarionetteTestCase, self).tearDown()
+        super().tearDown()
 
     def wait_for_condition(self, method, timeout=30):
         timeout = float(timeout) + time.time()
@@ -416,5 +408,4 @@ class MarionetteTestCase(CommonTestCase):
             if value:
                 return value
             time.sleep(0.5)
-        else:
-            raise TimeoutException("wait_for_condition timed out")
+        raise TimeoutException("wait_for_condition timed out")

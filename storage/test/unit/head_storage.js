@@ -16,9 +16,6 @@ ChromeUtils.defineESModuleGetters(this, {
   TestUtils: "resource://testing-common/TestUtils.sys.mjs",
 });
 
-const OPEN_HISTOGRAM = "SQLITE_STORE_OPEN";
-const QUERY_HISTOGRAM = "SQLITE_STORE_QUERY";
-
 const TELEMETRY_VALUES = {
   success: 0,
   failure: 1,
@@ -111,15 +108,11 @@ function asyncCleanup() {
  * if necessary, otherwise reuses the existing cached connection. This
  * connection shares its cache.
  *
- * @returns the mozIStorageConnection for the file.
+ * @returns {mozIStorageConnection}
  */
 function getOpenedDatabase(connectionFlags = 0) {
   if (!gDBConn) {
     gDBConn = Services.storage.openDatabase(getTestDB(), connectionFlags);
-
-    // Clear out counts for any queries that occured while opening the database.
-    TelemetryTestUtils.getAndClearKeyedHistogram(OPEN_HISTOGRAM);
-    TelemetryTestUtils.getAndClearKeyedHistogram(QUERY_HISTOGRAM);
   }
   return gDBConn;
 }
@@ -129,7 +122,7 @@ function getOpenedDatabase(connectionFlags = 0) {
  * if necessary, otherwise reuses the existing cached connection. This
  * connection doesn't share its cache.
  *
- * @returns the mozIStorageConnection for the file.
+ * @returns {mozIStorageConnection}
  */
 function getOpenedUnsharedDatabase() {
   if (!gDBConn) {
@@ -143,7 +136,7 @@ function getOpenedUnsharedDatabase() {
  *
  * @param aFile
  *        The nsIFile representing the db file to open.
- * @returns the mozIStorageConnection for the file.
+ * @returns {mozIStorageConnection}
  */
 function getDatabase(aFile) {
   return Services.storage.openDatabase(aFile);
@@ -158,7 +151,7 @@ function createStatement(aSQL) {
  *
  * @param aSQL
  *        The SQL to parse into a statement.
- * @returns a mozIStorageAsyncStatement from aSQL.
+ * @returns {mozIStorageAsyncStatement}
  */
 function createAsyncStatement(aSQL) {
   return getOpenedDatabase().createAsyncStatement(aSQL);

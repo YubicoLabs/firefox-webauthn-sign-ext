@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsID_h__
-#define nsID_h__
+#ifndef nsID_h_
+#define nsID_h_
 
 #include <string.h>
 
@@ -138,24 +138,11 @@ typedef nsID nsIID;
 #define REFNSIID const nsIID&
 
 /**
- * A macro to build the static const IID accessor method. The Dummy
- * template parameter only exists so that the kIID symbol will be linked
- * properly (weak symbol on linux, gnu_linkonce on mac, multiple-definitions
- * merged on windows). Dummy should always be instantiated as "void".
+ * A macro to add a static constexpr kIID variable.
  */
 
-#define NS_DECLARE_STATIC_IID_ACCESSOR(the_iid) \
-  template <typename T, typename U>             \
-  struct COMTypeInfo;
-
-#define NS_DEFINE_STATIC_IID_ACCESSOR(the_interface, the_iid)                \
-  template <typename T>                                                      \
-  struct the_interface::COMTypeInfo<the_interface, T> {                      \
-    static const nsIID kIID NS_HIDDEN;                                       \
-  };                                                                         \
-  template <typename T>                                                      \
-  const nsIID the_interface::COMTypeInfo<the_interface, T>::kIID NS_HIDDEN = \
-      the_iid;
+#define NS_INLINE_DECL_STATIC_IID(the_iid) \
+  static constexpr nsIID kIID NS_HIDDEN = the_iid;
 
 /**
  * A macro to build the static const CID accessor method
@@ -163,11 +150,10 @@ typedef nsID nsIID;
 
 #define NS_DEFINE_STATIC_CID_ACCESSOR(the_cid) \
   static const nsID& GetCID() {                \
-    static const nsID cid = the_cid;           \
+    static constexpr nsID cid = the_cid;       \
     return cid;                                \
   }
 
-#define NS_GET_IID(T) (T::COMTypeInfo<T, void>::kIID)
-#define NS_GET_TEMPLATE_IID(T) (T::template COMTypeInfo<T, void>::kIID)
+#define NS_GET_IID(T) (T::kIID)
 
 #endif

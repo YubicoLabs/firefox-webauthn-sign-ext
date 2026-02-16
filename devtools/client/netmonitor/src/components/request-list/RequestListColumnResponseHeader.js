@@ -6,9 +6,9 @@
 
 const {
   Component,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   getResponseHeader,
   fetchNetworkUpdatePacket,
@@ -48,7 +48,11 @@ class RequestListColumnResponseHeader extends Component {
     const header = getResponseHeader(this.props.item, this.props.header);
     return dom.td(
       {
-        className: "requests-list-column requests-list-response-header",
+        className:
+          "requests-list-column requests-list-response-header" +
+          (this.props.header == "Content-Length"
+            ? " requests-list-number-column"
+            : ""),
         title: header,
       },
       header

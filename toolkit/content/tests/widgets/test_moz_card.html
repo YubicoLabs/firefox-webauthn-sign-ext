@@ -18,17 +18,8 @@
 
   <body>
     <p id="display"></p>
-    <style>
-      moz-card.withHeadingIcon::part(icon) {
-        background-image: url("chrome://browser/skin/preferences/category-general.svg");
-      }
-    </style>
     <div id="content">
-      <moz-card
-        id="default-card"
-        data-l10n-id="test-id-1"
-        data-l10n-attrs="heading"
-      >
+      <moz-card id="default-card" data-l10n-id="test-id-1">
         <div>TEST</div>
       </moz-card>
       <hr />
@@ -36,7 +27,6 @@
       <moz-card
         id="accordion-card"
         data-l10n-id="test-id-2"
-        data-l10n-attrs="heading"
         heading="accordion heading"
         type="accordion"
       >
@@ -47,10 +37,9 @@
       <moz-card
         id="heading-icon-card"
         data-l10n-id="test-id-3"
-        data-l10n-attrs="heading"
         heading="heading with icon"
         type="accordion"
-        icon
+        iconSrc="chrome://global/skin/icons/settings.svg"
         class="withHeadingIcon"
       >
         <div>heading icon test content</div>
@@ -70,19 +59,11 @@
         ok(card, "The card element should exist");
         is(card.localName, "moz-card", "The card should have the correct tag");
         let l10nId = card.getAttribute("data-l10n-id");
-        let l10nAttrs = card.getAttribute("data-l10n-attrs");
         if (expectedValues["data-l10n-id"]) {
           is(
             l10nId,
             expectedValues["data-l10n-id"],
             "l10n id should be unchanged"
-          );
-        }
-        if (expectedValues["data-l10n-attrs"]) {
-          is(
-            l10nAttrs,
-            expectedValues["data-l10n-attrs"],
-            "l10n attrs should be unchanged"
           );
         }
         let cardContent = card.firstElementChild;
@@ -93,13 +74,13 @@
           "The content should be unchanged"
         );
         is(
-          card.contentSlotEl.id,
+          card.contentEl.id,
           "content",
           "The content container should have the correct ID"
         );
         if (card.type != "accordion") {
           is(
-            card.contentSlotEl.getAttribute("aria-describedby"),
+            card.contentEl.getAttribute("aria-describedby"),
             "content",
             "The content container should be described by the 'content' slot"
           );
@@ -153,7 +134,9 @@
         ok(
           card.shadowRoot
             .querySelector("#heading-wrapper")
-            .querySelector("#heading-icon"),
+            .querySelector(
+              "img[src='chrome://global/skin/icons/settings.svg']"
+            ),
           "The heading icon element should exist"
         );
       }
@@ -175,20 +158,17 @@
       add_task(async function testDefaultCard() {
         assertBasicProperties(document.getElementById("default-card"), {
           "data-l10n-id": "test-id-1",
-          "data-l10n-attrs": "heading",
           contentText: "TEST",
         });
 
         let defaultCard = await generateCard({
           "data-l10n-id": "generated-id-1",
-          "data-l10n-attrs": "heading",
           heading: testHeading,
           id: "generated-default-card",
         });
 
         assertBasicProperties(defaultCard, {
           "data-l10n-id": "generated-id-1",
-          "data-l10n-attrs": "heading",
           contentText: generatedSlotText,
           heading: testHeading,
         });
@@ -197,7 +177,6 @@
       add_task(async function testAccordionCard() {
         assertBasicProperties(document.getElementById("accordion-card"), {
           "data-l10n-id": "test-id-2",
-          "data-l10n-attrs": "heading",
           contentText: "accordion test content",
           headingText: "accordion heading",
         });
@@ -205,7 +184,6 @@
           document.getElementById("accordion-card"),
           {
             "data-l10n-id": "test-id-2",
-            "data-l10n-attrs": "heading",
             contentText: "accordion test content",
             headingText: "accordion heading",
           }
@@ -215,19 +193,16 @@
           type: "accordion",
           id: "generated-accordion-card",
           "data-l10n-id": "generated-id-2",
-          "data-l10n-attrs": "heading",
           heading: testHeading,
         });
 
         assertBasicProperties(accordionCard, {
           "data-l10n-id": "generated-id-2",
-          "data-l10n-attrs": "heading",
           headingText: testHeading,
           contentText: generatedSlotText,
         });
         await assertAccordionCardProperties(accordionCard, {
           "data-l10n-id": "generated-id-2",
-          "data-l10n-attrs": "heading",
           headingText: testHeading,
           contentText: generatedSlotText,
         });
@@ -236,7 +211,6 @@
           type: "accordion",
           id: "expanded-accordion-card",
           "data-l10n-id": "generated-id-2",
-          "data-l10n-attrs": "heading",
           heading: testHeading,
           expanded: true,
         });
@@ -255,7 +229,6 @@
       add_task(async function testHeadingIconCard() {
         assertBasicProperties(document.getElementById("heading-icon-card"), {
           "data-l10n-id": "test-id-3",
-          "data-l10n-attrs": "heading",
           contentText: "heading icon test content",
           headingText: "heading with icon",
         });
@@ -263,7 +236,6 @@
           document.getElementById("heading-icon-card"),
           {
             "data-l10n-id": "test-id-3",
-            "data-l10n-attrs": "heading",
             contentText: "heading icon test content",
             headingText: "heading with icon",
           }
@@ -272,22 +244,19 @@
         let headingIconCard = await generateCard({
           class: "heading-icon-class",
           type: "accordion",
-          icon: "",
+          iconSrc: "chrome://global/skin/icons/settings.svg",
           id: "generated-heading-icon-card",
           "data-l10n-id": "generated-id-3",
-          "data-l10n-attrs": "heading",
           heading: testHeading,
         });
 
         assertBasicProperties(headingIconCard, {
           "data-l10n-id": "generated-id-3",
-          "data-l10n-attrs": "heading",
           headingText: testHeading,
           contentText: generatedSlotText,
         });
         assertHeadingIconCardProperties(headingIconCard, {
           "data-l10n-id": "generated-id-3",
-          "data-l10n-attrs": "heading",
           headingText: testHeading,
           contentText: generatedSlotText,
         });

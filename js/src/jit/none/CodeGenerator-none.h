@@ -14,8 +14,9 @@ namespace jit {
 
 class CodeGeneratorNone : public CodeGeneratorShared {
  protected:
-  CodeGeneratorNone(MIRGenerator* gen, LIRGraph* graph, MacroAssembler* masm)
-      : CodeGeneratorShared(gen, graph, masm) {
+  CodeGeneratorNone(MIRGenerator* gen, LIRGraph* graph, MacroAssembler* masm,
+                    const wasm::CodeMetadata* wasmCodeMeta)
+      : CodeGeneratorShared(gen, graph, masm, wasmCodeMeta) {
     MOZ_CRASH();
   }
 
@@ -30,9 +31,6 @@ class CodeGeneratorNone : public CodeGeneratorShared {
   }
   template <typename T1, typename T2>
   void bailoutCmpPtr(Assembler::Condition, T1, T2, LSnapshot*) {
-    MOZ_CRASH();
-  }
-  void bailoutTestPtr(Assembler::Condition, Register, Register, LSnapshot*) {
     MOZ_CRASH();
   }
   void bailoutIfFalseBool(Register, LSnapshot*) { MOZ_CRASH(); }

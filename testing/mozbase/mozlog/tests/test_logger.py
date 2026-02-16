@@ -12,7 +12,6 @@ import unittest
 import mozfile
 import mozlog.unstructured as mozlog
 import mozunit
-import six
 
 
 class ListHandler(mozlog.Handler):
@@ -80,7 +79,7 @@ class TestStructuredLogging(unittest.TestCase):
         The actual message should contain no fields other than the timestamp
         field and those present in expected."""
 
-        self.assertTrue(isinstance(actual["_time"], six.integer_types))
+        self.assertTrue(isinstance(actual["_time"], (int,)))
 
         for k, v in expected.items():
             self.assertEqual(v, actual[k])
@@ -200,28 +199,22 @@ class TestStructuredLogging(unittest.TestCase):
             connection, self.logger, message_callback=self.message_callback, timeout=0.5
         )
 
-        message_string_one = json.dumps(
-            {
-                "_message": "socket message one",
-                "action": "test_message",
-                "_level": "DEBUG",
-            }
-        )
-        message_string_two = json.dumps(
-            {
-                "_message": "socket message two",
-                "action": "test_message",
-                "_level": "DEBUG",
-            }
-        )
+        message_string_one = json.dumps({
+            "_message": "socket message one",
+            "action": "test_message",
+            "_level": "DEBUG",
+        })
+        message_string_two = json.dumps({
+            "_message": "socket message two",
+            "action": "test_message",
+            "_level": "DEBUG",
+        })
 
-        message_string_three = json.dumps(
-            {
-                "_message": "socket message three",
-                "action": "test_message",
-                "_level": "DEBUG",
-            }
-        )
+        message_string_three = json.dumps({
+            "_message": "socket message three",
+            "action": "test_message",
+            "_level": "DEBUG",
+        })
 
         message_string = (
             message_string_one

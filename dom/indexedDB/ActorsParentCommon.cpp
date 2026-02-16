@@ -9,19 +9,20 @@
 // local includes
 #include "DatabaseFileInfo.h"
 #include "DatabaseFileManager.h"
+#include "IndexedDBCipherKeyManager.h"
+#include "IndexedDBCommon.h"
 #include "IndexedDatabase.h"  // for StructuredCloneFile...
 #include "IndexedDatabaseInlines.h"
 #include "IndexedDatabaseManager.h"
-#include "IndexedDBCipherKeyManager.h"
-#include "IndexedDBCommon.h"
 #include "ReportInternalError.h"
 
 // global includes
 #include <stdlib.h>
 #include <string.h>
+
 #include <algorithm>
 #include <numeric>
-#include <type_traits>
+
 #include "MainThreadUtils.h"
 #include "SafeRefPtr.h"
 #include "js/RootingAPI.h"
@@ -39,8 +40,6 @@
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPtr.h"
-#include "mozilla/Telemetry.h"
-#include "mozilla/TelemetryScalarEnums.h"
 #include "mozilla/dom/quota/DecryptingInputStream_impl.h"
 #include "mozilla/dom/quota/QuotaCommon.h"
 #include "mozilla/dom/quota/ResultExtensions.h"
@@ -66,7 +65,7 @@ class nsIFile;
 
 namespace mozilla::dom::indexedDB {
 
-static_assert(SNAPPY_VERSION == 0x010200);
+static_assert(SNAPPY_VERSION == 0x010202);
 
 using mozilla::ipc::IsOnBackgroundThread;
 

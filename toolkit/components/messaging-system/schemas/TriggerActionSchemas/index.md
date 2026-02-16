@@ -54,6 +54,7 @@ let patterns: string[];
 - [`nthTabOpened`](#nthtabopened)
 - [`tabGroupCreated`](#tabgroupcreated)
 - [`tabGroupSaved`](#tabgroupsaved)
+- [`tabGroupCollapsed`](#tabgroupcollapsed)
 - [`activityAfterIdle`](#activityafteridle)
 - [`cookieBannerDetected`](#cookiebannerdetected)
 - [`cookieBannerHandled`](#cookiebannerhandled)
@@ -61,9 +62,11 @@ let patterns: string[];
 - [`pageActionInUrlbar`](#pageactioninurlbar)
 - [`onSearch`](#onsearch)
 - [`sidebarToolOpened`](#sidebartoolopened)
-- [`shoppingProductPageWithIntegratedRCSidebarClosed`](#shoppingproductpage)
-- [`reviewCheckerSidebarClosedCallout`](#sidebarclosed)
 - [`elementClicked`](#elementclicked)
+- [`ipProtectionReady`](#ipprotectionready)
+- [`ipProtectionPanelClosed`](#ipprotectionpanelclosed)
+- [`selectableProfilesUpdated`](#selectableprofilesupdated)
+- [`smartWindowNewTab`](#smartwindownewtab)
 
 ### `openArticleURL`
 
@@ -77,9 +80,11 @@ Does not filter by host or patterns.
 
 ### `frequentVisits`
 
-Happens every time a user navigates (or switches tab to) to any of the `hosts` or `patterns` arguments
-provided. Additionally it stores timestamps of these visits that are provided back to the targeting context.
-They can be used inside of the targeting expression:
+Happens every time a user navigates (or switches tab) to any of the `hosts`
+or `patterns` arguments provided. This trigger adds an item to the targeting
+context called `recentVisits`. It is a sorted array of timestamps for recent
+visits to the hosts provided in the `hosts` property.
+This can be used inside of the targeting expression:
 
 ```javascript
 // Has at least 3 visits in the past hour
@@ -109,7 +114,7 @@ visitsCount >= 3
 ### `newSavedLogin`
 
 Happens every time the user saves or updates a login via the login capture doorhanger.
-Provides a `type` to diferentiate between the two events that can be used in targeting.
+Provides a `type` to differentiate between the two events that can be used in targeting.
 
 Does not filter by host or patterns.
 
@@ -145,7 +150,7 @@ Does not filter by host or patterns.
 
 The event it reports back is one of two things:
  * A combination of OR-ed [nsIWebProgressListener](https://searchfox.org/mozilla-central/source/uriloader/base/nsIWebProgressListener.idl) `STATE_BLOCKED_*` flags
- * A string constants, such as [`"ContentBlockingMilestone"`](https://searchfox.org/mozilla-central/rev/8a2d8d26e25ef70c98c6036612aad534b76b9815/toolkit/components/antitracking/TrackingDBService.jsm#327-334)
+ * A string constant, such as [`"ContentBlockingMilestone"`](https://searchfox.org/mozilla-central/rev/8a2d8d26e25ef70c98c6036612aad534b76b9815/toolkit/components/antitracking/TrackingDBService.jsm#327-334)
 
 
 ### `defaultBrowserCheck`
@@ -164,8 +169,10 @@ let willShowDefaultPrompt = boolean | undefined;
 ```
 
 #### Examples
+
 * Only trigger on startup, not on newtab/homepage
 * Don't show if the built-in prompt is going to be shown
+
 ```js
 {
   trigger: { id: "defaultBrowserCheck" },
@@ -268,7 +275,7 @@ Happens whenever a user creates a tab group.
 }
 ```
 ```js
-// The trigger can also track the number or tab groups created in a
+// The trigger can also track the number of tab groups created in a
 // session, by including the tabGroupsCreatedCount context variable in targeting.
 // Here, the message triggers once two or more tab groups have been created,
 // even if the tabs were closed in between.
@@ -288,12 +295,32 @@ Happens whenever a user uses the "Save and Close" action on a tab group.
 }
 ```
 ```js
-// The trigger can also track the number or tab groups closed in a
+// The trigger can also track the number of tab groups closed in a
 // session, by including the tabGroupsClosedCount context variable in targeting.
 // Here, the message triggers once two tab groups have been saved and closed.
 {
   trigger: { id: "tabGroupSaved" },
   targeting: { "tabGroupsSavedCount >= 2" }
+}
+```
+
+### `tabGroupCollapsed`
+
+Happens whenever a user clicks a tab group label to collapse it. Can be used with the `currentTabGroups` targeting to ensure multiple groups have been collapsed.
+
+```js
+{
+  trigger: { id: "tabGroupCollapsed" }
+}
+```
+```js
+// The trigger can also track the number of tab groups collapsed in a
+// session, by including the tabGroupsCollapsedCount context variable in targeting.
+// Here, the message triggers once four tab groups have been collapsed, or one group
+// has been collapsed four times.
+{
+  trigger: { id: "tabGroupCollapsed" },
+  targeting: { "tabGroupsCollapsedCount >= 4" }
 }
 ```
 
@@ -359,7 +386,7 @@ Happens when the user uses the search feature in the awesome bar.
 
 The `isSuggestion` boolean context variable is available in targeting, and will evaluate to true if the search was initiated from a recommendation in the awesomebar.
 
-The `searchSource` string context variable is also available in targeting, and returns the search source. It will be one of four values: `urlbar-handoff` if one of the faux-search inputs were used (such as the one present on the newtab page), `urlbar-searchmode` if the user has selected a search engine, `urlbar-persisted` if the user has changed tabs or windows and come back to their search term in the URL bar, or `urlbar` if the user is doing a standard search by entering a term into the URL bar and pressing enter, or clicking on a search suggestion.
+The `searchSource` string context variable is also available in targeting, and returns the search source. It will be one of four values: `urlbar-handoff` if one of the faux-search inputs were used (such as the one present on the newtab page), `urlbar-searchmode` if the user has selected a search engine, `urlbar-persisted` if the user has changed tabs or windows and come back to their search term in the URL bar, `urlbar` if the user is doing a standard search by entering a term into the URL bar and pressing enter, or clicking on a search suggestion, or `searchbar` if the search was started from the separate search bar toolbar widget.
 
 The `isOneOff` boolean context variable is available in targeting, and will be true if one of the one-off search features (typically found at the bottom of the awesomebar's dropdown menu) is used.
 
@@ -385,32 +412,6 @@ The `clickCounts` object context variable is also available in targeting, and in
 }
 ```
 
-### `shoppingProductPageWithIntegratedRCSidebarClosed`
-
-Happens when the user navigates to a product page
-
-The `isReviewCheckerInSidebarClosed` string context variable is available in targeting, and will correspond with which whether the Review Checker panel in the sidebar is closed
-
-```js
-{
-  trigger: { id: "shoppingProductPageWithIntegratedRCSidebarClosed" },
-  targeting: `'sidebar.main.tools' | preferenceValue | regExpMatch('reviewchecker') && !'messaging-system-action.shopping-block-review-checker-callout-3' | preferenceValue && !'messaging-system-action.shopping-block-review-checker-callouts' | preferenceValue && isReviewCheckerInSidebarClosed && 'browser.shopping.experience2023.integratedSidebar' | preferenceValue && 'sidebar.revamp' | preferenceValue && 'browser.shopping.experience2023.optedIn' | preferenceValue == 0 && 'browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features' | preferenceValue != false && 'browser.shopping.experience2023.onboardingImpressionTime' | preferenceValue && ((currentDate | date - ('browser.shopping.experience2023.onboardingImpressionTime' | preferenceValue * 1000)) / 3600000) > 24 && !'sidebar.verticalTabs' | preferenceValue`
-}
-```
-
-### `reviewCheckerSidebarClosedCallout`
-
-Happens when the user navigates to a product page
-
-The `isReviewCheckerInSidebarClosed` string context variable is available in targeting, and will correspond with which whether the Review Checker panel in the sidebar is closed
-
-```js
-{
-  trigger: { id: "shoppingProductPageWithIntegratedRCSidebarClosed" },
-  targeting: `'browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features' | preferenceValue && 'browser.shopping.experience2023.integratedSidebar' | preferenceValue && 'sidebar.revamp' | preferenceValue && 'browser.shopping.experience2023.optedIn' | preferenceValue == 1 && isReviewCheckerInSidebarClosed && !'sidebar.verticalTabs' | preferenceValue`
-}
-```
-
 ### `elementClicked`
 
 Happens when an element in the browser chrome is clicked. The trigger will only fire if the element that is clicked has an ID that is within the trigger's params array.
@@ -424,5 +425,67 @@ The `elementId` string context variable is also available in targeting, and will
     params: ["element1-id", "element2-id"]
   },
   targeting: "elementId == 'element1-id'"
+}
+```
+
+### `ipProtectionReady`
+
+Fired once the IP protection widget is created and available. Used as a trigger for the IP protection feature introduction callout, which anchors to the widget.
+
+Targets users with the `browser.ipProtection.enabled` pref set to true, along with frequency caps.
+
+```js
+
+{
+  trigger: { "ipProtectionReady" },
+  targeting: "'browser.ipProtection.enabled' | preferenceValue && !(messageImpressions.IP_PROTECTION_INTRODUCTION_CALLOUT[messageImpressions.IP_PROTECTION_INTRODUCTION_CALLOUT | length - 1] < currentDate|date - (3600000 * 24))",
+
+}
+```
+
+### `ipProtectionPanelClosed`
+
+Fires on close of the IP Protection Panel. Can be used to trigger messages or actions after the user closes the IP protection panel.
+
+The `hasUsedSiteExceptions` boolean context variable is available in targeting, and will evaluate to true if the user has added a site to their exceptions list either in-panel or at about:settings.
+
+```js
+{
+  trigger: { id: "ipProtectionPanelClosed" },
+  targeting: "!hasUsedSiteExceptions",
+}
+```
+
+### `selectableProfilesUpdated`
+
+Fires to keep multi-profile feature users informed of changes to data collection settings. Within a profile group, any update to these shared profile settings triggers this event for all other running remote profile instances.
+
+```js
+{
+  trigger: { id: "selectableProfilesUpdated" },
+  template: "infobar",
+  frequency: { lifetime: 1 }
+}
+```
+
+### `tabSwitch`
+
+Happens when the user switches between two tabs 2 times within one minute
+
+```js
+{
+  trigger: { id: "tabSwitch" },
+  targeting: `!'browser.tab.splitview.hasUsed'|preferenceValue`
+}
+```
+
+### `smartWindowNewTab`
+
+Occurs every time a user opens a new Smart Window tab.
+
+```js
+{
+  trigger: { id: "smartWindowNewTab" },
+  targeting: "isAIWindow && 'browser.smartwindow.firstrun.hasCompleted' | preferenceValue",
 }
 ```

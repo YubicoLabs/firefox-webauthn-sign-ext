@@ -3,17 +3,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsGUIEventIPC_h__
-#define nsGUIEventIPC_h__
+#ifndef nsGUIEventIPC_h_
+#define nsGUIEventIPC_h_
 
 #include "ipc/EnumSerializer.h"
 #include "ipc/IPCMessageUtils.h"
 #include "mozilla/ContentCache.h"
 #include "mozilla/GfxMessageUtils.h"
 #include "mozilla/dom/Touch.h"
-#include "mozilla/ipc/IPDLParamTraits.h"  // for ReadIPDLParam and WriteIPDLParam
-#include "mozilla/ipc/URIUtils.h"         // for IPDLParamTraits<nsIURI*>
+#include "mozilla/ipc/URIUtils.h"  // for ParamTraits<nsIURI*>
 #include "mozilla/layers/LayersMessageUtils.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/MiscEvents.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/TextEvents.h"
@@ -157,35 +157,71 @@ struct ParamTraits<mozilla::WidgetWheelEvent> {
     WriteParam(aWriter, aParam.mCanTriggerSwipe);
     WriteParam(aWriter, aParam.mAllowToOverrideSystemScrollSpeed);
     WriteParam(aWriter, aParam.mDeltaValuesHorizontalizedForDefaultHandler);
+    WriteParam(aWriter, aParam.mCallbackId);
+
+    // Mark the event as stopped to notify callback.
+    const_cast<mozilla::WidgetWheelEvent&>(aParam).mCallbackId.reset();
   }
 
   static bool Read(MessageReader* aReader, paramType* aResult) {
     uint8_t scrollType = 0;
-    bool rv = ReadParam(aReader,
-                        static_cast<mozilla::WidgetMouseEventBase*>(aResult)) &&
-              ReadParam(aReader, &aResult->mDeltaX) &&
-              ReadParam(aReader, &aResult->mDeltaY) &&
-              ReadParam(aReader, &aResult->mDeltaZ) &&
-              ReadParam(aReader, &aResult->mDeltaMode) &&
-              ReadParam(aReader, &aResult->mWheelTicksX) &&
-              ReadParam(aReader, &aResult->mWheelTicksY) &&
-              ReadParam(aReader, &aResult->mCustomizedByUserPrefs) &&
-              ReadParam(aReader, &aResult->mMayHaveMomentum) &&
-              ReadParam(aReader, &aResult->mIsMomentum) &&
-              ReadParam(aReader, &aResult->mIsNoLineOrPageDelta) &&
-              ReadParam(aReader, &aResult->mLineOrPageDeltaX) &&
-              ReadParam(aReader, &aResult->mLineOrPageDeltaY) &&
-              ReadParam(aReader, &scrollType) &&
-              ReadParam(aReader, &aResult->mOverflowDeltaX) &&
-              ReadParam(aReader, &aResult->mOverflowDeltaY) &&
-              ReadParam(aReader, &aResult->mViewPortIsOverscrolled) &&
-              ReadParam(aReader, &aResult->mCanTriggerSwipe) &&
-              ReadParam(aReader, &aResult->mAllowToOverrideSystemScrollSpeed) &&
-              ReadParam(aReader,
-                        &aResult->mDeltaValuesHorizontalizedForDefaultHandler);
+    bool rv =
+        ReadParam(aReader,
+                  static_cast<mozilla::WidgetMouseEventBase*>(aResult)) &&
+        ReadParam(aReader, &aResult->mDeltaX) &&
+        ReadParam(aReader, &aResult->mDeltaY) &&
+        ReadParam(aReader, &aResult->mDeltaZ) &&
+        ReadParam(aReader, &aResult->mDeltaMode) &&
+        ReadParam(aReader, &aResult->mWheelTicksX) &&
+        ReadParam(aReader, &aResult->mWheelTicksY) &&
+        ReadParam(aReader, &aResult->mCustomizedByUserPrefs) &&
+        ReadParam(aReader, &aResult->mMayHaveMomentum) &&
+        ReadParam(aReader, &aResult->mIsMomentum) &&
+        ReadParam(aReader, &aResult->mIsNoLineOrPageDelta) &&
+        ReadParam(aReader, &aResult->mLineOrPageDeltaX) &&
+        ReadParam(aReader, &aResult->mLineOrPageDeltaY) &&
+        ReadParam(aReader, &scrollType) &&
+        ReadParam(aReader, &aResult->mOverflowDeltaX) &&
+        ReadParam(aReader, &aResult->mOverflowDeltaY) &&
+        ReadParam(aReader, &aResult->mViewPortIsOverscrolled) &&
+        ReadParam(aReader, &aResult->mCanTriggerSwipe) &&
+        ReadParam(aReader, &aResult->mAllowToOverrideSystemScrollSpeed) &&
+        ReadParam(aReader,
+                  &aResult->mDeltaValuesHorizontalizedForDefaultHandler) &&
+        ReadParam(aReader, &aResult->mCallbackId);
+
     aResult->mScrollType =
         static_cast<mozilla::WidgetWheelEvent::ScrollType>(scrollType);
     return rv;
+  }
+};
+
+template <>
+struct ParamTraits<mozilla::WidgetPointerHelper::Tilt> {
+  using paramType = mozilla::WidgetPointerHelper::Tilt;
+
+  static void Write(MessageWriter* aWriter, const paramType& aParam) {
+    WriteParam(aWriter, aParam.mX);
+    WriteParam(aWriter, aParam.mY);
+  }
+
+  static bool Read(MessageReader* aReader, paramType* aResult) {
+    return ReadParam(aReader, &aResult->mX) && ReadParam(aReader, &aResult->mY);
+  }
+};
+
+template <>
+struct ParamTraits<mozilla::WidgetPointerHelper::Angle> {
+  using paramType = mozilla::WidgetPointerHelper::Angle;
+
+  static void Write(MessageWriter* aWriter, const paramType& aParam) {
+    WriteParam(aWriter, aParam.mAltitude);
+    WriteParam(aWriter, aParam.mAzimuth);
+  }
+
+  static bool Read(MessageReader* aReader, paramType* aResult) {
+    return ReadParam(aReader, &aResult->mAltitude) &&
+           ReadParam(aReader, &aResult->mAzimuth);
   }
 };
 
@@ -195,8 +231,7 @@ struct ParamTraits<mozilla::WidgetPointerHelper> {
 
   static void Write(MessageWriter* aWriter, const paramType& aParam) {
     WriteParam(aWriter, aParam.pointerId);
-    WriteParam(aWriter, aParam.tiltX);
-    WriteParam(aWriter, aParam.tiltY);
+    WriteParam(aWriter, aParam.mTilt);
     WriteParam(aWriter, aParam.twist);
     WriteParam(aWriter, aParam.tangentialPressure);
     // We don't serialize convertToPointer since it's temporarily variable and
@@ -206,8 +241,7 @@ struct ParamTraits<mozilla::WidgetPointerHelper> {
   static bool Read(MessageReader* aReader, paramType* aResult) {
     bool rv;
     rv = ReadParam(aReader, &aResult->pointerId) &&
-         ReadParam(aReader, &aResult->tiltX) &&
-         ReadParam(aReader, &aResult->tiltY) &&
+         ReadParam(aReader, &aResult->mTilt) &&
          ReadParam(aReader, &aResult->twist) &&
          ReadParam(aReader, &aResult->tangentialPressure);
     return rv;
@@ -244,6 +278,10 @@ struct ParamTraits<mozilla::WidgetMouseEvent> {
                               aParam.mExitFrom.value()));
     }
     WriteParam(aWriter, aParam.mClickCount);
+    WriteParam(aWriter, aParam.mCallbackId);
+
+    // Mark the event as stopped to notify callback.
+    const_cast<mozilla::WidgetMouseEvent&>(aParam).mCallbackId.reset();
   }
 
   static bool Read(MessageReader* aReader, paramType* aResult) {
@@ -267,7 +305,8 @@ struct ParamTraits<mozilla::WidgetMouseEvent> {
       rv = rv && ReadParam(aReader, &exitFrom);
       aResult->mExitFrom = Some(static_cast<paramType::ExitFrom>(exitFrom));
     }
-    rv = rv && ReadParam(aReader, &aResult->mClickCount);
+    rv = rv && ReadParam(aReader, &aResult->mClickCount) &&
+         ReadParam(aReader, &aResult->mCallbackId);
     return rv;
   }
 };
@@ -336,9 +375,9 @@ struct ParamTraits<mozilla::WidgetTouchEvent> {
       WriteParam(aWriter, touch->mRadius);
       WriteParam(aWriter, touch->mRotationAngle);
       WriteParam(aWriter, touch->mForce);
-      WriteParam(aWriter, touch->tiltX);
-      WriteParam(aWriter, touch->tiltY);
+      WriteParam(aWriter, touch->mTilt);
       WriteParam(aWriter, touch->twist);
+      WriteParam(aWriter, touch->mAngle);
     }
   }
 
@@ -357,20 +396,20 @@ struct ParamTraits<mozilla::WidgetTouchEvent> {
       mozilla::LayoutDeviceIntPoint radius;
       float rotationAngle;
       float force;
-      uint32_t tiltX;
-      uint32_t tiltY;
-      uint32_t twist;
+      mozilla::Maybe<mozilla::WidgetPointerHelper::Tilt> tilt;
+      int32_t twist;
+      mozilla::Maybe<mozilla::WidgetPointerHelper::Angle> angle;
       if (!ReadParam(aReader, &identifier) || !ReadParam(aReader, &refPoint) ||
           !ReadParam(aReader, &radius) || !ReadParam(aReader, &rotationAngle) ||
-          !ReadParam(aReader, &force) || !ReadParam(aReader, &tiltX) ||
-          !ReadParam(aReader, &tiltY) || !ReadParam(aReader, &twist)) {
+          !ReadParam(aReader, &force) || !ReadParam(aReader, &tilt) ||
+          !ReadParam(aReader, &twist) || !ReadParam(aReader, &angle)) {
         return false;
       }
       auto* touch = new mozilla::dom::Touch(identifier, refPoint, radius,
                                             rotationAngle, force);
-      touch->tiltX = tiltX;
-      touch->tiltY = tiltY;
+      touch->mTilt = std::move(tilt);
       touch->twist = twist;
+      touch->mAngle = std::move(angle);
       aResult->mTouches.AppendElement(touch);
     }
     return true;
@@ -850,7 +889,7 @@ struct ParamTraits<mozilla::widget::InputContext> {
     WriteParam(aWriter, aParam.mOrigin);
     WriteParam(aWriter, aParam.mHasHandledUserInput);
     WriteParam(aWriter, aParam.mInPrivateBrowsing);
-    mozilla::ipc::WriteIPDLParam(aWriter, aWriter->GetActor(), aParam.mURI);
+    WriteParam(aWriter, aParam.mURI);
   }
 
   static bool Read(MessageReader* aReader, paramType* aResult) {
@@ -863,8 +902,7 @@ struct ParamTraits<mozilla::widget::InputContext> {
            ReadParam(aReader, &aResult->mOrigin) &&
            ReadParam(aReader, &aResult->mHasHandledUserInput) &&
            ReadParam(aReader, &aResult->mInPrivateBrowsing) &&
-           mozilla::ipc::ReadIPDLParam(aReader, aReader->GetActor(),
-                                       address_of(aResult->mURI));
+           ReadParam(aReader, address_of(aResult->mURI));
   }
 };
 
@@ -1015,6 +1053,7 @@ struct ParamTraits<mozilla::InputData> {
     WriteParam(aWriter, aParam.modifiers);
     WriteParam(aWriter, aParam.mFocusSequenceNumber);
     WriteParam(aWriter, aParam.mLayersId);
+    WriteParam(aWriter, aParam.mCallbackId);
   }
 
   static bool Read(MessageReader* aReader, paramType* aResult) {
@@ -1022,7 +1061,8 @@ struct ParamTraits<mozilla::InputData> {
            ReadParam(aReader, &aResult->mTimeStamp) &&
            ReadParam(aReader, &aResult->modifiers) &&
            ReadParam(aReader, &aResult->mFocusSequenceNumber) &&
-           ReadParam(aReader, &aResult->mLayersId);
+           ReadParam(aReader, &aResult->mLayersId) &&
+           ReadParam(aReader, &aResult->mCallbackId);
   }
 };
 
@@ -1402,4 +1442,4 @@ struct ParamTraits<mozilla::KeyboardInput> {
 
 }  // namespace IPC
 
-#endif  // nsGUIEventIPC_h__
+#endif  // nsGUIEventIPC_h_

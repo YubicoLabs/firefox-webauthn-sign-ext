@@ -5,8 +5,8 @@
 package mozilla.components.service.sync.autofill
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
+import mozilla.appservices.RustComponentsInitializer
 import mozilla.components.concept.storage.CreditCardNumber
 import mozilla.components.concept.storage.KeyGenerationReason
 import mozilla.components.concept.storage.ManagedKey
@@ -22,7 +22,6 @@ import org.junit.runner.RunWith
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 
-@ExperimentalCoroutinesApi // for runTest
 @RunWith(AndroidJUnit4::class)
 class AutofillCryptoTest {
 
@@ -30,6 +29,7 @@ class AutofillCryptoTest {
 
     @Before
     fun setup() {
+        RustComponentsInitializer.init()
         // forceInsecure is set in the tests because a keystore wouldn't be configured in the test environment.
         securePrefs = SecureAbove22Preferences(testContext, "autofill", forceInsecure = true)
     }

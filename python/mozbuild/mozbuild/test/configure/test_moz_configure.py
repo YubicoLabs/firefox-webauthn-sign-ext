@@ -31,7 +31,7 @@ class TargetTest(BaseConfigureTest):
         elif "apple-darwin" in self.HOST:
             platform = "darwin"
         else:
-            raise Exception("Missing platform for HOST {}".format(self.HOST))
+            raise Exception(f"Missing platform for HOST {self.HOST}")
         sandbox = self.get_sandbox({}, {}, args, env, cls=sandbox_class(platform))
         return sandbox._value_for(sandbox["target"]).alias
 
@@ -154,14 +154,14 @@ class TestTargetOpenBSD(TargetTest):
     def config_sub(self, stdin, args):
         if args[0] == "amd64-unknown-openbsd6.4":
             return 0, "x86_64-unknown-openbsd6.4", ""
-        return super(TestTargetOpenBSD, self).config_sub(stdin, args)
+        return super().config_sub(stdin, args)
 
 
 class TestMozConfigure(BaseConfigureTest):
     def test_nsis_version(self):
         this = self
 
-        class FakeNSIS(object):
+        class FakeNSIS:
             def __init__(self, version):
                 self.version = version
 

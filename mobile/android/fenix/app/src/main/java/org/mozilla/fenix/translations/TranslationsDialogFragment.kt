@@ -16,13 +16,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.compose.ui.unit.dp
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -31,15 +27,15 @@ import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.translate.Language
 import mozilla.components.concept.engine.translate.TranslationError
+import mozilla.components.feature.downloads.FileSizeFormatter
 import mozilla.components.lib.state.ext.observeAsComposableState
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
-import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.GleanMetrics.Translations
-import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.ext.openToBrowser
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.runIfFragmentIsAttached
 import org.mozilla.fenix.ext.settings
@@ -49,9 +45,7 @@ import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.translations.preferences.downloadlanguages.DownloadLanguageFileDialog
 import org.mozilla.fenix.translations.preferences.downloadlanguages.DownloadLanguageFileDialogType
 import org.mozilla.fenix.translations.preferences.downloadlanguages.DownloadLanguagesFeature
-
-// Friction should be increased, since peek height on this dialog is to fill the screen.
-private const val DIALOG_FRICTION = .65f
+import com.google.android.material.R as materialR
 
 /**
  * The enum is to know what bottom sheet to open.
@@ -84,17 +78,19 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
         super.onCreateDialog(savedInstanceState).apply {
             setOnShowListener {
                 runIfFragmentIsAttached {
-                    val bottomSheet = findViewById<View?>(R.id.design_bottom_sheet)
-                    bottomSheet?.setBackgroundResource(android.R.color.transparent)
-                    behavior = BottomSheetBehavior.from(bottomSheet)
-                    behavior?.peekHeight = resources.displayMetrics.heightPixels
-                    behavior?.state = BottomSheetBehavior.STATE_EXPANDED
-                    behavior?.hideFriction = DIALOG_FRICTION
+                    val bottomSheet = findViewById<View?>(materialR.id.design_bottom_sheet)
+                    bottomSheet?.let {
+                        it.setBackgroundResource(android.R.color.transparent)
+                        behavior = BottomSheetBehavior.from(it)
+                        behavior?.peekHeight = resources.displayMetrics.heightPixels
+                        behavior?.state = BottomSheetBehavior.STATE_EXPANDED
+                        behavior?.skipCollapsed = true
+                    }
                 }
             }
         }
 
-    @Suppress("LongMethod")
+    @Suppress("LongMethod", "CognitiveComplexMethod")
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -118,20 +114,6 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
                     )
                 }
 
-                var translationsHeightDp by remember {
-                    mutableStateOf(0.dp)
-                }
-
-                var translationsOptionsHeightDp by remember {
-                    mutableStateOf(0.dp)
-                }
-
-                var translationsWidthDp by remember {
-                    mutableStateOf(0.dp)
-                }
-
-                val density = LocalDensity.current
-
                 val translationsDialogState =
                     translationsDialogStore.observeAsComposableState { it }.value
 
@@ -140,9 +122,9 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
                     SupportUtils.SumoTopic.TRANSLATIONS,
                 )
 
-                isTranslationInProgress = translationsDialogState?.isTranslationInProgress
+                isTranslationInProgress = translationsDialogState.isTranslationInProgress
 
-                if (translationsDialogState?.dismissDialogState is DismissDialogState.Dismiss) {
+                if (translationsDialogState.dismissDialogState is DismissDialogState.Dismiss) {
                     dismissDialog()
                 }
 
@@ -160,48 +142,31 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
                         showMainSheet = translationsVisibility,
                     ) { showMainPage ->
                         if (showMainPage) {
-                            Column(
-                                modifier = Modifier.onGloballyPositioned { coordinates ->
-                                    translationsHeightDp = with(density) {
-                                        coordinates.size.height.toDp()
-                                    }
-                                    translationsWidthDp = with(density) {
-                                        coordinates.size.width.toDp()
-                                    }
-                                },
-                            ) {
-                                translationsDialogState?.let {
-                                    TranslationsDialogContent(
-                                        learnMoreUrl = learnMoreUrl,
-                                        showPageSettings = FxNimbus.features.translations.value().pageSettingsEnabled,
-                                        translationsDialogState = it,
-                                        onSettingClicked = {
-                                            Translations.action.record(
-                                                Translations.ActionExtra(
-                                                    "page_settings",
-                                                ),
-                                            )
-                                            translationsVisibility = false
-                                        },
-                                        onShowDownloadLanguageFileDialog = {
-                                            showDownloadLanguageFileDialog = true
-                                        },
-                                    )
-                                }
+                            Column {
+                                TranslationsDialogContent(
+                                    learnMoreUrl = learnMoreUrl,
+                                    showPageSettings = FxNimbus.features.translations.value().pageSettingsEnabled,
+                                    translationsDialogState = translationsDialogState,
+                                    onSettingClicked = {
+                                        Translations.action.record(
+                                            Translations.ActionExtra(
+                                                "page_settings",
+                                            ),
+                                        )
+                                        translationsVisibility = false
+                                    },
+                                    onShowDownloadLanguageFileDialog = {
+                                        showDownloadLanguageFileDialog = true
+                                    },
+                                )
                             }
                         } else {
-                            Column(
-                                modifier = Modifier.onGloballyPositioned { coordinates ->
-                                    translationsOptionsHeightDp = with(density) {
-                                        coordinates.size.height.toDp()
-                                    }
-                                },
-                            ) {
+                            Column {
                                 TranslationsOptionsDialogContent(
                                     learnMoreUrl = learnMoreUrl,
                                     showGlobalSettings = FxNimbus.features.translations.value().globalSettingsEnabled,
-                                    isTranslated = translationsDialogState?.isTranslated == true,
-                                    initialFrom = translationsDialogState?.initialFrom,
+                                    isTranslated = translationsDialogState.isTranslated == true,
+                                    initialFrom = translationsDialogState.initialFrom,
                                     onBackClicked = { translationsVisibility = true },
                                     onTranslate = {
                                         translate(
@@ -218,9 +183,10 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
                     }
 
                     if (showDownloadLanguageFileDialog) {
-                        translationsDialogState?.translationDownloadSize?.size?.let { fileSize ->
+                        translationsDialogState.translationDownloadSize?.size?.let { fileSize ->
                             DownloadLanguageFileDialog(
                                 fileSize = fileSize,
+                                fileSizeFormatter = requireComponents.core.fileSizeFormatter,
                                 onConfirmDownload = {
                                     showDownloadLanguageFileDialog = false
                                 },
@@ -300,6 +266,7 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
             },
             onNegativeButtonClicked = {
                 if (translationsDialogState.isTranslated || translationsDialogState.isTranslationInProgress) {
+                    @Suppress("DEPRECATION")
                     localView.announceForAccessibility(
                         requireContext().getString(
                             R.string.translations_bottom_sheet_restore_accessibility_announcement,
@@ -366,12 +333,14 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
     @Composable
     private fun DownloadLanguageFileDialog(
         fileSize: Long,
+        fileSizeFormatter: FileSizeFormatter,
         onConfirmDownload: () -> Unit,
         onCancel: () -> Unit,
     ) {
         var checkBoxEnabled by remember { mutableStateOf(false) }
         DownloadLanguageFileDialog(
             downloadLanguageDialogType = DownloadLanguageFileDialogType.TranslationRequest,
+            fileSizeFormatter = fileSizeFormatter,
             fileSize = fileSize,
             isCheckBoxEnabled = checkBoxEnabled,
             onSavingModeStateChange = { checkBoxEnabled = it },
@@ -427,6 +396,7 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
                 )
 
                 if (checked) {
+                    @Suppress("DEPRECATION")
                     localView.announceForAccessibility(type.descriptionId?.let { getString(it) })
                 }
             },
@@ -455,10 +425,10 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
     }
 
     private fun openBrowserAndLoad(learnMoreUrl: String) {
-        (requireActivity() as HomeActivity).openToBrowserAndLoad(
+        findNavController().openToBrowser()
+        requireComponents.useCases.fenixBrowserUseCases.loadUrlOrSearch(
             searchTermOrURL = learnMoreUrl,
             newTab = true,
-            from = BrowserDirection.FromTranslationsDialogFragment,
         )
     }
 

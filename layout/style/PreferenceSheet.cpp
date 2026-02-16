@@ -6,21 +6,19 @@
 
 #include "PreferenceSheet.h"
 
-#include "ServoCSSParser.h"
 #include "MainThreadUtils.h"
+#include "ServoCSSParser.h"
 #include "mozilla/Encoding.h"
+#include "mozilla/LookAndFeel.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/ServoBindings.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_layout.h"
-#include "mozilla/StaticPrefs_widget.h"
 #include "mozilla/StaticPrefs_ui.h"
-#include "mozilla/glean/AccessibleMetrics.h"
-#include "mozilla/LookAndFeel.h"
-#include "mozilla/ServoBindings.h"
+#include "mozilla/StaticPrefs_widget.h"
 #include "mozilla/dom/Document.h"
+#include "mozilla/glean/AccessibleMetrics.h"
 #include "nsContentUtils.h"
-
-#define AVG2(a, b) (((a) + (b) + 1) >> 1)
 
 namespace mozilla {
 
@@ -128,14 +126,6 @@ void PreferenceSheet::Prefs::LoadColors(bool aIsLight) {
   // Wherever we got the default background color from, ensure it is opaque.
   colors.mDefaultBackground =
       NS_ComposeColors(NS_RGB(0xFF, 0xFF, 0xFF), colors.mDefaultBackground);
-}
-
-bool PreferenceSheet::Prefs::NonNativeThemeShouldBeHighContrast() const {
-  // We only do that if we are overriding the document colors. Otherwise it
-  // causes issues when pages only override some of the system colors,
-  // specially in dark themes mode.
-  return StaticPrefs::widget_non_native_theme_always_high_contrast() ||
-         !mUseDocumentColors;
 }
 
 auto PreferenceSheet::ColorSchemeSettingForChrome()
@@ -306,28 +296,4 @@ void PreferenceSheet::Initialize() {
       StaticPrefs::layout_css_always_underline_links());
 }
 
-bool PreferenceSheet::AffectedByPref(const nsACString& aPref) {
-  const char* prefNames[] = {
-      StaticPrefs::GetPrefName_privacy_resistFingerprinting(),
-      StaticPrefs::GetPrefName_ui_use_standins_for_native_colors(),
-      "browser.anchor_color",
-      "browser.active_color",
-      "browser.visited_color",
-  };
-
-  if (StringBeginsWith(aPref, "browser.display."_ns)) {
-    return true;
-  }
-
-  for (const char* pref : prefNames) {
-    if (aPref.Equals(pref)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 }  // namespace mozilla
-
-#undef AVG2

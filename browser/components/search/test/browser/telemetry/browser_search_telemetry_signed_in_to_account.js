@@ -47,7 +47,7 @@ async function openTabInUserContext(uri, userContextId) {
 function simulateGoogleAccountSignIn(originAttributes = {}) {
   // Manually set the cookie that is present when the client is signed in to a
   // Google account.
-  Services.cookies.add(
+  const cv = Services.cookies.add(
     "accounts.google.com",
     "",
     "SID",
@@ -57,9 +57,10 @@ function simulateGoogleAccountSignIn(originAttributes = {}) {
     false,
     Date.now() + 1000 * 60 * 60,
     originAttributes,
-    Ci.nsICookie.SAMESITE_NONE,
+    Ci.nsICookie.SAMESITE_UNSET,
     Ci.nsICookie.SCHEME_HTTPS
   );
+  is(cv.result, Ci.nsICookieValidation.eOK, "Valid cookie");
 }
 
 add_setup(async function () {
@@ -81,20 +82,9 @@ add_task(async function test_not_signed_in_to_google_account() {
   let url = getSERPUrl("searchTelemetry.html");
   let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
 
-  assertSERPTelemetry([
-    {
-      impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
-      },
-    },
-  ]);
+  await waitForPageWithImpression();
+
+  assertSERPTelemetry([{}]);
 
   BrowserTestUtils.removeTab(tab);
   resetTelemetry();
@@ -107,16 +97,11 @@ add_task(async function test_signed_in_to_google_account() {
   let url = getSERPUrl("searchTelemetry.html");
   let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
 
+  await waitForPageWithImpression();
+
   assertSERPTelemetry([
     {
       impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
         is_signed_in: "true",
       },
     },
@@ -132,20 +117,9 @@ add_task(async function test_toggle_google_account_signed_in_status() {
   let url = getSERPUrl("searchTelemetry.html");
   let tab1 = await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
 
-  assertSERPTelemetry([
-    {
-      impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
-      },
-    },
-  ]);
+  await waitForPageWithImpression();
+
+  assertSERPTelemetry([{}]);
 
   resetTelemetry();
 
@@ -154,16 +128,12 @@ add_task(async function test_toggle_google_account_signed_in_status() {
 
   info("Loading SERP after signing in to Google account.");
   let tab2 = await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
+
+  await waitForPageWithImpression();
+
   assertSERPTelemetry([
     {
       impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
         is_signed_in: "true",
       },
     },
@@ -176,20 +146,10 @@ add_task(async function test_toggle_google_account_signed_in_status() {
 
   info("Loading SERP after signing out of Google account.");
   let tab3 = await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
-  assertSERPTelemetry([
-    {
-      impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
-      },
-    },
-  ]);
+
+  await waitForPageWithImpression();
+
+  assertSERPTelemetry([{}]);
 
   BrowserTestUtils.removeTab(tab1);
   BrowserTestUtils.removeTab(tab2);
@@ -202,20 +162,9 @@ add_task(async function test_containers() {
   let url = getSERPUrl("searchTelemetry.html");
   let { tab: tab1, browser } = await openTabInUserContext(url, 1);
 
-  assertSERPTelemetry([
-    {
-      impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
-      },
-    },
-  ]);
+  await waitForPageWithImpression();
+
+  assertSERPTelemetry([{}]);
 
   resetTelemetry();
 
@@ -225,16 +174,11 @@ add_task(async function test_containers() {
   info("Loading SERP in a container after signing in to Google account.");
   let { tab: tab2 } = await openTabInUserContext(url, 1);
 
+  await waitForPageWithImpression();
+
   assertSERPTelemetry([
     {
       impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
         is_signed_in: "true",
       },
     },
@@ -250,6 +194,7 @@ add_task(async function test_containers_across_contexts() {
   info("Loading SERP from a container tab.");
   let url = getSERPUrl("searchTelemetry.html");
   let { tab: containerTab1 } = await openTabInUserContext(url, 1);
+  await waitForPageWithImpression();
 
   resetTelemetry();
 
@@ -263,20 +208,9 @@ add_task(async function test_containers_across_contexts() {
   );
   let { tab: containerTab2 } = await openTabInUserContext(url, 1);
 
-  assertSERPTelemetry([
-    {
-      impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
-        is_private: "false",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
-      },
-    },
-  ]);
+  await waitForPageWithImpression();
+
+  assertSERPTelemetry([{}]);
 
   Services.cookies.removeAll();
   BrowserTestUtils.removeTab(containerTab1);
@@ -292,19 +226,14 @@ add_task(async function test_private_windows() {
   });
   await BrowserTestUtils.openNewForegroundTab(privateWin.gBrowser, url);
 
+  await waitForPageWithImpression();
+
   // Private windows should always report "is_signed_in" as false, whether the
   // client is signed in to a Google account or not at the time of SERP load.
   assertSERPTelemetry([
     {
       impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
         is_private: "true",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
     },
   ]);
@@ -320,19 +249,14 @@ add_task(async function test_private_windows() {
   );
   await BrowserTestUtils.openNewForegroundTab(privateWin.gBrowser, url);
 
+  await waitForPageWithImpression();
+
   // Private windows should always report "is_signed_in" as false, whether the
   // client is signed in to a Google account or not at the time of SERP load.
   assertSERPTelemetry([
     {
       impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
         is_private: "true",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
     },
   ]);
@@ -349,6 +273,7 @@ add_task(async function test_private_windows_across_contexts() {
     private: true,
   });
   await BrowserTestUtils.openNewForegroundTab(privateWin.gBrowser, url);
+  await waitForPageWithImpression();
   resetTelemetry();
 
   info("Signing in to Google account.");
@@ -360,20 +285,14 @@ add_task(async function test_private_windows_across_contexts() {
     "Loading SERP in private browsing mode after signing in to Google account in a separate context."
   );
   await BrowserTestUtils.openNewForegroundTab(privateWin.gBrowser, url);
+  await waitForPageWithImpression();
 
   // Private windows should always report "is_signed_in" as false, even if the
   // client is signed in to a Google account in another context.
   assertSERPTelemetry([
     {
       impression: {
-        provider: "example",
-        tagged: "true",
-        partner_code: "ff",
-        source: "unknown",
-        is_shopping_page: "false",
         is_private: "true",
-        shopping_tab_displayed: "false",
-        is_signed_in: "false",
       },
     },
   ]);

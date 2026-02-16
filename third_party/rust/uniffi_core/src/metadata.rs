@@ -24,7 +24,7 @@
 //! `uniffi_bindgen::macro_metadata` contains the code to read the metadata from a library file.
 //! `fixtures/metadata` has the tests.
 
-/// Metadata constants, make sure to keep this in sync with copy in `uniffi_meta::reader`
+/// Metadata constants, make sure to keep this in sync with copy in `uniffi_meta::metadata::codes`
 pub mod codes {
     // Top-level metadata item codes
     pub const FUNC: u8 = 0;
@@ -40,7 +40,8 @@ pub mod codes {
     pub const UNIFFI_TRAIT: u8 = 11;
     pub const TRAIT_INTERFACE: u8 = 12;
     pub const CALLBACK_TRAIT_INTERFACE: u8 = 13;
-    pub const UNKNOWN: u8 = 255;
+    pub const OBJECT_TRAIT_IMPL: u8 = 14;
+    pub const CUSTOM_TYPE: u8 = 15;
 
     // Type codes
     pub const TYPE_U8: u8 = 0;
@@ -79,12 +80,18 @@ pub mod codes {
     pub const LIT_NONE: u8 = 4;
     pub const LIT_SOME: u8 = 5;
     pub const LIT_EMPTY_SEQ: u8 = 6;
+    pub const LIT_EMPTY_MAP: u8 = 7;
+
+    // DefaultValue codes
+    pub const DEFVALUE_DEFAULT: u8 = 0;
+    pub const DEFVALUE_LITERAL: u8 = 1;
 }
 
-// For large errors (e.g. enums) a buffer size of ~4k - ~8k
-// is not enough. See issues on Github: #1968 and #2041 and
-// for an example see fixture/large-error
-const BUF_SIZE: usize = 16384;
+// For large enums and small items with large docstrings we want this to be
+// large - but not so large the compiler's memory becomes a problem.
+// See eg, #1968, #2041, 2531, fixtures/large-error
+// I guess we keep doubling this until morale improves :)
+const BUF_SIZE: usize = 32768;
 
 // This struct is a kludge around the fact that Rust const generic support doesn't quite handle our
 // needs.
@@ -237,6 +244,12 @@ impl MetadataBuffer {
     // that the bindings were generated from.
     pub const fn checksum(&self) -> u16 {
         calc_checksum(&self.bytes, self.size)
+    }
+}
+
+impl Default for MetadataBuffer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

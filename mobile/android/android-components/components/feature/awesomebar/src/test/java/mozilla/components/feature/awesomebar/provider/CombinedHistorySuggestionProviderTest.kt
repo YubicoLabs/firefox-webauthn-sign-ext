@@ -6,7 +6,6 @@ package mozilla.components.feature.awesomebar.provider
 
 import androidx.core.net.toUri
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import mozilla.components.concept.storage.DocumentType
 import mozilla.components.concept.storage.HistoryMetadata
@@ -29,7 +28,6 @@ import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 
-@ExperimentalCoroutinesApi // for runTest
 @RunWith(AndroidJUnit4::class)
 class CombinedHistorySuggestionProviderTest {
 
@@ -56,7 +54,7 @@ class CombinedHistorySuggestionProviderTest {
     }
 
     @Test
-    fun `WHEN onInputChanged is called with empty text THEN cancel all previous read operations`() = runTest {
+    fun `WHEN onInputChanged is called THEN do not cancel any read operations until after sanity check`() = runTest {
         val history: HistoryStorage = mock()
         val metadata: HistoryMetadataStorage = mock()
         val provider = CombinedHistorySuggestionProvider(history, metadata, mock())
@@ -65,8 +63,8 @@ class CombinedHistorySuggestionProviderTest {
 
         verify(history, never()).cancelReads()
         verify(metadata, never()).cancelReads()
-        verify(history).cancelReads("")
-        verify(metadata).cancelReads("")
+        verify(history, never()).cancelReads("")
+        verify(metadata, never()).cancelReads("")
     }
 
     @Test
@@ -85,7 +83,7 @@ class CombinedHistorySuggestionProviderTest {
     }
 
     @Test
-    fun `WHEN onInputChanged is called with non empty text THEN cancel all previous read operations`() = runTest {
+    fun `WHEN onInputChanged is called with non empty text THEN cancel all previous read operations with the same input`() = runTest {
         val storage: HistoryMetadataStorage = mock()
         doReturn(listOf(historyEntry)).`when`(storage).queryHistoryMetadata(eq("moz"), anyInt())
         val history: HistoryStorage = mock()

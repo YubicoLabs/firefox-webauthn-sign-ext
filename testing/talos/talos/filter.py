@@ -4,8 +4,6 @@
 
 import math
 
-import six
-
 """
 data filters:
 takes a series of run data and applies statistical transforms to it
@@ -25,7 +23,7 @@ Each filter is a simple function, but it also have attached a special
 _FILTERS = {}
 
 
-class Filter(object):
+class Filter:
     def __init__(self, func, *args, **kwargs):
         """
         Takes a filter function, and save args and kwargs that
@@ -59,15 +57,11 @@ def register_filter(func):
     all filters defined in this module
     should be registered
     """
-    global _FILTERS
-
     _FILTERS[func.__name__] = func
     return func
 
 
 def filters(*args):
-    global _FILTERS
-
     filters_ = [_FILTERS[filter] for filter in args]
     return filters_
 
@@ -166,7 +160,7 @@ def dromaeo(series):
 @register_filter
 @define_filter
 def dromaeo_chunks(series, size):
-    for i in six.moves.range(0, len(series), size):
+    for i in range(0, len(series), size):
         yield series[i : i + size]
 
 

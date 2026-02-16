@@ -2,24 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#defaultEngine,
+#defaultEngineNormal,
 #defaultPrivateEngine {
-  margin-inline-start: 0;
-}
-
-#defaultEngine::part(icon),
-#defaultPrivateEngine::part(icon) {
-  height: 16px;
-  width: 16px;
-}
-
-/* work around a display: none in Linux's menu.css, see bug 1112310 */
-.searchengine-menuitem > .menu-iconic-left {
-  display: flex;
+  max-width: var(--search-engine-name-max-width);
 }
 
 #engineList {
-  margin: .5em 0;
+  --box-group-max-height: 500px;
+}
+
+#oneClickSearchProvidersGroup > #engineList {
+  margin: 0.5em 0;
 }
 
 #engineList treechildren::-moz-tree-image(engineName) {
@@ -29,7 +22,7 @@
 }
 
 #engineList treechildren::-moz-tree-drop-feedback {
-  background-color: SelectedItem;
+  background-color: AccentColor;
   width: 10000px; /* 100% doesn't work; 10k is hopefully larger than any window
                      we may have, overflow isn't visible. */
   height: 2px;
@@ -71,7 +64,14 @@
   margin-bottom: 1em;
 }
 
-#removeEngineButton,
+#removeEngineButton {
+  margin-inline-end: 0;
+}
+
 #restoreDefaultSearchEngines {
-  margin-inline: 0;
+  margin-inline-start: 0;
+}
+
+#dismissedSuggestions {
+  margin-block-start: 2em;
 }

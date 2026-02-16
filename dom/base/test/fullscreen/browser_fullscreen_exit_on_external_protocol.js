@@ -14,6 +14,7 @@ Services.scriptloader.loadSubScript(
 
 add_setup(async function () {
   await pushPrefs(
+    ["test.wait300msAfterTabSwitch", true],
     ["full-screen-api.transition-duration.enter", "0 0"],
     ["full-screen-api.transition-duration.leave", "0 0"],
     ["full-screen-api.allow-trusted-requests-only", false]
@@ -38,12 +39,6 @@ const CONTENT = `data:text/html,
         </body>
     </html>
 `;
-
-// This test tends to trigger a race in the fullscreen time telemetry,
-// where the fullscreen enter and fullscreen exit events (which use the
-// same histogram ID) overlap. That causes TelemetryStopwatch to log an
-// error.
-SimpleTest.ignoreAllUncaughtExceptions(true);
 
 function setupMailHandler() {
   let mailHandlerInfo = HandlerServiceTestUtils.getHandlerInfo("mailto");

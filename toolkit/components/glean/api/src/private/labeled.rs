@@ -2,16 +2,18 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use glean::TestGetValue;
 use inherent::inherent;
 
 use super::{
-    ErrorType, LabeledBooleanMetric, LabeledCounterMetric, LabeledCustomDistributionMetric,
-    LabeledMemoryDistributionMetric, LabeledMetricData, LabeledQuantityMetric, LabeledStringMetric,
-    LabeledTimingDistributionMetric, MetricId, SubMetricId,
+    BaseMetricId, ErrorType, LabeledBooleanMetric, LabeledCounterMetric,
+    LabeledCustomDistributionMetric, LabeledMemoryDistributionMetric, LabeledMetricData,
+    LabeledQuantityMetric, LabeledStringMetric, LabeledTimingDistributionMetric, SubMetricId,
 };
 use crate::ipc::need_ipc;
 use crate::metrics::__glean_metric_maps::submetric_maps;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -20,14 +22,14 @@ use std::sync::Arc;
 /// We wrap it in a private module that is inaccessible outside of this module.
 mod private {
     use super::{
-        need_ipc, submetric_maps, LabeledBooleanMetric, LabeledCounterMetric,
+        need_ipc, submetric_maps, BaseMetricId, LabeledBooleanMetric, LabeledCounterMetric,
         LabeledCustomDistributionMetric, LabeledMemoryDistributionMetric, LabeledQuantityMetric,
-        LabeledStringMetric, LabeledTimingDistributionMetric, MetricId, SubMetricId,
+        LabeledStringMetric, LabeledTimingDistributionMetric, SubMetricId,
     };
     use crate::private::labeled_timing_distribution::LabeledTimingDistributionMetricKind;
     use crate::private::{
-        BooleanMetric, CounterMetric, CustomDistributionMetric, MemoryDistributionMetric, TimeUnit,
-        TimingDistributionMetric,
+        BooleanMetric, ChildMetricMeta, CounterMetric, CustomDistributionMetric,
+        MemoryDistributionMetric, TimeUnit, TimingDistributionMetric,
     };
     use std::sync::{atomic::Ordering, Arc};
 
@@ -36,16 +38,20 @@ mod private {
     /// This allows us to define which FOG metrics can be used
     /// as labeled types.
     pub trait Sealed {
-        type GleanMetric: glean::private::AllowLabeled + Clone;
+        type Output;
+        type GleanMetric: glean::private::AllowLabeled
+            + Clone
+            + glean::TestGetValue<Output = Self::Output>;
+
         fn from_glean_metric(
-            id: MetricId,
+            id: BaseMetricId,
             metric: &glean::private::LabeledMetric<Self::GleanMetric>,
             label: &str,
             permit_unordered_ipc: bool,
         ) -> (Arc<Self>, SubMetricId);
     }
 
-    fn submetric_id_for(id: MetricId, label: &str) -> SubMetricId {
+    fn submetric_id_for(id: BaseMetricId, label: &str) -> SubMetricId {
         let label_owned = label.to_string();
         let tuple = (id, label_owned);
         let mut map = submetric_maps::LABELED_METRICS_TO_IDS
@@ -64,9 +70,11 @@ mod private {
     //
     // See [Labeled Booleans](https://mozilla.github.io/glean/book/user/metrics/labeled_booleans.html).
     impl Sealed for LabeledBooleanMetric {
+        type Output = bool;
         type GleanMetric = glean::private::BooleanMetric;
+
         fn from_glean_metric(
-            id: MetricId,
+            id: BaseMetricId,
             metric: &glean::private::LabeledMetric<Self::GleanMetric>,
             label: &str,
             permit_unordered_ipc: bool,
@@ -102,9 +110,11 @@ mod private {
     //
     // See [Labeled Strings](https://mozilla.github.io/glean/book/user/metrics/labeled_strings.html).
     impl Sealed for LabeledStringMetric {
+        type Output = String;
         type GleanMetric = glean::private::StringMetric;
+
         fn from_glean_metric(
-            id: MetricId,
+            id: BaseMetricId,
             metric: &glean::private::LabeledMetric<Self::GleanMetric>,
             label: &str,
             _permit_unordered_ipc: bool,
@@ -133,9 +143,11 @@ mod private {
     //
     // See [Labeled Counters](https://mozilla.github.io/glean/book/user/metrics/labeled_counters.html).
     impl Sealed for LabeledCounterMetric {
+        type Output = i32;
         type GleanMetric = glean::private::CounterMetric;
+
         fn from_glean_metric(
-            id: MetricId,
+            id: BaseMetricId,
             metric: &glean::private::LabeledMetric<Self::GleanMetric>,
             label: &str,
             _permit_unordered_ipc: bool,
@@ -166,9 +178,11 @@ mod private {
     //
     // See [Labeled Custom Distributions](https://mozilla.github.io/glean/book/user/metrics/labeled_custom_distributions.html).
     impl Sealed for LabeledCustomDistributionMetric {
+        type Output = glean::DistributionData;
         type GleanMetric = glean::private::CustomDistributionMetric;
+
         fn from_glean_metric(
-            id: MetricId,
+            id: BaseMetricId,
             metric: &glean::private::LabeledMetric<Self::GleanMetric>,
             label: &str,
             _permit_unordered_ipc: bool,
@@ -199,9 +213,11 @@ mod private {
     //
     // See [Labeled Memory Distributions](https://mozilla.github.io/glean/book/user/metrics/labeled_memory_distributions.html).
     impl Sealed for LabeledMemoryDistributionMetric {
+        type Output = glean::DistributionData;
         type GleanMetric = glean::private::MemoryDistributionMetric;
+
         fn from_glean_metric(
-            id: MetricId,
+            id: BaseMetricId,
             metric: &glean::private::LabeledMetric<Self::GleanMetric>,
             label: &str,
             _permit_unordered_ipc: bool,
@@ -232,9 +248,11 @@ mod private {
     //
     // See [Labeled Timing Distributions](https://mozilla.github.io/glean/book/user/metrics/labeled_timing_distributions.html).
     impl Sealed for LabeledTimingDistributionMetric {
+        type Output = glean::DistributionData;
         type GleanMetric = glean::private::TimingDistributionMetric;
+
         fn from_glean_metric(
-            id: MetricId,
+            id: BaseMetricId,
             metric: &glean::private::LabeledMetric<Self::GleanMetric>,
             label: &str,
             _permit_unordered_ipc: bool,
@@ -245,12 +263,16 @@ mod private {
                 .expect("write lock of TIMING_DISTRIBUTION_MAP was poisoned");
             let submetric = map.entry(submetric_id).or_insert_with(|| {
                 let submetric = if need_ipc() {
+                    use glean::MetricIdentifier;
+                    let m = metric.get(label);
+                    let (name, category, _) = m.get_identifiers();
                     LabeledTimingDistributionMetric {
                         inner: Arc::new(TimingDistributionMetric::new_child(
-                            id,
+                            ChildMetricMeta::from_name_category_pair(id, name, category),
                             TimeUnit::Millisecond,
                         )),
-                        id: id.into(),
+                        parent_id: id,
+                        id: submetric_id,
                         label: label.to_string(),
                         kind: LabeledTimingDistributionMetricKind::Child,
                     }
@@ -261,7 +283,8 @@ mod private {
                             gifft_time_unit: TimeUnit::Millisecond,
                             inner: metric.get(label),
                         }),
-                        id: id.into(),
+                        parent_id: id,
+                        id: submetric_id,
                         label: label.to_string(),
                         kind: LabeledTimingDistributionMetricKind::Parent,
                     }
@@ -276,9 +299,11 @@ mod private {
     //
     // See [Labeled Quantities](https://mozilla.github.io/glean/book/user/metrics/labeled_quantities.html).
     impl Sealed for LabeledQuantityMetric {
+        type Output = i64;
         type GleanMetric = glean::private::QuantityMetric;
+
         fn from_glean_metric(
-            id: MetricId,
+            id: BaseMetricId,
             metric: &glean::private::LabeledMetric<Self::GleanMetric>,
             label: &str,
             _permit_unordered_ipc: bool,
@@ -290,7 +315,10 @@ mod private {
             let submetric = map.entry(submetric_id).or_insert_with(|| {
                 let submetric = if need_ipc() {
                     // TODO: Instrument this error.
-                    LabeledQuantityMetric::Child(crate::private::quantity::QuantityMetricIpc)
+                    LabeledQuantityMetric::Child(ChildMetricMeta::from_metric_identifier(
+                        (*submetric_id).into(),
+                        metric.get(label).as_ref(),
+                    ))
                 } else {
                     LabeledQuantityMetric::Parent {
                         id: submetric_id.into(),
@@ -343,7 +371,7 @@ impl<T> AllowLabeled for T where T: private::Sealed {}
 /// ```
 pub struct LabeledMetric<T: AllowLabeled, E> {
     /// The metric ID of the underlying metric.
-    id: MetricId,
+    id: BaseMetricId,
 
     /// Wrapping the underlying core metric.
     ///
@@ -357,6 +385,16 @@ pub struct LabeledMetric<T: AllowLabeled, E> {
     permit_unordered_ipc: bool,
 }
 
+impl<T, E> malloc_size_of::MallocSizeOf for LabeledMetric<T, E>
+where
+    T: AllowLabeled,
+    T::GleanMetric: malloc_size_of::MallocSizeOf,
+{
+    fn size_of(&self, ops: &mut malloc_size_of::MallocSizeOfOps) -> usize {
+        self.core.size_of(ops)
+    }
+}
+
 impl<T, E> LabeledMetric<T, E>
 where
     T: AllowLabeled + Clone,
@@ -365,7 +403,7 @@ where
     ///
     /// See [`get`](#method.get) for information on how static or dynamic labels are handled.
     pub fn new(
-        id: MetricId,
+        id: BaseMetricId,
         meta: LabeledMetricData,
         labels: Option<Vec<Cow<'static, str>>>,
     ) -> LabeledMetric<T, E> {
@@ -379,7 +417,7 @@ where
     }
 
     pub fn with_unordered_ipc(
-        id: MetricId,
+        id: BaseMetricId,
         meta: LabeledMetricData,
         labels: Option<Vec<Cow<'static, str>>>,
     ) -> LabeledMetric<T, E> {
@@ -441,6 +479,22 @@ where
     }
 }
 
+#[inherent]
+impl<U, E> glean::TestGetValue for LabeledMetric<U, E>
+where
+    U: AllowLabeled + Clone,
+    <U as private::Sealed>::Output: 'static,
+{
+    type Output = HashMap<String, <U as private::Sealed>::Output>;
+
+    pub fn test_get_value(
+        &self,
+        ping_name: Option<String>,
+    ) -> Option<<LabeledMetric<U, E> as TestGetValue>::Output> {
+        self.core.test_get_value(ping_name)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use once_cell::sync::Lazy;
@@ -477,7 +531,7 @@ mod test {
             true,
             GLOBAL_METRIC
                 .get("a_value")
-                .test_get_value("test-ping")
+                .test_get_value(Some("test-ping".to_string()))
                 .unwrap()
         );
     }
@@ -503,8 +557,16 @@ mod test {
 
         metric.get("upload").set(true);
 
-        assert!(metric.get("upload").test_get_value("test-ping").unwrap());
-        assert_eq!(None, metric.get("download").test_get_value("test-ping"));
+        assert!(metric
+            .get("upload")
+            .test_get_value(Some("test-ping".to_string()))
+            .unwrap());
+        assert_eq!(
+            None,
+            metric
+                .get("download")
+                .test_get_value(Some("test-ping".to_string()))
+        );
     }
 
     #[test]
@@ -530,9 +592,17 @@ mod test {
 
         assert_eq!(
             "Glean",
-            metric.get("upload").test_get_value("test-ping").unwrap()
+            metric
+                .get("upload")
+                .test_get_value(Some("test-ping".to_string()))
+                .unwrap()
         );
-        assert_eq!(None, metric.get("download").test_get_value("test-ping"));
+        assert_eq!(
+            None,
+            metric
+                .get("download")
+                .test_get_value(Some("test-ping".to_string()))
+        );
     }
 
     #[test]
@@ -558,9 +628,17 @@ mod test {
 
         assert_eq!(
             10,
-            metric.get("upload").test_get_value("test-ping").unwrap()
+            metric
+                .get("upload")
+                .test_get_value(Some("test-ping".to_string()))
+                .unwrap()
         );
-        assert_eq!(None, metric.get("download").test_get_value("test-ping"));
+        assert_eq!(
+            None,
+            metric
+                .get("download")
+                .test_get_value(Some("test-ping".to_string()))
+        );
     }
 
     #[test]
@@ -582,7 +660,7 @@ mod test {
             None,
         );
 
-        metric.get(&"1".repeat(72)).set(true);
+        metric.get(&"1".repeat(112)).set(true);
 
         assert_eq!(
             1,
@@ -620,16 +698,25 @@ mod test {
 
         assert_eq!(
             true,
-            metric.get("label1").test_get_value("test-ping").unwrap()
+            metric
+                .get("label1")
+                .test_get_value(Some("test-ping".to_string()))
+                .unwrap()
         );
         assert_eq!(
             false,
-            metric.get("label2").test_get_value("test-ping").unwrap()
+            metric
+                .get("label2")
+                .test_get_value(Some("test-ping".to_string()))
+                .unwrap()
         );
         // The label not in the predefined set is recorded to the `other` bucket.
         assert_eq!(
             true,
-            metric.get("__other__").test_get_value("test-ping").unwrap()
+            metric
+                .get("__other__")
+                .test_get_value(Some("test-ping".to_string()))
+                .unwrap()
         );
 
         assert_eq!(

@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">Історію перегляду очищено</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">Історію перегляду було стерто.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">Шукати %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Поділитися…</string>
@@ -52,7 +62,7 @@
   <string name="menu_settings">Налаштування</string>
   <string name="menu_about">Про</string>
   <string name="menu_help">Довідка</string>
-  <string name="menu_rights">Ваші права</string>
+  <string name="menu_terms_of_use">Умови користування</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -143,19 +153,12 @@
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Пошук у Focus Nightly</string>
   <!--
-    Content of about focus. Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
-    Argument 2 is the url for the learn-more link.
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
   -->
-  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote">&lt;p&gt;%1$s надає вам контроль.&lt;/p&gt;
-&lt;p&gt;Використовуйте його як приватний браузер:
-  &lt;ul&gt;
-    &lt;li&gt;Шукайте і переглядайте безпосередньо в програмі&lt;/li&gt;
-    &lt;li&gt;Блокуйте стеження (або змініть налаштування, щоб дозволити його)&lt;/li&gt;
-    &lt;li&gt;Видаляйте файли cookie, а також історію пошуку та перегляду&lt;/li&gt;
-  &lt;/ul&gt;
-&lt;/p&gt;
-&lt;p&gt;%1$s створено в Mozilla. Наша місія – розвивати здоровий та відкритий Інтернет.&lt;br/&gt;
-&lt;a href="%2$s"&gt;Докладніше&lt;/a&gt;&lt;/p&gt;</string>
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s надає вам контроль.</p>\n<p>Використовуйте його як приватний браузер:\n<ul>\n<li>Шукайте і переглядайте безпосередньо в програмі</li>\n<li>Блокуйте стеження (або змініть налаштування, щоб дозволити його)</li>\n<li>Видаляйте файли cookie, а також історію пошуку та перегляду</li>\n</ul> </p>\n<p>%1$s створено в Mozilla. Наша місія – розвивати здоровий та відкритий Інтернет.<br/>\n<a href=\"%2$s\">Докладніше</a></p>]]></string>
+  <!-- A link to SUMO at the bottom of About Focus screen. -->
+  <string name="about_screen_learn_more">Докладніше</string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">Приватність і безпека</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -207,14 +210,14 @@
   <string name="preference_switch_autocomplete_topsites">Для популярних сайтів</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">Увімкніть автозавершення в %s для понад 450 популярних URL-адрес у панелі адреси.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">Для доданих вами сайтів</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">Увімкнути, щоб %s автоматично завершував URL-адреси популярних сайтів.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -289,8 +292,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">Розблокуйте відбитком пальця, якщо ви додали ярлики, або якщо вебсайт вже відкритий у %s.</string>
   <!--
@@ -338,9 +341,9 @@
   <string name="preference_libraries_we_use">Бібліотеки, які ми використовуємо</string>
   <!-- Link to Focus Crash reports list. -->
   <string name="preference_crashes">Збої</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s | Вільні бібліотеки</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">Про %1$s</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">Встановлені пошукові системи</string>
@@ -364,7 +367,7 @@
   <string name="search_add_manually_name_hint">Назва пошукової системи</string>
   <string name="search_add_manually_string">Запит для пошуку</string>
   <string name="search_add_manually_save">Зберегти</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">Зразок: example.com/search/?q=%s</string>
   <string name="search_add_confirmation">Нову пошукову систему додано.</string>
   <string name="search_add_error_empty_name">Введіть назву пошукової системи</string>
@@ -394,7 +397,7 @@
     Content description (not visible, for screen readers etc.): Lock icon showed in the URL bar for
     https pages..
   -->
-  <string name="content_description_lock">Безпечне з\'єднання</string>
+  <string name="content_description_lock">Захищене з’єднання</string>
   <!--
     This text is not visible. Instead it will be read by the accessibility service once we start
     loading a website
@@ -436,19 +439,19 @@
   <string name="external_app_prompt_title">Відкрити посилання в іншій програмі</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">Ви можете вийти з %1$s, щоб відкрити це посилання в %2$s.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">Знайдіть програму, яка може відкрити посилання</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">Жодна з програм на вашому пристрої не здатна відкрити це посилання. Ви можете вийти з %1$s для пошуку відповідної програми у %2$s.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">Вийти з приватного перегляду?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s завантажено</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">Відкрити</string>
@@ -458,13 +461,35 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">Вітаємо в %1$s</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
   <string name="onboarding_first_screen_subtitle">Швидкий. Приватний. Зосереджений.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_terms_of_use_link as text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_text_2" tools:ignore="UnusedResources">Продовжуючи, ви приймаєте %1$s.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use link'
+
+    Text for the link used in onboarding_first_screen_terms_of_use_text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_link_2" tools:ignore="BrandUsage">Умови використання Firefox</string>
+  <!--
+    New Onboarding flow first screen 'privacy notice' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_privacy_notice_link as text
+  -->
+  <string name="onboarding_first_screen_privacy_notice_text_2" tools:ignore="BrandUsage">Firefox піклується про вашу приватність. Прочитайте %1$s, щоб дізнатися більше.</string>
+  <!-- Text for the link used in onboarding_first_screen_privacy_notice_text -->
+  <string name="onboarding_first_screen_privacy_notice_link_2">Положення про приватність</string>
   <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">Розпочати</string>
+  <string name="onboarding_first_screen_button_agree_and_continue_2">Продовжити</string>
+  <!-- In the first screen of new onboarding flow, additional accessibility description for content that contain urls. -->
+  <string name="a11y_link_available">Доступне посилання</string>
   <!--
     Onboarding second screen: Title
 
@@ -542,38 +567,8 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">Завантажити Firefox</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">%1$s є вільним програмним забезпеченням з відкритим кодом від Mozilla та інших помічників.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s доступний для вас на умовах &lt;a href="%2$s"&gt;Mozilla Public License&lt;/a&gt; та інших ліцензій відкритого коду.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">Вам не надаються жодні права чи ліцензії на торговельні марки Mozilla Foundation або на будь-які її частини, включно з Mozilla, Firefox, а також назвами чи логотипами %1$s. Додаткову інформацію можна знайти &lt;a href="%2$s"&gt;тут&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">Додатковий програмний код для %1$s доступний на умовах різних інших &lt;a href="%2$s"&gt;ліцензій&lt;/a&gt; вільного й відкритого програмного забезпечення.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s також використовує списки блокування від Disconnect Inc., як окремі та незалежні розробки на умовах &lt;a href="%2$s"&gt;GNU General Public License v3&lt;/a&gt;, і доступні &lt;a href="%3$s"&gt;тут&lt;/a&gt;.</string>
   <!-- Text shown in prompts for GeckoView -->
-  <string name="gv_prompt_username_hint">Ім\'я користувача</string>
+  <string name="gv_prompt_username_hint">Ім’я користувача</string>
   <string name="gv_prompt_password_hint">Пароль</string>
   <string name="gv_prompt_clear">Очистити</string>
   <!--
@@ -581,7 +576,7 @@
 
     Text to denote secure or insecure connection
   -->
-  <string name="security_popup_secure_connection">Захищене з\'єднання</string>
+  <string name="security_popup_secure_connection">Захищене з’єднання</string>
   <string name="security_popup_insecure_connection">Незахищене з’єднання</string>
   <!-- %1$s will be replaced with organization that granted the SSL certificate -->
   <string name="security_popup_security_verified">Засвідчено: %1$s</string>
@@ -593,13 +588,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">Знайти на сторінці</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">%1$d з %2$d</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -646,13 +643,13 @@
   <string name="cookie_banner_exception_panel_switch_state_off">ВИМКНЕНО для цього сайту</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">УВІМКНЕНО для цього сайту</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">Увімкнути зменшення кількості банерів про файли cookie для %1$s?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">Вимкнути зменшення кількості банерів про файли cookie для %1$s?</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">%1$s очистить файли cookie цього сайту та оновить сторінку. Очищення всіх файлів cookie може призвести до виходу з облікових записів або очищення кошика для покупок.</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">%1$s може намагатися автоматично відхиляти запити на збереження файлів cookie.</string>
   <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_description_site_is_not_supported">Цей сайт наразі не підтримується функцією зменшення кількості банерів про файли cookie. Хочете звернутися до нашої команди, щоб ми розглянули можливість додати підтримку цього вебсайту в майбутньому?</string>
@@ -679,11 +676,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Відкрийте налаштування Android</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. Торкніться &lt;b&gt;Дозволи&lt;/b&gt;</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. Торкніться <b>Дозволи</b>]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">Перейти до налаштувань</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. Увімкніть перемикач &lt;b&gt;%1$s&lt;/b&gt;</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. Увімкніть перемикач <b>%1$s</b>]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">Камера</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -710,20 +707,6 @@
   <string name="preference_block_autoplay_audio_only_summary">Рекомендовано</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">Блокувати аудіо та відео</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">Дослідження</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Firefox може час від часу встановлювати та виконувати дослідження.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">Докладніше</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">Програма закриється, щоб застосувати зміни</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">Вилучити</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">Активні</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">Завершено</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">Віддалене налагодження через USB/Wi-Fi</string>
   <!-- Text Button for show biometric prompt -->
@@ -755,7 +738,7 @@
     Description for the prompt to enable search suggestions
     %1$s will be replaced by the app name (e.g. Firefox Focus)
   -->
-  <string name="enable_search_suggestion_description"> Для отримання пропозицій %1$s повинен відправляти пошуковій системі введений в адресному рядку текст.</string>
+  <string name="enable_search_suggestion_description">Для отримання пропозицій %1$s повинен відправляти пошуковій системі введений в адресному рядку текст.</string>
   <!-- Label used for the "NO button" for the prompt to enable search suggestions -->
   <string name="enable_search_suggestions_no">Ні</string>
   <!-- Label used for the "YES button" for the prompt to enable search suggestions -->
@@ -770,28 +753,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">Неочікувана поведінка сайту?\n Спробуйте вимкнути захист від стеження</string>
+  <string name="tip_disable_tracking_protection">Неочікувана поведінка сайту?\nСпробуйте вимкнути захист від стеження</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">Швидкий доступ до популярних сайтів%1$s Меню &gt; Додати на головний екран</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">Відкривайте всі посилання в %1$s\n Встановіть %1$s типовим браузером</string>
+  <string name="tip_set_default_browser">Відкривайте всі посилання в %1$s\nВстановіть %1$s типовим браузером</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">Автозавершення популярних URL-адрес\n Тривалий дотик до URL в адресному рядку</string>
+  <string name="tip_autocomplete_url">Автозавершення популярних URL-адрес\nТривалий дотик до URL в адресному рядку</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">Відкривайте посилання в новій вкладці\n Тривалий дотик до посилання на сторінці</string>
+  <string name="tip_open_in_new_tab">Відкривайте посилання в новій вкладці\nТривалий дотик до посилання на сторінці</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">Вимкнути поради у домівці</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -832,29 +815,29 @@
   <string name="crash_report_send_crash_label">Надіслати звіт про збій в Mozilla</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">Заблоковано стеження, починаючи з %s</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">Вміст</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">Реклама</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">Соціальні мережі</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">Аналітика</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">Розширений захист від стеження</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">Захист на цьому сайті вимкнено</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">Захист на цьому сайті увімкнено</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">Захищене з’єднання</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">З’єднання не захищене</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">Блокувати стеження й скрипти</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">Назад</string>
   <!--
     Top Sites
@@ -872,7 +855,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">Збережені та спільні зображення &lt;b&gt;не будуть видалені&lt;/b&gt;, якщо ви зітрете історію %1$s</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[Збережені та спільні зображення <b>не будуть видалені</b>, якщо ви зітрете історію %1$s]]></string>
   <!--
     Theme Preferences
 
@@ -890,25 +873,16 @@
   <!-- The title of the error page for websites that do not support HTTPS when HTTPS-Only is turned on -->
   <string name="errorpage_httpsonly_title2">Цей сайт не підтримує HTTPS</string>
   <!--
-    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s will get replaced with the name of the app (e.g. "Firefox Focus").
-    Contains a button that will redirect the user to Privacy & Security Screen
+    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"),
+    %2$s is a URL to a support article. Contains a button that will redirect the user to Privacy & Security Screen.
   -->
-  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote">%1$s намагається використовувати HTTPS-з’єднання, коли це можливо для підвищення безпеки.
-     &lt;a href="%2$s"&gt;Докладніше&lt;/a&gt; &lt;br/&gt;&lt;br/&gt;
-     Змініть це налаштування перейшовши до Налаштування &gt; Приватність і безпека &gt; Безпека.</string>
+  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[%1$s намагається використовувати HTTPS-з’єднання, коли це можливо для підвищення безпеки. <a href=\"%2$s\">Докладніше</a> <br/><br/> Змініть це налаштування перейшовши до Налаштування > Приватність і безпека > Безпека.]]></string>
   <!-- The document title and heading of the error page shown when a website has an invalid or expired SSL certificate. -->
   <string name="mozac_browser_errorpages_security_bad_cert_title">Незахищене зʼєднання</string>
   <!-- The error message shown when a website has an invalid or expired SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_message">
-    Це може бути проблема з конфігурацією сервера, або, можливо, хтось намагається імітувати той сервер. &lt;br/&gt;&lt;br/&gt;
-    Якщо ви раніше отримували доступ до цього сервера, то це може бути тимчасова помилка.
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_message"><![CDATA[Це може бути проблема з конфігурацією сервера, або, можливо, хтось намагається імітувати той сервер. <br/><br/> Якщо ви раніше отримували доступ до цього сервера, то це може бути тимчасова помилка.]]></string>
   <!-- The advanced certificate information shown when a website has an invalid SSL certificate. The %1$s will be replaced by the app name and %2$s will be replaced by website URL. It's only shown when a website has an invalid SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_techInfo">
-        &lt;label&gt;Хтось може намагатися видати себе за сайт. Подальший перехід може бути ризикованим.&lt;/label&gt;
-        &lt;br&gt;&lt;br&gt;
-        &lt;label&gt;%1$s не довіряє &lt;b&gt;%2$s&lt;/b&gt;, тому що видавець його сертифіката невідомий, сертифікат самопідписаний, або сервер не надсилає правильні посередницькі сертифікати&lt;/label&gt;
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_techInfo"><![CDATA[<label>Хтось може намагатися видати себе за сайт. Подальший перехід може бути ризикованим.</label> <br><br>\n<label>%1$s не довіряє <b>%2$s</b>, тому що видавець його сертифіката невідомий, сертифікат самопідписаний, або сервер не надсилає правильні посередницькі сертифікати</label>]]></string>
   <!--
     Sessions List
 
@@ -971,13 +945,13 @@
 
     Message shown to explain how to exit fullscreen mode when gesture navigation is enabled.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
-  <string name="exit_fullscreen_with_gesture_short">Щоб вийти, потягніть зверху і скористайтеся жестом "Назад"</string>
+  <string name="exit_fullscreen_with_gesture_short">Щоб вийти, потягніть зверху і скористайтеся жестом \"Назад\"</string>
   <!--
     Message shown to explain how to exit fullscreen mode when using back button navigation.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
-  <string name="exit_fullscreen_with_back_button_short">Щоб вийти, потягніть зверху і натисніть "Назад"</string>
+  <string name="exit_fullscreen_with_back_button_short">Щоб вийти, потягніть зверху і натисніть \"Назад\"</string>
 </resources>

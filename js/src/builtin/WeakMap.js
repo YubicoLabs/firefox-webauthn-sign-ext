@@ -27,47 +27,9 @@ function WeakMapConstructorInit(iterable) {
   }
 }
 
-#ifdef NIGHTLY_BUILD
 /**
  * Upsert proposal
- * 
- * WeakMap.prototype.getOrInsert ( key, value )
  *
- * https://tc39.es/proposal-upsert/
- */
-function WeakMapGetOrInsert(key, value) {
-  // Step 1.  Let M be the this value.
-  var M = this;
-
-  // Step 2.  Perform ? RequireInternalSlot(M, [[WeakMapData]]).
-  if (!IsObject(M) || (M = GuardToWeakMapObject(M)) === null) {
-    return callFunction(
-      CallWeakMapMethodIfWrapped,
-      this,
-      key,
-      value,
-      "WeakMapGetOrInsert"
-    );
-  }
-
-  // Step 3.  If CanBeHeldWeakly(key) is false, throw a TypeError exception.
-  // Step 4.  For each Record { [[Key]], [[Value]] } p of M.[[WeakMapData]], do
-  // Step 4.a.  If p.[[Key]] is not empty and SameValue(p.[[Key]], key) is true, return p.[[Value]].
-  if (callFunction(std_WeakMap_has, M, key)) {
-    return callFunction(std_WeakMap_get, M, key);
-  }
-
-  // Step 5.  Let p be the Record { [[Key]]: key, [[Value]]: value }.
-  // Step 6.  Append p to M.[[WeakMapData]].
-  callFunction(std_WeakMap_set, M, key, value);
-
-  // Step 7.  Return value.
-  return value;
-}
-
-/**
- * Upsert proposal
- * 
  * WeakMap.prototype.getOrInsertComputed ( key, callbackfn )
  *
  * https://tc39.es/proposal-upsert/
@@ -93,6 +55,10 @@ function WeakMapGetOrInsertComputed(key, callbackfn) {
   }
 
   // Step 4.  If CanBeHeldWeakly(key) is false, throw a TypeError exception.
+  if (!CanBeHeldWeakly(key)) {
+    ThrowTypeError(JSMSG_WEAKMAP_KEY_CANT_BE_HELD_WEAKLY, DecompileArg(0, key));
+  }
+
   // Step 5.  For each Record { [[Key]], [[Value]] } p of M.[[WeakMapData]], do
   // Step 5.a.  If p.[[Key]] is not empty and SameValue(p.[[Key]], key) is true, return p.[[Value]].
   if (callFunction(std_WeakMap_has, M, key)) {
@@ -112,4 +78,3 @@ function WeakMapGetOrInsertComputed(key, callbackfn) {
   // Step 7.a.ii, 10. Return value.
   return value;
 }
-#endif  // #ifdef NIGHTLY_BUILD

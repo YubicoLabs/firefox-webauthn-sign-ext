@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">היסטוריית הגלישה נמחקה</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">היסטוריית הגלישה של הלשונית נמחקה.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">חיפוש עבור %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">שיתוף…</string>
@@ -52,7 +62,7 @@
   <string name="menu_settings">הגדרות</string>
   <string name="menu_about">על אודות</string>
   <string name="menu_help">עזרה</string>
-  <string name="menu_rights">הזכויות שלך</string>
+  <string name="menu_terms_of_use">תנאי שימוש</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -142,6 +152,13 @@
     Do not translate or transliterate Focus Nightly.
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">חיפוש ב־Focus Nightly</string>
+  <!--
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
+  -->
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s מחזיר את השליטה לידיים שלך.</p>\n<p>אפשר להשתמש בו כדפדפן פרטי:\n<ul>\n<li>לחפש ולגלוש ישירות מהיישומון</li>\n<li>לחסום רכיבי מעקב (או לעדכן את ההגדרות כדי לאפשר אותם)</li>\n<li>לבצע מחיקה כללית כדי למחוק עוגיות לרבות היסטוריית חיפוש וגלישה</li>\n</ul> </p>\n<p>%1$s נוצר על ידי Mozilla. היעד שלנו הוא לאמץ אינטרנט בריא ופתוח.<br/>\n<a href=\"%2$s\">למידע נוסף</a></p>]]></string>
+  <!-- A link to SUMO at the bottom of About Focus screen. -->
+  <string name="about_screen_learn_more">מידע נוסף</string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">פרטיות ואבטחה</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -193,14 +210,14 @@
   <string name="preference_switch_autocomplete_topsites">לאתרים המובילים</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">יש להפעיל כדי ש־%s ישלים אוטומטית למעלה מ־450 כתובות נפוצות בשורת הכתובת.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">לאתרים שהוספת</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">יש להפעיל כדי ש־%s ישלים אוטומטית את כתובות האתרים המועדפות עליך.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -275,8 +292,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">ביטול הנעילה באמצעות טביעת אצבע אם הוספת קיצורי דרך או כאשר אתר אינטרנט כבר פתוח ב‏%s.</string>
   <!--
@@ -324,9 +341,9 @@
   <string name="preference_libraries_we_use">ספריות בהן אנו משתמשים</string>
   <!-- Link to Focus Crash reports list. -->
   <string name="preference_crashes">קריסות</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">‏%s | ספריות OSS</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">על אודות %1$s</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">מנועי חיפוש מותקנים</string>
@@ -350,7 +367,7 @@
   <string name="search_add_manually_name_hint">שם מנוע החיפוש</string>
   <string name="search_add_manually_string">מחרוזת חיפוש לשימוש</string>
   <string name="search_add_manually_save">שמירה</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">דוגמה: example.com/search/?q=%s</string>
   <string name="search_add_confirmation">נוסף מנוע חיפוש חדש.</string>
   <string name="search_add_error_empty_name">נא להקליד שם למנוע החיפוש</string>
@@ -422,19 +439,19 @@
   <string name="external_app_prompt_title">פתיחת קישור ביישומון אחר</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">ניתן לעזוב את %1$s כדי לפתוח את הקישור הזה ב־%2$s.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">חיפוש יישומון שיוכל לפתוח את הקישור</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">אף אחד מהיישומים שבמכשיר שלך יכולים לפתוח את הקישור הזה. ניתן לעזוב את %1$s כדי לחפש תחת %2$s יישומון שיכול לבצע זאת.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">לצאת ממצב גלישה פרטית?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s הסתיים</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">פתיחה</string>
@@ -444,7 +461,7 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">ברוכים הבאים אל %1$s</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
@@ -454,25 +471,25 @@
 
     %1$s will be replaced by a link using onboarding_first_screen_terms_of_use_link as text
   -->
-  <string name="onboarding_first_screen_terms_of_use_text" tools:ignore="UnusedResources">בחירה בהמשך מהווה הסכמה ל%1$s</string>
+  <string name="onboarding_first_screen_terms_of_use_text_2" tools:ignore="UnusedResources">בחירה בהמשך מהווה הסכמה ל%1$s.</string>
   <!--
     New Onboarding flow first screen 'terms of use link'
 
     Text for the link used in onboarding_first_screen_terms_of_use_text
   -->
-  <string name="onboarding_first_screen_terms_of_use_link" tools:ignore="BrandUsage">תנאי השימוש של Firefox.</string>
+  <string name="onboarding_first_screen_terms_of_use_link_2" tools:ignore="BrandUsage">תנאי השימוש של Firefox</string>
   <!--
     New Onboarding flow first screen 'privacy notice' text
 
     %1$s will be replaced by a link using onboarding_first_screen_privacy_notice_link as text
   -->
-  <string name="onboarding_first_screen_privacy_notice_text" tools:ignore="BrandUsage">‏Firefox דואג לפרטיות שלך. מידע נוסף ב%1$s שלנו</string>
+  <string name="onboarding_first_screen_privacy_notice_text_2" tools:ignore="BrandUsage">‏Firefox דואג לפרטיות שלך. מידע נוסף ב%1$s שלנו.</string>
   <!-- Text for the link used in onboarding_first_screen_privacy_notice_text -->
-  <string name="onboarding_first_screen_privacy_notice_link">הצהרת הפרטיות.</string>
+  <string name="onboarding_first_screen_privacy_notice_link_2">הצהרת הפרטיות</string>
   <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">תחילת עבודה</string>
-  <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_agree_and_continue">הסכמה והמשך</string>
+  <string name="onboarding_first_screen_button_agree_and_continue_2">המשך</string>
+  <!-- In the first screen of new onboarding flow, additional accessibility description for content that contain urls. -->
+  <string name="a11y_link_available">קישור זמין</string>
   <!--
     Onboarding second screen: Title
 
@@ -550,36 +567,6 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">הורדת Firefox</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">%1$s היא תכנית חופשית ובקוד פתוח שפותחה על ידי Mozilla ותורמים נוספים.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s זמין לשימוש תחת &lt;a href="%2$s"&gt;תנאי הרשיון הציבורי של Mozilla&lt;/a&gt; ורשיונות קוד פתוח אחרים.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">לא הוענקו לך זכויות או רישיונות כלשהם לסימנים המסחריים של קרן Mozilla או גורם כלשהו, לרבות השמות או סמלי הלוגו של Mozilla, ‏Firefox או %1$s. מידע נוסף ניתן למצוא &lt;a href="%2$s"&gt;כאן&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">קוד מקור נוסף עבור %1$s זמין תחת מגוון &lt;a href="%2$s"&gt;רישיונות&lt;/a&gt; קוד פתוח נוספים.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">ב־%1$s נעשה גם שימוש ברשימות חסימה מאת Disconnect בע״מ כעבודות נפרדות ועצמאיות תחת &lt;a href="%2$s"&gt;גרסה 3 של הרשיון הציבורי הכללי של GNU&lt;/a&gt;, והוא זמין &lt;a href="%3$s"&gt;כאן&lt;/a&gt;.</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">שם משתמש</string>
   <string name="gv_prompt_password_hint">ססמה</string>
@@ -601,13 +588,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">חיפוש בדף</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">%1$d מתוך %2$d</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -638,6 +627,8 @@
   <string name="preferences_cookie_banner_summary_off">כבויה</string>
   <!-- Title preference inside Cookie banner reduction screen. Here you can set the cookie banner option to disabled or reject_all. -->
   <string name="cookie_banner_reject_all_option_title">צמצום כרזות עוגיות</string>
+  <!-- Preference summary inside Cookie banner reduction screen. Here you can set the cookie banner option to disabled or reject_all. -->
+  <string name="cookie_banner_reject_all_option_summary">אפשר לצמצם את כמות בקשות אישור המעקב שמופיעות על ידי דחיית בקשות לעוגיות, כשניתן.</string>
   <!-- Preference for removing cookie/consent banners from sites automatically, this is shown as part of the protections panel with the tracking protection toggle. -->
   <string name="cookie_banner_exception_item_title">צמצום כרזות עוגיות</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown as part of the protections panel with the tracking protection toggle. -->
@@ -652,14 +643,16 @@
   <string name="cookie_banner_exception_panel_switch_state_off">כבוי עבור אתר זה</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">פעיל עבור אתר זה</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">להפעיל צמצום כרזות עוגיות לאתר %1$s?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">להשבית צמצום כרזות עוגיות לאתר %1$s?</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">‏%1$s ינקה את העוגיות של אתר זה וירענן את הדף. ניקוי כל העוגיות עשוי לנתק את החשבון שלך מהאתר או לרוקן את עגלת הקניות שלך.</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">‏%1$s יכול לנסות לדחות באופן אוטומטי בקשות כרזות עוגיות.</string>
+  <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
+  <string name="cookie_banner_exception_panel_description_site_is_not_supported">צמצום בקשות העוגיות לא תומך כרגע באתר הזה. אפשר להציע לך לבקש מהצוות לסקור את האתר הזה ולהוסיף תמיכה בעתיד?</string>
   <!-- Text for cancel button indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_site_is_not_supported_cancel_button">ביטול</string>
   <!-- Text for request support button indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
@@ -668,6 +661,12 @@
   <string name="cookie_banner_report_a_site_snackbar_label">הבקשה לתמיכה באתר הוגשה.</string>
   <!-- Label for cookie banner item from tracking protection, after the user reports with success a website where cookie banner reducer did not work -->
   <string name="cookie_banner_the_site_was_reported">הבקשה לתמיכה באתר הוגשה.</string>
+  <!--
+    Contextual Feature Recommendation Popups
+
+    CFR for Cookie Banner (Banner Info Message). %1$s will be replaced by the app name, %2$s will be an active link using the string cfr_cookie_banner_link as text.
+  -->
+  <string name="cfr_cookie_banner">%1$s מנסה לדחות בקשות לעוגיות כדי להסיר בקשות לעוגיות מעצבנות.\n\nאפשר לנהל את העדפות בקשות העוגיות דרך %2$s.</string>
   <!-- CFR for Cookie Banner (Banner Info Message). This string is used as text for a link in cfr_cookie_banner and takes the user to the app settings. -->
   <string name="cfr_cookie_banner_link">הגדרות</string>
   <!-- Preference for autoplay -->
@@ -677,11 +676,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. יש לעבור להגדרות של Android</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. לגעת ב&lt;b&gt;הרשאות&lt;/b&gt;</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. לגעת ב<b>הרשאות</b>]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">מעבר להגדרות</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. לשנות את המצב של &lt;b&gt;%1$s&lt;/b&gt; לכדי פעיל</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. לשנות את המצב של <b>%1$s</b> לכדי פעיל]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">מצלמה</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -708,20 +707,6 @@
   <string name="preference_block_autoplay_audio_only_summary">מומלץ</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">חסימת שמע ווידאו</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">מחקרים</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">‏Firefox עשוי להתקין ולהריץ מחקרים מדי פעם בפעם.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">מידע נוסף</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">היישומון ייסגר להחלת השינויים</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">הסרה</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">פעיל</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">הושלמו</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">ניפוי שגיאות מרחוק דרך USB/Wi-Fi</string>
   <!-- Text Button for show biometric prompt -->
@@ -768,30 +753,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">האתר מתנהג באופן בלתי צפוי?\n ניתן לנסות לבטל את הגנת המעקב</string>
+  <string name="tip_disable_tracking_protection">האתר מתנהג באופן בלתי צפוי?\nניתן לנסות לבטל את הגנת המעקב</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">קבלת גישה בלחיצה קלילה לאתרים הנפוצים שלך%1$s תפריט &gt; הוספה למסך הבית</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">פתיחת כל קישור עם %1$s\n הגדרת %1$s כדפדפן ברירת המחדל</string>
+  <string name="tip_set_default_browser">פתיחת כל קישור עם %1$s\nהגדרת %1$s כדפדפן ברירת המחדל</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">השלמה אוטומטית של כתובות עבור האתרים הנפוצים שלך\n
-יש ללחוץ לחיצה ארוכה על כתובת כלשהי בשורת הכתובת
-    </string>
+  <string name="tip_autocomplete_url">השלמה אוטומטית של כתובות עבור האתרים הנפוצים שלך\nיש ללחוץ לחיצה ארוכה על כתובת כלשהי בשורת הכתובת</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">פתיחת קישור בלשונית חדשה\n יש ללחוץ לחיצה ארוכה על כל קישור שהוא בעמוד</string>
+  <string name="tip_open_in_new_tab">פתיחת קישור בלשונית חדשה\nיש ללחוץ לחיצה ארוכה על כל קישור שהוא בעמוד</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">כיבוי עצות במסך ההתחלה</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -832,27 +815,29 @@
   <string name="crash_report_send_crash_label">שליחת דיווח קריסה אל Mozilla</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">רכיבי מעקב חסומים מאז %s</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">תוכן</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">פרסום</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">רשתות חברתיות</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
+  <string name="analytics">ניתוח נתונים</string>
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">הגנת מעקב מתקדמת</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">ההגנות כבויות עבור אתר זה</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">ההגנות פעילות עבור אתר זה</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">החיבור מאובטח</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">החיבור אינו מאובטח</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">רכיבי מעקב ותסריטים לחסימה</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">חזרה אחורה</string>
   <!--
     Top Sites
@@ -870,7 +855,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">תמונות שמורות ומשותפות &lt;b&gt;לא יימחקו&lt;/b&gt; בעת מחיקת ההיסטוריה של %1$s</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[תמונות שמורות ומשותפות <b>לא יימחקו</b> בעת מחיקת ההיסטוריה של %1$s]]></string>
   <!--
     Theme Preferences
 
@@ -888,25 +873,16 @@
   <!-- The title of the error page for websites that do not support HTTPS when HTTPS-Only is turned on -->
   <string name="errorpage_httpsonly_title2">אתר זה אינו תומך ב־HTTPS</string>
   <!--
-    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s will get replaced with the name of the app (e.g. "Firefox Focus").
-    Contains a button that will redirect the user to Privacy & Security Screen
+    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"),
+    %2$s is a URL to a support article. Contains a button that will redirect the user to Privacy & Security Screen.
   -->
-  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote">‏%1$s מנסה להשתמש בחיבור HTTPS במידת האפשר להגברת האבטחה.
-     &lt;a href="%2$s"&gt;מידע נוסף&lt;/a&gt; &lt;br/&gt;&lt;br/&gt;
-     ניתן לשנות הגדרה זו בהגדרות &gt; פרטיות ואבטחה &gt; אבטחה.</string>
+  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[‏%1$s מנסה להשתמש בחיבור HTTPS במידת האפשר להגברת האבטחה. <a href=\"%2$s\">מידע נוסף</a> <br/><br/> ניתן לשנות הגדרה זו בהגדרות > פרטיות ואבטחה > אבטחה.]]></string>
   <!-- The document title and heading of the error page shown when a website has an invalid or expired SSL certificate. -->
   <string name="mozac_browser_errorpages_security_bad_cert_title">החיבור אינו מאובטח</string>
   <!-- The error message shown when a website has an invalid or expired SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_message">
-    ייתכן שמדובר בבעיה בתצורת השרת או שגורם כלשהו מנסה להתחזות לשרת.&lt;br/&gt;&lt;br/&gt;
-    אם התחברת לשרת זה בהצלחה בעבר, ייתכן שהשגיאה זמנית.
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_message"><![CDATA[ייתכן שמדובר בבעיה בתצורת השרת או שגורם כלשהו מנסה להתחזות לשרת.<br/><br/> אם התחברת לשרת זה בהצלחה בעבר, ייתכן שהשגיאה זמנית.]]></string>
   <!-- The advanced certificate information shown when a website has an invalid SSL certificate. The %1$s will be replaced by the app name and %2$s will be replaced by website URL. It's only shown when a website has an invalid SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_techInfo">
-        &lt;label&gt;ייתכן שמישהו מנסה להתחזות לאתר, וההמשך אליו עלול להיות מסוכן.&lt;/label&gt;
-        &lt;br&gt;&lt;br&gt;
-        &lt;label&gt;ל־%1$s אין אמון ב־&lt;b&gt;%2$s&lt;/b&gt; כיוון שמנפיק האישור אינו מוכר, האישור נחתם עצמאית, או שהשרת לא שולח את אישורי הביניים הנכונים.&lt;/label&gt;
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_techInfo"><![CDATA[<label>ייתכן שמישהו מנסה להתחזות לאתר, וההמשך אליו עלול להיות מסוכן.</label> <br><br>\n<label>ל־%1$s אין אמון ב־<b>%2$s</b> כיוון שמנפיק האישור אינו מוכר, האישור נחתם עצמאית, או שהשרת לא שולח את אישורי הביניים הנכונים.</label>]]></string>
   <!--
     Sessions List
 
@@ -969,13 +945,13 @@
 
     Message shown to explain how to exit fullscreen mode when gesture navigation is enabled.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_gesture_short">יש לגרור מלמעלה ולהשתמש בתנועת החזרה כדי לצאת</string>
   <!--
     Message shown to explain how to exit fullscreen mode when using back button navigation.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_back_button_short">יש לגרור מלמעלה וללחוץ על כפתור החזרה כדי לצאת</string>
 </resources>

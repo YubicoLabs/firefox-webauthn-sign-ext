@@ -28,17 +28,6 @@
 #define EXP_BLINDING_RANDOMNESS_LEN ((128 + MP_DIGIT_BIT - 1) / MP_DIGIT_BIT)
 #define EXP_BLINDING_RANDOMNESS_LEN_BYTES (EXP_BLINDING_RANDOMNESS_LEN * sizeof(mp_digit))
 
-/*
-** Number of times to attempt to generate a prime (p or q) from a random
-** seed (the seed changes for each iteration).
-*/
-#define MAX_PRIME_GEN_ATTEMPTS 10
-/*
-** Number of times to attempt to generate a key.  The primes p and q change
-** for each attempt.
-*/
-#define MAX_KEY_GEN_ATTEMPTS 10
-
 /* Blinding Parameters max cache size  */
 #define RSA_BLINDING_PARAMS_MAX_CACHE_SIZE 20
 
@@ -140,11 +129,11 @@ rsa_build_from_primes(const mp_int *p, const mp_int *q,
     /* at least one exponent must be given */
     PORT_Assert(!(needPublicExponent && needPrivateExponent));
 
-    /* 2.  Compute phi = (p-1)*(q-1) */
+    /* 2.  Compute phi = lcm((p-1),(q-1)) */
     CHECK_MPI_OK(mp_sub_d(p, 1, &psub1));
     CHECK_MPI_OK(mp_sub_d(q, 1, &qsub1));
+    CHECK_MPI_OK(mp_lcm(&psub1, &qsub1, &phi));
     if (needPublicExponent || needPrivateExponent) {
-        CHECK_MPI_OK(mp_lcm(&psub1, &qsub1, &phi));
         /* 3.  Compute d = e**-1 mod(phi) */
         /*     or      e = d**-1 mod(phi) as necessary */
         if (needPublicExponent) {
@@ -162,6 +151,15 @@ rsa_build_from_primes(const mp_int *p, const mp_int *q,
             err = MP_OKAY; /* to keep PORT_SetError from being called again */
             rv = SECFailure;
         }
+        goto cleanup;
+    }
+
+    /* make sure we weren't passed in a d or e = 1 mod phi */
+    /* just need to check d, because if one is = 1 mod phi, they both are */
+    CHECK_MPI_OK(mp_mod(d, &phi, &tmp));
+    if (mp_cmp_d(&tmp, 1) == MP_EQ) {
+        PORT_SetError(SEC_ERROR_INVALID_ARGS);
+        rv = SECFailure;
         goto cleanup;
     }
 
@@ -192,38 +190,6 @@ cleanup:
     mp_clear(&psub1);
     mp_clear(&qsub1);
     mp_clear(&tmp);
-    if (err) {
-        MP_TO_SEC_ERROR(err);
-        rv = SECFailure;
-    }
-    return rv;
-}
-
-SECStatus
-generate_prime(mp_int *prime, int primeLen)
-{
-    mp_err err = MP_OKAY;
-    SECStatus rv = SECSuccess;
-    int piter;
-    unsigned char *pb = NULL;
-    pb = PORT_Alloc(primeLen);
-    if (!pb) {
-        PORT_SetError(SEC_ERROR_NO_MEMORY);
-        goto cleanup;
-    }
-    for (piter = 0; piter < MAX_PRIME_GEN_ATTEMPTS; piter++) {
-        CHECK_SEC_OK(RNG_GenerateGlobalRandomBytes(pb, primeLen));
-        pb[0] |= 0xC0;            /* set two high-order bits */
-        pb[primeLen - 1] |= 0x01; /* set low-order bit       */
-        CHECK_MPI_OK(mp_read_unsigned_octets(prime, pb, primeLen));
-        err = mpp_make_prime_secure(prime, primeLen * 8, PR_FALSE);
-        if (err != MP_NO)
-            goto cleanup;
-        /* keep going while err == MP_NO */
-    }
-cleanup:
-    if (pb)
-        PORT_ZFree(pb, primeLen);
     if (err) {
         MP_TO_SEC_ERROR(err);
         rv = SECFailure;
@@ -1157,6 +1123,8 @@ rsa_PrivateKeyOpCRTCheckedPubKey(RSAPrivateKey *key, mp_int *m, mp_int *c)
     /* Perform a public key operation v = m ** e mod n */
     CHECK_MPI_OK(mp_exptmod(m, &e, &n, &v));
     if (mp_cmp(&v, c) != 0) {
+        /* this error triggers a fips fatal error lock */
+        PORT_SetError(SEC_ERROR_LIBRARY_FAILURE);
         rv = SECFailure;
     }
 cleanup:

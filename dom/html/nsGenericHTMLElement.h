@@ -3,24 +3,24 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-#ifndef nsGenericHTMLElement_h___
-#define nsGenericHTMLElement_h___
+#ifndef nsGenericHTMLElement_h_
+#define nsGenericHTMLElement_h_
+
+#include <cstdint>
 
 #include "mozilla/Attributes.h"
 #include "mozilla/EventForwards.h"
-#include "nsNameSpaceManager.h"  // for kNameSpaceID_None
-#include "nsIFormControl.h"
-#include "nsGkAtoms.h"
-#include "nsContentCreatorFunctions.h"
-#include "nsStyledElement.h"
 #include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/Element.h"
 #include "mozilla/dom/DOMRect.h"
-#include "mozilla/dom/ValidityState.h"
+#include "mozilla/dom/Element.h"
 #include "mozilla/dom/PopoverData.h"
 #include "mozilla/dom/ToggleEvent.h"
-
-#include <cstdint>
+#include "mozilla/dom/ValidityState.h"
+#include "nsContentCreatorFunctions.h"
+#include "nsGkAtoms.h"
+#include "nsIFormControl.h"
+#include "nsNameSpaceManager.h"  // for kNameSpaceID_None
+#include "nsStyledElement.h"
 
 class nsDOMTokenList;
 class nsIFrame;
@@ -28,7 +28,7 @@ class nsILayoutHistoryState;
 class nsIURI;
 struct nsSize;
 
-enum nsCSSPropertyID : int32_t;
+enum NonCustomCSSPropertyId : uint16_t;
 
 namespace mozilla {
 class EditorBase;
@@ -39,9 +39,13 @@ class EventChainVisitor;
 class EventListenerManager;
 class PresState;
 namespace dom {
+class BooleanOrUnrestrictedDoubleOrString;
 class ElementInternals;
 class HTMLFormElement;
+class OwningBooleanOrUnrestrictedDoubleOrString;
+class TogglePopoverOptionsOrBoolean;
 enum class FetchPriority : uint8_t;
+struct ShowPopoverOptions;
 }  // namespace dom
 }  // namespace mozilla
 
@@ -53,9 +57,9 @@ using nsGenericHTMLElementBase = nsStyledElement;
 class nsGenericHTMLElement : public nsGenericHTMLElementBase {
  public:
   using ContentEditableState = mozilla::ContentEditableState;
+  using Element::Command;
   using Element::Focus;
   using Element::SetTabIndex;
-  using InvokeAction = mozilla::dom::InvokeAction;
 
   explicit nsGenericHTMLElement(
       already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
@@ -95,10 +99,16 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   void SetPopover(const nsAString& aPopover, mozilla::ErrorResult& aError) {
     SetOrRemoveNullableStringAttr(nsGkAtoms::popover, aPopover, aError);
   }
-  bool Hidden() const { return GetBoolAttr(nsGkAtoms::hidden); }
-  void SetHidden(bool aHidden, mozilla::ErrorResult& aError) {
-    SetHTMLBoolAttr(nsGkAtoms::hidden, aHidden, aError);
-  }
+
+  void GetHidden(mozilla::dom::Nullable<
+                 mozilla::dom::OwningBooleanOrUnrestrictedDoubleOrString>&
+                     aHidden) const;
+
+  void SetHidden(
+      const mozilla::dom::Nullable<
+          mozilla::dom::BooleanOrUnrestrictedDoubleOrString>& aHidden,
+      mozilla::ErrorResult& aRv);
+
   bool Inert() const { return GetBoolAttr(nsGkAtoms::inert); }
   void SetInert(bool aInert, mozilla::ErrorResult& aError) {
     SetHTMLBoolAttr(nsGkAtoms::inert, aInert, aError);
@@ -143,9 +153,7 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
       SetHTMLAttr(nsGkAtoms::contenteditable, u"true"_ns, aError);
     } else if (aContentEditable.LowerCaseEqualsLiteral("false")) {
       SetHTMLAttr(nsGkAtoms::contenteditable, u"false"_ns, aError);
-    } else if (mozilla::StaticPrefs::
-                   dom_element_contenteditable_plaintext_only_enabled() &&
-               aContentEditable.LowerCaseEqualsLiteral("plaintext-only")) {
+    } else if (aContentEditable.LowerCaseEqualsLiteral("plaintext-only")) {
       SetHTMLAttr(nsGkAtoms::contenteditable, u"plaintext-only"_ns, aError);
     } else {
       aError.Throw(NS_ERROR_DOM_SYNTAX_ERR);
@@ -176,10 +184,7 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
       case 1:
         return ContentEditableState::True;
       case 2:
-        return mozilla::StaticPrefs::
-                       dom_element_contenteditable_plaintext_only_enabled()
-                   ? ContentEditableState::PlainTextOnly
-                   : ContentEditableState::Inherit;
+        return ContentEditableState::PlainTextOnly;
       case 3:
         return ContentEditableState::False;
       default:
@@ -194,35 +199,40 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
                             Document* aExpectedDocument, ErrorResult& aRv);
   already_AddRefed<mozilla::dom::ToggleEvent> CreateToggleEvent(
       const nsAString& aEventType, const nsAString& aOldState,
-      const nsAString& aNewState, mozilla::Cancelable);
+      const nsAString& aNewState, mozilla::Cancelable, Element* aSource);
   /** Returns true if the event has been cancelled. */
   MOZ_CAN_RUN_SCRIPT bool FireToggleEvent(const nsAString& aOldState,
                                           const nsAString& aNewState,
-                                          const nsAString& aType);
+                                          const nsAString& aType,
+                                          Element* aSource);
   MOZ_CAN_RUN_SCRIPT void QueuePopoverEventTask(
-      mozilla::dom::PopoverVisibilityState aOldState);
+      mozilla::dom::PopoverVisibilityState aOldState, Element* aSource);
   MOZ_CAN_RUN_SCRIPT void RunPopoverToggleEventTask(
       mozilla::dom::PopoverToggleEventTask* aTask,
-      mozilla::dom::PopoverVisibilityState aOldState);
-  MOZ_CAN_RUN_SCRIPT void ShowPopover(ErrorResult& aRv);
+      mozilla::dom::PopoverVisibilityState aOldState,
+      mozilla::dom::Element* aSource);
+  MOZ_CAN_RUN_SCRIPT void ShowPopover(
+      const mozilla::dom::ShowPopoverOptions& aOptions, ErrorResult& aRv);
   MOZ_CAN_RUN_SCRIPT void ShowPopoverInternal(Element* aInvoker,
                                               ErrorResult& aRv);
   MOZ_CAN_RUN_SCRIPT_BOUNDARY void HidePopoverWithoutRunningScript();
   MOZ_CAN_RUN_SCRIPT void HidePopoverInternal(bool aFocusPreviousElement,
                                               bool aFireEvents,
+                                              mozilla::dom::Element* aSource,
                                               ErrorResult& aRv);
   MOZ_CAN_RUN_SCRIPT void HidePopover(ErrorResult& aRv);
   MOZ_CAN_RUN_SCRIPT bool TogglePopover(
-      const mozilla::dom::Optional<bool>& aForce, ErrorResult& aRv);
+      const mozilla::dom::TogglePopoverOptionsOrBoolean& aOptions,
+      ErrorResult& aRv);
   MOZ_CAN_RUN_SCRIPT void FocusPopover();
   void ForgetPreviouslyFocusedElementAfterHidingPopover();
   MOZ_CAN_RUN_SCRIPT void FocusPreviousElementAfterHidingPopover();
 
-  bool IsValidInvokeAction(mozilla::dom::InvokeAction aAction) const override;
+  bool IsValidCommandAction(Command aCommand) const override;
 
-  MOZ_CAN_RUN_SCRIPT bool HandleInvokeInternal(
-      Element* aInvoker, mozilla::dom::InvokeAction aAction,
-      ErrorResult& aRv) override;
+  MOZ_CAN_RUN_SCRIPT bool HandleCommandInternal(Element* aSource,
+                                                Command aCommand,
+                                                ErrorResult& aRv) override;
 
   MOZ_CAN_RUN_SCRIPT void FocusCandidate(Element*, bool aClearUpFocus);
 
@@ -259,7 +269,11 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   void GetOuterText(mozilla::dom::DOMString& aValue, ErrorResult& aError) {
     return GetInnerText(aValue, aError);
   }
-  MOZ_CAN_RUN_SCRIPT void SetInnerText(const nsAString& aValue);
+  MOZ_CAN_RUN_SCRIPT void SetInnerText(const nsAString& aValue) {
+    SetInnerTextInternal(aValue, MutationEffectOnScript::DropTrustWorthiness);
+  }
+  MOZ_CAN_RUN_SCRIPT void SetInnerTextInternal(
+      const nsAString& aValue, MutationEffectOnScript aMutationEffectOnScript);
   MOZ_CAN_RUN_SCRIPT void SetOuterText(const nsAString& aValue,
                                        ErrorResult& aRv);
 
@@ -307,39 +321,10 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   using nsINode::SetOn##name_;                                        \
   already_AddRefed<mozilla::dom::EventHandlerNonNull> GetOn##name_(); \
   void SetOn##name_(mozilla::dom::EventHandlerNonNull* handler);
-#include "mozilla/EventNameList.h"  // IWYU pragma: keep
+#include "mozilla/EventNameList.inc"  // IWYU pragma: keep
 #undef ERROR_EVENT
 #undef FORWARDED_EVENT
 #undef EVENT
-  mozilla::dom::Element* GetOffsetParent() {
-    mozilla::CSSIntRect rcFrame;
-    return GetOffsetRect(rcFrame);
-  }
-  int32_t OffsetTop() {
-    mozilla::CSSIntRect rcFrame;
-    GetOffsetRect(rcFrame);
-
-    return rcFrame.y;
-  }
-  int32_t OffsetLeft() {
-    mozilla::CSSIntRect rcFrame;
-    GetOffsetRect(rcFrame);
-
-    return rcFrame.x;
-  }
-  int32_t OffsetWidth() {
-    mozilla::CSSIntRect rcFrame;
-    GetOffsetRect(rcFrame);
-
-    return rcFrame.Width();
-  }
-  int32_t OffsetHeight() {
-    mozilla::CSSIntRect rcFrame;
-    GetOffsetRect(rcFrame);
-
-    return rcFrame.Height();
-  }
-
   // These methods are already implemented in nsIContent but we want something
   // faster for HTMLElements ignoring the namespace checking.
   // This is safe because we already know that we are in the HTML namespace.
@@ -360,7 +345,7 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
 
   mozilla::dom::ElementInternals* GetInternals() const;
 
-  bool IsFormAssociatedCustomElements() const;
+  bool IsFormAssociatedCustomElement() const;
 
   // Returns true if the event should not be handled from GetEventTargetParent.
   virtual bool IsDisabledForEvents(mozilla::WidgetEvent* aEvent) {
@@ -559,10 +544,23 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   static void MapDivAlignAttributeInto(mozilla::MappedDeclarationsBuilder&);
 
   /**
-   * Helper to map the valign attribute for things like <col>, <tr>, <section>.
+   * Helper to map the valign attribute for various table elements.
    * @see GetAttributeMappingFunction
    */
-  static void MapVAlignAttributeInto(mozilla::MappedDeclarationsBuilder&);
+  static void MapTableVAlignAttributeInto(mozilla::MappedDeclarationsBuilder&);
+
+  /**
+   * Helper to map the align attribute for <table>.
+   * @see GetAttributeMappingFunction
+   */
+  static void MapTableHAlignAttributeInto(mozilla::MappedDeclarationsBuilder&);
+
+  /**
+   * Helper to map the align attribute for various table elements.
+   * @see GetAttributeMappingFunction
+   */
+  static void MapTableCellHAlignAttributeInto(
+      mozilla::MappedDeclarationsBuilder&);
 
   /**
    * Helper to map the image border attribute.
@@ -583,7 +581,8 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
    * block, handling percentages and numbers.
    */
   static void MapDimensionAttributeInto(mozilla::MappedDeclarationsBuilder&,
-                                        nsCSSPropertyID, const nsAttrValue&);
+                                        NonCustomCSSPropertyId,
+                                        const nsAttrValue&);
 
   /**
    * Maps the aspect ratio given width and height attributes.
@@ -695,19 +694,27 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   static bool MatchLabelsElement(Element* aElement, int32_t aNamespaceID,
                                  nsAtom* aAtom, void* aData);
 
-  already_AddRefed<nsINodeList> Labels();
+  already_AddRefed<nsINodeList> LabelsForBindings();
+  already_AddRefed<nsINodeList> LabelsInternal();
 
   static bool LegacyTouchAPIEnabled(JSContext* aCx, JSObject* aObj);
 
+  // https://html.spec.whatwg.org/#dom-window-nameditem-filter
   static inline bool CanHaveName(nsAtom* aTag) {
     return aTag == nsGkAtoms::img || aTag == nsGkAtoms::form ||
            aTag == nsGkAtoms::embed || aTag == nsGkAtoms::object;
   }
-  static inline bool ShouldExposeNameAsHTMLDocumentProperty(Element* aElement) {
+  static inline bool ShouldExposeNameAsWindowProperty(Element* aElement) {
     return aElement->IsHTMLElement() &&
            CanHaveName(aElement->NodeInfo()->NameAtom());
   }
+  // https://html.spec.whatwg.org/#dom-document-nameditem-filter
   static inline bool ShouldExposeIdAsHTMLDocumentProperty(Element* aElement) {
+    if (!aElement->HasID() || aElement->IsInNativeAnonymousSubtree()) {
+      return false;
+    }
+    // XXX Not all objects is exposed per spec, but other browsers doesn't check
+    // if object is exposed, either.
     if (aElement->IsHTMLElement(nsGkAtoms::object)) {
       return true;
     }
@@ -716,6 +723,16 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
     // name (which doesn't have to match the id or anything).
     // HasName() is true precisely when name is nonempty.
     return aElement->IsHTMLElement(nsGkAtoms::img) && aElement->HasName();
+  }
+  static inline bool ShouldExposeNameAsHTMLDocumentProperty(Element* aElement) {
+    if (!aElement->HasName() || aElement->IsInNativeAnonymousSubtree()) {
+      return false;
+    }
+    // XXX Not all embeds/objects are exposed per spec, but other browser
+    // doesn't check if embeds/objects are exposed.
+    return aElement->IsAnyOfHTMLElements(nsGkAtoms::embed, nsGkAtoms::form,
+                                         nsGkAtoms::iframe, nsGkAtoms::img,
+                                         nsGkAtoms::object);
   }
 
   virtual inline void ResultForDialogSubmit(nsAString& aResult) {
@@ -730,11 +747,6 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   void SetFetchPriority(const nsAString& aFetchPriority) {
     SetHTMLAttr(nsGkAtoms::fetchpriority, aFetchPriority);
   }
-
- protected:
-  mozilla::dom::FetchPriority GetFetchPriority() const;
-
-  static void ParseFetchPriority(const nsAString& aValue, nsAttrValue& aResult);
 
  private:
   /**
@@ -945,14 +957,6 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   virtual already_AddRefed<mozilla::EditorBase> GetAssociatedEditor();
 
   /**
-   * Get the frame's offset information for offsetTop/Left/Width/Height.
-   * Returns the parent the offset is relative to.
-   * @note This method flushes pending notifications (FlushType::Layout).
-   * @param aRect the offset information [OUT]
-   */
-  mozilla::dom::Element* GetOffsetRect(mozilla::CSSIntRect& aRect);
-
-  /**
    * Ensures all editors associated with a subtree are synced, for purposes of
    * spellchecking.
    */
@@ -960,9 +964,6 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
 
   [[nodiscard]] inline static bool IsEditableState(
       ContentEditableState aState) {
-    MOZ_ASSERT_IF(aState == ContentEditableState::PlainTextOnly,
-                  mozilla::StaticPrefs::
-                      dom_element_contenteditable_plaintext_only_enabled());
     return aState == ContentEditableState::True ||
            aState == ContentEditableState::PlainTextOnly;
   }
@@ -971,7 +972,7 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   already_AddRefed<nsIURI> GetHrefURIForAnchors() const;
 
  private:
-  void ChangeEditableState(int32_t aChange);
+  MOZ_CAN_RUN_SCRIPT void ChangeEditableState(int32_t aChange);
 };
 
 namespace mozilla::dom {
@@ -1133,25 +1134,26 @@ class nsGenericHTMLFormElement : public nsGenericHTMLElement {
   void UpdateFieldSet(bool aNotify);
 
   /**
-   * Add a form id observer which will observe when the element with the id in
+   * Add a form attribute observer which will observe when the element
+   * associated with
    * @form will change.
    *
    * @return The element associated with the current id in @form (may be null).
    */
-  Element* AddFormIdObserver();
+  Element* AddFormAttributeObserver();
 
   /**
-   * Remove the form id observer.
+   * Remove the form attribute attribute observer.
    */
-  void RemoveFormIdObserver();
+  void RemoveFormAttributeObserver();
 
   /**
-   * This method is a a callback for IDTargetObserver (from Document).
-   * It will be called each time the element associated with the id in @form
+   * This method is a a callback for AttrAssociatedElementUpdated (from
+   * Element). It will be called each time the element associated with @form
    * changes.
    */
-  static bool FormIdUpdated(Element* aOldElement, Element* aNewElement,
-                            void* aData);
+  static bool FormAttributeUpdated(Element* aOldElement, Element* aNewElement,
+                                   Element* thisElement);
 
   // Returns true if the event should not be handled from GetEventTargetParent
   bool IsElementDisabledForEvents(mozilla::WidgetEvent* aEvent,
@@ -1215,7 +1217,8 @@ class nsGenericHTMLFormControlElement : public nsGenericHTMLFormElement,
 
   // nsIFormControl
   mozilla::dom::HTMLFieldSetElement* GetFieldSet() override;
-  mozilla::dom::HTMLFormElement* GetForm() const override { return mForm; }
+  mozilla::dom::Element* GetFormForBindings() const override;
+  mozilla::dom::HTMLFormElement* GetFormInternal() const override;
   void SetForm(mozilla::dom::HTMLFormElement* aForm) override;
   void ClearForm(bool aRemoveFromForm, bool aUnbindOrDelete) override;
 
@@ -1230,7 +1233,6 @@ class nsGenericHTMLFormControlElement : public nsGenericHTMLFormElement,
   bool DoesReadWriteApply() const override;
   void SetFormInternal(mozilla::dom::HTMLFormElement* aForm,
                        bool aBindToTree) override;
-  mozilla::dom::HTMLFormElement* GetFormInternal() const override;
   mozilla::dom::HTMLFieldSetElement* GetFieldSetInternal() const override;
   void SetFieldSetInternal(
       mozilla::dom::HTMLFieldSetElement* aFieldset) override;
@@ -1279,8 +1281,9 @@ class nsGenericHTMLFormControlElementWithState
                       nsAttrValue& aResult) override;
 
   // PopoverInvokerElement
-  mozilla::dom::Element* GetPopoverTargetElement() const;
-  void SetPopoverTargetElement(mozilla::dom::Element*);
+  mozilla::dom::Element* GetPopoverTargetElementForBindings() const;
+  mozilla::dom::Element* GetPopoverTargetElementInternal() const;
+  void SetPopoverTargetElementForBindings(mozilla::dom::Element*);
   void GetPopoverTargetAction(nsAString& aValue) const {
     GetHTMLEnumAttr(nsGkAtoms::popovertargetaction, aValue);
   }
@@ -1288,21 +1291,10 @@ class nsGenericHTMLFormControlElementWithState
     SetHTMLAttr(nsGkAtoms::popovertargetaction, aValue);
   }
 
-  // InvokerElement
-  mozilla::dom::Element* GetInvokeTargetElement() const;
-  void SetInvokeTargetElement(mozilla::dom::Element*);
-  void GetInvokeAction(nsAString& aValue) const;
-  InvokeAction GetInvokeAction(nsAtom* aAtom) const;
-  void SetInvokeAction(const nsAString& aValue) {
-    SetHTMLAttr(nsGkAtoms::invokeaction, aValue);
-  }
-
   /**
    * https://html.spec.whatwg.org/#popover-target-attribute-activation-behavior
    */
-  MOZ_CAN_RUN_SCRIPT void HandlePopoverTargetAction();
-
-  MOZ_CAN_RUN_SCRIPT void HandleInvokeTargetAction();
+  MOZ_CAN_RUN_SCRIPT void HandlePopoverTargetAction(mozilla::dom::Element*);
 
   /**
    * Get the presentation state for a piece of content, or create it if it does
@@ -1499,4 +1491,4 @@ NS_DECLARE_NS_NEW_HTML_ELEMENT(Track)
 NS_DECLARE_NS_NEW_HTML_ELEMENT(Unknown)
 NS_DECLARE_NS_NEW_HTML_ELEMENT(Video)
 
-#endif /* nsGenericHTMLElement_h___ */
+#endif /* nsGenericHTMLElement_h_ */

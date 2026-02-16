@@ -20,11 +20,11 @@ origin:
 
   # Human-readable identifier for this version/release
   # Generally "version NNN", "tag SSS", "bookmark SSS"
-  release: c79a9bd1dd2898cd57bb793e037d58c937555c2c (2025-02-13T12:50:05.000-05:00).
+  release: 3704fb816bc8d299eaa2ff2879070b790edf6f5e (2026-01-17T16:24:32.000-05:00).
 
   # Revision to pull in
   # Must be a long or short commit SHA (long preferred)
-  revision: c79a9bd1dd2898cd57bb793e037d58c937555c2c
+  revision: 3704fb816bc8d299eaa2ff2879070b790edf6f5e
 
   # The package's license, where possible using the mnemonic from
   # https://spdx.org/licenses/
@@ -49,9 +49,10 @@ vendoring:
   skip-vendoring-steps: ['move-contents', 'update-moz-build']
 
   keep:
+    - "*.patch"
+    - arm2gnu.py
     - COPYING
     - gen-sources.py
-    - "*.patch"
     - Makefile.in
     - README_MOZILLA
     - sources.mozbuild

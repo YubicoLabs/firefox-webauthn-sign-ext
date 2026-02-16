@@ -38,9 +38,6 @@ const TestUtils = browserRequire(
   "devtools/client/shared/vendor/react-dom-test-utils"
 );
 
-const ShallowRenderer = browserRequire(
-  "devtools/client/shared/vendor/react-test-renderer-shallow"
-);
 const TestRenderer = browserRequire(
   "devtools/client/shared/vendor/react-test-renderer"
 );
@@ -309,13 +306,6 @@ function renderComponent(component, props) {
   return ReactDOM.findDOMNode(renderedComponent).children[0];
 }
 
-function shallowRenderComponent(component, props) {
-  const el = React.createElement(component, props);
-  const renderer = new ShallowRenderer();
-  renderer.render(el, {});
-  return renderer.getRenderOutput();
-}
-
 /**
  * Creates a React Component for testing
  *
@@ -335,6 +325,7 @@ async function createComponentTest(factory, props) {
     container,
     component,
     $: s => container.querySelector(s),
+    element: container.firstChild,
   };
 }
 
@@ -351,9 +342,10 @@ async function waitFor(condition = () => true, delay = 50) {
 /**
  * Matches a component tree rendererd using TestRenderer to a given expected JSON
  * snapshot.
- * @param  {String} name
+ *
+ * @param  {string} name
  *         Name of the function derived from a test [step] name.
- * @param  {Object} el
+ * @param  {object} el
  *         React element to be rendered using TestRenderer.
  */
 function matchSnapshot(name, el) {

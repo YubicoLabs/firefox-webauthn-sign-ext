@@ -17,14 +17,24 @@ GENERATED_HEADER = """
 ### DO NOT edit it by hand.
 """
 
+# A list of bug components only present in certain build configurations.
+# Include any valid BMO bug component that is missed when you run
+# `./mach update-glean-tags` on certain platforms.
+PLATFORM_SPECIFIC_COMPONENTS = [
+    "Toolkit :: Default Browser Agent",  # Windows-only
+]
+
+DEFAULT_TAG_CONTENT = {
+    "description": "The Bugzilla component which applies to this object."
+}
 
 DATA_REVIEW_HELP = """
-Beginning 2024-05-07[1], data reviews for projects in mozilla-central are now
-conducted on Phabricator. Simply duplicate your bug URL from the `bugs` list to
-the `data_reviews` list in your metrics and pings definitions, and push for code
-review in the normal way[2].
+Data reviews for projects in mozilla-central are conducted on Phabricator.
+Bugs that add or change a metric or ping should be added to the `bugs` list.
+Duplicate your bug URL from the `bugs` list to the `data_reviews` list in your metrics and pings definitions,
+and push for code review in the normal way[1].
 
-More details about this process can be found in the in-tree docs[3] and wiki[4].
+More details about this process can be found in the in-tree docs[2] and wiki[3].
 
 If you'd like to generate a Data Review Request template anyway (if, for
 instance, you can't use Phabricator for your data review or you need a Data
@@ -33,10 +43,9 @@ curious), you can invoke glean_parser directly:
 
 ./mach python -m glean_parser data-review
 
-[1]: https://groups.google.com/a/mozilla.org/g/firefox-dev/c/7z-i6UhPoKY
-[2]: https://firefox-source-docs.mozilla.org/contributing/index.html
-[3]: https://firefox-source-docs.mozilla.org/contributing/data-review.html
-[4]: https://wiki.mozilla.org/Data_Collection
+[1]: https://firefox-source-docs.mozilla.org/contributing/index.html
+[2]: https://firefox-source-docs.mozilla.org/contributing/data-review.html
+[3]: https://wiki.mozilla.org/Data_Collection
 """
 
 
@@ -84,13 +93,18 @@ def update_glean_tags(command_context):
     for bug_component in bug_components:
         product = bug_component.product.strip()
         component = bug_component.component.strip()
-        tags["{} :: {}".format(product, component)] = {
-            "description": "The Bugzilla component which applies to this object."
-        }
+        tags[f"{product} :: {component}"] = DEFAULT_TAG_CONTENT
+
+    for bug_component in PLATFORM_SPECIFIC_COMPONENTS:
+        tags[bug_component] = DEFAULT_TAG_CONTENT
+
+    # pyyaml will anchor+alias DEFAULT_TAG_CONTENT which would normally be fine,
+    # but I don't want the whole file to change all at once right now.
+    yaml.Dumper.ignore_aliases = lambda self, data: True
 
     open(tags_filename, "w").write(
-        "{}\n{}\n\n".format(LICENSE_HEADER, GENERATED_HEADER)
-        + yaml.dump(tags, width=78, explicit_start=True)
+        f"{LICENSE_HEADER}\n{GENERATED_HEADER}\n\n"
+        + yaml.dump(tags, width=78, explicit_start=True, line_break="\n")
     )
 
 
@@ -150,18 +164,9 @@ def update_glean(command_context, version):
     topsrcdir = Path(command_context.topsrcdir)
 
     replace_in_file_or_die(
-        topsrcdir
-        / "mobile"
-        / "android"
-        / "android-components"
-        / "plugins"
-        / "dependencies"
-        / "src"
-        / "main"
-        / "java"
-        / "DependenciesPlugin.kt",
-        r'mozilla_glean = "[0-9.]+"',
-        f'mozilla_glean = "{version}"',
+        topsrcdir / "gradle" / "libs.versions.toml",
+        r'glean = "[0-9.]+"',
+        f'glean = "{version}"',
     )
     replace_in_file_or_die(
         topsrcdir / "Cargo.toml",

@@ -21,6 +21,30 @@ const smollm2Model = {
   useMmap: true,
   useMlock: false,
   perfModelId: "HuggingFaceTB/SmolLM2-360M-Instruct",
+  backend: "llama.cpp",
+};
+
+const qwen3Model = {
+  taskName: "text-generation",
+  modelId: "unsloth/Qwen3-0.6B-GGUF",
+  modelFile: "Qwen3-0.6B-Q8_0.gguf",
+  kvCacheDtype: "q8_0",
+  flashAttn: true,
+  useMmap: true,
+  useMlock: false,
+  perfModelId: "unsloth/Qwen3-0.6B-GGUF",
+};
+
+const qwen3ModelNative = {
+  taskName: "text-generation",
+  modelId: "unsloth/Qwen3-0.6B-GGUF",
+  modelFile: "Qwen3-0.6B-Q8_0.gguf",
+  kvCacheDtype: "q8_0",
+  flashAttn: false,
+  useMmap: false,
+  useMlock: true,
+  perfModelId: "unsloth/Qwen3-0.6B-GGUF",
+  backend: "llama.cpp",
 };
 
 const articles = [
@@ -34,11 +58,16 @@ const articles = [
     type: "medium",
     numTokens: 568,
   },
+  {
+    data: `${rootDataUrl}/big.txt`,
+    type: "big",
+    numTokens: 1100,
+  },
 ];
 
 let numEngines = 0;
 
-for (const model of [smollm2Model]) {
+for (const model of [qwen3ModelNative]) {
   for (const article of articles) {
     // Replace all non-alphabnumeric or dash or underscore by underscore
     const perfName = `${model.perfModelId.replace(/\//g, "-")}_${article.type}`;
@@ -61,7 +90,7 @@ for (const model of [smollm2Model]) {
 
 const perfMetadata = {
   owner: "GenAI Team",
-  name: "ML Llama Summarizer Model",
+  name: "browser_ml_llama_summarizer_perf.js",
   description:
     "Template test for latency for Summarizer model using Llama.cpp WASM",
   options: {
@@ -71,23 +100,23 @@ const perfMetadata = {
         {
           name: "latency",
           unit: "ms",
-          shouldAlert: true,
+          shouldAlert: false,
         },
         {
           name: "memory",
           unit: "MB",
-          shouldAlert: true,
+          shouldAlert: false,
         },
         {
           name: "tokenSpeed",
           unit: "tokens/s",
-          shouldAlert: true,
+          shouldAlert: false,
           lowerIsBetter: false,
         },
         {
           name: "charactersSpeed",
           unit: "chars/s",
-          shouldAlert: true,
+          shouldAlert: false,
           lowerIsBetter: false,
         },
       ],
@@ -99,11 +128,11 @@ const perfMetadata = {
   },
 };
 
-requestLongerTimeout(120);
+requestLongerTimeout(20);
 
 // To run locally
 // pip install huggingface-hub
-// huggingface-cli download {model_id} --local-dir MOZ_FETCHES_DIR/onnx-models/{model_id}/{revision}
+// huggingface-cli download {model_id} --local-dir MOZ_ML_LOCAL_DIR/onnx-models/{model_id}/{revision}
 
 // Update your test in
 // Then run:  ./mach lint -l perfdocs --fix .
@@ -151,6 +180,8 @@ async function run_summarizer_with_perf({
     ...llamaOptions,
   });
 
+  console.log("detected concurrency", navigator.hardwareConcurrency);
+
   if (taskName.includes("text-generation")) {
     chatInput = [
       {
@@ -169,6 +200,8 @@ async function run_summarizer_with_perf({
     prompt: chatInput,
     nPredict: numNewTokens,
     skipPrompt: false,
+    stopOnEndOfGenerationTokens: false,
+    context: { swaFull: false, flashAttn: false },
   };
 
   await perfTest({
@@ -187,10 +220,18 @@ add_task(async function test_ml_smollm_medium_article() {
   await run_summarizer_with_perf(testData[1]);
 });
 
+add_task(async function test_ml_smollm_medium_article() {
+  await run_summarizer_with_perf(testData[2]);
+});
+
 add_task(async function test_ml_smollm_tiny_article_with_mem() {
   await run_summarizer_with_perf({ ...testData[0], trackPeakMemory: true });
 });
 
 add_task(async function test_ml_smollm_medium_article_with_mem() {
   await run_summarizer_with_perf({ ...testData[1], trackPeakMemory: true });
+});
+
+add_task(async function test_ml_smollm_medium_article_with_mem() {
+  await run_summarizer_with_perf({ ...testData[2], trackPeakMemory: true });
 });

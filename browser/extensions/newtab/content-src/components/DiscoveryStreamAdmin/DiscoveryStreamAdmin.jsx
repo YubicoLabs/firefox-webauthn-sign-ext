@@ -4,8 +4,26 @@
 
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import { connect } from "react-redux";
-import React from "react";
-import { SimpleHashRouter } from "./SimpleHashRouter";
+import React, { useEffect } from "react";
+
+// Pref Constants
+const PREF_AD_SIZE_MEDIUM_RECTANGLE = "newtabAdSize.mediumRectangle";
+const PREF_AD_SIZE_BILLBOARD = "newtabAdSize.billboard";
+const PREF_AD_SIZE_LEADERBOARD = "newtabAdSize.leaderboard";
+const PREF_SECTIONS_ENABLED = "discoverystream.sections.enabled";
+const PREF_SPOC_PLACEMENTS = "discoverystream.placements.spocs";
+const PREF_SPOC_COUNTS = "discoverystream.placements.spocs.counts";
+const PREF_CONTEXTUAL_ADS_ENABLED =
+  "discoverystream.sections.contextualAds.enabled";
+const PREF_CONTEXTUAL_BANNER_PLACEMENTS =
+  "discoverystream.placements.contextualBanners";
+const PREF_CONTEXTUAL_BANNER_COUNTS =
+  "discoverystream.placements.contextualBanners.counts";
+const PREF_UNIFIED_ADS_ENABLED = "unifiedAds.spocs.enabled";
+const PREF_UNIFIED_ADS_ENDPOINT = "unifiedAds.endpoint";
+const PREF_ALLOWED_ENDPOINTS = "discoverystream.endpoints";
+const PREF_OHTTP_CONFIG = "discoverystream.ohttp.configURL";
+const PREF_OHTTP_RELAY = "discoverystream.ohttp.relayURL";
 
 const Row = props => (
   <tr className="message-item" {...props}>
@@ -71,50 +89,6 @@ export class TogglePrefCheckbox extends React.PureComponent {
   }
 }
 
-export class Personalization extends React.PureComponent {
-  constructor(props) {
-    super(props);
-    this.togglePersonalization = this.togglePersonalization.bind(this);
-  }
-
-  togglePersonalization() {
-    this.props.dispatch(
-      ac.OnlyToMain({
-        type: at.DISCOVERY_STREAM_PERSONALIZATION_TOGGLE,
-      })
-    );
-  }
-
-  render() {
-    const { lastUpdated, initialized } = this.props.state.Personalization;
-    return (
-      <React.Fragment>
-        <table>
-          <tbody>
-            <Row>
-              <td colSpan="2">
-                <TogglePrefCheckbox
-                  checked={this.props.personalized}
-                  pref="personalized"
-                  onChange={this.togglePersonalization}
-                />
-              </td>
-            </Row>
-            <Row>
-              <td className="min">Personalization Last Updated</td>
-              <td>{relativeTime(lastUpdated) || "(no data)"}</td>
-            </Row>
-            <Row>
-              <td className="min">Personalization Initialized</td>
-              <td>{initialized ? "true" : "false"}</td>
-            </Row>
-          </tbody>
-        </table>
-      </React.Fragment>
-    );
-  }
-}
-
 export class DiscoveryStreamAdminUI extends React.PureComponent {
   constructor(props) {
     super(props);
@@ -130,11 +104,14 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
     this.handleWeatherSubmit = this.handleWeatherSubmit.bind(this);
     this.handleWeatherUpdate = this.handleWeatherUpdate.bind(this);
     this.resetBlocks = this.resetBlocks.bind(this);
+    this.refreshInferredPersonalization =
+      this.refreshInferredPersonalization.bind(this);
     this.refreshTopicSelectionCache =
       this.refreshTopicSelectionCache.bind(this);
-    this.toggleTBRFeed = this.toggleTBRFeed.bind(this);
     this.handleSectionsToggle = this.handleSectionsToggle.bind(this);
     this.toggleIABBanners = this.toggleIABBanners.bind(this);
+    this.handleAllizomToggle = this.handleAllizomToggle.bind(this);
+    this.sendConversionEvent = this.sendConversionEvent.bind(this);
     this.state = {
       toggledStories: {},
       weatherQuery: "",
@@ -164,6 +141,14 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
       ac.OnlyToMain({
         type: at.DISCOVERY_STREAM_CONFIG_CHANGE,
         data: config,
+      })
+    );
+  }
+
+  refreshInferredPersonalization() {
+    this.props.dispatch(
+      ac.OnlyToMain({
+        type: at.INFERRED_PERSONALIZATION_REFRESH,
       })
     );
   }
@@ -205,12 +190,6 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
     this.dispatchSimpleAction(at.DISCOVERY_STREAM_DEV_SHOW_PLACEHOLDER);
   }
 
-  toggleTBRFeed(e) {
-    const feed = e.target.value;
-    const selectedFeed = "discoverystream.contextualContent.selectedFeed";
-    this.props.dispatch(ac.SetPref(selectedFeed, feed));
-  }
-
   idleDaily() {
     this.dispatchSimpleAction(at.DISCOVERY_STREAM_DEV_IDLE_DAILY);
   }
@@ -231,50 +210,125 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
 
   toggleIABBanners(e) {
     const { pressed, id } = e.target;
-    const billboardEnabled = this.props.otherPrefs["newtabAdSize.billboard"];
-    const leaderboardEnabled =
-      this.props.otherPrefs["newtabAdSize.leaderboard"];
-    let spocValue;
-    let spocCount;
 
-    if (id === "billboard") {
-      this.props.dispatch(ac.SetPref("newtabAdSize.billboard", pressed));
-      if (pressed) {
-        spocValue = `newtab_spocs, newtab_billboard${leaderboardEnabled ? ", newtab_leaderboard" : ""}`;
-        spocCount = `6,1${leaderboardEnabled ? ",1" : ""}`;
+    // Set the active pref to true/false
+    switch (id) {
+      case "newtab_billboard":
+        // Update boolean pref for billboard ad size
+        this.props.dispatch(ac.SetPref(PREF_AD_SIZE_BILLBOARD, pressed));
+
+        break;
+      case "newtab_leaderboard":
+        // Update boolean pref for billboard ad size
+        this.props.dispatch(ac.SetPref(PREF_AD_SIZE_LEADERBOARD, pressed));
+
+        break;
+      case "newtab_rectangle":
+        // Update boolean pref for mediumRectangle (MREC) ad size
+        this.props.dispatch(ac.SetPref(PREF_AD_SIZE_MEDIUM_RECTANGLE, pressed));
+
+        break;
+    }
+
+    // Note: The counts array is passively updated whenever the placements array is updated.
+    // The default pref values for each are:
+    // PREF_SPOC_PLACEMENTS: "newtab_spocs"
+    // PREF_SPOC_COUNTS: "6"
+    const generateSpocPrefValues = () => {
+      const placements =
+        this.props.otherPrefs[PREF_SPOC_PLACEMENTS]?.split(",")
+          .map(item => item.trim())
+          .filter(item => item) || [];
+
+      const counts =
+        this.props.otherPrefs[PREF_SPOC_COUNTS]?.split(",")
+          .map(item => item.trim())
+          .filter(item => item) || [];
+
+      // Confirm that the IAB type will have a count value of "1"
+      const supportIABAdTypes = [
+        "newtab_leaderboard",
+        "newtab_rectangle",
+        "newtab_billboard",
+      ];
+      let countValue;
+      if (supportIABAdTypes.includes(id)) {
+        countValue = "1"; // Default count value for all IAB ad types
       } else {
-        spocValue = `newtab_spocs${leaderboardEnabled ? ", newtab_leaderboard" : ""}`;
-        spocCount = `6${leaderboardEnabled ? ",1" : ""}`;
+        throw new Error("IAB ad type not supported");
       }
-    } else if (id === "leaderboard") {
-      this.props.dispatch(ac.SetPref("newtabAdSize.leaderboard", pressed));
+
       if (pressed) {
-        spocValue = `newtab_spocs, newtab_leaderboard${billboardEnabled ? ", newtab_billboard" : ""}`;
-        spocCount = `6,1${billboardEnabled ? ",1" : ""}`;
+        // If pressed is true, add the id to the placements array
+        if (!placements.includes(id)) {
+          placements.push(id);
+          counts.push(countValue);
+        }
       } else {
-        spocValue = `newtab_spocs${billboardEnabled ? ", newtab_billboard" : ""}`;
-        spocCount = `6${billboardEnabled ? ",1" : ""}`;
+        // If pressed is false, remove the id from the placements array
+        const index = placements.indexOf(id);
+        if (index !== -1) {
+          placements.splice(index, 1);
+          counts.splice(index, 1);
+        }
+      }
+
+      return {
+        placements: placements.join(", "),
+        counts: counts.join(", "),
+      };
+    };
+
+    const { placements, counts } = generateSpocPrefValues();
+
+    // Update prefs with new values
+    this.props.dispatch(ac.SetPref(PREF_SPOC_PLACEMENTS, placements));
+    this.props.dispatch(ac.SetPref(PREF_SPOC_COUNTS, counts));
+
+    // If contextual ads, sections, and one of the banners are enabled
+    // update the contextualBanner prefs to include the banner value and count
+    // Else, clear the prefs
+    if (PREF_CONTEXTUAL_ADS_ENABLED && PREF_SECTIONS_ENABLED) {
+      if (PREF_AD_SIZE_BILLBOARD && placements.includes("newtab_billboard")) {
+        this.props.dispatch(
+          ac.SetPref(PREF_CONTEXTUAL_BANNER_PLACEMENTS, "newtab_billboard")
+        );
+        this.props.dispatch(ac.SetPref(PREF_CONTEXTUAL_BANNER_COUNTS, "1"));
+      } else if (
+        PREF_AD_SIZE_LEADERBOARD &&
+        placements.includes("newtab_leaderboard")
+      ) {
+        this.props.dispatch(
+          ac.SetPref(PREF_CONTEXTUAL_BANNER_PLACEMENTS, "newtab_leaderboard")
+        );
+        this.props.dispatch(ac.SetPref(PREF_CONTEXTUAL_BANNER_COUNTS, "1"));
+      } else {
+        this.props.dispatch(ac.SetPref(PREF_CONTEXTUAL_BANNER_PLACEMENTS, ""));
+        this.props.dispatch(ac.SetPref(PREF_CONTEXTUAL_BANNER_COUNTS, ""));
       }
     }
-    this.props.dispatch(
-      ac.SetPref("discoverystream.placements.spocs", spocValue)
-    );
-    this.props.dispatch(
-      ac.SetPref("discoverystream.placements.spocs.counts", spocCount)
-    );
   }
 
   handleSectionsToggle(e) {
     const { pressed } = e.target;
-    this.props.dispatch(
-      ac.SetPref("discoverystream.sections.enabled", pressed)
-    );
+    this.props.dispatch(ac.SetPref(PREF_SECTIONS_ENABLED, pressed));
     this.props.dispatch(
       ac.SetPref("discoverystream.sections.cards.enabled", pressed)
     );
-    this.props.dispatch(
-      ac.SetPref("discoverystream.sections.cards.thumbsUpDown.enabled", pressed)
-    );
+  }
+
+  sendConversionEvent() {
+    const detail = {
+      partnerId: "295BEEF7-1E3B-4128-B8F8-858E12AA660B",
+      lookbackDays: 7,
+      impressionType: "default",
+    };
+    const event = new CustomEvent("FirefoxConversionNotification", {
+      detail,
+      bubbles: true,
+      composed: true,
+    });
+    window?.dispatchEvent(event);
   }
 
   renderComponent(width, component) {
@@ -333,6 +387,25 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
       );
     }
     return weatherTable;
+  }
+
+  renderPersonalizationData() {
+    const {
+      inferredInterests,
+      coarseInferredInterests,
+      coarsePrivateInferredInterests,
+    } = this.props.state.InferredPersonalization;
+    return (
+      <div>
+        {" "}
+        Inferred Interests:
+        <pre>{JSON.stringify(inferredInterests, null, 2)}</pre> Coarse Inferred
+        Interests:
+        <pre>{JSON.stringify(coarseInferredInterests, null, 2)}</pre> Coarse
+        Inferred Interests With Differential Privacy:
+        <pre>{JSON.stringify(coarsePrivateInferredInterests, null, 2)}</pre>
+      </div>
+    );
   }
 
   renderFeedData(url) {
@@ -403,15 +476,68 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
     );
   }
 
+  handleAllizomToggle(e) {
+    const prefs = this.props.otherPrefs;
+    const unifiedAdsSpocsEnabled = prefs[PREF_UNIFIED_ADS_ENABLED];
+    if (!unifiedAdsSpocsEnabled) {
+      return;
+    }
+    const { pressed } = e.target;
+    const { dispatch } = this.props;
+    const allowedEndpoints = prefs[PREF_ALLOWED_ENDPOINTS];
+    const setPref = (pref = "", value = "") => {
+      dispatch(ac.SetPref(pref, value));
+    };
+    const clearPref = (pref = "") => {
+      dispatch(
+        ac.OnlyToMain({
+          type: at.CLEAR_PREF,
+          data: {
+            name: pref,
+          },
+        })
+      );
+    };
+    if (pressed) {
+      setPref(PREF_UNIFIED_ADS_ENDPOINT, "https://ads.allizom.org/");
+      setPref(
+        PREF_ALLOWED_ENDPOINTS,
+        `${allowedEndpoints},https://ads.allizom.org/`
+      );
+      setPref(
+        PREF_OHTTP_CONFIG,
+        "https://stage.ohttp-gateway.nonprod.webservices.mozgcp.net/ohttp-configs"
+      );
+      setPref(
+        PREF_OHTTP_RELAY,
+        "https://mozilla-ohttp-relay-test.edgecompute.app/"
+      );
+    } else {
+      clearPref(PREF_UNIFIED_ADS_ENDPOINT);
+      clearPref(PREF_ALLOWED_ENDPOINTS);
+      clearPref(PREF_OHTTP_CONFIG);
+      clearPref(PREF_OHTTP_RELAY);
+    }
+  }
+
   renderSpocs() {
     const { spocs } = this.props.state.DiscoveryStream;
 
     const unifiedAdsSpocsEnabled =
-      this.props.otherPrefs["unifiedAds.spocs.enabled"];
+      this.props.otherPrefs[PREF_UNIFIED_ADS_ENABLED];
 
-    const unifiedAdsEndpoint = this.props.otherPrefs["unifiedAds.endpoint"];
+    // Determine which mechanism is querying the UAPI ads server
+    const PREF_UNIFIED_ADS_ADSFEED_ENABLED = "unifiedAds.adsFeed.enabled";
+    const adsFeedEnabled =
+      this.props.otherPrefs[PREF_UNIFIED_ADS_ADSFEED_ENABLED];
+
+    const unifiedAdsEndpoint = this.props.otherPrefs[PREF_UNIFIED_ADS_ENDPOINT];
+    const spocsEndpoint = unifiedAdsSpocsEnabled
+      ? unifiedAdsEndpoint
+      : spocs.spocs_endpoint;
 
     let spocsData = [];
+    let allizomEnabled = spocsEndpoint?.includes("allizom");
 
     if (
       spocs.data &&
@@ -426,12 +552,23 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
         <table>
           <tbody>
             <Row>
-              <td className="min">spocs_endpoint</td>
-              <td>
-                {unifiedAdsSpocsEnabled
-                  ? unifiedAdsEndpoint
-                  : spocs.spocs_endpoint}
+              <td colSpan="2">
+                <moz-toggle
+                  id="sections-toggle"
+                  disabled={!unifiedAdsSpocsEnabled || null}
+                  pressed={allizomEnabled || null}
+                  onToggle={this.handleAllizomToggle}
+                  label="Toggle allizom"
+                />
               </td>
+            </Row>
+            <Row>
+              <td className="min">adsfeed enabled</td>
+              <td>{adsFeedEnabled ? "true" : "false"}</td>
+            </Row>
+            <Row>
+              <td className="min">spocs endpoint</td>
+              <td>{spocsEndpoint}</td>
             </Row>
             <Row>
               <td className="min">Data last fetched</td>
@@ -509,29 +646,21 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
   render() {
     const prefToggles = "enabled collapsible".split(" ");
     const { config, layout } = this.props.state.DiscoveryStream;
-    const personalized =
-      this.props.otherPrefs["discoverystream.personalization.enabled"];
-    const selectedFeed =
-      this.props.otherPrefs["discoverystream.contextualContent.selectedFeed"];
-    const sectionsEnabled =
-      this.props.otherPrefs["discoverystream.sections.enabled"];
-    const TBRFeeds = this.props.otherPrefs[
-      "discoverystream.contextualContent.feeds"
-    ]
-      .split(",")
-      .map(s => s.trim())
-      .filter(item => item);
+    const sectionsEnabled = this.props.otherPrefs[PREF_SECTIONS_ENABLED];
 
     // Prefs for IAB Banners
-    const billboardsEnabled = this.props.otherPrefs["newtabAdSize.billboard"];
-    const leaderboardEnabled =
-      this.props.otherPrefs["newtabAdSize.leaderboard"];
-    const spocPlacements =
-      this.props.otherPrefs["discoverystream.placements.spocs"];
+    const mediumRectangleEnabled =
+      this.props.otherPrefs[PREF_AD_SIZE_MEDIUM_RECTANGLE];
+    const billboardsEnabled = this.props.otherPrefs[PREF_AD_SIZE_BILLBOARD];
+    const leaderboardEnabled = this.props.otherPrefs[PREF_AD_SIZE_LEADERBOARD];
+    const spocPlacements = this.props.otherPrefs[PREF_SPOC_PLACEMENTS];
+    const mediumRectangleEnabledPressed =
+      mediumRectangleEnabled && spocPlacements.includes("newtab_rectangle");
     const billboardPressed =
       billboardsEnabled && spocPlacements.includes("newtab_billboard");
     const leaderboardPressed =
       leaderboardEnabled && spocPlacements.includes("newtab_leaderboard");
+
     return (
       <div>
         <button className="button" onClick={this.restorePrefDefaults}>
@@ -551,6 +680,13 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
           Trigger Idle Daily
         </button>
         <br />
+        <button
+          className="button"
+          onClick={this.refreshInferredPersonalization}
+        >
+          Refresh Inferred Personalization
+        </button>
+        <br />
         <button className="button" onClick={this.syncRemoteSettings}>
           Sync Remote Settings
         </button>{" "}
@@ -561,17 +697,6 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
         <button className="button" onClick={this.showPlaceholder}>
           Show Placeholder Cards
         </button>{" "}
-        <select
-          className="button"
-          onChange={this.toggleTBRFeed}
-          value={selectedFeed}
-        >
-          {TBRFeeds.map(feed => (
-            <option key={feed} value={feed}>
-              {feed}
-            </option>
-          ))}
-        </select>
         <div className="toggle-wrapper">
           <moz-toggle
             id="sections-toggle"
@@ -585,7 +710,7 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
           <summary>IAB Banner Ad Sizes</summary>
           <div className="toggle-wrapper">
             <moz-toggle
-              id="leaderboard"
+              id="newtab_leaderboard"
               pressed={leaderboardPressed || null}
               onToggle={this.toggleIABBanners}
               label="Enable IAB Leaderboard"
@@ -593,13 +718,24 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
           </div>
           <div className="toggle-wrapper">
             <moz-toggle
-              id="billboard"
+              id="newtab_billboard"
               pressed={billboardPressed || null}
               onToggle={this.toggleIABBanners}
               label="Enable IAB Billboard"
             />
           </div>
+          <div className="toggle-wrapper">
+            <moz-toggle
+              id="newtab_rectangle"
+              pressed={mediumRectangleEnabledPressed || null}
+              onToggle={this.toggleIABBanners}
+              label="Enable IAB Medium Rectangle (MREC)"
+            />
+          </div>
         </details>
+        <button className="button" onClick={this.sendConversionEvent}>
+          Send conversion event
+        </button>
         <table>
           <tbody>
             {prefToggles.map(pref => (
@@ -625,14 +761,6 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
             ))}
           </div>
         ))}
-        <h3>Personalization</h3>
-        <Personalization
-          personalized={personalized}
-          dispatch={this.props.dispatch}
-          state={{
-            Personalization: this.props.state.Personalization,
-          }}
-        />
         <h3>Spocs</h3>
         {this.renderSpocs()}
         <h3>Feeds Data</h3>
@@ -645,6 +773,8 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
         <div className="large-data-container">{this.renderBlocksData()}</div>
         <h3>Weather Data</h3>
         {this.renderWeatherData()}
+        <h3>Personalization Data</h3>
+        {this.renderPersonalizationData()}
       </div>
     );
   }
@@ -680,8 +810,8 @@ export class DiscoveryStreamAdminInner extends React.PureComponent {
             <DiscoveryStreamAdminUI
               state={{
                 DiscoveryStream: this.props.DiscoveryStream,
-                Personalization: this.props.Personalization,
                 Weather: this.props.Weather,
+                InferredPersonalization: this.props.InferredPersonalization,
               }}
               otherPrefs={this.props.Prefs.values}
               dispatch={this.props.dispatch}
@@ -693,82 +823,49 @@ export class DiscoveryStreamAdminInner extends React.PureComponent {
   }
 }
 
-export class CollapseToggle extends React.PureComponent {
-  constructor(props) {
-    super(props);
-    this.onCollapseToggle = this.onCollapseToggle.bind(this);
-    this.state = { collapsed: false };
-  }
+export function CollapseToggle(props) {
+  const { devtoolsCollapsed } = props;
+  const label = `${devtoolsCollapsed ? "Expand" : "Collapse"} devtools`;
 
-  get renderAdmin() {
-    const { props } = this;
-    return props.location.hash && props.location.hash.startsWith("#devtools");
-  }
-
-  onCollapseToggle(e) {
-    e.preventDefault();
-    this.setState(state => ({ collapsed: !state.collapsed }));
-  }
-
-  setBodyClass() {
-    if (this.renderAdmin && !this.state.collapsed) {
-      globalThis.document.body.classList.add("no-scroll");
-    } else {
+  useEffect(() => {
+    // Set or remove body class depending on devtoolsCollapsed state
+    if (devtoolsCollapsed) {
       globalThis.document.body.classList.remove("no-scroll");
+    } else {
+      globalThis.document.body.classList.add("no-scroll");
     }
-  }
 
-  componentDidMount() {
-    this.setBodyClass();
-  }
+    // Cleanup on unmount
+    return () => {
+      globalThis.document.body.classList.remove("no-scroll");
+    };
+  }, [devtoolsCollapsed]);
 
-  componentDidUpdate() {
-    this.setBodyClass();
-  }
-
-  componentWillUnmount() {
-    globalThis.document.body.classList.remove("no-scroll");
-  }
-
-  render() {
-    const { props } = this;
-    const { renderAdmin } = this;
-    const isCollapsed = this.state.collapsed || !renderAdmin;
-    const label = `${isCollapsed ? "Expand" : "Collapse"} devtools`;
-    return (
-      <React.Fragment>
-        <a
-          href="#devtools"
-          title={label}
-          aria-label={label}
-          className={`discoverystream-admin-toggle ${
-            isCollapsed ? "collapsed" : "expanded"
-          }`}
-          onClick={this.renderAdmin ? this.onCollapseToggle : null}
-        >
-          <span className="icon icon-devtools" />
-        </a>
-        {renderAdmin ? (
-          <DiscoveryStreamAdminInner
-            {...props}
-            collapsed={this.state.collapsed}
-          />
-        ) : null}
-      </React.Fragment>
-    );
-  }
+  return (
+    <>
+      <a
+        href={devtoolsCollapsed ? "#devtools" : "#"}
+        title={label}
+        aria-label={label}
+        className={`discoverystream-admin-toggle ${
+          devtoolsCollapsed ? "expanded" : "collapsed"
+        }`}
+      >
+        <span className="icon icon-devtools" />
+      </a>
+      {!devtoolsCollapsed ? (
+        <DiscoveryStreamAdminInner {...props} collapsed={devtoolsCollapsed} />
+      ) : null}
+    </>
+  );
 }
 
-const _DiscoveryStreamAdmin = props => (
-  <SimpleHashRouter>
-    <CollapseToggle {...props} />
-  </SimpleHashRouter>
-);
+const _DiscoveryStreamAdmin = props => <CollapseToggle {...props} />;
 
 export const DiscoveryStreamAdmin = connect(state => ({
   Sections: state.Sections,
   DiscoveryStream: state.DiscoveryStream,
-  Personalization: state.Personalization,
+  InferredPersonalization: state.InferredPersonalization,
   Prefs: state.Prefs,
   Weather: state.Weather,
 }))(_DiscoveryStreamAdmin);

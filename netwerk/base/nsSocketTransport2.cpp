@@ -13,9 +13,9 @@
 #include "NSSErrorsService.h"
 #include "NetworkDataCountLayer.h"
 #include "QuicSocketControl.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/SyncRunnable.h"
+#include "mozilla/glean/NetwerkMetrics.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/dom/ToJSValue.h"
 #include "mozilla/net/NeckoChild.h"
@@ -1232,7 +1232,7 @@ nsresult nsSocketTransport::BuildSocket(PRFileDesc*& fd, bool& proxyTransparent,
   return rv;
 }
 
-static bool ShouldBlockAddress(const NetAddr& aAddr) {
+static bool ShouldBlockAddress(const NetAddr& aAddr, const nsCString& aHost) {
   if (!xpc::AreNonLocalConnectionsDisabled()) {
     return false;
   }
@@ -1241,8 +1241,26 @@ static bool ShouldBlockAddress(const NetAddr& aAddr) {
   bool hasOverride = FindNetAddrOverride(aAddr, overrideAddr);
   const NetAddr& addrToCheck = hasOverride ? overrideAddr : aAddr;
 
-  return !(addrToCheck.IsIPAddrAny() || addrToCheck.IsIPAddrLocal() ||
-           addrToCheck.IsIPAddrShared() || addrToCheck.IsLoopbackAddr());
+  if (addrToCheck.IsIPAddrAny() || addrToCheck.IsIPAddrLocal() ||
+      addrToCheck.IsIPAddrShared() || addrToCheck.IsLoopbackAddr()) {
+    return false;
+  }
+
+  nsAutoCString allowlist;
+  {
+    const auto prefLock =
+        mozilla::StaticPrefs::network_socket_allowed_nonlocal_domains();
+    allowlist = *prefLock;
+  }
+
+  for (const nsACString& host :
+       nsCCharSeparatedTokenizer(allowlist, ',').ToRange()) {
+    if (aHost == host) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 nsresult nsSocketTransport::InitiateSocket() {
@@ -1261,16 +1279,9 @@ nsresult nsSocketTransport::InitiateSocket() {
   // we need to disable access to 0.0.0.0 for non-test purposes
   if (mNetAddr.IsIPAddrAny() && !mProxyTransparentResolvesHost) {
     if (StaticPrefs::network_socket_ip_addr_any_disabled()) {
-      mozilla::glean::networking::http_ip_addr_any_count
-          .Get("blocked_requests"_ns)
-          .Add(1);
       SOCKET_LOG(("connection refused NS_ERROR_CONNECTION_REFUSED\n"));
       return NS_ERROR_CONNECTION_REFUSED;
     }
-
-    mozilla::glean::networking::http_ip_addr_any_count
-        .Get("not_blocked_requests"_ns)
-        .Add(1);
   }
 
   if (gIOService->IsOffline()) {
@@ -1286,7 +1297,7 @@ nsresult nsSocketTransport::InitiateSocket() {
     }
 #endif
 
-    if (NS_SUCCEEDED(mCondition) && ShouldBlockAddress(mNetAddr)) {
+    if (NS_SUCCEEDED(mCondition) && ShouldBlockAddress(mNetAddr, mHost)) {
       nsAutoCString ipaddr;
       RefPtr<nsNetAddr> netaddr = new nsNetAddr(&mNetAddr);
       netaddr->GetAddress(ipaddr);
@@ -1722,13 +1733,13 @@ bool nsSocketTransport::RecoverFromError() {
   if ((mState == STATE_CONNECTING) && mDNSRecord) {
     if (mNetAddr.raw.family == AF_INET) {
       if (mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase()) {
-        Telemetry::Accumulate(Telemetry::IPV4_AND_IPV6_ADDRESS_CONNECTIVITY,
-                              UNSUCCESSFUL_CONNECTING_TO_IPV4_ADDRESS);
+        glean::network::ipv4_and_ipv6_address_connectivity
+            .AccumulateSingleSample(UNSUCCESSFUL_CONNECTING_TO_IPV4_ADDRESS);
       }
     } else if (mNetAddr.raw.family == AF_INET6) {
       if (mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase()) {
-        Telemetry::Accumulate(Telemetry::IPV4_AND_IPV6_ADDRESS_CONNECTIVITY,
-                              UNSUCCESSFUL_CONNECTING_TO_IPV6_ADDRESS);
+        glean::network::ipv4_and_ipv6_address_connectivity
+            .AccumulateSingleSample(UNSUCCESSFUL_CONNECTING_TO_IPV6_ADDRESS);
       }
     }
   }
@@ -2199,13 +2210,13 @@ void nsSocketTransport::OnSocketReady(PRFileDesc* fd, int16_t outFlags) {
 
       if (mNetAddr.raw.family == AF_INET) {
         if (mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase()) {
-          Telemetry::Accumulate(Telemetry::IPV4_AND_IPV6_ADDRESS_CONNECTIVITY,
-                                SUCCESSFUL_CONNECTING_TO_IPV4_ADDRESS);
+          glean::network::ipv4_and_ipv6_address_connectivity
+              .AccumulateSingleSample(SUCCESSFUL_CONNECTING_TO_IPV4_ADDRESS);
         }
       } else if (mNetAddr.raw.family == AF_INET6) {
         if (mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase()) {
-          Telemetry::Accumulate(Telemetry::IPV4_AND_IPV6_ADDRESS_CONNECTIVITY,
-                                SUCCESSFUL_CONNECTING_TO_IPV6_ADDRESS);
+          glean::network::ipv4_and_ipv6_address_connectivity
+              .AccumulateSingleSample(SUCCESSFUL_CONNECTING_TO_IPV6_ADDRESS);
         }
       }
     } else {

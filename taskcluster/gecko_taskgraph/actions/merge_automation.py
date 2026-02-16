@@ -32,13 +32,20 @@ def is_release_promotion_available(parameters):
             },
             "push": {
                 "type": "boolean",
-                "description": "Push changes using to_repo and to_branch",
-                "default": False,
+                "description": "Push changes using to_repo and to_branch (mercurial only)",
             },
             "behavior": {
                 "type": "string",
                 "description": "The type of release promotion to perform.",
-                "enum": sorted(graph_config["merge-automation"]["behaviors"].keys()),
+                # this enum should be kept in sync with the merge-automation kind
+                "enum": [
+                    "bump-main",
+                    "bump-esr140",
+                    "early-to-late-beta",
+                    "main-to-beta",
+                    "beta-to-release",
+                    "release-to-esr",
+                ],
                 "default": "REPLACE ME",
             },
             "from-repo": {
@@ -57,13 +64,13 @@ def is_release_promotion_available(parameters):
                 "type": "string",
                 "description": "The fx head of the target, such as beta",
             },
-            "ssh-user-alias": {
-                "type": "string",
-                "description": "The alias of an ssh account to use when pushing changes.",
-            },
             "fetch-version-from": {
                 "type": "string",
                 "description": "Path to file used when querying current version.",
+            },
+            "merge-automation-id": {
+                "type": "integer",
+                "description": "Shipit merge automation ID for marking as merged.",
             },
         },
         "required": ["behavior"],
@@ -84,9 +91,9 @@ def merge_automation_action(parameters, graph_config, input, task_group_id, task
         "from-branch",
         "to-repo",
         "to-branch",
-        "ssh-user-alias",
         "push",
         "fetch-version-from",
+        "merge-automation-id",
     ]:
         if input.get(field):
             parameters["merge_config"][field] = input[field]

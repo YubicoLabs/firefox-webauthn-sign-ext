@@ -10,12 +10,10 @@ with Files("**"):
 MOCHITEST_MANIFESTS += ["test/mochitest.toml"]
 MOCHITEST_CHROME_MANIFESTS += ["test/chrome.toml"]
 
-EXPORTS += [
-    "nsISelectControlFrame.h",
-]
-
 UNIFIED_SOURCES += [
+    "ButtonControlFrame.cpp",
     "HTMLSelectEventListener.cpp",
+    "InputButtonControlFrame.cpp",
     "ListMutationObserver.cpp",
     "nsCheckboxRadioFrame.cpp",
     "nsColorControlFrame.cpp",
@@ -23,16 +21,12 @@ UNIFIED_SOURCES += [
     "nsDateTimeControlFrame.cpp",
     "nsFieldSetFrame.cpp",
     "nsFileControlFrame.cpp",
-    "nsGfxButtonControlFrame.cpp",
-    "nsHTMLButtonControlFrame.cpp",
     "nsImageControlFrame.cpp",
     "nsListControlFrame.cpp",
-    "nsMeterFrame.cpp",
     "nsNumberControlFrame.cpp",
     "nsProgressFrame.cpp",
     "nsRangeFrame.cpp",
     "nsSearchControlFrame.cpp",
-    "nsSelectsAreaFrame.cpp",
     "nsTextControlFrame.cpp",
 ]
 

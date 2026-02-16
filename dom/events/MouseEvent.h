@@ -7,10 +7,10 @@
 #ifndef mozilla_dom_MouseEvent_h_
 #define mozilla_dom_MouseEvent_h_
 
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/UIEvent.h"
-#include "mozilla/dom/MouseEventBinding.h"
 #include "mozilla/EventForwards.h"
+#include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/MouseEventBinding.h"
+#include "mozilla/dom/UIEvent.h"
 
 namespace mozilla::dom {
 
@@ -104,7 +104,7 @@ class MouseEvent : public UIEvent {
   bool AltKey();
   bool MetaKey();
   int16_t Button();
-  uint16_t Buttons();
+  uint16_t Buttons() const;
   already_AddRefed<EventTarget> GetRelatedTarget();
   void InitMouseEvent(const nsAString& aType, bool aCanBubble, bool aCancelable,
                       nsGlobalWindowInner* aView, int32_t aDetail,
@@ -139,6 +139,7 @@ class MouseEvent : public UIEvent {
                         float aPressure, uint16_t aInputSource);
   void PreventClickEvent();
   bool ClickEventPrevented();
+  already_AddRefed<Event> GetTriggerEvent() const;
 
  protected:
   ~MouseEvent() = default;

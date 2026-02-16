@@ -8,11 +8,8 @@
 
 #include "mozilla/Assertions.h"
 #include "mozilla/ClearOnShutdown.h"
-#include "mozilla/DebugOnly.h"
-#include "mozilla/Unused.h"
 #include "MsaaAccessible.h"
 #include "nsAccessibilityService.h"
-#include "sdnAccessible.h"
 
 namespace mozilla {
 namespace a11y {
@@ -41,6 +38,12 @@ void MsaaIdGenerator::ReleasePendingIDs() {
   mReleaseIDTimer = nullptr;
 }
 
+void MsaaIdGenerator::ReleasePendingIdsCallback(nsITimer* aTimer,
+                                                void* aClosure) {
+  MsaaIdGenerator* gen = (MsaaIdGenerator*)aClosure;
+  gen->ReleasePendingIDs();
+}
+
 bool MsaaIdGenerator::ReleaseID(uint32_t aID) {
   MOZ_ASSERT(aID != MsaaAccessible::kNoID);
   // Releasing an id means it can be reused. Reusing ids too quickly can
@@ -58,29 +61,20 @@ bool MsaaIdGenerator::ReleaseID(uint32_t aID) {
   }
   const uint32_t kReleaseDelay = 1000;
   mIDsToRelease.AppendElement(aID);
-  if (mReleaseIDTimer) {
-    mReleaseIDTimer->SetDelay(kReleaseDelay);
-  } else {
-    NS_NewTimerWithCallback(
-        getter_AddRefs(mReleaseIDTimer),
-        // mReleaseIDTimer is cancelled on shutdown and this is a static
-        // instance, so capturing this here is safe.
-        [this](nsITimer* aTimer) { ReleasePendingIDs(); }, kReleaseDelay,
-        nsITimer::TYPE_ONE_SHOT, "a11y::MsaaIdGenerator::ReleaseIDDelayed");
+  if (!mReleaseIDTimer) {
+    mReleaseIDTimer = NS_NewTimer();
   }
+  // mReleaseIDTimer is cancelled on shutdown and this is a static instance,
+  // so capturing this here is safe.
+  mReleaseIDTimer->InitWithNamedFuncCallback(
+      ReleasePendingIdsCallback, this, kReleaseDelay, nsITimer::TYPE_ONE_SHOT,
+      "a11y::MsaaIdGenerator::ReleaseIDDelayed"_ns);
+
   return true;
 }
 
 void MsaaIdGenerator::ReleaseID(NotNull<MsaaAccessible*> aMsaaAcc) {
   ReleaseID(aMsaaAcc->GetExistingID());
-}
-
-void MsaaIdGenerator::ReleaseID(NotNull<sdnAccessible*> aSdnAcc) {
-  Maybe<uint32_t> id = aSdnAcc->ReleaseUniqueID();
-  if (id.isSome()) {
-    DebugOnly<bool> released = ReleaseID(id.value());
-    MOZ_ASSERT(released);
-  }
 }
 
 }  // namespace a11y

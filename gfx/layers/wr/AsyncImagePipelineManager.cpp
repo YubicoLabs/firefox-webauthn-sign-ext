@@ -14,6 +14,7 @@
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/layers/AsyncImagePipelineOp.h"
 #include "mozilla/layers/CompositorThread.h"
+#include "mozilla/layers/Fence.h"
 #include "mozilla/layers/RemoteTextureHostWrapper.h"
 #include "mozilla/layers/SharedSurfacesParent.h"
 #include "mozilla/layers/WebRenderImageHost.h"
@@ -22,10 +23,6 @@
 #include "mozilla/webrender/RenderThread.h"
 #include "mozilla/webrender/WebRenderAPI.h"
 #include "mozilla/webrender/WebRenderTypes.h"
-
-#ifdef MOZ_WIDGET_ANDROID
-#  include "mozilla/layers/TextureHostOGL.h"
-#endif
 
 namespace mozilla {
 namespace layers {
@@ -62,6 +59,8 @@ AsyncImagePipelineManager::AsyncImagePipelineManager(
           gfx::gfxVars::UseWebRenderDCompVideoHwOverlayWin()),
       mUseWebRenderDCompVideoSwOverlayWin(
           gfx::gfxVars::UseWebRenderDCompVideoSwOverlayWin()),
+      mUseWebRenderDCompositionTextureOverlayWin(
+          gfx::gfxVars::UseWebRenderDCompositionTextureOverlayWin()),
 #endif
       mRenderSubmittedUpdatesLock("SubmittedUpdatesLock"),
       mLastCompletedFrameId(0) {
@@ -373,20 +372,24 @@ void AsyncImagePipelineManager::ApplyAsyncImagesOfImageBridge(
   }
 
 #ifdef XP_WIN
-  // UseWebRenderDCompVideoHwOverlayWin() and
-  // UseWebRenderDCompVideoSwOverlayWin() could be changed from true to false,
-  // when DCompVideoOverlay task is failed. In this case, DisplayItems need to
-  // be re-pushed to WebRender for disabling video overlay.
+  // UseWebRenderDCompVideoHwOverlayWin(), UseWebRenderDCompVideoSwOverlayWin()
+  // and gfxVars::UseWebRenderDCompositionTextureOverlayWin() could be changed
+  // from true to false, when overlay task is failed. In this case, DisplayItems
+  // need to be re-pushed to WebRender for disabling video overlay.
   bool isChanged = (mUseWebRenderDCompVideoHwOverlayWin !=
                     gfx::gfxVars::UseWebRenderDCompVideoHwOverlayWin()) ||
                    (mUseWebRenderDCompVideoSwOverlayWin !=
-                    gfx::gfxVars::UseWebRenderDCompVideoSwOverlayWin());
+                    gfx::gfxVars::UseWebRenderDCompVideoSwOverlayWin()) ||
+                   (mUseWebRenderDCompositionTextureOverlayWin !=
+                    gfx::gfxVars::UseWebRenderDCompositionTextureOverlayWin());
 
   if (isChanged) {
     mUseWebRenderDCompVideoHwOverlayWin =
         gfx::gfxVars::UseWebRenderDCompVideoHwOverlayWin();
     mUseWebRenderDCompVideoSwOverlayWin =
         gfx::gfxVars::UseWebRenderDCompVideoSwOverlayWin();
+    mUseWebRenderDCompositionTextureOverlayWin =
+        gfx::gfxVars::UseWebRenderDCompositionTextureOverlayWin();
   }
 #endif
 
@@ -658,7 +661,7 @@ void AsyncImagePipelineManager::HoldExternalImage(
 void AsyncImagePipelineManager::NotifyPipelinesUpdated(
     RefPtr<const wr::WebRenderPipelineInfo> aInfo,
     wr::RenderedFrameId aLatestFrameId,
-    wr::RenderedFrameId aLastCompletedFrameId, UniqueFileHandle&& aFenceFd) {
+    wr::RenderedFrameId aLastCompletedFrameId, RefPtr<Fence>&& aFence) {
   MOZ_ASSERT(wr::RenderThread::IsInRenderThread());
   MOZ_ASSERT(mLastCompletedFrameId <= aLastCompletedFrameId.mId);
   MOZ_ASSERT(aLatestFrameId.IsValid());
@@ -673,7 +676,7 @@ void AsyncImagePipelineManager::NotifyPipelinesUpdated(
     // Move the pending updates into the submitted ones.
     mRenderSubmittedUpdates.emplace_back(
         aLatestFrameId,
-        WebRenderPipelineInfoHolder(std::move(aInfo), std::move(aFenceFd)));
+        WebRenderPipelineInfoHolder(std::move(aInfo), std::move(aFence)));
   }
 
   // Queue a runnable on the compositor thread to process the updates.
@@ -705,7 +708,7 @@ void AsyncImagePipelineManager::ProcessPipelineUpdates() {
     auto& holder = update.second;
     const auto& info = holder.mInfo->Raw();
 
-    mReleaseFenceFd = std::move(holder.mFenceFd);
+    mReadFence = std::move(holder.mFence);
 
     for (auto& epoch : info.epochs) {
       ProcessPipelineRendered(epoch.pipeline_id, epoch.epoch, update.first);
@@ -728,19 +731,19 @@ void AsyncImagePipelineManager::ProcessPipelineRendered(
         holder->mTextureHostsUntilRenderSubmitted.begin(),
         holder->mTextureHostsUntilRenderSubmitted.end(),
         [&aEpoch](const auto& entry) { return aEpoch <= entry.mEpoch; });
-#ifdef MOZ_WIDGET_ANDROID
-    // Set release fence if TextureHost owns AndroidHardwareBuffer.
+
+    // Set read fence if TextureHost owns AndroidHardwareBuffer.
     // The TextureHost handled by mTextureHostsUntilRenderSubmitted instead of
     // mTextureHostsUntilRenderCompleted, since android fence could be used
     // to wait until its end of usage by GPU.
     for (auto it = holder->mTextureHostsUntilRenderSubmitted.begin();
          it != firstSubmittedHostToKeep; ++it) {
       const auto& entry = it;
-      if (entry->mTexture->GetAndroidHardwareBuffer() && mReleaseFenceFd) {
-        entry->mTexture->SetReleaseFence(DuplicateFileHandle(mReleaseFenceFd));
+      if (entry->mTexture->GetAndroidHardwareBuffer() && mReadFence) {
+        entry->mTexture->SetReadFence(mReadFence);
       }
     }
-#endif
+
     holder->mTextureHostsUntilRenderSubmitted.erase(
         holder->mTextureHostsUntilRenderSubmitted.begin(),
         firstSubmittedHostToKeep);
@@ -753,6 +756,16 @@ void AsyncImagePipelineManager::ProcessPipelineRendered(
         holder->mTextureHostsUntilRenderCompleted.begin(),
         holder->mTextureHostsUntilRenderCompleted.end(),
         [&aEpoch](const auto& entry) { return aEpoch <= entry->mEpoch; });
+
+    for (auto it = holder->mTextureHostsUntilRenderCompleted.begin();
+         it != firstCompletedHostToKeep; ++it) {
+      const auto& entry = *it;
+      auto* texture = entry->mTexture.get();
+      if (texture && mReadFence) {
+        texture->SetReadFence(mReadFence);
+      }
+    }
+
     if (firstCompletedHostToKeep !=
         holder->mTextureHostsUntilRenderCompleted.begin()) {
       std::vector<UniquePtr<ForwardingTextureHost>> hostsUntilCompleted(
@@ -824,8 +837,8 @@ wr::Epoch AsyncImagePipelineManager::GetNextImageEpoch() {
 
 AsyncImagePipelineManager::WebRenderPipelineInfoHolder::
     WebRenderPipelineInfoHolder(RefPtr<const wr::WebRenderPipelineInfo>&& aInfo,
-                                UniqueFileHandle&& aFenceFd)
-    : mInfo(aInfo), mFenceFd(std::move(aFenceFd)) {}
+                                RefPtr<Fence>&& aFence)
+    : mInfo(aInfo), mFence(std::move(aFence)) {}
 
 AsyncImagePipelineManager::WebRenderPipelineInfoHolder::
     ~WebRenderPipelineInfoHolder() = default;

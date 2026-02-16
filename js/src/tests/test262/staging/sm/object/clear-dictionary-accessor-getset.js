@@ -4,30 +4,15 @@
  */
 
 /*---
-includes: [sm/non262-object-shell.js, sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
 description: |
-  pending
+  Properly handle GC of a dictionary accessor property whose [[Get]] or [[Set]] has been changed to |undefined|
+info: bugzilla.mozilla.org/show_bug.cgi?id=1082662
 esid: pending
+features: [host-gc-required]
 ---*/
-var gTestfile = "clear-dictionary-accessor-getset.js";
-var BUGNUMBER = 1082662;
-var summary =
-  "Properly handle GC of a dictionary accessor property whose [[Get]] or " +
-  "[[Set]] has been changed to |undefined|";
-
-print(BUGNUMBER + ": " + summary);
-
-/**************
- * BEGIN TEST *
- **************/
 
 function test(field)
 {
-  var prop = "[[" + field[0].toUpperCase() + field.substring(1) + "]]";
-  print("Testing for GC crashes after setting " + prop + " to undefined...");
-
   function inner()
   {
      // Create an object with an accessor property.
@@ -49,14 +34,10 @@ function test(field)
   }
 
   inner();
-  gc(); // In unfixed code, this crashes trying to mark a null [[field]].
+  $262.gc(); // In unfixed code, this crashes trying to mark a null [[field]].
 }
 
 test("get");
 test("set");
-
-/******************************************************************************/
-
-print("Tests complete");
 
 reportCompare(0, 0);

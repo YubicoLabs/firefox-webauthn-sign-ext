@@ -9,7 +9,16 @@ Jinja2 template is not. Please file bugs! #}
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 {%- macro generate_structure(name, struct) %}
-{% if struct.type == "array" %}
+{%- if struct.type == "oneof" -%}
+    #[derive(Debug, Hash, Eq, PartialEq, Clone, ::glean::traits::__serde::Serialize, ::glean::traits::__serde::Deserialize)]
+    #[serde(crate = "::glean::traits::__serde")]
+    #[serde(untagged)]
+    pub enum {{ name }} {
+        {% for ty in struct.subtypes %}
+          {{ty|Camelize}}({{ty|structure_type_name}}),
+        {% endfor %}
+    }
+{% elif struct.type == "array" %}
     pub type {{ name }} = Vec<{{ name }}Item>;
 
     {{ generate_structure(name ~ "Item", struct["items"]) }}
@@ -26,6 +35,9 @@ Jinja2 template is not. Please file bugs! #}
           {% elif val.type == "object" %}
           #[serde(skip_serializing_if = "Option::is_none")]
           pub {{itemname|snake_case}}: Option<{{ name ~ "Item" ~ itemname|Camelize ~ "Object" }}>,
+          {% elif val.type == "oneof" %}
+          #[serde(skip_serializing_if = "Option::is_none")]
+          pub {{itemname|snake_case}}: Option<{{ name ~ itemname|Camelize ~ "Enum" }}>,
           {% else %}
           #[serde(skip_serializing_if = "Option::is_none")]
           pub {{itemname|snake_case}}: Option<{{val.type|structure_type_name}}>,
@@ -39,6 +51,9 @@ Jinja2 template is not. Please file bugs! #}
         {{ generate_structure(nested_name, val) }}
         {% elif val.type == "object" %}
         {% set nested_name = name ~ "Item" ~ itemname|Camelize ~ "Object" %}
+        {{ generate_structure(nested_name, val) }}
+        {% elif val.type == "oneof" %}
+        {% set nested_name = name ~ itemname|Camelize ~ "Enum" %}
         {{ generate_structure(nested_name, val) }}
         {% endif %}
     {% endfor %}
@@ -89,7 +104,7 @@ CommonMetricData {
     disabled: {{ obj.is_disabled()|rust }},
     ..Default::default()
 }
-{% endmacro %}
+{%- endmacro -%}
 {% for category in categories %}
 {% if category.contains_pings %}
 {% for obj in category.objs.values() %}
@@ -97,7 +112,7 @@ CommonMetricData {
 /// {{ obj.description|wordwrap() | replace('\n', '\n/// ') }}
 #[rustfmt::skip]
 pub static {{ obj.name|snake_case }}: ::glean::private::__export::Lazy<::glean::private::PingType> =
-    ::glean::private::__export::Lazy::new(|| ::glean::private::PingType::new("{{ obj.name }}", {{ obj.include_client_id|rust }}, {{ obj.send_if_empty|rust }}, {{ obj.precise_timestamps|rust }}, {{ obj.include_info_sections|rust }}, {{ obj.enabled|rust }}, {{ obj.schedules_pings|rust }}, {{ obj.reason_codes|rust }}, {{ obj.follows_collection_enabled|rust }}));
+    ::glean::private::__export::Lazy::new(|| ::glean::private::PingType::new("{{ obj.name }}", {{ obj.include_client_id|rust }}, {{ obj.send_if_empty|rust }}, {{ obj.precise_timestamps|rust }}, {{ obj.include_info_sections|rust }}, {{ obj.enabled|rust }}, {{ obj.schedules_pings|rust }}, {{ obj.reason_codes|rust }}, {{ obj.follows_collection_enabled|rust }}, {{ obj.uploader_capabilities|rust }}));
 {% endfor %}
 {% else %}
 pub mod {{ category.name|snake_case }} {
@@ -150,10 +165,23 @@ pub mod {{ category.name|snake_case }} {
         {%- for arg_name in extra_metric_args if not obj.labeled and obj[arg_name] is defined and arg_name != 'allowed_extra_keys' -%}
             , {{ obj[arg_name]|rust }}
         {%- endfor -%}
-        {{ ", " if obj.labeled else ")\n" }}
+        {{ ", " if obj.labeled or obj.dual_labeled else ")\n" }}
         {%- if obj.labeled -%}
         {%- if obj.labels -%}
         Some({{ obj.labels|rust }})
+        {%- else -%}
+        None
+        {%- endif -%})
+        {% endif %}
+        {%- if obj.dual_labeled -%}
+        {%- if obj.keys -%}
+        Some({{ obj.keys|rust }})
+        {%- else -%}
+        None
+        {%- endif -%}
+        {{ ", " }}
+        {%- if obj.categories -%}
+        Some({{ obj.categories|rust }})
         {%- else -%}
         None
         {%- endif -%})

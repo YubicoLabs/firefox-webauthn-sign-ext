@@ -17,6 +17,12 @@
                 <menuitem id="menu_newNavigator"
                           key="key_newNavigator"
                           command="cmd_newNavigator" data-l10n-id="menu-file-new-window"/>
+                <menuitem id="menu_newAIWindow"
+                          command="Tools:AIWindow"
+                          data-l10n-id="menu-file-new-ai-window"/>
+                <menuitem id="menu_newClassicWindow"
+                          command="Tools:ClassicWindow"
+                          data-l10n-id="menu-file-new-classic-window"/>
                 <menuitem id="menu_newPrivateWindow"
                           command="Tools:PrivateBrowsing"
                           key="key_privatebrowsing" data-l10n-id="menu-file-new-private-window"/>
@@ -148,7 +154,7 @@
                     <menuitem id="toggle_zoom"
                               type="checkbox"
                               command="cmd_fullZoomToggle"
-                              checked="false" data-l10n-id="menu-view-full-zoom-toggle"/>
+                              data-l10n-id="menu-view-full-zoom-toggle"/>
                   </menupopup>
                 </menu>
                 <menu id="pageStyleMenu" data-l10n-id="menu-view-page-style-menu">
@@ -168,19 +174,16 @@
 #ifdef XP_MACOSX
                 <menuitem id="enterFullScreenItem"
                           key="key_enterFullScreen"
-                          command="View:FullScreen"
-                          data-l10n-id="menu-view-enter-full-screen">
-                </menuitem>
+                          data-l10n-id="menu-view-enter-full-screen"/>
                 <menuitem id="exitFullScreenItem"
                           key="key_exitFullScreen"
-                          command="View:FullScreen"
-                          hidden="true" data-l10n-id="menu-view-exit-full-screen">
-                </menuitem>
+                          hidden="true" data-l10n-id="menu-view-exit-full-screen"/>
 #else
                 <menuitem id="fullScreenItem"
                           key="key_enterFullScreen"
                           type="checkbox"
                           command="View:FullScreen"
+                          observes="View:FullScreen"
                           data-l10n-id="menu-view-full-screen"/>
 #endif
                 <menuitem id="menu_readerModeItem"
@@ -205,11 +208,17 @@
                          placespopup="true"
                          is="places-popup"
 #endif
+                         needsgutter="always"
                          tooltip="bhTooltip"
                          popupsinherittooltip="true">
                 <menuitem id="menu_showAllHistory"
                           key="showAllHistoryKb"
                           command="Browser:ShowAllHistory" data-l10n-id="menu-history-show-all-history"/>
+
+                <menuitem id="chatsHistoryMenu" class="chats-history-menuitem"
+                          data-l10n-id="menu-history-chats"
+                          disabled="true" hidden="true" command="Tools:ChatsHistory"/>
+
                 <menuitem id="sanitizeItem"
                           key="key_sanitize"
                           command="Tools:Sanitize" data-l10n-id="menu-history-clear-recent-history"/>
@@ -251,8 +260,16 @@
 #endif
                   </menupopup>
                 </menu>
+
+                <menuseparator id="startChatHistorySeparator" hidden="true"/>
+                <menuitem id="recentChatsHeader" class="recent-chats-header"
+                          data-l10n-id="menu-history-chats-recent"
+                          disabled="true" hidden="true"/>
+                <!-- Chat history menu items -->
+
                 <menuseparator id="startHistorySeparator"
                                class="hide-if-empty-places-result"/>
+
               </menupopup>
             </menu>
 
@@ -263,6 +280,7 @@
                placespopup="true"
                is="places-popup"
 #endif
+               needsgutter="always"
                context="placesContext"
                openInTabs="children"
                tooltip="bhTooltip" popupsinherittooltip="true">
@@ -323,8 +341,12 @@
     </menupopup>
   </menu>
 
-  <menu id="profiles-menu" data-l10n-id="menu-profiles" hidden="true">
+  <menu id="profiles-menu" data-l10n-id="menu-profiles-menu" hidden="true">
     <menupopup id="menu_ProfilesPopup">
+      <!-- Profile list gets inserted here -->
+      <menuitem id="menu_newProfile" class="menuitem-iconic" command="Profiles:CreateProfile" data-l10n-id="menu-profiles-new-profile" />
+      <menuseparator id="profilesSeparator" />
+      <menuitem id="menu_manageProfiles" command="Profiles:ManageProfiles" data-l10n-id="menu-profiles-manage-profiles" />
     </menupopup>
   </menu>
 
@@ -335,7 +357,7 @@
                         command="Tools:Downloads" data-l10n-id="menu-tools-downloads"/>
               <menuitem id="menu_openAddons"
                         key="key_openAddons"
-                        command="Tools:Addons" data-l10n-id="menu-tools-addons-and-themes"/>
+                        command="Tools:Addons" data-l10n-id="menu-tools-extensions-and-themes"/>
 
               <!-- only one of sync-setup, sync-enable, sync-unverifieditem, sync-syncnowitem or sync-reauthitem will be showing at once -->
               <menuitem id="sync-setup"
@@ -426,8 +448,8 @@
                 <menuitem id="help_reportBrokenSite"
                           command="cmd_reportBrokenSite"
                           data-l10n-id="menu-report-broken-site"
-                          hidden="true"
-                          appmenu-data-l10n-id="menu-report-broken-site"/>
+                          disabled="true"
+                          appmenu-data-l10n-id="appmenuitem-report-broken-site"/>
                 <menuitem id="feedbackPage"
                           data-l10n-id="menu-help-share-ideas"
                           appmenu-data-l10n-id="appmenu-help-share-ideas"/>
@@ -437,10 +459,6 @@
                 <menuitem id="troubleShooting"
                           data-l10n-id="menu-help-more-troubleshooting-info"
                           appmenu-data-l10n-id="appmenu-help-more-troubleshooting-info"/>
-                <menuitem id="help_reportSiteIssue"
-                          data-l10n-id="menu-help-report-site-issue"
-                          appmenu-data-l10n-id="appmenu-help-report-site-issue"
-                          hidden="true"/>
                 <menuitem id="menu_HelpPopup_reportPhishingtoolmenu"
                           disabled="true"
                           hidden="true"

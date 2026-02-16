@@ -243,7 +243,7 @@ nsresult nsProfileLock::LockWithFcntl(nsIFile* aLockFile,
         rv = NS_ERROR_FAILURE;
     }
   } else {
-    NS_ERROR("Failed to open lock file.");
+    NS_WARNING("Failed to open lock file.");
     rv = NS_ERROR_FAILURE;
   }
   return rv;
@@ -534,7 +534,12 @@ nsresult nsProfileLock::Lock(nsIFile* aProfileDir,
 nsresult nsProfileLock::Unlock(bool aFatalSignal) {
   nsresult rv = NS_OK;
 
+#pragma GCC diagnostic push
+/* Bug 1952241: Ignore uninitialized warning for mHaveLock.
+   Seems to be a false positive with gcc */
+#pragma GCC diagnostic ignored "-Wuninitialized"
   if (mHaveLock) {
+#pragma GCC diagnostic pop
 #if defined(XP_WIN)
     if (mLockFileHandle != INVALID_HANDLE_VALUE) {
       CloseHandle(mLockFileHandle);

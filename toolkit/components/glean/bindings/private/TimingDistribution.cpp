@@ -8,6 +8,7 @@
 
 #include "mozilla/AppShutdown.h"
 #include "mozilla/ClearOnShutdown.h"
+#include "mozilla/ErrorResult.h"
 #include "mozilla/ResultVariant.h"
 #include "mozilla/dom/GleanMetricsBinding.h"
 #include "mozilla/dom/ToJSValue.h"
@@ -18,6 +19,7 @@
 #include "nsPrintfCString.h"
 #include "nsString.h"
 #include "js/PropertyAndElement.h"  // JS_DefineProperty
+#include "GIFFTFwd.h"
 
 using mozilla::TimeDuration;
 using mozilla::TimeStamp;
@@ -216,25 +218,32 @@ extern "C" NS_EXPORT void GIFFT_TimingDistributionStopAndAccumulate(
         // Values are from Glean's `TimeUnit`
         switch (aUnit) {
           case 0:  // Nanos
-            Accumulate(mirrorId.extract(), duration.ToMicroseconds() * 1000);
+            TelemetryHistogram::Accumulate(mirrorId.extract(),
+                                           duration.ToMicroseconds() * 1000);
             break;
           case 1:  // Micros
-            Accumulate(mirrorId.extract(), duration.ToMicroseconds());
+            TelemetryHistogram::Accumulate(mirrorId.extract(),
+                                           duration.ToMicroseconds());
             break;
           case 2:  // Millis
-            Accumulate(mirrorId.extract(), duration.ToMilliseconds());
+            TelemetryHistogram::Accumulate(mirrorId.extract(),
+                                           duration.ToMilliseconds());
             break;
           case 3:  // Seconds
-            Accumulate(mirrorId.extract(), duration.ToSeconds());
+            TelemetryHistogram::Accumulate(mirrorId.extract(),
+                                           duration.ToSeconds());
             break;
           case 4:  // Minutes
-            Accumulate(mirrorId.extract(), duration.ToSeconds() / 60);
+            TelemetryHistogram::Accumulate(mirrorId.extract(),
+                                           duration.ToSeconds() / 60);
             break;
           case 5:  // Hours
-            Accumulate(mirrorId.extract(), duration.ToSeconds() / 60 / 60);
+            TelemetryHistogram::Accumulate(mirrorId.extract(),
+                                           duration.ToSeconds() / 60 / 60);
             break;
           case 6:  // Days
-            Accumulate(mirrorId.extract(), duration.ToSeconds() / 60 / 60 / 24);
+            TelemetryHistogram::Accumulate(mirrorId.extract(),
+                                           duration.ToSeconds() / 60 / 60 / 24);
             break;
           default:
             MOZ_ASSERT_UNREACHABLE("Invalid/Unsupported time unit");
@@ -250,7 +259,7 @@ extern "C" NS_EXPORT void GIFFT_TimingDistributionAccumulateRawSample(
     uint32_t aMetricId, uint32_t aSample) {
   auto mirrorId = mozilla::glean::HistogramIdForMetric(aMetricId);
   if (mirrorId) {
-    Accumulate(mirrorId.extract(), aSample);
+    TelemetryHistogram::Accumulate(mirrorId.extract(), aSample);
   }
 }
 
@@ -259,7 +268,7 @@ extern "C" NS_EXPORT void GIFFT_TimingDistributionAccumulateRawSamples(
     uint32_t aMetricId, const nsTArray<uint32_t>& aSamples) {
   auto mirrorId = mozilla::glean::HistogramIdForMetric(aMetricId);
   if (mirrorId) {
-    Accumulate(mirrorId.extract(), aSamples);
+    TelemetryHistogram::Accumulate(mirrorId.extract(), aSamples);
   }
 }
 
@@ -302,8 +311,11 @@ extern "C" NS_EXPORT void GIFFT_LabeledTimingDistributionStopAndAccumulate(
       // The timer might not be in the map to be removed if it's already been
       // cancelled or stop_and_accumulate'd.
       if (!NS_WARN_IF(!optStart)) {
-        AccumulateTimeDelta(mirrorId.extract(), PromiseFlatCString(aLabel),
-                            optStart.extract());
+        TelemetryHistogram::Accumulate(
+            mirrorId.extract(), PromiseFlatCString(aLabel),
+            static_cast<uint32_t>(
+                (mozilla::TimeStamp::Now() - optStart.extract())
+                    .ToMilliseconds()));
       }
     });
   }
@@ -314,7 +326,8 @@ extern "C" NS_EXPORT void GIFFT_LabeledTimingDistributionAccumulateRawMillis(
     uint32_t aMetricId, const nsACString& aLabel, uint32_t aMS) {
   auto mirrorId = mozilla::glean::HistogramIdForMetric(aMetricId);
   if (mirrorId) {
-    Accumulate(mirrorId.extract(), PromiseFlatCString(aLabel), aMS);
+    TelemetryHistogram::Accumulate(mirrorId.extract(),
+                                   PromiseFlatCString(aLabel), aMS);
   }
 }
 
@@ -337,17 +350,18 @@ namespace mozilla::glean {
 
 namespace impl {
 
-TimerId TimingDistributionMetric::Start() const {
+TimerId TimingDistributionStandalone::Start() const {
   return fog_timing_distribution_start(mId);
 }
 
-void TimingDistributionMetric::StopAndAccumulate(const TimerId&& aId) const {
+void TimingDistributionStandalone::StopAndAccumulate(
+    const TimerId&& aId) const {
   fog_timing_distribution_stop_and_accumulate(mId, aId);
 }
 
 // Intentionally not exposed to JS for lack of use case and a time duration
 // type.
-void TimingDistributionMetric::AccumulateRawDuration(
+void TimingDistributionStandalone::AccumulateRawDuration(
     const TimeDuration& aDuration) const {
   // `* 1000.0` is an acceptable overflow risk as durations are unlikely to be
   // on the order of (-)10^282 years.
@@ -365,7 +379,7 @@ void TimingDistributionMetric::AccumulateRawDuration(
       mId, static_cast<uint64_t>(roundedDurationNs));
 }
 
-void TimingDistributionMetric::Cancel(const TimerId&& aId) const {
+void TimingDistributionStandalone::Cancel(const TimerId&& aId) const {
   fog_timing_distribution_cancel(mId, aId);
 }
 
@@ -387,16 +401,17 @@ TimingDistributionMetric::TestGetValue(const nsACString& aPingName) const {
   return Some(DistributionData(buckets, counts, sum, count));
 }
 
-TimingDistributionMetric::AutoTimer TimingDistributionMetric::Measure() const {
+TimingDistributionStandalone::AutoTimer TimingDistributionStandalone::Measure()
+    const {
   return AutoTimer(mId, this->Start());
 }
 
-void TimingDistributionMetric::AutoTimer::Cancel() {
+void TimingDistributionStandalone::AutoTimer::Cancel() {
   fog_timing_distribution_cancel(mMetricId, std::move(mTimerId));
   mTimerId = 0;
 }
 
-TimingDistributionMetric::AutoTimer::~AutoTimer() {
+TimingDistributionStandalone::AutoTimer::~AutoTimer() {
   if (mTimerId) {
     fog_timing_distribution_stop_and_accumulate(mMetricId, std::move(mTimerId));
   }

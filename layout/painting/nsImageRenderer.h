@@ -4,13 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsImageRenderer_h__
-#define nsImageRenderer_h__
+#ifndef nsImageRenderer_h_
+#define nsImageRenderer_h_
 
-#include "nsStyleStruct.h"
 #include "Units.h"
 #include "mozilla/AspectRatio.h"
 #include "mozilla/SurfaceFromElementResult.h"
+#include "nsStyleStruct.h"
 
 class gfxDrawable;
 
@@ -240,7 +240,7 @@ class nsImageRenderer {
   ImgDrawResult DrawShapeImage(nsPresContext* aPresContext,
                                gfxContext& aRenderingContext);
 
-  bool IsRasterImage();
+  bool IsRasterImage() const;
 
   /// Retrieves the image associated with this nsImageRenderer, if there is one.
   already_AddRefed<imgIContainer> GetImage();
@@ -311,4 +311,4 @@ class nsImageRenderer {
 
 }  // namespace mozilla
 
-#endif /* nsImageRenderer_h__ */
+#endif /* nsImageRenderer_h_ */

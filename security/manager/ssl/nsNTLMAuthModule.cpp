@@ -16,10 +16,9 @@
 #include "mozilla/EndianUtils.h"
 #include "mozilla/Likely.h"
 #include "mozilla/Logging.h"
-#include "mozilla/Preferences.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/StaticPrefs_network.h"
-#include "mozilla/Telemetry.h"
+#include "mozilla/glean/SecurityManagerSslMetrics.h"
 #include "nsCOMPtr.h"
 #include "nsComponentManagerUtils.h"
 #include "nsICryptoHash.h"
@@ -486,7 +485,6 @@ static nsresult GenerateType3Msg(const nsString& domain,
                                  uint32_t inLen, void** outBuf,
                                  uint32_t* outLen) {
   // inBuf contains Type-2 msg (the challenge) from server
-  MOZ_ASSERT(NS_IsMainThread());
   nsresult rv;
   Type2Msg msg{};
 
@@ -560,10 +558,10 @@ static nsresult GenerateType3Msg(const nsString& domain,
   // get workstation name
   // (do not use local machine's hostname after bug 1046421)
   //
-  rv = mozilla::Preferences::GetCString("network.generic-ntlm-auth.workstation",
-                                        hostBuf);
-  if (NS_FAILED(rv)) {
-    return rv;
+  {
+    const auto prefLock =
+        mozilla::StaticPrefs::network_generic_ntlm_auth_workstation();
+    hostBuf = *prefLock;
   }
 
   if (unicode) {
@@ -892,10 +890,10 @@ nsNTLMAuthModule::Init(const nsACString& serviceName, uint32_t serviceFlags,
 
   static bool sTelemetrySent = false;
   if (!sTelemetrySent) {
-    mozilla::Telemetry::Accumulate(mozilla::Telemetry::NTLM_MODULE_USED_2,
-                                   serviceFlags & nsIAuthModule::REQ_PROXY_AUTH
-                                       ? NTLM_MODULE_GENERIC_PROXY
-                                       : NTLM_MODULE_GENERIC_DIRECT);
+    mozilla::glean::security::ntlm_module_used.AccumulateSingleSample(
+        serviceFlags & nsIAuthModule::REQ_PROXY_AUTH
+            ? NTLM_MODULE_GENERIC_PROXY
+            : NTLM_MODULE_GENERIC_DIRECT);
     sTelemetrySent = true;
   }
 

@@ -16,12 +16,13 @@ impl TypeTracer<'_> {
             Ti::Scalar { .. }
             | Ti::Vector { .. }
             | Ti::Matrix { .. }
+            | Ti::CooperativeMatrix { .. }
             | Ti::Atomic { .. }
             | Ti::ValuePointer { .. }
             | Ti::Image { .. }
             | Ti::Sampler { .. }
-            | Ti::AccelerationStructure
-            | Ti::RayQuery => {}
+            | Ti::AccelerationStructure { .. }
+            | Ti::RayQuery { .. } => {}
 
             // Types that do contain handles.
             Ti::Array {
@@ -32,19 +33,14 @@ impl TypeTracer<'_> {
             | Ti::BindingArray { base, size } => {
                 self.types_used.insert(base);
                 match size {
-                    crate::ArraySize::Pending(pending) => match pending {
-                        crate::PendingArraySize::Expression(expr) => {
+                    crate::ArraySize::Pending(handle) => {
+                        self.overrides_used.insert(handle);
+                        let r#override = &self.overrides[handle];
+                        self.types_used.insert(r#override.ty);
+                        if let Some(expr) = r#override.init {
                             self.expressions_used.insert(expr);
                         }
-                        crate::PendingArraySize::Override(handle) => {
-                            self.overrides_used.insert(handle);
-                            let r#override = &self.overrides[handle];
-                            self.types_used.insert(r#override.ty);
-                            if let Some(expr) = r#override.init {
-                                self.expressions_used.insert(expr);
-                            }
-                        }
-                    },
+                    }
                     crate::ArraySize::Constant(_) | crate::ArraySize::Dynamic => {}
                 }
             }
@@ -71,12 +67,13 @@ impl ModuleMap {
             Ti::Scalar(_)
             | Ti::Vector { .. }
             | Ti::Matrix { .. }
+            | Ti::CooperativeMatrix { .. }
             | Ti::Atomic(_)
             | Ti::ValuePointer { .. }
             | Ti::Image { .. }
             | Ti::Sampler { .. }
-            | Ti::AccelerationStructure
-            | Ti::RayQuery => {}
+            | Ti::AccelerationStructure { .. }
+            | Ti::RayQuery { .. } => {}
 
             // Types that do contain handles.
             Ti::Pointer {
@@ -94,14 +91,7 @@ impl ModuleMap {
             } => {
                 adjust(base);
                 match *size {
-                    crate::ArraySize::Pending(crate::PendingArraySize::Expression(
-                        ref mut size_expr,
-                    )) => {
-                        self.global_expressions.adjust(size_expr);
-                    }
-                    crate::ArraySize::Pending(crate::PendingArraySize::Override(
-                        ref mut r#override,
-                    )) => {
+                    crate::ArraySize::Pending(ref mut r#override) => {
                         self.overrides.adjust(r#override);
                     }
                     crate::ArraySize::Constant(_) | crate::ArraySize::Dynamic => {}

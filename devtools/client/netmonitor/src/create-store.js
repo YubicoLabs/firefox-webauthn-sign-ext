@@ -10,20 +10,23 @@ const {
 } = require("resource://devtools/client/shared/vendor/redux.js");
 
 const {
-  waitUntilService,
-} = require("resource://devtools/client/shared/redux/middleware/wait-service.js");
-
-const {
   MIN_COLUMN_WIDTH,
   DEFAULT_COLUMN_WIDTH,
 } = require("resource://devtools/client/netmonitor/src/constants.js");
 
 // Middleware
-const batching = require("resource://devtools/client/netmonitor/src/middleware/batching.js");
-const prefs = require("resource://devtools/client/netmonitor/src/middleware/prefs.js");
+const {
+  ignore,
+} = require("resource://devtools/client/shared/redux/middleware/ignore.js");
 const {
   thunk,
 } = require("resource://devtools/client/shared/redux/middleware/thunk.js");
+const {
+  waitUntilService,
+} = require("resource://devtools/client/shared/redux/middleware/wait-service.js");
+
+const batching = require("resource://devtools/client/netmonitor/src/middleware/batching.js");
+const prefs = require("resource://devtools/client/netmonitor/src/middleware/prefs.js");
 const throttling = require("resource://devtools/client/netmonitor/src/middleware/throttling.js");
 const eventTelemetry = require("resource://devtools/client/netmonitor/src/middleware/event-telemetry.js");
 const requestBlocking = require("resource://devtools/client/netmonitor/src/middleware/request-blocking.js");
@@ -62,9 +65,7 @@ const {
 function configureStore(connector, commands, telemetry) {
   // Prepare initial state.
   const initialState = {
-    filters: new Filters({
-      requestFilterTypes: getFilterState(),
-    }),
+    filters: new Filters(getFiltersState()),
     requests: new Requests(),
     sort: new Sort(),
     timingMarkers: new TimingMarkers(),
@@ -80,6 +81,9 @@ function configureStore(connector, commands, telemetry) {
 
   // Prepare middleware.
   const middleware = applyMiddleware(
+    // Register ignore first to prevent any subsequent middleware from running
+    ignore,
+
     requestBlocking(commands),
     thunk({ connector, commands }),
     prefs,
@@ -99,7 +103,7 @@ function configureStore(connector, commands, telemetry) {
  */
 function getColumnState() {
   const columns = Columns();
-  const visibleColumns = getPref("devtools.netmonitor.visibleColumns");
+  const visibleColumns = getJsonPref("devtools.netmonitor.visibleColumns");
 
   const state = {};
   for (const col in columns) {
@@ -114,7 +118,7 @@ function getColumnState() {
  */
 function getMessageColumnState() {
   const columns = getMessageDefaultColumnsState();
-  const visibleColumns = getPref("devtools.netmonitor.msg.visibleColumns");
+  const visibleColumns = getJsonPref("devtools.netmonitor.msg.visibleColumns");
 
   const state = {};
   for (const col in columns) {
@@ -128,7 +132,7 @@ function getMessageColumnState() {
  * Get columns data (width, min-width)
  */
 function getColumnsData() {
-  const columnsData = getPref("devtools.netmonitor.columnsData");
+  const columnsData = getJsonPref("devtools.netmonitor.columnsData");
   if (!columnsData.length) {
     return ColumnsData();
   }
@@ -148,20 +152,26 @@ function getColumnsData() {
 /**
  * Get filter state from preferences.
  */
-function getFilterState() {
+function getFiltersState() {
   const activeFilters = {};
-  const filters = getPref("devtools.netmonitor.filters");
+  const filters = getJsonPref("devtools.netmonitor.filters");
   filters.forEach(filter => {
     activeFilters[filter] = true;
   });
-  return new FilterTypes(activeFilters);
+
+  return {
+    requestFilterTypes: new FilterTypes(activeFilters),
+    requestFilterText: Services.prefs.getCharPref(
+      "devtools.netmonitor.requestfilter"
+    ),
+  };
 }
 
 /**
  * Get json data from preferences
  */
 
-function getPref(pref) {
+function getJsonPref(pref) {
   try {
     return JSON.parse(Services.prefs.getCharPref(pref));
   } catch (_) {

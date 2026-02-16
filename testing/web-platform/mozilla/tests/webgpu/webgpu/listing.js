@@ -63,6 +63,14 @@ export const listing = [
       "api",
       "operation",
       "buffers",
+      "createBindGroup"
+    ]
+  },
+  {
+    "file": [
+      "api",
+      "operation",
+      "buffers",
       "map"
     ]
   },
@@ -170,8 +178,26 @@ export const listing = [
       "api",
       "operation",
       "command_buffer",
+      "queries",
+      "timestampQuery"
+    ]
+  },
+  {
+    "file": [
+      "api",
+      "operation",
+      "command_buffer",
       "render",
       "dynamic_state"
+    ]
+  },
+  {
+    "file": [
+      "api",
+      "operation",
+      "command_buffer",
+      "render",
+      "render_bundle"
     ]
   },
   {
@@ -364,6 +390,14 @@ export const listing = [
     "file": [
       "api",
       "operation",
+      "render_pass",
+      "transient_attachment"
+    ]
+  },
+  {
+    "file": [
+      "api",
+      "operation",
       "render_pipeline",
       "culling_tests"
     ]
@@ -525,14 +559,6 @@ export const listing = [
       "api",
       "operation",
       "sampling",
-      "lod_clamp"
-    ]
-  },
-  {
-    "file": [
-      "api",
-      "operation",
-      "sampling",
       "sampler_texture"
     ]
   },
@@ -566,6 +592,14 @@ export const listing = [
       "operation",
       "texture_view",
       "format_reinterpretation"
+    ]
+  },
+  {
+    "file": [
+      "api",
+      "operation",
+      "texture_view",
+      "texture_component_swizzle"
     ]
   },
   {
@@ -686,7 +720,34 @@ export const listing = [
       "validation",
       "capability_checks",
       "features",
+      "texture_component_swizzle"
+    ]
+  },
+  {
+    "file": [
+      "api",
+      "validation",
+      "capability_checks",
+      "features",
       "texture_formats"
+    ]
+  },
+  {
+    "file": [
+      "api",
+      "validation",
+      "capability_checks",
+      "features",
+      "texture_formats_tier1"
+    ]
+  },
+  {
+    "file": [
+      "api",
+      "validation",
+      "capability_checks",
+      "features",
+      "texture_formats_tier2"
     ]
   },
   {
@@ -696,7 +757,7 @@ export const listing = [
       "capability_checks",
       "limits"
     ],
-    "readme": "Test everything that shouldn't be valid without a higher-than-specified limit.\n\n- x= that limit {default, max supported (if different), lower than default (TODO: if allowed)}\n\nOne file for each limit name.\n\nTODO: implement\nTODO: Also test that \"alignment\" limits require a power of 2."
+    "readme": "Test everything that shouldn't be valid without a higher-than-specified limit.\n\nOne file for each limit name.\n\nTODO: Test that \"alignment\" limits require a power of 2."
   },
   {
     "file": [
@@ -1242,6 +1303,15 @@ export const listing = [
       "api",
       "validation",
       "encoding",
+      "cmds",
+      "setImmediates"
+    ]
+  },
+  {
+    "file": [
+      "api",
+      "validation",
+      "encoding",
       "createRenderBundleEncoder"
     ]
   },
@@ -1268,6 +1338,15 @@ export const listing = [
       "encoding",
       "programmable",
       "pipeline_bind_group_compat"
+    ]
+  },
+  {
+    "file": [
+      "api",
+      "validation",
+      "encoding",
+      "programmable",
+      "pipeline_immediate"
     ]
   },
   {
@@ -4004,6 +4083,13 @@ export const listing = [
     "file": [
       "shader",
       "execution",
+      "override"
+    ]
+  },
+  {
+    "file": [
+      "shader",
+      "execution",
       "padding"
     ]
   },
@@ -4119,6 +4205,14 @@ export const listing = [
     "file": [
       "shader",
       "execution",
+      "statement",
+      "swizzle_assignment"
+    ]
+  },
+  {
+    "file": [
+      "shader",
+      "execution",
       "value_init"
     ]
   },
@@ -4149,6 +4243,14 @@ export const listing = [
       "validation",
       "const_assert",
       "const_assert"
+    ]
+  },
+  {
+    "file": [
+      "shader",
+      "validation",
+      "decl",
+      "assignment_statement"
     ]
   },
   {

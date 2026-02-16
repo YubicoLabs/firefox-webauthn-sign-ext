@@ -7,8 +7,8 @@
 const {
   Component,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
 const {
   l10n,
@@ -34,7 +34,7 @@ loader.lazyRequireGetter(
  * selectors match elements in the current page (warnings can appear for styles
  * which don't apply to the current page).
  *
- * @extends Component
+ * @augments Component
  */
 class CSSWarning extends Component {
   static get propTypes() {

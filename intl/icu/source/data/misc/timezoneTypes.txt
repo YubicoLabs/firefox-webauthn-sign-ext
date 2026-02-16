@@ -1,10 +1,10 @@
 ﻿// © 2016 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html
-// Generated using tools/cldr/cldr-to-icu/build-icu-data.xml
+// Generated using tools/cldr/cldr-to-icu/
 timezoneTypes:table(nofallback){
     bcpTypeAlias{
         tz{
-            aqams{"nzakl"}
+            aqams{"aqmcm"}
             aukns{"auhba"}
             caffs{"cawnp"}
             camtr{"cator"}
@@ -80,7 +80,7 @@ timezoneTypes:table(nofallback){
             "America:Thunder_Bay"{"America/Toronto"}
             "America:Virgin"{"America/St_Thomas"}
             "America:Yellowknife"{"America/Edmonton"}
-            "Antarctica:South_Pole"{"Pacific/Auckland"}
+            "Antarctica:South_Pole"{"Antarctica/McMurdo"}
             "Asia:Ashkhabad"{"Asia/Ashgabat"}
             "Asia:Choibalsan"{"Asia/Ulaanbaatar"}
             "Asia:Chongqing"{"Asia/Shanghai"}
@@ -300,6 +300,7 @@ timezoneTypes:table(nofallback){
             "America:Coral_Harbour"{"cayzs"}
             "America:Cordoba"{"arcor"}
             "America:Costa_Rica"{"crsjo"}
+            "America:Coyhaique"{"clcxq"}
             "America:Creston"{"cacfq"}
             "America:Cuiaba"{"brcgb"}
             "America:Curacao"{"ancur"}

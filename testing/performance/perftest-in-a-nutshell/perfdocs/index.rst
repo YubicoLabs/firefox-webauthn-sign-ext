@@ -58,12 +58,35 @@ With all of the information found from those, there are two main things that can
 
 The second is requesting a confirmation from the performance sheriff that the patch which caused the alert is definitely the correct one. This can happen when the metric is very noisy, and the change is small (in the area of 2-3%, our threshold of detection). The sheriff will conduct more retriggers on the test, and may ask some clarifying questions about the patch.
 
-**There are 3 main resolutions for these alert bugs which depend on what you find in your investigations:**
- #. A ``WONTFIX`` resolution which implies that a change was detected, but it won't be fixed. It's possible to have this resolution on a bug which produces regressions, but the improvements outweigh those regressions. Harness-related changes are often resolved this way as well since we consider them baseline changes.
+If there are any questions about the alert, or additional help is needed with debugging the alert feel free to needinfo the performance sheriff that reported the bug. The performance sheriff most suitable for adding a needinfo to can be identified in comment zero of the bug.
+
+Alert Resolution
+----------------
+
+**There are 4 main resolutions for these alert bugs which depend on what you find in your investigations:**
+ #. A ``WONTFIX`` resolution which implies that a change was detected, but it won't be fixed. It's possible to have this resolution on a bug which produces regressions, but the improvements outweigh those regressions.
+ #. A ``WORKSFORME`` resolution which implies that a detection was valid, but there was no actual change to the product's performance. Harness-related changes are often resolved this way as well since we consider them baseline changes and do not change the performance characteristics of the product.
  #. An ``INVALID`` resolution which implies that the detection was invalid, and there wasn't a change to performance metrics. These are generally rare, as performance sheriffs tend to invalidate the alerts before a bug is produced, and tend to be related to infrastructure changes or very noisy tests where a culprit can't be determined accurately.
  #. A ``FIXED`` resolution which implies that a change was detected, and a fix was made to resolve it.
 
-If there are any questions about the alert, or additional help is needed with debugging the alert feel free to needinfo the performance sheriff that reported the bug. The performance sheriff most suitable for adding a needinfo to can be identified on the regression bug via the user who added a ``status-firefox [X]: --- → affected`` comment. In the future, this person `will be identified in comment zero <https://bugzilla.mozilla.org/show_bug.cgi?id=1914174>`_.
+If it's unclear when an alert may be resolved, it's recommended to file a follow-up bug, and close the alert as ``INCOMPLETE``. If this cannot be done, then it's strongly recommended to reach out to the performance sheriff.
+
+Alert Monitoring, and the Regression Policy
+-------------------------------------------
+
+There is a bugbot rule that monitors the activity of performance alerts. After 1 week of inactivity in the bug, a needinfo will be made for the regressor author to provide an update on any progress. This also notifies performance sheriffs.
+
+If an alert is flagged in one of these notifications, and performance sheriffs find that there has been absolutely no activity on the alert since it was filed, then **it will become a candidate for a backout** in accordance with our `regression policy <https://www.mozilla.org/en-US/about/governance/policies/regressions/>`_. Otherwise, if there has been some activity, we will simply request an update on any progress that has been made.
+
+The full process for performance sheriffs who handle these notifications proceeds as follows (`more detailed information can be found here <perf-sheriffing.html#how-to-handle-inactive-alerts>`_):
+ #. A daily email of alert bugs with no activity is obtained.
+ #. We check if the developer (regressor author) has previously responded to the bug.
+ #. **If they have responded in the past**, we reach out to ask them to provide an update on the progress that has been made.
+ #. **If they have not responded in the past**, we reach out to ask them to provide an update and mention that the regressor patch has been **added as a candidate for backout** due to lack of activity.
+ #. If the developer is not responding in either of these cases, after 24 hours, we reach out to their manager with similar messages.
+ #. If the patch is a candidate for backout, and neither the regressor author or their manager responds after 24 hours, we will request a backout of the regressor patch.
+
+Closing the bug with an `Alert Resolution`_ would be the ideal way to get the Bugbot to stop setting needinfos. Otherwise, it expects some activity there on a weekly basis if it's being actively investigated. If the alert should be investigated some day, it could be closed as ``INCOMPLETE`` with a follow-up bug. There's also a keyword you can add if you absolutely want to keep it open though. The keyword is ``backlog-deferred`` but please only use it sparingly otherwise these kinds of bugs often end up sitting around for years and then get closed when they can no longer be reproduced in our CI (due to machine, test, platform changes).
 
 Perfherder Alerts View
 ----------------------
@@ -161,7 +184,71 @@ You can also find the profiles in the artifacts tab of the Raptor test:
    :scale: 50%
    :align: center
 
-To generate the profiles locally, you can pass the flags ``--extra-profiler-run`` or ``--gecko-profile`` which repeat the test for an extra iteration with the profiler enabled, or run the test from the beginning with the profiler enabled for three iterations, respectively.
+To generate the profiles locally, you can pass the flags ``--extra-profiler-run`` or ``--gecko-profile`` which repeat the test for an extra iteration with the profiler enabled, or run the test from the beginning with the profiler enabled for three iterations, respectively. It's also possible to specify more configuration such as the profiled threads, the sampling interval or the profiler features being enabled. The parameters used in a profiling run can be copied directly from the about:profiling page in any Nightly build: click the button at the top of the page, then pick the option "Copy parameters for performance tests".
+
+
+Triggering Gecko Profiles in CI with Custom Parameters
+------------------------------------------------------
+
+In addition to using creating a Gecko Profile with the treeherder actions, you can also generate a Gecko Profiler run with custom options **directly in CI** using the ``geckoprofile`` Treeherder action after navigating to ``Custom Action``.
+
+This is useful when you want to profile an existing task using custom profiler settings such as specific threads, sampling intervals, or features, without needing to submit a new try push with non-default parameters.
+
+How to trigger a custom Gecko Profile
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Go to the push in Treeherder that ran the test you're interested in.
+2. Click on the task (e.g. a Raptor or Talos test).
+
+ .. image:: ./gpc_select.png
+    :alt: Selected performance test
+    :scale: 50%
+    :align: center
+
+3. In the task detail panel, click the three-dot menu and select ``Custom Action``.
+
+ .. image:: ./gpc_custom.png
+    :alt: Selecting custom action from the overflow menu
+    :scale: 50%
+    :align: center
+
+4. From the list of actions, choose ``geckoprofile``.
+
+ .. image:: ./gpc_dropdown.png
+    :alt: Selecting geckoprofile-custom action
+    :scale: 50%
+    :align: center
+
+5. Fill in the profiling parameters:
+
+   * ``gecko_profile_interval`` – sampling interval in milliseconds (e.g. `1`)
+   * ``gecko_profile_features`` – comma-separated feature list (e.g. `js,stackwalk,cpu,screenshots,memory`)
+   * ``gecko_profile_threads`` – comma-separated thread names (e.g. `GeckoMain,Compositor,Renderer`)
+
+ .. image:: ./gpc_form.png
+    :alt: Interface to specify custom gecko profiling parameters
+    :scale: 50%
+    :align: center
+
+ For an overview of available features and thread options, visit ``about:profiling`` in Firefox.
+ It shows descriptions and internal names for features, and includes basic thread options.
+ Note that the full set of threads is not documented. Teams typically know the ones they need, and may use presets.
+
+
+Triggering Simpleperf Profiles in CI
+------------------------------------
+
+`Simpleperf is an android profiling tool  <https://firefox-source-docs.mozilla.org/performance/profiling_with_simpleperf.html#profiling-on-android-with-simpleperf>`_  which can profile all threads on an android device and also works for non-fenix apps.
+At the moment we only have support for simpleperf with our video applink startup tests.
+
+To trigger a CI run, go to one of those jobs, and click the `Generate Performance Profile` button.
+
+ .. image:: ./generate_performance_profile.png
+    :alt: Generate Performance Profile Button
+    :scale: 50%
+    :align: center
+
+When the job completes, click on the artifacts tab, and then click the `Open in Firefox Profiler` hyperlink. You'll be re-directed to a screen where you can then load and interact with the simpleperf profiles.
 
 Side-by-Side
 ------------

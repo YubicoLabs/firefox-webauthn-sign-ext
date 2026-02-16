@@ -3,12 +3,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+include CrashReporterInitArgs;
 include GraphicsMessages;
 include MemoryReportTypes;
 include PrefsTypes;
 
 include protocol PProfiler;
-include protocol PRemoteDecoderManager;
+include protocol PRemoteMediaManager;
 include protocol PVideoBridge;
 
 #if defined(MOZ_SANDBOX) && defined(MOZ_DEBUG) && defined(ENABLE_TESTS)
@@ -52,8 +53,8 @@ parent:
 
   async InitProfiler(Endpoint<PProfilerChild> endpoint);
 
-  async NewContentRemoteDecoderManager(
-            Endpoint<PRemoteDecoderManagerParent> endpoint, ContentParentId childId);
+  async NewContentRemoteMediaManager(
+            Endpoint<PRemoteMediaManagerParent> endpoint, ContentParentId childId);
 
   async RequestMemoryReport(uint32_t generation,
                             bool anonymize,
@@ -63,7 +64,7 @@ parent:
 
   async PreferenceUpdate(Pref pref);
 
-  async UpdateVar(GfxVarUpdate var);
+  async UpdateVar(GfxVarUpdate[] var);
 
   async InitVideoBridge(Endpoint<PVideoBridgeChild> endpoint,
                         bool createHardwareDevice,
@@ -98,7 +99,7 @@ parent:
 
 child:
 
-  async InitCrashReporter(NativeThreadId threadId);
+  async InitCrashReporter(CrashReporterInitArgs aInitArgs);
 
   async AddMemoryReport(MemoryReport aReport);
 

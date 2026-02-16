@@ -82,11 +82,10 @@ def attributeReturnType(a, getter, macro):
         if macro == "NS_IMETHOD":
             # This is the declaration.
             ret = "virtual %s" % ret
+    elif ret == "nsresult":
+        ret = macro
     else:
-        if ret == "nsresult":
-            ret = macro
-        else:
-            ret = "%s_(%s)" % (macro, ret)
+        ret = "%s_(%s)" % (macro, ret)
 
     return attributeAttributes(a, getter) + ret
 
@@ -146,11 +145,10 @@ def methodReturnType(m, macro):
         if macro == "NS_IMETHOD":
             # This is the declaration
             ret = "virtual %s" % ret
+    elif ret == "nsresult":
+        ret = macro
     else:
-        if ret == "nsresult":
-            ret = macro
-        else:
-            ret = "%s_(%s)" % (macro, ret)
+        ret = "%s_(%s)" % (macro, ret)
 
     return methodAttributes(m) + ret
 
@@ -197,7 +195,7 @@ def paramlistAsNative(m, empty="void", return_param=True):
         ):
             t = m.params[paramIter].type
             # Strings can't be optional, so this shouldn't happen, but let's make sure:
-            if t == "AString" or t == "ACString" or t == "AUTF8String":
+            if t in {"AString", "ACString", "AUTF8String"}:
                 break
             l[paramIter] += " = nullptr"
             paramIter -= 1
@@ -326,7 +324,7 @@ def print_header(idl, fd, filename, relpath):
         if p.kind == "include":
             continue
         if p.kind == "cdata":
-            fd.write(p.data)
+            fd.write(p.data_with_comment())
             continue
 
         if p.kind == "webidl":
@@ -377,7 +375,7 @@ uuid_decoder = re.compile(
 iface_prolog = """ {
  public:
 
-  NS_DECLARE_STATIC_IID_ACCESSOR(%(defname)s_IID)
+  NS_INLINE_DECL_STATIC_IID(%(defname)s_IID)
 
 """
 
@@ -388,8 +386,7 @@ iface_scriptable = """\
 """
 
 iface_epilog = """};
-
-  NS_DEFINE_STATIC_IID_ACCESSOR(%(name)s, %(defname)s_IID)"""
+"""
 
 iface_decl = """
 
@@ -451,7 +448,7 @@ def infallibleDecl(member):
     realtype = member.realtype.nativeType("in")
     tmpl = builtin_infallible_tmpl
 
-    if member.realtype.kind != "builtin" and member.realtype.kind != "cenum":
+    if member.realtype.kind not in {"builtin", "cenum"}:
         assert realtype.endswith(" *"), "bad infallible type"
         tmpl = refcnt_infallible_tmpl
         realtype = realtype[:-2]  # strip trailing pointer
@@ -560,15 +557,13 @@ def write_interface(iface, fd):
     else:
         implclass = "_MYCLASS_"
 
-    names.update(
-        {
-            "defname": defname,
-            "macroname": iface.name.upper(),
-            "name": iface.name,
-            "iid": iface.attributes.uuid,
-            "implclass": implclass,
-        }
-    )
+    names.update({
+        "defname": defname,
+        "macroname": iface.name.upper(),
+        "name": iface.name,
+        "iid": iface.attributes.uuid,
+        "implclass": implclass,
+    })
 
     fd.write(iface_header % names)
 
@@ -601,7 +596,7 @@ def write_interface(iface, fd):
                 elif key == xpidl.Method:
                     write_method_decl(member)
                 elif key == xpidl.CDATA:
-                    fd.write(" %s" % member.data)
+                    fd.write(member.data_with_comment())
                 elif key == xpidl.CEnum:
                     write_cenum_decl(member)
                 else:

@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/HTMLLegendElement.h"
+
 #include "mozilla/dom/ElementBinding.h"
 #include "mozilla/dom/HTMLLegendElementBinding.h"
 #include "nsFocusManager.h"
@@ -33,11 +34,11 @@ bool HTMLLegendElement::ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
                                        nsIPrincipal* aMaybeScriptedPrincipal,
                                        nsAttrValue& aResult) {
   // this contains center, because IE4 does
-  static const nsAttrValue::EnumTable kAlignTable[] = {
+  static constexpr nsAttrValue::EnumTableEntry kAlignTable[] = {
       {"left", LegendAlignValue::Left},
       {"right", LegendAlignValue::Right},
       {"center", LegendAlignValue::Center},
-      {nullptr, 0}};
+  };
 
   if (aAttribute == nsGkAtoms::align && aNamespaceID == kNameSpaceID_None) {
     return aResult.ParseEnumValue(aValue, kAlignTable, false);
@@ -47,8 +48,8 @@ bool HTMLLegendElement::ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
                                               aMaybeScriptedPrincipal, aResult);
 }
 
-nsChangeHint HTMLLegendElement::GetAttributeChangeHint(const nsAtom* aAttribute,
-                                                       int32_t aModType) const {
+nsChangeHint HTMLLegendElement::GetAttributeChangeHint(
+    const nsAtom* aAttribute, AttrModType aModType) const {
   nsChangeHint retval =
       nsGenericHTMLElement::GetAttributeChangeHint(aAttribute, aModType);
   if (aAttribute == nsGkAtoms::align) {
@@ -127,9 +128,16 @@ HTMLLegendElement::LegendAlignValue HTMLLegendElement::LogicalAlign(
   }
 }
 
-HTMLFormElement* HTMLLegendElement::GetForm() const {
+Element* HTMLLegendElement::GetFormForBindings() const {
+  HTMLFormElement* form = GetFormInternal();
+  if (!form) {
+    return nullptr;
+  }
+  return RetargetReferenceTargetForBindings(form);
+}
+HTMLFormElement* HTMLLegendElement::GetFormInternal() const {
   const auto* fieldsetControl = nsIFormControl::FromNodeOrNull(GetFieldSet());
-  return fieldsetControl ? fieldsetControl->GetForm() : nullptr;
+  return fieldsetControl ? fieldsetControl->GetFormInternal() : nullptr;
 }
 
 JSObject* HTMLLegendElement::WrapNode(JSContext* aCx,

@@ -7,19 +7,18 @@
 #ifndef mozilla_dom_RemoteWorkerChild_h
 #define mozilla_dom_RemoteWorkerChild_h
 
-#include "nsCOMPtr.h"
-#include "nsISupportsImpl.h"
-#include "nsTArray.h"
-
 #include "mozilla/DataMutex.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/ThreadBound.h"
 #include "mozilla/dom/PRemoteWorkerChild.h"
-#include "mozilla/dom/RemoteWorkerOp.h"
 #include "mozilla/dom/PRemoteWorkerNonLifeCycleOpControllerChild.h"
+#include "mozilla/dom/RemoteWorkerOp.h"
 #include "mozilla/dom/ServiceWorkerOpArgs.h"
 #include "mozilla/dom/SharedWorkerOpArgs.h"
+#include "nsCOMPtr.h"
+#include "nsISupportsImpl.h"
+#include "nsTArray.h"
 
 class nsISerialEventTarget;
 class nsIConsoleReportCollector;
@@ -83,6 +82,11 @@ class RemoteWorkerChild final : public PRemoteWorkerChild {
   RefPtr<GenericPromise> MaybeSendSetServiceWorkerSkipWaitingFlag();
 
   const nsTArray<uint64_t>& WindowIDs() const { return mWindowIDs; }
+
+  void SetIsThawing(const bool aIsThawing) { mIsThawing = aIsThawing; }
+  bool IsThawing() const { return mIsThawing; }
+  void PendRemoteWorkerOp(RefPtr<RemoteWorkerOp> aOp);
+  void RunAllPendingOpsOnMainThread();
 
  private:
   class InitializeWorkerRunnable;
@@ -173,6 +177,23 @@ class RemoteWorkerChild final : public PRemoteWorkerChild {
   };
 
   ThreadBound<LauncherBoundData> mLauncherData;
+
+  // Thaw operation holds mState.lock. It means other operations will be blocked
+  // until mState.lock is released. However, Thaw operation is blocked by
+  // RemoteWorkerDebugger registration that needs WorkerLauncher thread to send
+  // IPC to continue the registration on the parent process. If a RemoteWorkerOp
+  // is received on WorkerLauncher thread when the RemoteWorker is thawing, a
+  // deadlock could be happen between WorkerLauncher thread and RemoteWorker's
+  // parent thread. So mIsThawing and mPendingOps are introduced to avoid the
+  // deadlock by pending the operations when RemoteWorker is thawing.
+  //
+  // Note that these could be removed once RemoteWorkerChild off-main-thread
+  // done since the RemoteWorker's parent thread will be WorkerLauncher thread.
+  // And it means when executing WorkerPrivate::Thaw on WorkerLauncher thread,
+  // it is impossible to handle the IPC callback on WorkerLauncher thread at the
+  // same time.
+  Atomic<bool> mIsThawing{false};
+  DataMutex<nsTArray<RefPtr<RemoteWorkerOp>>> mPendingOps;
 };
 
 }  // namespace mozilla::dom

@@ -25,9 +25,16 @@ function test() {
   CustomizableUIInternal.saveState();
   CustomizableUIInternal.loadSavedState();
 
-  CustomizableUIInternal._updateForNewVersion();
-  is(gFuturePlacements.size, 0, "No change to future placements initially.");
-
+  CustomizableUIInternal.updateForNewVersion();
+  // New version will include sidebar button if sidebar.revamp is true
+  let includesSidebarButton =
+    Services.prefs.getBoolPref("sidebar.revamp", false) &&
+    gFuturePlacements.get("nav-bar")?.has("sidebar-button");
+  is(
+    gFuturePlacements.size,
+    includesSidebarButton ? 1 : 0,
+    "No unexpected future placements initially."
+  );
   // Add our widget to the defaults:
   let testWidgetNew = {
     id: "test-messing-with-default-placements-new-pref",
@@ -63,7 +70,7 @@ function test() {
       CustomizableUI.AREA_NAVBAR
     ];
   // Then call the re-init routine so we re-add the builtin widgets
-  CustomizableUIInternal._updateForNewVersion();
+  CustomizableUIInternal.updateForNewVersion();
   is(gFuturePlacements.size, 1, "Should have 1 more future placement");
   let futureNavbarPlacements = gFuturePlacements.get(
     CustomizableUI.AREA_NAVBAR
@@ -75,7 +82,7 @@ function test() {
       "widget should be in future placements"
     );
   }
-  CustomizableUIInternal._placeNewDefaultWidgetsInArea(
+  CustomizableUIInternal.placeNewDefaultWidgetsInArea(
     CustomizableUI.AREA_NAVBAR
   );
 

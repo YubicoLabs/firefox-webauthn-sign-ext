@@ -5,9 +5,11 @@
 
 package org.mozilla.gecko.process;
 
+import android.app.Application;
 import android.app.Service;
 import android.content.Intent;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
@@ -28,7 +30,6 @@ public class GeckoServiceChildProcess extends Service {
 
   private static IProcessManager sProcessManager;
   private static String sOwnerProcessId;
-  private final MemoryController mMemoryController = new MemoryController();
 
   private enum ProcessState {
     NEW,
@@ -54,7 +55,12 @@ public class GeckoServiceChildProcess extends Service {
   @Override
   public void onCreate() {
     super.onCreate();
-    Log.i(LOGTAG, "onCreate");
+
+    final StringBuilder sb = new StringBuilder("onCreate");
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      sb.append(", process name: ").append(Application.getProcessName());
+    }
+    Log.i(LOGTAG, sb.toString());
 
     if (sState != ProcessState.NEW) {
       // We don't support reusing processes, and this could get us in a really weird state,
@@ -135,7 +141,7 @@ public class GeckoServiceChildProcess extends Service {
                   GeckoThread.InitInfo.builder()
                       .args(args)
                       .extras(extras)
-                      .flags(flags)
+                      .flags(flags | GeckoThread.FLAG_CHILD)
                       .userSerialNumber(userSerialNumber)
                       .fds(fds)
                       .build();
@@ -199,20 +205,6 @@ public class GeckoServiceChildProcess extends Service {
     stopSelf();
     sState = ProcessState.BOUND;
     return mBinder;
-  }
-
-  @Override
-  public void onTrimMemory(final int level) {
-    mMemoryController.onTrimMemory(level);
-
-    // This is currently a no-op in Service, but let's future-proof.
-    super.onTrimMemory(level);
-  }
-
-  @Override
-  public void onLowMemory() {
-    mMemoryController.onLowMemory();
-    super.onLowMemory();
   }
 
   /**

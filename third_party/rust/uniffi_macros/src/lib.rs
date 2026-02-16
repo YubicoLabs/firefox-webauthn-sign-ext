@@ -3,6 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #![cfg_attr(feature = "nightly", feature(proc_macro_expand))]
 #![warn(rust_2018_idioms, unused_qualifications)]
+// somewhere between 1.77 and 1.84 we got a lot of new `dead_code` warnings because
+// we use structs to aid in parsing but don't actually use the items otherwise.
+#![allow(dead_code)]
 
 //! Macros for `uniffi`.
 
@@ -10,10 +13,7 @@
 use camino::Utf8Path;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{
-    parse::{Parse, ParseStream},
-    parse_macro_input, Ident, LitStr, Path, Token,
-};
+use syn::{parse_macro_input, LitStr};
 
 mod custom;
 mod default;
@@ -25,6 +25,7 @@ mod ffiops;
 mod fnsig;
 mod object;
 mod record;
+mod remote;
 mod setup_scaffolding;
 mod test;
 mod util;
@@ -33,20 +34,6 @@ use self::{
     derive::DeriveOptions, enum_::expand_enum, error::expand_error, export::expand_export,
     object::expand_object, record::expand_record,
 };
-
-struct CustomTypeInfo {
-    ident: Ident,
-    builtin: Path,
-}
-
-impl Parse for CustomTypeInfo {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let ident = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let builtin = input.parse()?;
-        Ok(Self { ident, builtin })
-    }
-}
 
 /// A macro to build testcases for a component's generated bindings.
 ///
@@ -87,23 +74,44 @@ pub fn setup_scaffolding(tokens: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn export(attr_args: TokenStream, input: TokenStream) -> TokenStream {
-    do_export(attr_args, input, false)
+    do_export(attr_args, input, true, false)
 }
 
-fn do_export(attr_args: TokenStream, input: TokenStream, udl_mode: bool) -> TokenStream {
-    let copied_input = (!udl_mode).then(|| proc_macro2::TokenStream::from(input.clone()));
-
+fn do_export(
+    attr_args: TokenStream,
+    input: TokenStream,
+    keep_input: bool,
+    udl_mode: bool,
+) -> TokenStream {
     let gen_output = || {
         let item = syn::parse(input)?;
-        expand_export(item, attr_args, udl_mode)
+        let altered_input = keep_input.then(|| export::alter_input(&item));
+        let output = expand_export(item, attr_args, udl_mode)?;
+        Ok(quote! {
+            #altered_input
+            #output
+        })
     };
-    let output = gen_output().unwrap_or_else(syn::Error::into_compile_error);
+    gen_output()
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
-    quote! {
-        #copied_input
-        #output
-    }
-    .into()
+// Generate export items for UDL mode
+//
+// This works similarly to `udl_derive`, but for #[export].
+#[doc(hidden)]
+#[proc_macro_attribute]
+pub fn export_for_udl(attrs: TokenStream, input: TokenStream) -> TokenStream {
+    do_export(attrs, input, false, true)
+}
+
+// This is for attributes on items we also `udl_derive`. It always keeps the input tokens
+// for `udl_derive` to consume (and then discard!)
+#[doc(hidden)]
+#[proc_macro_attribute]
+pub fn export_for_udl_derive(attrs: TokenStream, input: TokenStream) -> TokenStream {
+    do_export(attrs, input, true, true)
 }
 
 #[proc_macro_derive(Record, attributes(uniffi))]
@@ -113,14 +121,14 @@ pub fn derive_record(input: TokenStream) -> TokenStream {
         .into()
 }
 
-#[proc_macro_derive(Enum)]
+#[proc_macro_derive(Enum, attributes(uniffi))]
 pub fn derive_enum(input: TokenStream) -> TokenStream {
     expand_enum(parse_macro_input!(input), DeriveOptions::default())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
 
-#[proc_macro_derive(Object)]
+#[proc_macro_derive(Object, attributes(uniffi))]
 pub fn derive_object(input: TokenStream) -> TokenStream {
     expand_object(parse_macro_input!(input), DeriveOptions::default())
         .unwrap_or_else(syn::Error::into_compile_error)
@@ -134,55 +142,67 @@ pub fn derive_error(input: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Generate the `FfiConverter` implementation for a Custom Type - ie,
-/// for a `<T>` which implements `UniffiCustomTypeConverter`.
+/// Generate FFI code for a custom type
 #[proc_macro]
 pub fn custom_type(tokens: TokenStream) -> TokenStream {
-    let input: CustomTypeInfo = syn::parse_macro_input!(tokens);
-    custom::expand_ffi_converter_custom_type(&input.ident, &input.builtin, true)
+    custom::expand_custom_type(parse_macro_input!(tokens))
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
 
-/// Generate the `FfiConverter` and the `UniffiCustomTypeConverter` implementations for a
-/// Custom Type - ie, for a `<T>` which implements `UniffiCustomTypeConverter` via the
-/// newtype idiom.
+/// Generate FFI code for a custom newtype
 #[proc_macro]
 pub fn custom_newtype(tokens: TokenStream) -> TokenStream {
-    let input: CustomTypeInfo = syn::parse_macro_input!(tokens);
-    custom::expand_ffi_converter_custom_newtype(&input.ident, &input.builtin, true)
+    custom::expand_custom_newtype(parse_macro_input!(tokens))
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
 
-// Derive items for UDL mode
-//
-// The Askama templates generate placeholder items wrapped with the `#[udl_derive(<kind>)]`
-// attribute.  The macro code then generates derived items based on the input.  This system ensures
-// that the same code path is used for UDL-based code and proc-macros.
-//
-// # Differences between UDL-mode and normal mode
-//
-// ## Metadata symbols / checksum functions
-//
-// In UDL mode, we don't export the static metadata symbols or generate the checksum
-// functions.  This could be changed, but there doesn't seem to be much benefit at this point.
-//
-// ## The FfiConverter<UT> parameter
-//
-// In UDL-mode, we only implement `FfiConverter` for the local tag (`FfiConverter<crate::UniFfiTag>`)
-//
-// The reason for this split is remote types, i.e. types defined in remote crates that we
-// don't control and therefore can't define a blanket impl on because of the orphan rules.
-//
-// With UDL, we handle this by only implementing `FfiConverter<crate::UniFfiTag>` for the
-// type.  This gets around the orphan rules since a local type is in the trait, but requires
-// a `uniffi::ffi_converter_forward!` call if the type is used in a second local crate (an
-// External typedef).  This is natural for UDL-based generation, since you always need to
-// define the external type in the UDL file.
-//
-// With proc-macros this system isn't so natural.  Instead, we create a blanket implementation
-// for all UT and support for remote types is still TODO.
+/// `#[remote(<kind>)]` attribute
+///
+/// `remote()` generates the same code that `#[derive(uniffi::<kind>)]` would, except it only
+/// implements the FFI traits for the local UniFfiTag.
+///
+/// Use this to wrap the definition of an item defined in a remote crate.
+/// See `<https://mozilla.github.io/uniffi-rs/udl/remote_ext_types.html>` for details.
+#[doc(hidden)]
+#[proc_macro_attribute]
+pub fn remote(attrs: TokenStream, input: TokenStream) -> TokenStream {
+    derive::expand_derive(
+        parse_macro_input!(attrs),
+        parse_macro_input!(input),
+        DeriveOptions::remote(),
+    )
+    .unwrap_or_else(syn::Error::into_compile_error)
+    .into()
+}
+
+/// `#[udl_remote(<kind>)]` attribute
+///
+/// Alternate version of `#[remote]` for UDL-based generation
+///
+/// The difference is that it doesn't generate metadata items, since we get those from parsing the
+/// UDL.
+#[doc(hidden)]
+#[proc_macro_attribute]
+pub fn udl_remote(attrs: TokenStream, input: TokenStream) -> TokenStream {
+    derive::expand_derive(
+        parse_macro_input!(attrs),
+        parse_macro_input!(input),
+        DeriveOptions::udl_remote(),
+    )
+    .unwrap_or_else(syn::Error::into_compile_error)
+    .into()
+}
+
+/// Derive items for UDL mode
+///
+/// The Askama templates generate placeholder items wrapped with the `#[udl_derive(<kind>)]`
+/// attribute.  The macro code then generates derived items based on the input.  This system ensures
+/// that the same code path is used for UDL-based code and proc-macros.
+///
+/// `udl_derive` works almost exactly like the `derive_*` macros, except it doesn't generate
+/// metadata items, since we get those from parsing the UDL.
 #[doc(hidden)]
 #[proc_macro_attribute]
 pub fn udl_derive(attrs: TokenStream, input: TokenStream) -> TokenStream {
@@ -193,15 +213,6 @@ pub fn udl_derive(attrs: TokenStream, input: TokenStream) -> TokenStream {
     )
     .unwrap_or_else(syn::Error::into_compile_error)
     .into()
-}
-
-// Generate export items for UDL mode
-//
-// This works similarly to `udl_derive`, but for #[export].
-#[doc(hidden)]
-#[proc_macro_attribute]
-pub fn export_for_udl(attrs: TokenStream, input: TokenStream) -> TokenStream {
-    do_export(attrs, input, true)
 }
 
 /// A helper macro to include generated component scaffolding.
@@ -252,45 +263,12 @@ pub fn include_scaffolding(udl_stem: TokenStream) -> TokenStream {
     }.into()
 }
 
-// Use a UniFFI types from dependent crates that uses UDL files
-// See the derive_for_udl and export_for_udl section for a discussion of why this is needed.
+/// Use the FFI trait implementations defined in another crate for a remote type
+///
+/// See `<https://mozilla.github.io/uniffi-rs/udl/remote_ext_types.html>` for details.
 #[proc_macro]
-pub fn use_udl_record(tokens: TokenStream) -> TokenStream {
-    use_udl_simple_type(tokens)
-}
-
-#[proc_macro]
-pub fn use_udl_enum(tokens: TokenStream) -> TokenStream {
-    use_udl_simple_type(tokens)
-}
-
-#[proc_macro]
-pub fn use_udl_error(tokens: TokenStream) -> TokenStream {
-    use_udl_simple_type(tokens)
-}
-
-fn use_udl_simple_type(tokens: TokenStream) -> TokenStream {
-    let util::ExternalTypeItem {
-        crate_ident,
-        type_ident,
-        ..
-    } = parse_macro_input!(tokens);
-    quote! {
-        ::uniffi::ffi_converter_forward!(#type_ident, #crate_ident::UniFfiTag, crate::UniFfiTag);
-    }
-    .into()
-}
-
-#[proc_macro]
-pub fn use_udl_object(tokens: TokenStream) -> TokenStream {
-    let util::ExternalTypeItem {
-        crate_ident,
-        type_ident,
-        ..
-    } = parse_macro_input!(tokens);
-    quote! {
-        ::uniffi::ffi_converter_arc_forward!(#type_ident, #crate_ident::UniFfiTag, crate::UniFfiTag);
-    }.into()
+pub fn use_remote_type(tokens: TokenStream) -> TokenStream {
+    remote::expand_remote_type(parse_macro_input!(tokens)).into()
 }
 
 /// A helper macro to generate and include component scaffolding.
@@ -349,4 +327,10 @@ pub fn constructor(_attrs: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn method(_attrs: TokenStream, input: TokenStream) -> TokenStream {
     input
+}
+
+/// Attribute for trait interfaces defined in UDL
+#[proc_macro_attribute]
+pub fn trait_interface(_attr_args: TokenStream, input: TokenStream) -> TokenStream {
+    export::alter_trait(&parse_macro_input!(input)).into()
 }

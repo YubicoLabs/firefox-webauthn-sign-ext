@@ -100,10 +100,6 @@ Class AccessibleWrap::GetNativeType() {
     return [MOXOuterDoc class];
   }
 
-  if (IsTextField() && !HasNumericValue()) {
-    return [mozTextAccessible class];
-  }
-
   return GetTypeFromRole(Role());
 
   NS_OBJC_END_TRY_BLOCK_RETURN(nil);
@@ -144,10 +140,10 @@ nsresult AccessibleWrap::HandleAccEvent(AccEvent* aEvent) {
     doc->ProcessNewLiveRegions();
   }
 
-  if ((eventType == nsIAccessibleEvent::EVENT_TEXT_INSERTED ||
-       eventType == nsIAccessibleEvent::EVENT_TEXT_REMOVED ||
-       eventType == nsIAccessibleEvent::EVENT_NAME_CHANGE) &&
-      !aEvent->FromUserInput()) {
+  if (((eventType == nsIAccessibleEvent::EVENT_TEXT_INSERTED ||
+        eventType == nsIAccessibleEvent::EVENT_TEXT_REMOVED) &&
+       !aEvent->FromUserInput()) ||
+      eventType == nsIAccessibleEvent::EVENT_NAME_CHANGE) {
     for (LocalAccessible* container = aEvent->GetAccessible(); container;
          container = container->LocalParent()) {
       if (container->HasOwnContent() && IsLiveRegion(container->GetContent())) {
@@ -241,10 +237,6 @@ Class a11y::GetTypeFromRole(roles::Role aRole) {
     case roles::PAGETABLIST:
       return [mozTabGroupAccessible class];
 
-    case roles::ENTRY:
-    case roles::PASSWORD_TEXT:
-      return [mozTextAccessible class];
-
     case roles::TEXT_LEAF:
     case roles::STATICTEXT:
       return [mozTextLeafAccessible class];
@@ -306,6 +298,9 @@ Class a11y::GetTypeFromRole(roles::Role aRole) {
 
     case roles::OUTLINEITEM:
       return [mozOutlineRowAccessible class];
+
+    case roles::LABEL:
+      return [MOXLabelAccessible class];
 
     default:
       return [mozAccessible class];

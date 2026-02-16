@@ -318,7 +318,7 @@ add_task(function test_gifft_labeled_counter() {
     undefined,
     Glean.testOnlyIpc.aLabeledCounter.__other__.testGetValue()
   );
-  Glean.testOnlyIpc.aLabeledCounter["1".repeat(72)].add(3);
+  Glean.testOnlyIpc.aLabeledCounter["1".repeat(112)].add(3);
   Assert.throws(
     () => Glean.testOnlyIpc.aLabeledCounter.__other__.testGetValue(),
     /DataError/,
@@ -332,7 +332,6 @@ add_task(function test_gifft_labeled_counter() {
     {
       a_label: 4,
       another_label: 2,
-      ["1".repeat(72)]: 3,
     },
     value
   );
@@ -497,7 +496,7 @@ add_task(async function test_gifft_labeled_boolean() {
     undefined,
     Glean.testOnly.mirrorsForLabeledBools.__other__.testGetValue()
   );
-  Glean.testOnly.mirrorsForLabeledBools["1".repeat(72)].set(true);
+  Glean.testOnly.mirrorsForLabeledBools["1".repeat(112)].set(true);
   Assert.throws(
     () => Glean.testOnly.mirrorsForLabeledBools.__other__.testGetValue(),
     /DataError/,
@@ -510,7 +509,6 @@ add_task(async function test_gifft_labeled_boolean() {
     {
       a_label: true,
       another_label: false,
-      ["1".repeat(72)]: true,
     },
     value
   );
@@ -779,10 +777,9 @@ add_task(async function test_gifft_labeled_timing_dist() {
     "Only two samples"
   );
 
-  // Note that `labeled_timing_distribution` does not mirror calls to
+  // Ensure that `labeled_timing_distribution` mirrors calls to
   // * accumulateSamples
   // * accumulateSingleSamples
-  // See bug 1943453 for more details.
   Glean.testOnly.whereHasTheTimeGone["hourglass sands"].accumulateSamples([
     1, 2, 3,
   ]);
@@ -793,7 +790,9 @@ add_task(async function test_gifft_labeled_timing_dist() {
   data = Telemetry.getKeyedHistogramById(
     "TELEMETRY_TEST_MIRROR_FOR_LABELED_TIMING"
   ).snapshot();
-  Assert.ok(!("hourglass sands" in data), "Doesn't have the key");
+  Assert.ok("hourglass sands" in data, "Has the key");
+  data = data["hourglass sands"];
+  Assert.equal(data.sum, 7);
 });
 
 add_task(async function test_gifft_labeled_quantity() {
@@ -808,21 +807,93 @@ add_task(async function test_gifft_labeled_quantity() {
   Assert.equal(1, Glean.testOnly.buttonJars.whoseGot.testGetValue());
   // What about invalid/__other__?
   Assert.equal(undefined, Glean.testOnly.buttonJars.__other__.testGetValue());
-  Glean.testOnly.buttonJars["1".repeat(72)].set(9000);
+  Glean.testOnly.buttonJars["1".repeat(112)].set(9000);
   Assert.throws(
     () => Glean.testOnly.buttonJars.__other__.testGetValue(),
     /DataError/,
     "Should throw because of a recording error."
   );
 
-  info(JSON.stringify(Telemetry.getSnapshotForKeyedScalars()));
   // In Telemetry there is no invalid label
   let value = keyedScalarValue("telemetry.test.mirror_for_labeled_quantity");
   Assert.deepEqual(
     {
       pants: 42,
       whoseGot: 1,
-      ["1".repeat(72)]: 9000,
+    },
+    value
+  );
+});
+
+add_task(function test_gifft_dual_labeled_counter() {
+  Assert.equal(
+    null,
+    Glean.testOnlyIpc.aDualLabeledCounter
+      .get("some key", "CommonLabel")
+      .testGetValue()
+  );
+  Assert.deepEqual(
+    {},
+    Telemetry.getKeyedHistogramById(
+      "TELEMETRY_TEST_MIRROR_FOR_DUAL_LABELED_COUNTER"
+    ).snapshot()
+  );
+  Assert.equal(
+    null,
+    Glean.testOnlyIpc.anotherDualLabeledCounter
+      .get("some key", "true")
+      .testGetValue()
+  );
+  Assert.deepEqual(
+    {},
+    Telemetry.getKeyedHistogramById(
+      "TELEMETRY_TEST_ANOTHER_MIRROR_FOR_DUAL_LABELED_COUNTER"
+    ).snapshot()
+  );
+
+  Glean.testOnlyIpc.aDualLabeledCounter.get("some key", "CommonLabel").add(1);
+  Glean.testOnlyIpc.anotherDualLabeledCounter.get("some key", "true").add(1);
+
+  Assert.equal(
+    1,
+    Glean.testOnlyIpc.aDualLabeledCounter
+      .get("some key", "CommonLabel")
+      .testGetValue()
+  );
+  Assert.equal(
+    1,
+    Glean.testOnlyIpc.anotherDualLabeledCounter
+      .get("some key", "true")
+      .testGetValue()
+  );
+
+  let value = Telemetry.getKeyedHistogramById(
+    "TELEMETRY_TEST_MIRROR_FOR_DUAL_LABELED_COUNTER"
+  ).snapshot();
+  Assert.deepEqual(
+    {
+      "some key": {
+        bucket_count: 51,
+        histogram_type: 5,
+        sum: 0,
+        range: [1, 50],
+        values: { 0: 1, 1: 0 },
+      },
+    },
+    value
+  );
+  value = Telemetry.getKeyedHistogramById(
+    "TELEMETRY_TEST_ANOTHER_MIRROR_FOR_DUAL_LABELED_COUNTER"
+  ).snapshot();
+  Assert.deepEqual(
+    {
+      "some key": {
+        bucket_count: 3,
+        histogram_type: 2,
+        sum: 1,
+        range: [1, 2],
+        values: { 0: 0, 1: 1, 2: 0 },
+      },
     },
     value
   );

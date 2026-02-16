@@ -81,13 +81,10 @@ function fakeIdleNotification(topic) {
 }
 
 function setupTestData() {
-  let h2 = Telemetry.getHistogramById("TELEMETRY_TEST_COUNT");
-  h2.add();
-
-  let k1 = Telemetry.getKeyedHistogramById("TELEMETRY_TEST_KEYED_COUNT");
-  k1.add("a");
-  k1.add("a");
-  k1.add("b");
+  Glean.testOnlyIpc.aCounterForHgram.add();
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.a.add(1);
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.a.add(1);
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.b.add(1);
 }
 
 function checkPingFormat(aPing, aType, aHasClientId, aHasEnvironment) {
@@ -232,21 +229,24 @@ function checkPayloadInfo(data, reason) {
   );
   Assert.equal(data.reason, reason, "Payload reason must match expected.");
 
-  Assert.ok(
-    Date.parse(data.subsessionStartDate) >= Date.parse(data.sessionStartDate)
+  Assert.greaterOrEqual(
+    Date.parse(data.subsessionStartDate),
+    Date.parse(data.sessionStartDate)
   );
-  Assert.ok(data.profileSubsessionCounter >= data.subsessionCounter);
+  Assert.greaterOrEqual(data.profileSubsessionCounter, data.subsessionCounter);
 
   // According to https://en.wikipedia.org/wiki/List_of_UTC_time_offsets,
   // UTC offsets range from -12 to +14 hours.
   // Don't think the extremes of the range are affected by further
   // daylight-savings adjustments, but it is possible.
-  Assert.ok(
-    data.timezoneOffset >= -12 * 60,
+  Assert.greaterOrEqual(
+    data.timezoneOffset,
+    -12 * 60,
     "The timezone must be in a valid range."
   );
-  Assert.ok(
-    data.timezoneOffset <= 14 * 60,
+  Assert.lessOrEqual(
+    data.timezoneOffset,
+    14 * 60,
     "The timezone must be in a valid range."
   );
 }
@@ -278,14 +278,16 @@ function checkScalars(processes) {
     const valueType = typeof scalar;
     switch (valueType) {
       case "string":
-        Assert.ok(
-          scalar.length <= 50,
+        Assert.lessOrEqual(
+          scalar.length,
+          50,
           "String values can't have more than 50 characters"
         );
         break;
       case "number":
-        Assert.ok(
-          scalar >= 0,
+        Assert.greaterOrEqual(
+          scalar,
+          0,
           "We only support unsigned integer values in scalars."
         );
         break;
@@ -317,8 +319,9 @@ function checkScalars(processes) {
     );
     for (let key in keyedScalars[name]) {
       Assert.equal(typeof key, "string", "Keyed scalar keys must be strings.");
-      Assert.ok(
-        key.length <= 70,
+      Assert.lessOrEqual(
+        key.length,
+        70,
         "Keyed scalar keys can't have more than 70 characters."
       );
       checkScalar(scalars[name][key], name);
@@ -330,11 +333,11 @@ function checkPayload(payload, reason, successfulPings) {
   Assert.ok("info" in payload, "Payload must contain an info section.");
   checkPayloadInfo(payload.info, reason);
 
-  Assert.ok(payload.simpleMeasurements.totalTime >= 0);
+  Assert.greaterOrEqual(payload.simpleMeasurements.totalTime, 0);
   Assert.equal(payload.simpleMeasurements.shutdownDuration, SHUTDOWN_TIME);
 
   let activeTicks = payload.simpleMeasurements.activeTicks;
-  Assert.ok(activeTicks >= 0);
+  Assert.greaterOrEqual(activeTicks, 0);
 
   if ("browser.timings.last_shutdown" in payload.processes.parent.scalars) {
     Assert.equal(
@@ -354,35 +357,29 @@ function checkPayload(payload, reason, successfulPings) {
 
   let isWindows = "@mozilla.org/windows-registry-key;1" in Cc;
   if (isWindows) {
-    Assert.ok(payload.simpleMeasurements.startupSessionRestoreReadBytes > 0);
-    Assert.ok(payload.simpleMeasurements.startupSessionRestoreWriteBytes > 0);
+    Assert.greater(
+      payload.simpleMeasurements.startupSessionRestoreReadBytes,
+      0
+    );
+    Assert.greater(
+      payload.simpleMeasurements.startupSessionRestoreWriteBytes,
+      0
+    );
+    Assert.greater(Glean.startupIo.read.sessionRestore.testGetValue(), 0);
+    Assert.greater(Glean.startupIo.write.sessionRestore.testGetValue(), 0);
   }
 
   const TELEMETRY_SEND_SUCCESS = "TELEMETRY_SEND_SUCCESS";
   const TELEMETRY_SUCCESS = "TELEMETRY_SUCCESS";
-  const TELEMETRY_TEST_FLAG = "TELEMETRY_TEST_FLAG";
   const TELEMETRY_TEST_COUNT = "TELEMETRY_TEST_COUNT";
-  const TELEMETRY_TEST_KEYED_FLAG = "TELEMETRY_TEST_KEYED_FLAG";
   const TELEMETRY_TEST_KEYED_COUNT = "TELEMETRY_TEST_KEYED_COUNT";
 
   if (successfulPings > 0) {
     Assert.ok(TELEMETRY_SEND_SUCCESS in payload.histograms);
   }
-  Assert.ok(TELEMETRY_TEST_FLAG in payload.histograms);
   Assert.ok(TELEMETRY_TEST_COUNT in payload.histograms);
 
   Assert.ok(!(IGNORE_CLONED_HISTOGRAM in payload.histograms));
-
-  // Flag histograms should automagically spring to life.
-  const expected_flag = {
-    range: [1, 2],
-    bucket_count: 3,
-    histogram_type: 3,
-    values: { 0: 1, 1: 0 },
-    sum: 0,
-  };
-  let flag = payload.histograms[TELEMETRY_TEST_FLAG];
-  Assert.deepEqual(flag, expected_flag);
 
   // We should have a test count.
   const expected_count = {
@@ -419,7 +416,6 @@ function checkPayload(payload, reason, successfulPings) {
   // available on all platforms.
 
   Assert.ok("MEMORY_TOTAL" in payload.histograms); // UNITS_BYTES
-  Assert.ok("MEMORY_JS_GC_HEAP" in payload.histograms); // UNITS_BYTES
   Assert.ok("MEMORY_JS_COMPARTMENTS_SYSTEM" in payload.histograms); // UNITS_COUNT
 
   Assert.ok(
@@ -430,7 +426,6 @@ function checkPayload(payload, reason, successfulPings) {
 
   Assert.ok("keyedHistograms" in payload);
   let keyedHistograms = payload.keyedHistograms;
-  Assert.ok(!(TELEMETRY_TEST_KEYED_FLAG in keyedHistograms));
   Assert.ok(TELEMETRY_TEST_KEYED_COUNT in keyedHistograms);
 
   const expected_keyed_count = {
@@ -497,9 +492,10 @@ function write_fake_failedprofilelocks_file() {
   writeStringToFile(file, contents);
 }
 
-add_task(async function test_setup() {
+add_setup(async function () {
   // Addon manager needs a profile directory
   do_get_profile();
+  Services.fog.initializeFOG();
   await loadAddonManager(APP_ID, APP_NAME, APP_VERSION, PLATFORM_VERSION);
   finishAddonManagerStartup();
   fakeIntlReady();
@@ -528,9 +524,7 @@ add_task(async function asyncSetup() {
 
 // Ensures that expired histograms are not part of the payload.
 add_task(async function test_expiredHistogram() {
-  let dummy = Telemetry.getHistogramById("TELEMETRY_TEST_EXPIRED");
-
-  dummy.add(1);
+  Glean.testOnly.expiredHist.accumulateSingleSample(1);
 
   Assert.equal(
     TelemetrySession.getPayload().histograms.TELEMETRY_TEST_EXPIRED,
@@ -556,13 +550,15 @@ add_task(async function sessionTimeExcludingAndIncludingSuspend() {
   let withoutSuspend =
     parentScalars["browser.engagement.session_time_excluding_suspend"];
 
-  Assert.ok(
-    withSuspend > 0,
+  Assert.greater(
+    withSuspend,
+    0,
     "The session time including suspend should be positive"
   );
 
-  Assert.ok(
-    withoutSuspend > 0,
+  Assert.greater(
+    withoutSuspend,
+    0,
     "The session time excluding suspend should be positive"
   );
 
@@ -576,8 +572,9 @@ add_task(async function sessionTimeExcludingAndIncludingSuspend() {
   //    following assertion test, but that's unlikely in practice.
   const max_delta_ms = 100;
 
-  Assert.ok(
-    withSuspend - withoutSuspend <= max_delta_ms,
+  Assert.lessOrEqual(
+    withSuspend - withoutSuspend,
+    max_delta_ms,
     "In test condition, the two uptimes should be close to each other"
   );
 
@@ -645,9 +642,17 @@ add_task(async function test_simplePing() {
   // Check that we get the data we expect.
   let payload = ping.payload;
   Assert.equal(payload.info.sessionId, expectedSessionUUID);
+  Assert.equal(
+    Glean.legacyTelemetry.sessionId.testGetValue(),
+    expectedSessionUUID
+  );
   Assert.equal(payload.info.subsessionId, expectedSubsessionUUID);
   let sessionStartDate = new Date(payload.info.sessionStartDate);
   Assert.equal(sessionStartDate.toISOString(), expectedDate.toISOString());
+  Assert.equal(
+    Glean.legacyTelemetry.sessionStartDate.testGetValue().getTime(),
+    expectedDate.getTime()
+  );
   let subsessionStartDate = new Date(payload.info.subsessionStartDate);
   Assert.equal(subsessionStartDate.toISOString(), expectedDate.toISOString());
   Assert.equal(payload.info.subsessionLength, SESSION_DURATION_IN_MINUTES * 60);
@@ -845,10 +850,10 @@ add_task(async function test_dailyCollection() {
 
   count.clear();
   keyed.clear();
-  count.add(1);
-  keyed.add("a", 1);
-  keyed.add("b", 1);
-  keyed.add("b", 1);
+  Glean.testOnlyIpc.aCounterForHgram.add();
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.a.add(1);
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.b.add(1);
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.b.add(1);
 
   // Make sure the daily ping gets triggered.
   let expectedDate = nowHour;
@@ -892,9 +897,9 @@ add_task(async function test_dailyCollection() {
   Assert.ok(!(KEYED_ID in ping.payload.keyedHistograms));
 
   // Trigger and collect another daily ping, with the histograms being set again.
-  count.add(1);
-  keyed.add("a", 1);
-  keyed.add("b", 1);
+  Glean.testOnlyIpc.aCounterForHgram.add();
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.a.add(1);
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.b.add(1);
 
   // The daily ping is rescheduled for "tomorrow".
   expectedDate = futureDate(expectedDate, MS_IN_ONE_DAY);
@@ -1066,9 +1071,9 @@ add_task(async function test_environmentChange() {
 
   count.clear();
   keyed.clear();
-  count.add(1);
-  keyed.add("a", 1);
-  keyed.add("b", 1);
+  Glean.testOnlyIpc.aCounterForHgram.add();
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.a.add(1);
+  Glean.testOnlyIpc.aLabeledCounterForKeyedCountHgram.b.add(1);
 
   // Trigger and collect environment-change ping.
   gMonotonicNow = fakeMonotonicNow(
@@ -2124,7 +2129,6 @@ add_task(async function test_pingExtendedStats() {
     "log",
     "slowSQL",
     "fileIOReports",
-    "lateWrites",
     "addonDetails",
   ];
 

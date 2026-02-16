@@ -14,9 +14,12 @@ from packaging.version import Version
 
 from mozbuild.util import memoize
 
-STDCXX_MAX_VERSION = Version("3.4.19")
-CXXABI_MAX_VERSION = Version("1.3.7")
-GLIBC_MAX_VERSION = Version("2.17")
+IS_ARM64 = buildconfig.substs.get("TARGET_CPU") == "aarch64"
+# libstdc++ 4.8.1 of higher (6.0 or higher on arm64)
+STDCXX_MAX_VERSION = Version("3.4.22" if IS_ARM64 else "3.4.19")
+CXXABI_MAX_VERSION = Version("1.3.10" if IS_ARM64 else "1.3.7")
+# glibc 2.17 or higher (2.28 or higher on arm64)
+GLIBC_MAX_VERSION = Version("2.28" if IS_ARM64 else "2.17")
 LIBGCC_MAX_VERSION = Version("4.8")
 
 PLATFORM = buildconfig.substs["OS_TARGET"]
@@ -36,7 +39,7 @@ get_type = memoize(get_type)
 @memoize
 def get_output(*cmd):
     env = dict(os.environ)
-    env[b"LC_ALL"] = b"C"
+    env["LC_ALL"] = "C"
     return subprocess.check_output(cmd, env=env, universal_newlines=True).splitlines()
 
 
@@ -135,9 +138,7 @@ def check_binary_compat(binary):
         error = []
         for lib, prefix, _ in checks:
             if prefix in unwanted:
-                error.append(
-                    "We do not want these {} symbol versions to be used:".format(lib)
-                )
+                error.append(f"We do not want these {lib} symbol versions to be used:")
                 error.extend(
                     " {} ({})".format(s["name"], s["version"]) for s in unwanted[prefix]
                 )
@@ -207,37 +208,43 @@ def check_mozglue_order(binary):
 
 def check_networking(binary):
     retcode = 0
-    networking_functions = set(
-        [
-            # socketpair is not concerning; it is restricted to AF_UNIX
-            "connect",
-            "accept",
-            "listen",
-            "recv",
-            "send",
-            # We would be concerned by recvmsg and sendmsg; but we believe
-            # they are okay as documented in 1376621#c23
-            "gethostbyname",
-            "gethostbyaddr",
-            "gethostent",
-            "sethostent",
-            "endhostent",
-            "gethostent_r",
-            "gethostbyname2",
-            "gethostbyaddr_r",
-            "gethostbyname_r",
-            "gethostbyname2_r",
-            "getservent",
-            "getservbyname",
-            "getservbyport",
-            "setservent",
-            "getprotoent",
-            "getprotobyname",
-            "getprotobynumber",
-            "setprotoent",
-            "endprotoent",
-        ]
-    )
+    networking_functions = set([
+        # socketpair is not concerning; it is restricted to AF_UNIX
+        "recv",
+        "send",
+        # We would be concerned by recvmsg and sendmsg; but we believe
+        # they are okay as documented in 1376621#c23
+        "gethostbyname",
+        "gethostbyaddr",
+        "gethostent",
+        "sethostent",
+        "endhostent",
+        "gethostent_r",
+        "gethostbyname2",
+        "gethostbyaddr_r",
+        "gethostbyname_r",
+        "gethostbyname2_r",
+        "getservent",
+        "getservbyname",
+        "getservbyport",
+        "setservent",
+        "getprotoent",
+        "getprotobyname",
+        "getprotobynumber",
+        "setprotoent",
+        "endprotoent",
+    ])
+    # These are used by the crash monitor & crash monitor client to talk with
+    # the main process on Linux and macOS.
+    socket_functions = set([
+        "connect",
+        "accept",
+        "listen",
+    ])
+
+    if PLATFORM == "WINNT":
+        networking_functions |= socket_functions
+
     bad_occurences_names = set()
 
     try:
@@ -263,7 +270,7 @@ def check_networking(binary):
         )
         retcode = 1
     elif buildconfig.substs.get("MOZ_AUTOMATION"):
-        print("TEST-PASS | check_networking | {}".format(basename))
+        print(f"TEST-PASS | check_networking | {basename}")
     return retcode
 
 
@@ -289,12 +296,12 @@ def checks(binary):
             name = c.__name__
             c(binary)
             if buildconfig.substs.get("MOZ_AUTOMATION"):
-                print("TEST-PASS | {} | {}".format(name, basename))
+                print(f"TEST-PASS | {name} | {basename}")
         except Skip:
             pass
         except RuntimeError as e:
             print(
-                "TEST-UNEXPECTED-FAIL | {} | {} | {}".format(name, basename, str(e)),
+                f"TEST-UNEXPECTED-FAIL | {name} | {basename} | {str(e)}",
                 file=sys.stderr,
             )
             retcode = 1

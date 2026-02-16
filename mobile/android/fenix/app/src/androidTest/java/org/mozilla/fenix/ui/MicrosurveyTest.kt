@@ -4,15 +4,17 @@
 package org.mozilla.fenix.ui
 
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.mozilla.fenix.R
 import org.mozilla.fenix.customannotations.SmokeTest
 import org.mozilla.fenix.helpers.DataGenerationHelper.getStringResource
 import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
-import org.mozilla.fenix.helpers.TestAssetHelper
+import org.mozilla.fenix.helpers.TestAssetHelper.getGenericAsset
 import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.helpers.TestSetup
+import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
 import org.mozilla.fenix.ui.robots.navigationToolbar
 import org.mozilla.fenix.ui.robots.surveyScreen
 
@@ -23,29 +25,28 @@ class MicrosurveyTest : TestSetup() {
             HomeActivityIntentTestRule(
                 skipOnboarding = true,
                 isMicrosurveyEnabled = true,
-                isNavigationBarCFREnabled = false,
-                isNavigationToolbarEnabled = true,
             ),
         ) { it.activity }
+
+    @get:Rule
+    val memoryLeaksRule = DetectMemoryLeaksRule()
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2809354
     @SmokeTest
     @Test
     fun activationOfThePrintMicrosurveyTest() {
-        val testPage = TestAssetHelper.getGenericAsset(mockWebServer, 1)
+        val testPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(testPage.url) {
-        }.clickShareButtonFromRedesignedToolbar {
-        }.clickPrintButton {
+        }.openThreeDotMenu {
+        }.clickShareButton {
+        }.clickPrintButton(composeTestRule) {
             mDevice.waitForIdle()
             mDevice.pressBack()
         }
-        surveyScreen {
-            verifyTheFirefoxLogo(composeTestRule)
-            verifyTheSurveyTitle(getStringResource(R.string.microsurvey_prompt_printing_title), composeTestRule)
-            verifyContinueSurveyButton(composeTestRule)
-            verifyHomeScreenSurveyCloseButton()
+        surveyScreen(composeTestRule) {
+            verifyThePrintSurveyPrompt(composeTestRule = composeTestRule, exists = true)
         }
     }
 
@@ -53,49 +54,78 @@ class MicrosurveyTest : TestSetup() {
     @SmokeTest
     @Test
     fun verifyTheSurveyRemainsActivatedWhileChangingTabsTest() {
-        val testPage1 = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-        val testPage2 = TestAssetHelper.getGenericAsset(mockWebServer, 2)
+        val testPage1 = mockWebServer.getGenericAsset(1)
+        val testPage2 = mockWebServer.getGenericAsset(2)
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(testPage1.url) {
-        }.clickShareButtonFromRedesignedToolbar {
-        }.clickPrintButton {
+        }.openThreeDotMenu {
+        }.clickShareButton {
+        }.clickPrintButton(composeTestRule) {
             mDevice.waitForIdle()
             mDevice.pressBack()
         }
-        surveyScreen {
+        surveyScreen(composeTestRule) {
             clickContinueSurveyButton(composeTestRule)
             verifyPleaseCompleteTheSurveyHeader(composeTestRule)
             selectAnswer("Very satisfied", composeTestRule)
         }.collapseSurveyByTappingBackButton {
-        }.openNavigationToolbar {
+        }
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(testPage2.url) {
             mDevice.waitForIdle()
-            surveyScreen {
-                verifyTheSurveyTitle(getStringResource(R.string.microsurvey_prompt_printing_title), composeTestRule)
+            surveyScreen(composeTestRule) {
+                verifyTheSurveyTitle(getStringResource(R.string.microsurvey_prompt_printing_title), composeTestRule, true)
             }
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2809361
+    @Ignore("Disabled after enabling the composable toolbar and main menu: https://bugzilla.mozilla.org/show_bug.cgi?id=2006295")
     @SmokeTest
     @Test
     fun verifyTheSurveyConfirmationSheetTest() {
-        val testPage = TestAssetHelper.getGenericAsset(mockWebServer, 1)
+        val testPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(testPage.url) {
-        }.clickShareButtonFromRedesignedToolbar {
-        }.clickPrintButton {
+        }.openThreeDotMenu {
+        }.clickShareButton {
+        }.clickPrintButton(composeTestRule) {
             mDevice.waitForIdle()
             mDevice.pressBack()
         }
-        surveyScreen {
+        surveyScreen(composeTestRule) {
             clickContinueSurveyButton(composeTestRule)
             expandSurveySheet(composeTestRule)
             selectAnswer("Very satisfied", composeTestRule)
             clickSubmitButton(composeTestRule)
             verifySurveyCompletedScreen(composeTestRule)
+        }
+    }
+
+    // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2809344
+    @Ignore("Disabled after enabling the composable toolbar and main menu: https://bugzilla.mozilla.org/show_bug.cgi?id=2006295")
+    @Test
+    fun dismissTheSurveyPromptTest() {
+        val testPage = mockWebServer.getGenericAsset(1)
+
+        navigationToolbar(composeTestRule) {
+        }.enterURLAndEnterToBrowser(testPage.url) {
+        }.openThreeDotMenu {
+        }.clickShareButton {
+        }.clickPrintButton(composeTestRule) {
+            mDevice.waitForIdle()
+            mDevice.pressBack()
+        }
+        surveyScreen(composeTestRule) {
+            verifyThePrintSurveyPrompt(composeTestRule = composeTestRule, exists = true)
+            clickOutsideTheSurveyPrompt()
+            verifyThePrintSurveyPrompt(composeTestRule = composeTestRule, exists = true)
+        }.clickHomeScreenSurveyCloseButton {
+        }
+        surveyScreen(composeTestRule) {
+            verifyThePrintSurveyPrompt(composeTestRule = composeTestRule, exists = false)
         }
     }
 }

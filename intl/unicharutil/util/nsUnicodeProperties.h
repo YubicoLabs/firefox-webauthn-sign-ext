@@ -14,15 +14,6 @@
 #include "nsUGenCategory.h"
 #include "harfbuzz/hb.h"
 
-struct nsCharProps2 {
-  // Currently only 2 bits are defined here, so 6 more could be added without
-  // affecting the storage requirements for this struct. Or we could pack two
-  // records per byte, at the cost of a slightly more complex accessor.
-  unsigned char mIdType : 2;
-};
-
-const nsCharProps2& GetCharProps2(uint32_t aCh);
-
 namespace mozilla {
 
 namespace unicode {
@@ -44,9 +35,7 @@ enum PairedBracketType {
   PAIRED_BRACKET_TYPE_CLOSE = 2
 };
 
-/* Flags for Unicode security IdentifierType.txt attributes. Only a subset
-   of these are currently checked by Gecko, so we only define flags for the
-   ones we need. */
+/* This values must match the values by UIdentifierStatus by ICU */
 enum IdentifierType {
   IDTYPE_RESTRICTED = 0,
   IDTYPE_ALLOWED = 1,
@@ -56,10 +45,16 @@ enum EmojiPresentation { TextOnly = 0, TextDefault = 1, EmojiDefault = 2 };
 
 const uint32_t kVariationSelector15 = 0xFE0E;  // text presentation
 const uint32_t kVariationSelector16 = 0xFE0F;  // emoji presentation
+static inline bool IsEmojiPresentationSelector(uint32_t aCh) {
+  return aCh >= kVariationSelector15 && aCh <= kVariationSelector16;
+}
 
 // Unicode values for EMOJI MODIFIER FITZPATRICK TYPE-*
 const uint32_t kEmojiSkinToneFirst = 0x1f3fb;
 const uint32_t kEmojiSkinToneLast = 0x1f3ff;
+static inline bool IsEmojiSkinToneModifier(uint32_t aCh) {
+  return aCh >= kEmojiSkinToneFirst && aCh <= kEmojiSkinToneLast;
+}
 
 extern const hb_unicode_general_category_t sICUtoHBcategory[];
 
@@ -146,7 +141,8 @@ inline VerticalOrientation GetVerticalOrientation(uint32_t aCh) {
 }
 
 inline IdentifierType GetIdentifierType(uint32_t aCh) {
-  return IdentifierType(GetCharProps2(aCh).mIdType);
+  return IdentifierType(intl::UnicodeProperties::GetIntPropertyValue(
+      aCh, intl::UnicodeProperties::IntProperty::IdentifierStatus));
 }
 
 uint32_t GetFullWidth(uint32_t aCh);

@@ -28,9 +28,6 @@
     <link rel="localization" href="toolkit/about/aboutSupport.ftl"/>
     <link rel="localization" href="toolkit/global/resetProfile.ftl"/>
     <link rel="localization" href="toolkit/global/processTypes.ftl"/>
-#ifndef ANDROID
-    <link rel="localization" href="toolkit/featuregates/features.ftl"/>
-#endif
   </head>
 
   <body class="wide-container">
@@ -48,11 +45,11 @@
 
 #ifndef ANDROID
       <div class="action-box">
-        <div id="reset-box">
+        <div id="reset-box" hidden="hidden">
           <h3 data-l10n-id="refresh-profile"/>
           <button id="reset-box-button" data-l10n-id="refresh-profile-button"/>
         </div>
-        <div id="safe-mode-box">
+        <div id="safe-mode-box" hidden="hidden">
           <h3 data-l10n-id="troubleshoot-mode-title"/>
           <button id="restart-in-safe-mode-button" data-l10n-id="restart-in-troubleshoot-mode-label"/>
         </div>
@@ -161,6 +158,7 @@
             </td>
           </tr>
 
+#ifndef ANDROID
           <tr id="profile-row" class="no-copy">
             <th class="column" data-l10n-id="app-basics-profile-dir"/>
 
@@ -170,6 +168,7 @@
                </span>
             </td>
           </tr>
+#endif
 
           <tr class="no-copy">
             <th class="column" data-l10n-id="app-basics-build-config"/>
@@ -333,11 +332,11 @@
         <tbody id="crashes-tbody">
         </tbody>
       </table>
-      <p id="crashes-allReports" class="hidden no-copy">
+      <p id="crashes-allReports" class="no-copy" hidden="hidden">
         <a href="about:crashes" id="crashes-allReportsWithPending"
            class="block" data-l10n-id="crashes-all-reports"/>
       </p>
-      <p id="crashes-noConfig" class="hidden no-copy" data-l10n-id="crashes-no-config"/>
+      <p id="crashes-noConfig" class="no-copy" hidden="hidden" data-l10n-id="crashes-no-config"/>
 
 #endif
 
@@ -550,7 +549,7 @@
           <tr>
             <td colspan="9">
               <button id="enumerate-database-button" data-l10n-id="media-capabilities-enumerate"/>
-              <pre id="enumerate-database-result" class="hidden no-copy"></pre>
+              <pre id="enumerate-database-result" class="no-copy" hidden="hidden"></pre>
             </td>
           </tr>
         </tbody>
@@ -563,9 +562,8 @@
             <th data-l10n-id="media-key-system-name"/>
             <th data-l10n-id="media-video-robustness"/>
             <th data-l10n-id="media-audio-robustness"/>
-            <th colspan="4" data-l10n-id="media-cdm-capabilities"/>
+            <th colspan="5" data-l10n-id="media-cdm-capabilities"/>
             <th data-l10n-id="media-cdm-clear-lead"/>
-            <th data-l10n-id="media-hdcp-22-compatible"/>
           </tr>
         </tbody>
 
@@ -586,24 +584,6 @@
         </tbody>
       </table>
 
-
-#ifndef ANDROID
-      <!-- - - - - - - - - - - - - - - - - - - - - -->
-
-      <h2 class="major-section" id="experimental-features" data-l10n-id="experimental-features-title"/>
-
-      <table class="prefs-table">
-        <thead class="no-copy">
-          <th class="name" data-l10n-id="experimental-features-name"/>
-
-          <th class="value" data-l10n-id="experimental-features-value"/>
-        </thead>
-
-        <tbody id="experimental-features-tbody">
-        </tbody>
-      </table>
-
-#endif
       <!-- - - - - - - - - - - - - - - - - - - - - -->
 
       <h2 class="major-section" id="remote-settings" data-l10n-id="support-remote-settings-title"/>
@@ -686,7 +666,7 @@
         </tbody>
       </table>
 
-      <section id="prefs-user-js-section" class="hidden no-copy">
+      <section id="prefs-user-js-section" class="no-copy" hidden="hidden">
         <h3 data-l10n-id="user-js-title"/>
         <p data-l10n-id="user-js-description">
           <a id="prefs-user-js-link" data-l10n-name="user-js-link"></a>
@@ -708,7 +688,7 @@
         </tbody>
       </table>
 
-#ifndef ANDROID
+#ifdef MOZ_PLACES
       <!-- - - - - - - - - - - - - - - - - - - - - -->
 
       <h2 class="major-section" id="place-database" data-l10n-id="place-database-title"/>
@@ -720,7 +700,7 @@
 
             <td colspan="5">
               <button id="verify-place-integrity-button" data-l10n-id="place-database-verify-integrity"/>
-              <pre id="verify-place-result" class="hidden no-copy"></pre>
+              <pre id="verify-place-result" class="no-copy" hidden="hidden"></pre>
             </td>
           </tr>
           <tr class="no-copy">
@@ -739,6 +719,20 @@
             <th data-l10n-id="place-database-stats-size-perc"/>
             <th data-l10n-id="place-database-stats-efficiency-perc"/>
             <th data-l10n-id="place-database-stats-sequentiality-perc"/>
+          </tr>
+        </tbody>
+        <tbody>
+          <tr>
+            <th class="column" data-l10n-id="place-database-last-idle-maintenance-data"/>
+            <td colspan="5" id="place-database-last-idle-maintenance-data"></td>
+          </tr>
+          <tr>
+            <th class="column" data-l10n-id="place-database-last-vacuum-date"/>
+            <td colspan="5" id="place-database-last-vacuum-date"></td>
+          </tr>
+          <tr>
+            <th class="column" data-l10n-id="place-database-last-integrity-corruption-date"/>
+            <td colspan="5" id="place-database-last-integrity-corruption-date"></td>
           </tr>
         </tbody>
       </table>
@@ -924,7 +918,7 @@
         </tr>
       </table>
 
-      <h3 data-l10n-id="support-printing-modified-settings"/>
+      <h3 id="printing-modified-settings" data-l10n-id="support-printing-modified-settings"/>
 
       <table class="prefs-table">
         <thead class="no-copy">

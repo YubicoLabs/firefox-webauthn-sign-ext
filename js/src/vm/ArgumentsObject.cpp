@@ -18,6 +18,7 @@
 #include "vm/GlobalObject.h"
 #include "vm/Stack.h"
 
+#include "gc/BufferAllocator-inl.h"
 #include "gc/Nursery-inl.h"
 #include "vm/FrameIter-inl.h"  // js::FrameIter::unaliasedForEachActual
 #include "vm/NativeObject-inl.h"
@@ -36,14 +37,12 @@ RareArgumentsData* RareArgumentsData::create(JSContext* cx,
                                              ArgumentsObject* obj) {
   size_t bytes = RareArgumentsData::bytesRequired(obj->initialLength());
 
-  uint8_t* data = AllocNurseryOrMallocBuffer<uint8_t>(cx, obj, bytes);
+  uint8_t* data = AllocateCellBuffer<uint8_t>(cx, obj, bytes);
   if (!data) {
     return nullptr;
   }
 
   mozilla::PodZero(data, bytes);
-
-  AddCellMemory(obj, bytes, MemoryUse::RareArgumentsData);
 
   return new (data) RareArgumentsData();
 }
@@ -331,7 +330,7 @@ ArgumentsObject* ArgumentsObject::create(JSContext* cx, HandleFunction callee,
   }
 
   ArgumentsData* data = reinterpret_cast<ArgumentsData*>(
-      AllocNurseryOrMallocBuffer<uint8_t>(cx, obj, numBytes));
+      AllocateCellBuffer<uint8_t>(cx, obj, numBytes));
   if (!data) {
     // Make the object safe for GC.
     obj->initFixedSlot(DATA_SLOT, PrivateValue(nullptr));
@@ -340,7 +339,7 @@ ArgumentsObject* ArgumentsObject::create(JSContext* cx, HandleFunction callee,
 
   new (data) ArgumentsData(numArgs);
 
-  InitReservedSlot(obj, DATA_SLOT, data, numBytes, MemoryUse::ArgumentsData);
+  obj->initReservedSlot(DATA_SLOT, PrivateValue(data));
   obj->initFixedSlot(CALLEE_SLOT, ObjectValue(*callee));
   obj->initFixedSlot(INITIAL_LENGTH_SLOT,
                      Int32Value(numActuals << PACKED_BITS_COUNT));
@@ -439,7 +438,7 @@ ArgumentsObject* ArgumentsObject::finishPure(
   unsigned numBytes = ArgumentsData::bytesRequired(numArgs);
 
   ArgumentsData* data = reinterpret_cast<ArgumentsData*>(
-      AllocNurseryOrMallocBuffer<uint8_t>(cx, obj, numBytes));
+      AllocateCellBuffer<uint8_t>(cx, obj, numBytes));
   if (!data) {
     // Make the object safe for GC. Don't report OOM, the slow path will
     // retry the allocation.
@@ -453,7 +452,6 @@ ArgumentsObject* ArgumentsObject::finishPure(
   obj->initFixedSlot(INITIAL_LENGTH_SLOT,
                      Int32Value(numActuals << PACKED_BITS_COUNT));
   obj->initFixedSlot(DATA_SLOT, PrivateValue(data));
-  AddCellMemory(obj, numBytes, MemoryUse::ArgumentsData);
   obj->initFixedSlot(MAYBE_CALL_SLOT, UndefinedValue());
   obj->initFixedSlot(CALLEE_SLOT, ObjectValue(*callee));
 
@@ -690,7 +688,7 @@ static bool ResolveArgumentsProperty(JSContext* cx,
 /* static */
 bool MappedArgumentsObject::obj_resolve(JSContext* cx, HandleObject obj,
                                         HandleId id, bool* resolvedp) {
-  Rooted<MappedArgumentsObject*> argsobj(cx, &obj->as<MappedArgumentsObject>());
+  auto argsobj = obj.as<MappedArgumentsObject>();
 
   if (id.isWellKnownSymbol(JS::SymbolCode::iterator)) {
     if (argsobj->hasOverriddenIterator()) {
@@ -732,7 +730,7 @@ bool MappedArgumentsObject::obj_resolve(JSContext* cx, HandleObject obj,
 
 /* static */
 bool MappedArgumentsObject::obj_enumerate(JSContext* cx, HandleObject obj) {
-  Rooted<MappedArgumentsObject*> argsobj(cx, &obj->as<MappedArgumentsObject>());
+  auto argsobj = obj.as<MappedArgumentsObject>();
 
   RootedId id(cx);
   bool found;
@@ -837,7 +835,7 @@ bool MappedArgumentsObject::obj_defineProperty(JSContext* cx, HandleObject obj,
                                                Handle<PropertyDescriptor> desc,
                                                ObjectOpResult& result) {
   // Step 1.
-  Rooted<MappedArgumentsObject*> argsobj(cx, &obj->as<MappedArgumentsObject>());
+  auto argsobj = obj.as<MappedArgumentsObject>();
 
   // Steps 2-3.
   bool isMapped = false;
@@ -963,8 +961,7 @@ bool js::UnmappedArgSetter(JSContext* cx, HandleObject obj, HandleId id,
 /* static */
 bool UnmappedArgumentsObject::obj_resolve(JSContext* cx, HandleObject obj,
                                           HandleId id, bool* resolvedp) {
-  Rooted<UnmappedArgumentsObject*> argsobj(cx,
-                                           &obj->as<UnmappedArgumentsObject>());
+  auto argsobj = obj.as<UnmappedArgumentsObject>();
 
   if (id.isWellKnownSymbol(JS::SymbolCode::iterator)) {
     if (argsobj->hasOverriddenIterator()) {
@@ -1017,8 +1014,7 @@ bool UnmappedArgumentsObject::obj_resolve(JSContext* cx, HandleObject obj,
 
 /* static */
 bool UnmappedArgumentsObject::obj_enumerate(JSContext* cx, HandleObject obj) {
-  Rooted<UnmappedArgumentsObject*> argsobj(cx,
-                                           &obj->as<UnmappedArgumentsObject>());
+  auto argsobj = obj.as<UnmappedArgumentsObject>();
 
   RootedId id(cx);
   bool found;
@@ -1049,24 +1045,20 @@ bool UnmappedArgumentsObject::obj_enumerate(JSContext* cx, HandleObject obj) {
   return true;
 }
 
-void ArgumentsObject::finalize(JS::GCContext* gcx, JSObject* obj) {
-  MOZ_ASSERT(!IsInsideNursery(obj));
-  ArgumentsObject& argsobj = obj->as<ArgumentsObject>();
-  if (argsobj.data()) {
-    gcx->free_(&argsobj, argsobj.maybeRareData(),
-               RareArgumentsData::bytesRequired(argsobj.initialLength()),
-               MemoryUse::RareArgumentsData);
-    gcx->free_(&argsobj, argsobj.data(),
-               ArgumentsData::bytesRequired(argsobj.data()->numArgs()),
-               MemoryUse::ArgumentsData);
-  }
-}
-
 void ArgumentsObject::trace(JSTracer* trc, JSObject* obj) {
   ArgumentsObject& argsobj = obj->as<ArgumentsObject>();
   // Template objects have no ArgumentsData.
-  if (ArgumentsData* data = argsobj.data()) {
-    data->args.trace(trc);
+  ArgumentsData* buffer = argsobj.data();
+  ArgumentsData* copiedBuffer = buffer;
+  if (buffer) {
+    TraceBufferEdge(trc, obj, &buffer, "ArgumentsData");
+    if (buffer->rareData) {
+      TraceBufferEdge(trc, obj, &buffer->rareData, "RareArgumentsData");
+    }
+    if (buffer != copiedBuffer) {
+      argsobj.setFixedSlot(DATA_SLOT, PrivateValue(buffer));
+    }
+    buffer->args.trace(trc);
   }
 }
 
@@ -1087,8 +1079,7 @@ size_t ArgumentsObject::objectMoved(JSObject* dst, JSObject* src) {
   ArgumentsData* data = nsrc->data();
   uint32_t nDataBytes = ArgumentsData::bytesRequired(nsrc->data()->numArgs());
   Nursery::WasBufferMoved result =
-      nursery.maybeMoveNurseryOrMallocBufferOnPromotion(
-          &data, dst, nDataBytes, MemoryUse::ArgumentsData);
+      nursery.maybeMoveBufferOnPromotion(&data, dst, nDataBytes);
   if (result == Nursery::BufferMoved) {
     ndst->initFixedSlot(DATA_SLOT, PrivateValue(data));
     nbytesTotal += nDataBytes;
@@ -1098,8 +1089,7 @@ size_t ArgumentsObject::objectMoved(JSObject* dst, JSObject* src) {
     uint32_t nRareBytes =
         RareArgumentsData::bytesRequired(nsrc->initialLength());
     Nursery::WasBufferMoved result =
-        nursery.maybeMoveNurseryOrMallocBufferOnPromotion(
-            &rareData, dst, nRareBytes, MemoryUse::RareArgumentsData);
+        nursery.maybeMoveBufferOnPromotion(&rareData, dst, nRareBytes);
     if (result == Nursery::BufferMoved) {
       ndst->data()->rareData = rareData;
       nbytesTotal += nRareBytes;
@@ -1122,7 +1112,7 @@ const JSClassOps MappedArgumentsObject::classOps_ = {
     nullptr,                               // newEnumerate
     MappedArgumentsObject::obj_resolve,    // resolve
     ArgumentsObject::obj_mayResolve,       // mayResolve
-    ArgumentsObject::finalize,             // finalize
+    nullptr,                               // finalize
     nullptr,                               // call
     nullptr,                               // construct
     ArgumentsObject::trace,                // trace
@@ -1148,8 +1138,7 @@ const JSClass MappedArgumentsObject::class_ = {
     "Arguments",
     JSCLASS_DELAY_METADATA_BUILDER |
         JSCLASS_HAS_RESERVED_SLOTS(MappedArgumentsObject::RESERVED_SLOTS) |
-        JSCLASS_HAS_CACHED_PROTO(JSProto_Object) |
-        JSCLASS_SKIP_NURSERY_FINALIZE | JSCLASS_BACKGROUND_FINALIZE,
+        JSCLASS_HAS_CACHED_PROTO(JSProto_Object),
     &MappedArgumentsObject::classOps_,
     nullptr,
     &MappedArgumentsObject::classExt_,
@@ -1167,7 +1156,7 @@ const JSClassOps UnmappedArgumentsObject::classOps_ = {
     nullptr,                                 // newEnumerate
     UnmappedArgumentsObject::obj_resolve,    // resolve
     ArgumentsObject::obj_mayResolve,         // mayResolve
-    ArgumentsObject::finalize,               // finalize
+    nullptr,                                 // finalize
     nullptr,                                 // call
     nullptr,                                 // construct
     ArgumentsObject::trace,                  // trace
@@ -1181,8 +1170,7 @@ const JSClass UnmappedArgumentsObject::class_ = {
     "Arguments",
     JSCLASS_DELAY_METADATA_BUILDER |
         JSCLASS_HAS_RESERVED_SLOTS(UnmappedArgumentsObject::RESERVED_SLOTS) |
-        JSCLASS_HAS_CACHED_PROTO(JSProto_Object) |
-        JSCLASS_SKIP_NURSERY_FINALIZE | JSCLASS_BACKGROUND_FINALIZE,
+        JSCLASS_HAS_CACHED_PROTO(JSProto_Object),
     &UnmappedArgumentsObject::classOps_,
     nullptr,
     &UnmappedArgumentsObject::classExt_,

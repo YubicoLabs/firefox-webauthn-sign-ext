@@ -1,16 +1,22 @@
-use std::{mem, ops::Range, vec::Vec};
+use alloc::vec::Vec;
+use core::{mem, ops::Range};
 
-use windows::Win32::{
-    Foundation,
-    Graphics::{Direct3D12, Dxgi},
+use windows::{
+    core::Interface as _,
+    Win32::{
+        Foundation,
+        Graphics::{Direct3D12, Dxgi},
+    },
 };
-use windows_core::Interface;
 
 use super::conv;
 use crate::{
-    auxil::{self, dxgi::result::HResult as _},
+    auxil::{
+        self,
+        dxgi::{name::ObjectExt as _, result::HResult as _},
+    },
     dx12::borrow_interface_temporarily,
-    AccelerationStructureEntries,
+    AccelerationStructureEntries, CommandEncoder as _,
 };
 
 fn make_box(origin: &wgt::Origin3d, size: &crate::CopyExtent) -> Direct3D12::D3D12_BOX {
@@ -69,6 +75,13 @@ impl Drop for super::CommandEncoder {
     fn drop(&mut self) {
         use crate::CommandEncoder;
         unsafe { self.discard_encoding() }
+
+        let mut rtv_pool = self.rtv_pool.lock();
+        for handle in self.temp_rtv_handles.drain(..) {
+            rtv_pool.free_handle(handle);
+        }
+        drop(rtv_pool);
+
         self.counters.command_encoders.sub(1);
     }
 }
@@ -101,7 +114,7 @@ impl super::CommandEncoder {
         self.pass.clear();
     }
 
-    unsafe fn prepare_draw(&mut self, first_vertex: i32, first_instance: u32) {
+    unsafe fn prepare_vertex_buffers(&mut self) {
         while self.pass.dirty_vertex_buffers != 0 {
             let list = self.list.as_ref().unwrap();
             let index = self.pass.dirty_vertex_buffers.trailing_zeros();
@@ -112,6 +125,12 @@ impl super::CommandEncoder {
                     Some(&self.pass.vertex_buffers[index as usize..][..1]),
                 );
             }
+        }
+    }
+
+    unsafe fn prepare_draw(&mut self, first_vertex: i32, first_instance: u32) {
+        unsafe {
+            self.prepare_vertex_buffers();
         }
         if let Some(root_index) = self
             .pass
@@ -181,7 +200,7 @@ impl super::CommandEncoder {
             self.pass.dirty_root_elements ^= 1 << index;
 
             match self.pass.root_elements[index as usize] {
-                super::RootElement::Empty => log::error!("Root index {} is not bound", index),
+                super::RootElement::Empty => log::error!("Root index {index} is not bound"),
                 super::RootElement::Constant => {
                     let info = self.pass.layout.root_constant_info.as_ref().unwrap();
 
@@ -295,6 +314,78 @@ impl super::CommandEncoder {
             }
         }
     }
+
+    unsafe fn buf_tex_intermediate<T>(
+        &mut self,
+        region: crate::BufferTextureCopy,
+        tex_fmt: wgt::TextureFormat,
+        copy_op: impl FnOnce(&mut Self, &super::Buffer, wgt::BufferSize, crate::BufferTextureCopy) -> T,
+    ) -> (T, super::Buffer) {
+        let size = {
+            let copy_info = region.buffer_layout.get_buffer_texture_copy_info(
+                tex_fmt,
+                region.texture_base.aspect.map(),
+                &region.size.into(),
+            );
+            copy_info.unwrap().bytes_in_copy
+        };
+
+        let size = wgt::BufferSize::new(size).unwrap();
+
+        let buffer = {
+            let (resource, allocation) =
+                super::suballocation::DeviceAllocationContext::from(&*self)
+                    .create_buffer(&crate::BufferDescriptor {
+                        label: None,
+                        size: size.get(),
+                        usage: wgt::BufferUses::COPY_SRC | wgt::BufferUses::COPY_DST,
+                        memory_flags: crate::MemoryFlags::empty(),
+                    })
+                    .expect(concat!(
+                        "internal error: ",
+                        "failed to allocate intermediate buffer ",
+                        "for offset alignment"
+                    ));
+            super::Buffer {
+                resource,
+                size: size.get(),
+                allocation,
+            }
+        };
+
+        let mut region = region;
+        region.buffer_layout.offset = 0;
+
+        unsafe {
+            self.transition_buffers(
+                [crate::BufferBarrier {
+                    buffer: &buffer,
+                    usage: crate::StateTransition {
+                        from: wgt::BufferUses::empty(),
+                        to: wgt::BufferUses::COPY_DST,
+                    },
+                }]
+                .into_iter(),
+            )
+        };
+
+        let t = copy_op(self, &buffer, size, region);
+
+        unsafe {
+            self.transition_buffers(
+                [crate::BufferBarrier {
+                    buffer: &buffer,
+                    usage: crate::StateTransition {
+                        from: wgt::BufferUses::COPY_DST,
+                        to: wgt::BufferUses::COPY_SRC,
+                    },
+                }]
+                .into_iter(),
+            )
+        };
+
+        (t, buffer)
+    }
 }
 
 impl crate::CommandEncoder for super::CommandEncoder {
@@ -328,8 +419,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
         };
 
         if let Some(label) = label {
-            unsafe { list.SetName(&windows::core::HSTRING::from(label)) }
-                .into_device_result("SetName")?;
+            list.set_name(label)?;
         }
 
         self.list = Some(list);
@@ -350,6 +440,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
         Ok(super::CommandBuffer { raw })
     }
     unsafe fn reset_all<I: Iterator<Item = super::CommandBuffer>>(&mut self, command_buffers: I) {
+        self.intermediate_copy_bufs.clear();
         for cmd_buf in command_buffers {
             self.free_lists.push(cmd_buf.raw);
         }
@@ -596,30 +687,59 @@ impl crate::CommandEncoder for super::CommandEncoder {
     ) where
         T: Iterator<Item = crate::BufferTextureCopy>,
     {
-        let list = self.list.as_ref().unwrap();
-        for r in regions {
+        let offset_alignment = self.shared.private_caps.texture_data_placement_alignment();
+
+        for naive_copy_region in regions {
+            let is_offset_aligned = naive_copy_region.buffer_layout.offset % offset_alignment == 0;
+            let (final_copy_region, src) = if is_offset_aligned {
+                (naive_copy_region, src)
+            } else {
+                let (intermediate_to_dst_region, intermediate_buf) = unsafe {
+                    let src_offset = naive_copy_region.buffer_layout.offset;
+                    self.buf_tex_intermediate(
+                        naive_copy_region,
+                        dst.format,
+                        |this, buf, size, intermediate_to_dst_region| {
+                            let layout = crate::BufferCopy {
+                                src_offset,
+                                dst_offset: 0,
+                                size,
+                            };
+                            this.copy_buffer_to_buffer(src, buf, [layout].into_iter());
+                            intermediate_to_dst_region
+                        },
+                    )
+                };
+                self.intermediate_copy_bufs.push(intermediate_buf);
+                let intermediate_buf = self.intermediate_copy_bufs.last().unwrap();
+                (intermediate_to_dst_region, intermediate_buf)
+            };
+
+            let list = self.list.as_ref().unwrap();
+
             let src_location = Direct3D12::D3D12_TEXTURE_COPY_LOCATION {
                 pResource: unsafe { borrow_interface_temporarily(&src.resource) },
                 Type: Direct3D12::D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
                 Anonymous: Direct3D12::D3D12_TEXTURE_COPY_LOCATION_0 {
-                    PlacedFootprint: r.to_subresource_footprint(dst.format),
+                    PlacedFootprint: final_copy_region.to_subresource_footprint(dst.format),
                 },
             };
             let dst_location = Direct3D12::D3D12_TEXTURE_COPY_LOCATION {
                 pResource: unsafe { borrow_interface_temporarily(&dst.resource) },
                 Type: Direct3D12::D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
                 Anonymous: Direct3D12::D3D12_TEXTURE_COPY_LOCATION_0 {
-                    SubresourceIndex: dst.calc_subresource_for_copy(&r.texture_base),
+                    SubresourceIndex: dst
+                        .calc_subresource_for_copy(&final_copy_region.texture_base),
                 },
             };
 
-            let src_box = make_box(&wgt::Origin3d::ZERO, &r.size);
+            let src_box = make_box(&wgt::Origin3d::ZERO, &final_copy_region.size);
             unsafe {
                 list.CopyTextureRegion(
                     &dst_location,
-                    r.texture_base.origin.x,
-                    r.texture_base.origin.y,
-                    r.texture_base.origin.z,
+                    final_copy_region.texture_base.origin.x,
+                    final_copy_region.texture_base.origin.y,
+                    final_copy_region.texture_base.origin.z,
                     &src_location,
                     Some(&src_box),
                 )
@@ -636,8 +756,12 @@ impl crate::CommandEncoder for super::CommandEncoder {
     ) where
         T: Iterator<Item = crate::BufferTextureCopy>,
     {
-        let list = self.list.as_ref().unwrap();
-        for r in regions {
+        let copy_aligned = |this: &mut Self,
+                            src: &super::Texture,
+                            dst: &super::Buffer,
+                            r: crate::BufferTextureCopy| {
+            let list = this.list.as_ref().unwrap();
+
             let src_location = Direct3D12::D3D12_TEXTURE_COPY_LOCATION {
                 pResource: unsafe { borrow_interface_temporarily(&src.resource) },
                 Type: Direct3D12::D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
@@ -656,6 +780,37 @@ impl crate::CommandEncoder for super::CommandEncoder {
             let src_box = make_box(&r.texture_base.origin, &r.size);
             unsafe {
                 list.CopyTextureRegion(&dst_location, 0, 0, 0, &src_location, Some(&src_box))
+            };
+        };
+
+        let offset_alignment = self.shared.private_caps.texture_data_placement_alignment();
+
+        for r in regions {
+            let is_offset_aligned = r.buffer_layout.offset % offset_alignment == 0;
+            if is_offset_aligned {
+                copy_aligned(self, src, dst, r)
+            } else {
+                let orig_offset = r.buffer_layout.offset;
+                let (intermediate_to_dst_region, src) = unsafe {
+                    self.buf_tex_intermediate(
+                        r,
+                        src.format,
+                        |this, buf, size, intermediate_region| {
+                            copy_aligned(this, src, buf, intermediate_region);
+                            crate::BufferCopy {
+                                src_offset: 0,
+                                dst_offset: orig_offset,
+                                size,
+                            }
+                        },
+                    )
+                };
+
+                unsafe {
+                    self.copy_buffer_to_buffer(&src, dst, [intermediate_to_dst_region].into_iter());
+                }
+
+                self.intermediate_copy_bufs.push(src);
             };
         }
     }
@@ -736,7 +891,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
     unsafe fn begin_render_pass(
         &mut self,
         desc: &crate::RenderPassDescriptor<super::QuerySet, super::TextureView>,
-    ) {
+    ) -> Result<(), crate::DeviceError> {
         unsafe { self.begin_pass(super::PassKind::Render, desc.label) };
 
         // Start timestamp if any (before all other commands but after debug marker)
@@ -753,13 +908,39 @@ impl crate::CommandEncoder for super::CommandEncoder {
 
         let mut color_views =
             [Direct3D12::D3D12_CPU_DESCRIPTOR_HANDLE { ptr: 0 }; crate::MAX_COLOR_ATTACHMENTS];
+        let mut rtv_pool = self.rtv_pool.lock();
         for (rtv, cat) in color_views.iter_mut().zip(desc.color_attachments.iter()) {
             if let Some(cat) = cat.as_ref() {
-                *rtv = cat.target.view.handle_rtv.unwrap().raw;
+                if cat.target.view.dimension == wgt::TextureViewDimension::D3 {
+                    let desc = Direct3D12::D3D12_RENDER_TARGET_VIEW_DESC {
+                        Format: cat.target.view.raw_format,
+                        ViewDimension: Direct3D12::D3D12_RTV_DIMENSION_TEXTURE3D,
+                        Anonymous: Direct3D12::D3D12_RENDER_TARGET_VIEW_DESC_0 {
+                            Texture3D: Direct3D12::D3D12_TEX3D_RTV {
+                                MipSlice: cat.target.view.mip_slice,
+                                FirstWSlice: cat.depth_slice.unwrap(),
+                                WSize: 1,
+                            },
+                        },
+                    };
+                    let handle = rtv_pool.alloc_handle()?;
+                    unsafe {
+                        self.device.CreateRenderTargetView(
+                            &cat.target.view.texture,
+                            Some(&desc),
+                            handle.raw,
+                        )
+                    };
+                    *rtv = handle.raw;
+                    self.temp_rtv_handles.push(handle);
+                } else {
+                    *rtv = cat.target.view.handle_rtv.unwrap().raw;
+                }
             } else {
                 *rtv = self.null_rtv_handle.raw;
             }
         }
+        drop(rtv_pool);
 
         let ds_view = desc.depth_stencil_attachment.as_ref().map(|ds| {
             if ds.target.usage == wgt::TextureUses::DEPTH_STENCIL_WRITE {
@@ -770,20 +951,19 @@ impl crate::CommandEncoder for super::CommandEncoder {
         });
 
         let list = self.list.as_ref().unwrap();
-        #[allow(trivial_casts)] // No other clean way to write the coercion inside .map() below?
         unsafe {
             list.OMSetRenderTargets(
                 desc.color_attachments.len() as u32,
                 Some(color_views.as_ptr()),
                 false,
-                ds_view.as_ref().map(std::ptr::from_ref),
+                ds_view.as_ref().map(core::ptr::from_ref),
             )
         };
 
         self.pass.resolves.clear();
         for (rtv, cat) in color_views.iter().zip(desc.color_attachments.iter()) {
             if let Some(cat) = cat.as_ref() {
-                if !cat.ops.contains(crate::AttachmentOps::LOAD) {
+                if cat.ops.contains(crate::AttachmentOps::LOAD_CLEAR) {
                     let value = [
                         cat.clear_value.r as f32,
                         cat.clear_value.g as f32,
@@ -794,8 +974,11 @@ impl crate::CommandEncoder for super::CommandEncoder {
                 }
                 if let Some(ref target) = cat.resolve_target {
                     self.pass.resolves.push(super::PassResolve {
-                        src: cat.target.view.target_base.clone(),
-                        dst: target.view.target_base.clone(),
+                        src: (
+                            cat.target.view.texture.clone(),
+                            cat.target.view.subresource_index,
+                        ),
+                        dst: (target.view.texture.clone(), target.view.subresource_index),
                         format: target.view.raw_format,
                     });
                 }
@@ -805,12 +988,12 @@ impl crate::CommandEncoder for super::CommandEncoder {
         if let Some(ref ds) = desc.depth_stencil_attachment {
             let mut flags = Direct3D12::D3D12_CLEAR_FLAGS::default();
             let aspects = ds.target.view.aspects;
-            if !ds.depth_ops.contains(crate::AttachmentOps::LOAD)
+            if ds.depth_ops.contains(crate::AttachmentOps::LOAD_CLEAR)
                 && aspects.contains(crate::FormatAspects::DEPTH)
             {
                 flags |= Direct3D12::D3D12_CLEAR_FLAG_DEPTH;
             }
-            if !ds.stencil_ops.contains(crate::AttachmentOps::LOAD)
+            if ds.stencil_ops.contains(crate::AttachmentOps::LOAD_CLEAR)
                 && aspects.contains(crate::FormatAspects::STENCIL)
             {
                 flags |= Direct3D12::D3D12_CLEAR_FLAG_STENCIL;
@@ -819,26 +1002,23 @@ impl crate::CommandEncoder for super::CommandEncoder {
             if let Some(ds_view) = ds_view {
                 if flags != Direct3D12::D3D12_CLEAR_FLAGS::default() {
                     unsafe {
-                        // list.ClearDepthStencilView(
-                        //     ds_view,
-                        //     flags,
-                        //     ds.clear_value.0,
-                        //     ds.clear_value.1 as u8,
-                        //     None,
-                        // )
-                        // TODO: Replace with the above in the next breaking windows-rs release,
-                        // when https://github.com/microsoft/win32metadata/pull/1971 is in.
-                        (Interface::vtable(list).ClearDepthStencilView)(
-                            Interface::as_raw(list),
+                        list.ClearDepthStencilView(
                             ds_view,
                             flags,
                             ds.clear_value.0,
                             ds.clear_value.1 as u8,
-                            0,
-                            std::ptr::null(),
+                            None,
                         )
                     }
                 }
+            }
+        }
+
+        if let Some(multiview_mask) = desc.multiview_mask {
+            unsafe {
+                list.cast::<Direct3D12::ID3D12GraphicsCommandList2>()
+                    .unwrap()
+                    .SetViewInstanceMask(multiview_mask.get());
             }
         }
 
@@ -856,8 +1036,10 @@ impl crate::CommandEncoder for super::CommandEncoder {
             right: desc.extent.width as i32,
             bottom: desc.extent.height as i32,
         };
-        unsafe { list.RSSetViewports(std::slice::from_ref(&raw_vp)) };
-        unsafe { list.RSSetScissorRects(std::slice::from_ref(&raw_rect)) };
+        unsafe { list.RSSetViewports(core::slice::from_ref(&raw_vp)) };
+        unsafe { list.RSSetScissorRects(core::slice::from_ref(&raw_rect)) };
+
+        Ok(())
     }
 
     unsafe fn end_render_pass(&mut self) {
@@ -873,7 +1055,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
                     Flags: Direct3D12::D3D12_RESOURCE_BARRIER_FLAG_NONE,
                     Anonymous: Direct3D12::D3D12_RESOURCE_BARRIER_0 {
                         // Note: this assumes `D3D12_RESOURCE_STATE_RENDER_TARGET`.
-                        // If it's not the case, we can include the `TextureUses` in `PassResove`.
+                        // If it's not the case, we can include the `TextureUses` in `PassResolve`.
                         Transition: mem::ManuallyDrop::new(
                             Direct3D12::D3D12_RESOURCE_TRANSITION_BARRIER {
                                 pResource: unsafe { borrow_interface_temporarily(&resolve.src.0) },
@@ -1009,10 +1191,9 @@ impl crate::CommandEncoder for super::CommandEncoder {
             self.reset_signature(&layout.shared);
         };
     }
-    unsafe fn set_push_constants(
+    unsafe fn set_immediates(
         &mut self,
         layout: &super::PipelineLayout,
-        _stages: wgt::ShaderStages,
         offset_bytes: u32,
         data: &[u32],
     ) {
@@ -1074,8 +1255,8 @@ impl crate::CommandEncoder for super::CommandEncoder {
             .enumerate()
         {
             if let Some(stride) = stride {
-                if vb.StrideInBytes != stride.get() {
-                    vb.StrideInBytes = stride.get();
+                if vb.StrideInBytes != stride {
+                    vb.StrideInBytes = stride;
                     self.pass.dirty_vertex_buffers |= 1 << index;
                 }
             }
@@ -1089,7 +1270,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
     ) {
         let ibv = Direct3D12::D3D12_INDEX_BUFFER_VIEW {
             BufferLocation: binding.resolve_address(),
-            SizeInBytes: binding.resolve_size() as u32,
+            SizeInBytes: binding.resolve_size().try_into().unwrap(),
             Format: auxil::dxgi::conv::map_index_format(format),
         };
 
@@ -1102,7 +1283,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
     ) {
         let vb = &mut self.pass.vertex_buffers[index as usize];
         vb.BufferLocation = binding.resolve_address();
-        vb.SizeInBytes = binding.resolve_size() as u32;
+        vb.SizeInBytes = binding.resolve_size().try_into().unwrap();
         self.pass.dirty_vertex_buffers |= 1 << index;
     }
 
@@ -1119,7 +1300,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
             self.list
                 .as_ref()
                 .unwrap()
-                .RSSetViewports(std::slice::from_ref(&raw_vp))
+                .RSSetViewports(core::slice::from_ref(&raw_vp))
         }
     }
     unsafe fn set_scissor_rect(&mut self, rect: &crate::Rect<u32>) {
@@ -1133,7 +1314,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
             self.list
                 .as_ref()
                 .unwrap()
-                .RSSetScissorRects(std::slice::from_ref(&raw_rect))
+                .RSSetScissorRects(core::slice::from_ref(&raw_rect))
         }
     }
     unsafe fn set_stencil_reference(&mut self, value: u32) {
@@ -1179,16 +1360,50 @@ impl crate::CommandEncoder for super::CommandEncoder {
             )
         }
     }
+    unsafe fn draw_mesh_tasks(
+        &mut self,
+        group_count_x: u32,
+        group_count_y: u32,
+        group_count_z: u32,
+    ) {
+        self.prepare_dispatch([group_count_x, group_count_y, group_count_z]);
+        let cmd_list6: Direct3D12::ID3D12GraphicsCommandList6 =
+            self.list.as_ref().unwrap().cast().unwrap();
+        unsafe {
+            cmd_list6.DispatchMesh(group_count_x, group_count_y, group_count_z);
+        }
+    }
     unsafe fn draw_indirect(
         &mut self,
         buffer: &super::Buffer,
         offset: wgt::BufferAddress,
         draw_count: u32,
     ) {
-        unsafe { self.prepare_draw(0, 0) };
+        if self
+            .pass
+            .layout
+            .special_constants
+            .as_ref()
+            .and_then(|sc| sc.indirect_cmd_signatures.as_ref())
+            .is_some()
+        {
+            unsafe { self.prepare_vertex_buffers() };
+            self.update_root_elements();
+        } else {
+            unsafe { self.prepare_draw(0, 0) };
+        }
+
+        let cmd_signature = &self
+            .pass
+            .layout
+            .special_constants
+            .as_ref()
+            .and_then(|sc| sc.indirect_cmd_signatures.as_ref())
+            .unwrap_or_else(|| &self.shared.cmd_signatures)
+            .draw;
         unsafe {
             self.list.as_ref().unwrap().ExecuteIndirect(
-                &self.shared.cmd_signatures.draw,
+                cmd_signature,
                 draw_count,
                 &buffer.resource,
                 offset,
@@ -1203,16 +1418,73 @@ impl crate::CommandEncoder for super::CommandEncoder {
         offset: wgt::BufferAddress,
         draw_count: u32,
     ) {
-        unsafe { self.prepare_draw(0, 0) };
+        if self
+            .pass
+            .layout
+            .special_constants
+            .as_ref()
+            .and_then(|sc| sc.indirect_cmd_signatures.as_ref())
+            .is_some()
+        {
+            unsafe { self.prepare_vertex_buffers() };
+            self.update_root_elements();
+        } else {
+            unsafe { self.prepare_draw(0, 0) };
+        }
+
+        let cmd_signature = &self
+            .pass
+            .layout
+            .special_constants
+            .as_ref()
+            .and_then(|sc| sc.indirect_cmd_signatures.as_ref())
+            .unwrap_or_else(|| &self.shared.cmd_signatures)
+            .draw_indexed;
         unsafe {
             self.list.as_ref().unwrap().ExecuteIndirect(
-                &self.shared.cmd_signatures.draw_indexed,
+                cmd_signature,
                 draw_count,
                 &buffer.resource,
                 offset,
                 None,
                 0,
             )
+        }
+    }
+    unsafe fn draw_mesh_tasks_indirect(
+        &mut self,
+        buffer: &<Self::A as crate::Api>::Buffer,
+        offset: wgt::BufferAddress,
+        draw_count: u32,
+    ) {
+        if self
+            .pass
+            .layout
+            .special_constants
+            .as_ref()
+            .and_then(|sc| sc.indirect_cmd_signatures.as_ref())
+            .is_some()
+        {
+            self.update_root_elements();
+        } else {
+            self.prepare_dispatch([0; 3]);
+        }
+
+        let cmd_list6: Direct3D12::ID3D12GraphicsCommandList6 =
+            self.list.as_ref().unwrap().cast().unwrap();
+        let Some(cmd_signature) = &self
+            .pass
+            .layout
+            .special_constants
+            .as_ref()
+            .and_then(|sc| sc.indirect_cmd_signatures.as_ref())
+            .unwrap_or_else(|| &self.shared.cmd_signatures)
+            .draw_mesh
+        else {
+            panic!("Feature `MESH_SHADING` not enabled");
+        };
+        unsafe {
+            cmd_list6.ExecuteIndirect(cmd_signature, draw_count, &buffer.resource, offset, None, 0);
         }
     }
     unsafe fn draw_indirect_count(
@@ -1253,6 +1525,31 @@ impl crate::CommandEncoder for super::CommandEncoder {
                 &count_buffer.resource,
                 count_offset,
             )
+        }
+    }
+    unsafe fn draw_mesh_tasks_indirect_count(
+        &mut self,
+        buffer: &<Self::A as crate::Api>::Buffer,
+        offset: wgt::BufferAddress,
+        count_buffer: &<Self::A as crate::Api>::Buffer,
+        count_offset: wgt::BufferAddress,
+        max_count: u32,
+    ) {
+        self.prepare_dispatch([0; 3]);
+        let cmd_list6: Direct3D12::ID3D12GraphicsCommandList6 =
+            self.list.as_ref().unwrap().cast().unwrap();
+        let Some(ref command_signature) = self.shared.cmd_signatures.draw_mesh else {
+            panic!("Feature `MESH_SHADING` not enabled");
+        };
+        unsafe {
+            cmd_list6.ExecuteIndirect(
+                command_signature,
+                max_count,
+                &buffer.resource,
+                offset,
+                &count_buffer.resource,
+                count_offset,
+            );
         }
     }
 

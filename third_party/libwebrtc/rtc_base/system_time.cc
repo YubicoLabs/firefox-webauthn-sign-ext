@@ -9,20 +9,26 @@
  */
 
 // If WEBRTC_EXCLUDE_SYSTEM_TIME is set, an implementation of
-// rtc::SystemTimeNanos() must be provided externally.
+// webrtc::SystemTimeNanos() must be provided externally.
 #ifndef WEBRTC_EXCLUDE_SYSTEM_TIME
+#include "rtc_base/system_time.h"
 
 #error Mozilla: Must not use the built-in libwebrtc clock
 
-#include <stdint.h>
+#include <time.h>
+
+#include <cstdint>
+#include <ctime>
+
+#include "rtc_base/time_utils.h"
+
+#if defined(WEBRTC_MAC)
+#include <mach/mach_time.h>
 
 #include <limits>
 
-#if defined(WEBRTC_POSIX)
-#include <sys/time.h>
-#if defined(WEBRTC_MAC)
-#include <mach/mach_time.h>
-#endif
+#include "rtc_base/checks.h"
+#include "rtc_base/numerics/safe_conversions.h"
 #endif
 
 #if defined(WEBRTC_WIN)
@@ -35,12 +41,7 @@
 // clang-format on
 #endif
 
-#include "rtc_base/checks.h"
-#include "rtc_base/numerics/safe_conversions.h"
-#include "rtc_base/system_time.h"
-#include "rtc_base/time_utils.h"
-
-namespace rtc {
+namespace webrtc {
 
 int64_t SystemTimeNanos() {
   int64_t ticks;
@@ -58,7 +59,7 @@ int64_t SystemTimeNanos() {
     RTC_DCHECK_NE(b, 0);
     RTC_DCHECK_LE(a, std::numeric_limits<int64_t>::max() / b)
         << "The multiplication " << a << " * " << b << " overflows";
-    return rtc::dchecked_cast<int64_t>(a * b);
+    return dchecked_cast<int64_t>(a * b);
   };
   ticks = mul(mach_absolute_time(), timebase.numer) / timebase.denom;
 #elif defined(WEBRTC_POSIX)
@@ -100,5 +101,5 @@ int64_t SystemTimeNanos() {
   return ticks;
 }
 
-}  // namespace rtc
+}  // namespace webrtc
 #endif  // WEBRTC_EXCLUDE_SYSTEM_TIME

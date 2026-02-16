@@ -71,8 +71,8 @@ def vendor_puppeteer(command_context, repository, commitish, install):
 
     # Preserve our custom mocha reporter
     shutil.move(
-        os.path.join(puppeteer_dir, "json-mocha-reporter.js"),
-        os.path.join(remotedir(command_context), "json-mocha-reporter.js"),
+        os.path.join(puppeteer_dir, "json-mocha-reporter.cjs"),
+        os.path.join(remotedir(command_context), "json-mocha-reporter.cjs"),
     )
 
     print("Removing folders for current Puppeteer version…")
@@ -87,7 +87,7 @@ def vendor_puppeteer(command_context, repository, commitish, install):
             "-a",
             "-f",
             "--prefix",
-            "{}/".format(puppeteer_dir),
+            f"{puppeteer_dir}/",
             worktree=tmpdir,
         )
 
@@ -106,7 +106,7 @@ def vendor_puppeteer(command_context, repository, commitish, install):
             shutil.rmtree(dir_path)
 
     shutil.move(
-        os.path.join(remotedir(command_context), "json-mocha-reporter.js"),
+        os.path.join(remotedir(command_context), "json-mocha-reporter.cjs"),
         puppeteer_dir,
     )
 
@@ -151,8 +151,9 @@ def vendor_puppeteer(command_context, repository, commitish, install):
             exit_on_fail=False,
         )
 
+        # Always use the `ci` command to not get updated sub-dependencies installed.
         run_npm(
-            "install",
+            "ci",
             cwd=os.path.join(command_context.topsrcdir, puppeteer_dir),
             env=env,
         )
@@ -234,7 +235,7 @@ def post_wait_proc(p, cmd=None, exit_on_fail=True):
         exit(p.returncode, msg)
 
 
-class MochaOutputHandler(object):
+class MochaOutputHandler:
     def __init__(self, logger, expected):
         self.hook_re = re.compile('"before\b?.*" hook|"after\b?.*" hook')
 
@@ -296,7 +297,7 @@ class MochaOutputHandler(object):
                 if "timeout" in test_err.lower():
                     status = "TIMEOUT"
             if test_name and test_path:
-                test_name = "{} ({})".format(test_name, os.path.basename(test_path))
+                test_name = f"{test_name} ({os.path.basename(test_path)})"
             # mocha hook failures are not tracked in metadata
             if status != "PASS" and self.hook_re.search(test_name):
                 self.logger.error("TEST-UNEXPECTED-ERROR %s" % (test_name,))
@@ -304,7 +305,7 @@ class MochaOutputHandler(object):
             if test_start:
                 self.logger.test_start(test_name)
                 return
-            expected_name = "[{}] {}".format(test_file_name, test_full_title)
+            expected_name = f"[{test_file_name}] {test_full_title}"
             expected_item = next(
                 (
                     expectation
@@ -332,8 +333,8 @@ class MochaOutputHandler(object):
             result_recorded = self.test_results.get(test_name)
             if result_recorded:
                 self.logger.warning(
-                    "Received a second status for {}: "
-                    "first {}, now {}".format(test_name, result_recorded, status)
+                    f"Received a second status for {test_name}: "
+                    f"first {result_recorded}, now {status}"
                 )
             # mocha intermittently logs an additional test result after the
             # test has already timed out. Avoid recording this second status.
@@ -359,13 +360,13 @@ class MochaOutputHandler(object):
 
 
 # tempfile.TemporaryDirectory missing from Python 2.7
-class TemporaryDirectory(object):
+class TemporaryDirectory:
     def __init__(self):
         self.path = tempfile.mkdtemp()
         self._closed = False
 
     def __repr__(self):
-        return "<{} {!r}>".format(self.__class__.__name__, self.path)
+        return f"<{self.__class__.__name__} {self.path!r}>"
 
     def __enter__(self):
         return self.path
@@ -384,7 +385,7 @@ class TemporaryDirectory(object):
 
 class PuppeteerRunner(MozbuildObject):
     def __init__(self, *args, **kwargs):
-        super(PuppeteerRunner, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.remotedir = os.path.join(self.topsrcdir, "remote")
         self.puppeteer_dir = os.path.join(self.remotedir, "test", "puppeteer")
@@ -421,7 +422,7 @@ class PuppeteerRunner(MozbuildObject):
         # Override upstream defaults: no retries, shorter timeout
         mocha_options = [
             "--reporter",
-            "./json-mocha-reporter.js",
+            "./json-mocha-reporter.cjs",
             "--retries",
             "0",
             "--fullTrace",
@@ -434,7 +435,7 @@ class PuppeteerRunner(MozbuildObject):
         env = {
             # Checked by Puppeteer's custom mocha config
             "CI": "1",
-            # Print browser process ouptut
+            # Print browser process output
             "DUMPIO": "1",
             # Run in headless mode if trueish, otherwise use headful
             "HEADLESS": str(headless),
@@ -484,7 +485,7 @@ class PuppeteerRunner(MozbuildObject):
 
         prefs = {}
         for k, v in params.get("extra_prefs", {}).items():
-            print("Using extra preference: {}={}".format(k, v))
+            print(f"Using extra preference: {k}={v}")
             prefs[k] = mozprofile.Preferences.cast(v)
 
         if prefs:
@@ -622,6 +623,7 @@ def is_relevant_expectation(
     else:
         is_expected_product = "firefox" not in parameters
 
+    is_expected_connection = "pipe" not in parameters
     is_expected_protocol = "cdp" not in parameters
 
     if is_headless == "True":
@@ -633,9 +635,10 @@ def is_relevant_expectation(
 
     return (
         is_expected_product
-        and is_expected_protocol
+        and is_expected_connection
         and is_expected_mode
         and is_expected_platform
+        and is_expected_protocol
     )
 
 
@@ -691,7 +694,7 @@ def puppeteer_test(
     for s in extra_prefs or []:
         kv = s.split("=")
         if len(kv) != 2:
-            logger.error("syntax error in --setpref={}".format(s))
+            logger.error(f"syntax error in --setpref={s}")
             exit(EX_USAGE)
         prefs[kv[0]] = kv[1].strip()
 
@@ -699,7 +702,7 @@ def puppeteer_test(
     for s in extra_options or []:
         kv = s.split("=")
         if len(kv) != 2:
-            logger.error("syntax error in --setopt={}".format(s))
+            logger.error(f"syntax error in --setopt={s}")
             exit(EX_USAGE)
         options[kv[0]] = kv[1].strip()
 
@@ -790,5 +793,5 @@ def exit(code, error=None):
             traceback.print_exc()
         else:
             message = str(error).split("\n")[0].strip()
-            print("{}: {}".format(sys.argv[0], message), file=sys.stderr)
+            print(f"{sys.argv[0]}: {message}", file=sys.stderr)
     sys.exit(code)

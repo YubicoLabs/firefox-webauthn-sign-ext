@@ -8,8 +8,6 @@
 //! ignored because we're flagging an exception.  This trait defines what that value is for our
 //! supported FFI types.
 
-use paste::paste;
-
 pub trait FfiDefault {
     fn ffi_default() -> Self;
 }
@@ -19,11 +17,9 @@ macro_rules! impl_ffi_default_with_default {
     ($($T:ty,)+) => { impl_ffi_default_with_default!($($T),+); };
     ($($T:ty),*) => {
             $(
-                paste! {
-                    impl FfiDefault for $T {
-                        fn ffi_default() -> Self {
-                            $T::default()
-                        }
+                impl FfiDefault for $T {
+                    fn ffi_default() -> Self {
+                        <$T>::default()
                     }
                 }
             )*
@@ -54,13 +50,6 @@ impl FfiDefault for *const std::ffi::c_void {
 impl FfiDefault for crate::RustBuffer {
     fn ffi_default() -> Self {
         unsafe { Self::from_raw_parts(std::ptr::null_mut(), 0, 0) }
-    }
-}
-
-impl FfiDefault for crate::ForeignFuture {
-    fn ffi_default() -> Self {
-        extern "C" fn free(_handle: u64) {}
-        crate::ForeignFuture { handle: 0, free }
     }
 }
 

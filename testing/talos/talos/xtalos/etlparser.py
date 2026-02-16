@@ -120,7 +120,7 @@ def getIndex(eventName, *colNames):
 
 def readFile(filename):
     data = csv.reader(
-        open(filename, "r", encoding="cp1252"),
+        open(filename, encoding="cp1252"),
         delimiter=",",
         quotechar='"',
         skipinitialspace=True,
@@ -225,7 +225,6 @@ def trackProcess(row, firstFirefoxPID):
 
 
 def getBrowserPID():
-    global gBrowserPID
     return gBrowserPID
 
 
@@ -270,7 +269,7 @@ def trackThreadNetIO(row, io, stage):
         match = re.match(r"[\w-]+\/([\w-]+)?", event)
         if not match:
             raise xtalos.XTalosError(
-                "Could not find a regular expression match for event: {}".format(event)
+                f"Could not find a regular expression match for event: {event}"
             )
         netEvt = match.group(1)
 
@@ -348,7 +347,6 @@ def etlparser(
     all_threads=False,
     debug=False,
 ):
-    global NAME_SUBSTITUTIONS
 
     # setup output file
     if outputFile:
@@ -395,7 +393,7 @@ def etlparser(
 
     allowlist = loadAllowlist(allowlist_file)
 
-    header = "filename, tid, stage, readcount, readbytes, writecount," " writebytes"
+    header = "filename, tid, stage, readcount, readbytes, writecount, writebytes"
     outFile.write(header + "\n")
 
     # Filter out stages, threads, and allowlisted files that we're not
@@ -456,7 +454,7 @@ def etlparser(
 
     wl_temp = {}
     if allowlist_path:
-        with open(allowlist_path, "r") as fHandle:
+        with open(allowlist_path) as fHandle:
             wl_temp = json.load(fHandle)
 
     # Approot is the full path where the application is located at
@@ -464,7 +462,7 @@ def etlparser(
     # normal startup.
     if approot:
         if os.path.exists("%s\\dependentlibs.list" % approot):
-            with open("%s\\dependentlibs.list" % approot, "r") as fhandle:
+            with open("%s\\dependentlibs.list" % approot) as fhandle:
                 libs = fhandle.readlines()
 
             for lib in libs:

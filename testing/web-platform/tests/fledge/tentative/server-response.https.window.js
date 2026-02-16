@@ -22,6 +22,9 @@
 // META: variant=?55-58
 // META: variant=?59-62
 // META: variant=?63-66
+// META: variant=?67-70
+
+"use strict";
 
 // These tests focus on the serverResponse field in AuctionConfig, e.g.
 // auctions involving bidding and auction services.
@@ -67,49 +70,6 @@ subsetTest(promise_test, async test => {
   createAndNavigateFencedFrame(test, auctionResult);
   await waitForObservedRequests(uuid, [adA]);
 }, 'Basic B&A auction');
-
-subsetTest(promise_test, async test => {
-  const uuid = generateUuid(test);
-  const adA = createTrackerURL(window.location.origin, uuid, 'track_get', 'a');
-  const adB = createTrackerURL(window.location.origin, uuid, 'track_get', 'b');
-  const adsArray =
-      [{renderURL: adA, adRenderId: 'a'}, {renderURL: adB, adRenderId: 'b'}];
-  await joinInterestGroup(test, uuid, {ads: adsArray});
-
-  const result = await navigator.getInterestGroupAdAuctionData({
-    coordinatorOrigin: await BA.configureCoordinator(),
-    seller: window.location.origin
-  });
-  assert_true(result.requestId !== null);
-  assert_true(result.request.length > 0);
-
-  let decoded = await BA.decodeInterestGroupData(result.request);
-
-  let serverResponseMsg = {
-    'nonce': uuid,
-    'biddingGroups': {},
-    'adRenderURL': adsArray[0].renderURL,
-    'interestGroupName': DEFAULT_INTEREST_GROUP_NAME,
-    'interestGroupOwner': window.location.origin,
-  };
-  serverResponseMsg.biddingGroups[window.location.origin] = [0];
-
-  let serverResponse =
-      await BA.encodeServerResponse(serverResponseMsg, decoded);
-
-  let hashString = await BA.payloadHash(serverResponse);
-  await BA.authorizeServerResponseNonces([uuid]);
-
-  let auctionResult = await navigator.runAdAuction({
-    'seller': window.location.origin,
-    'requestId': result.requestId,
-    'serverResponse': serverResponse,
-    'resolveToConfig': true,
-  });
-  expectSuccess(auctionResult);
-  createAndNavigateFencedFrame(test, auctionResult);
-  await waitForObservedRequests(uuid, [adA]);
-}, 'Basic B&A auction - nonces');
 
 subsetTest(promise_test, async test => {
   const uuid = generateUuid(test);
@@ -556,12 +516,10 @@ subsetTest(promise_test, async test => {
       test, /*expectSuccess=*/ true, msg => {msg.isChaff = false});
 }, 'Basic B&A auction - response marked as non-chaff');
 
-// Disabled while spec clarifying expected behavior is in-progress.
-//
-// subsetTest(promise_test, async test => {
-//   await BA.testWithMutatedServerResponse(
-//       test, /*expectSuccess=*/ true, msg => {msg.isChaff = 'yes'});
-// }, 'Basic B&A auction - response marked as chaff incorrectly');
+subsetTest(promise_test, async test => {
+  await BA.testWithMutatedServerResponse(
+      test, /*expectSuccess=*/ false, msg => {msg.isChaff = 'yes'});
+}, 'Basic B&A auction - response marked as chaff incorrectly');
 
 subsetTest(promise_test, async test => {
   await BA.testWithMutatedServerResponse(
@@ -569,12 +527,10 @@ subsetTest(promise_test, async test => {
       msg => {msg.topLevelSeller = 'https://example.org/'});
 }, 'Basic B&A auction - incorrectly includes topLevelSeller');
 
-// Disabled while spec clarifying expected behavior is in-progress.
-//
-// subsetTest(promise_test, async test => {
-//   await BA.testWithMutatedServerResponse(
-//       test, /*expectSuccess=*/ true, msg => {msg.topLevelSeller = 1});
-// }, 'Basic B&A auction - non-string top-level seller ignored');
+subsetTest(promise_test, async test => {
+  await BA.testWithMutatedServerResponse(
+      test, /*expectSuccess=*/ false, msg => {msg.topLevelSeller = 1});
+}, 'Basic B&A auction - non-string top-level seller invalid');
 
 subsetTest(promise_test, async test => {
   await BA.testWithMutatedServerResponse(
@@ -582,12 +538,10 @@ subsetTest(promise_test, async test => {
       msg => {msg.topLevelSeller = 'http://example.org/'});
 }, 'Basic B&A auction - http:// topLevelSeller is bad, too');
 
-// Disabled while spec clarifying expected behavior is in-progress.
-//
-// subsetTest(promise_test, async test => {
-//   await BA.testWithMutatedServerResponse(
-//       test, /*expectSuccess=*/ true, msg => {msg.bid = '10 cents'});
-// }, 'Basic B&A auction - non-number bid is ignored');
+subsetTest(promise_test, async test => {
+  await BA.testWithMutatedServerResponse(
+      test, /*expectSuccess=*/ false, msg => {msg.bid = '10 cents'});
+}, 'Basic B&A auction - non-number bid is invalid');
 
 subsetTest(promise_test, async test => {
   await BA.testWithMutatedServerResponse(

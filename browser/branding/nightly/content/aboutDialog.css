@@ -9,11 +9,12 @@
 }
 
 #rightBox {
+  background-size: auto 64px;
   margin-inline: 30px;
-  padding-top: 64px;
+  padding-top: 96px;
 }
 
 #bottomBox {
-  background-color: hsla(235, 43%, 10%, .5);
+  background-color: hsla(235, 43%, 10%, 0.5);
   padding: 15px 10px 15px;
 }

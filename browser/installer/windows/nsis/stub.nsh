@@ -101,7 +101,7 @@ Var ArchToInstall
 ; the stub installer
 ;!define STUB_DEBUG
 
-!define StubURLVersion "v10"
+!define StubURLVersion "v11"
 
 ; Successful install exit code
 !define ERR_SUCCESS 0
@@ -372,9 +372,9 @@ Function getUIString
   ${Select} $0
     ${Case} "cleanup_header"
       ${If} $ProfileCleanupPromptType == 1
-        Push "$(STUB_CLEANUP_REINSTALL_HEADER2)"
+        Push "$(STUB_CLEANUP_REINSTALL_HEADER3)"
       ${Else}
-        Push "$(STUB_CLEANUP_PAVEOVER_HEADER2)"
+        Push "$(STUB_CLEANUP_PAVEOVER_HEADER3)"
       ${EndIf}
     ${Case} "cleanup_button"
       ${If} $ProfileCleanupPromptType == 1
@@ -383,44 +383,30 @@ Function getUIString
         Push "$(STUB_CLEANUP_PAVEOVER_BUTTON2)"
       ${EndIf}
     ${Case} "cleanup_checkbox"
-      Push "$(STUB_CLEANUP_CHECKBOX_LABEL2)"
-    ${Case} "installing_header"
-      Push "$(STUB_INSTALLING_HEADLINE2)"
+      Push "$(STUB_CLEANUP_CHECKBOX_LABEL3)"
     ${Case} "installing_label"
       Push "$(STUB_INSTALLING_LABEL2)"
-    ${Case} "installing_content"
-      Push "$(STUB_INSTALLING_BODY2)"
     ${Case} "installing_blurb_0"
-      Push "$(STUB_BLURB_FIRST1)"
+      !ifdef DEV_EDITION
+        Push "$(STUB_BLURB_FIRST2_DEVEDITION)"
+      !else
+        Push "$(STUB_BLURB_FIRST3)"
+      !endif
     ${Case} "installing_blurb_1"
-      Push "$(STUB_BLURB_SECOND1)"
+      !ifdef DEV_EDITION
+        Push "$(STUB_BLURB_SECOND2_DEVEDITION)"
+      !else
+        Push "$(STUB_BLURB_SECOND2)"
+      !endif
     ${Case} "installing_blurb_2"
-      Push "$(STUB_BLURB_THIRD1)"
-    ${Case} "global_footer"
-      Push "$(STUB_BLURB_FOOTER2)"
+      !ifdef DEV_EDITION
+        Push "$(STUB_BLURB_THIRD2_DEVEDITION)"
+      !else
+        Push "$(STUB_BLURB_THIRD2)"
+      !endif
     ${Default}
       Push ""
   ${EndSelect}
-FunctionEnd
-
-Function createProfileCleanup
-  ${If} $AbortInstallation != "false"
-    ; Abort in this context skips the "page"
-    Abort
-  ${EndIf}
-  Call ShouldPromptForProfileCleanup
-
-  ${If} $ProfileCleanupPromptType == 0
-    StrCpy $CheckboxCleanupProfile 0
-    Abort ; Skip this page
-  ${EndIf}
-
-  ${RegisterAllCustomFunctions}
-
-  File /oname=$PLUGINSDIR\profile_cleanup.html "profile_cleanup.html"
-  File /oname=$PLUGINSDIR\profile_cleanup_page.css "profile_cleanup_page.css"
-  File /oname=$PLUGINSDIR\profile_cleanup.js "profile_cleanup.js"
-  WebBrowser::ShowPage "$PLUGINSDIR\profile_cleanup.html"
 FunctionEnd
 
 Function createInstall
@@ -700,9 +686,16 @@ Function LaunchFullInstaller
   ${If} $CheckboxShortcuts == 0
     WriteINIStr "$PLUGINSDIR\${CONFIG_INI}" "Install" "TaskbarShortcut" "false"
     WriteINIStr "$PLUGINSDIR\${CONFIG_INI}" "Install" "DesktopShortcut" "false"
+    WriteINIStr "$PLUGINSDIR\${CONFIG_INI}" "Install" "DesktopLauncher" "false"
   ${Else}
     WriteINIStr "$PLUGINSDIR\${CONFIG_INI}" "Install" "TaskbarShortcut" "true"
+!ifdef DESKTOP_LAUNCHER_ENABLED
+    WriteINIStr "$PLUGINSDIR\${CONFIG_INI}" "Install" "DesktopShortcut" "false"
+    WriteINIStr "$PLUGINSDIR\${CONFIG_INI}" "Install" "DesktopLauncher" "true"
+!else
     WriteINIStr "$PLUGINSDIR\${CONFIG_INI}" "Install" "DesktopShortcut" "true"
+    WriteINIStr "$PLUGINSDIR\${CONFIG_INI}" "Install" "DesktopLauncher" "false"
+!endif
   ${EndIf}
 
 !ifdef MOZ_MAINTENANCE_SERVICE
@@ -927,6 +920,13 @@ Function SendPing
       ${EndIf}
     ${EndIf}
 
+    ${GetParameters} $R9
+    ClearErrors
+    ${GetOptions} "$R9" "/LaunchedBy:" "$R4"
+    ${If} ${Errors}
+      StrCpy $R4 "unknown"
+    ${EndIf}
+
     StrCpy $R3 "1"
 
 ; Note: ExitCode gets parsed here to determine values for "succeeded",
@@ -977,7 +977,8 @@ Function SendPing
                       $\nDistribution ID = $DistributionID \
                       $\nDistribution Version = $DistributionVersion \
                       $\nWindows UBR = $WindowsUBR \
-                      $\nStub Installer Build ID = $StubBuildID"
+                      $\nStub Installer Build ID = $StubBuildID \
+                      $\nLaunched by = $R4"
     ; The following will exit the installer
     SetAutoClose true
     StrCpy $R9 "2"
@@ -986,7 +987,7 @@ Function SendPing
     ${StartTimer} ${DownloadIntervalMS} OnPing
     ; See https://firefox-source-docs.mozilla.org/toolkit/components/telemetry/data/install-ping.html#stub-ping
     ; for instructions on how to make changes to data being reported in this ping
-    InetBgDL::Get "${BaseURLStubPing}/${StubURLVersion}${StubURLVersionAppend}/${Channel}/${UpdateChannel}/${AB_CD}/$R0/$R1/$5/$6/$7/$8/$9/$ExitCode/$FirefoxLaunchCode/$DownloadRetryCount/$DownloadedBytes/$DownloadSizeBytes/$IntroPhaseSeconds/$OptionsPhaseSeconds/$0/$1/$DownloadFirstTransferSeconds/$2/$3/$4/$InitialInstallRequirementsCode/$OpenedDownloadPage/$ExistingProfile/$ExistingVersion/$ExistingBuildID/$R5/$R6/$R7/$R8/$R2/$R3/$DownloadServerIP/$PostSigningData/$ProfileCleanupPromptType/$CheckboxCleanupProfile/$DistributionID/$DistributionVersion/$WindowsUBR/$StubBuildID" \
+    InetBgDL::Get "${BaseURLStubPing}/${StubURLVersion}${StubURLVersionAppend}/${Channel}/${UpdateChannel}/${AB_CD}/$R0/$R1/$5/$6/$7/$8/$9/$ExitCode/$FirefoxLaunchCode/$DownloadRetryCount/$DownloadedBytes/$DownloadSizeBytes/$IntroPhaseSeconds/$OptionsPhaseSeconds/$0/$1/$DownloadFirstTransferSeconds/$2/$3/$4/$InitialInstallRequirementsCode/$OpenedDownloadPage/$ExistingProfile/$ExistingVersion/$ExistingBuildID/$R5/$R6/$R7/$R8/$R2/$R3/$DownloadServerIP/$PostSigningData/$ProfileCleanupPromptType/$CheckboxCleanupProfile/$DistributionID/$DistributionVersion/$WindowsUBR/$StubBuildID/$R4" \
                   "$PLUGINSDIR\_temp" /END
 !endif
   ${Else}
@@ -1210,7 +1211,7 @@ Function DisplayDownloadError
   ${ITBL3SetProgressValue} "100" "100"
   ${ITBL3SetProgressState} "${TBPF_ERROR}"
 
-  MessageBox MB_OKCANCEL|MB_ICONSTOP "$(ERROR_DOWNLOAD_CONT)" IDCANCEL +2 IDOK +1
+  MessageBox MB_OKCANCEL|MB_ICONSTOP "$(ERROR_DOWNLOAD_CONT2)" IDCANCEL +2 IDOK +1
   Call LaunchHelpPage
   Call SendPing
 FunctionEnd
@@ -1542,6 +1543,8 @@ Function CommonOnInit
   System::Call 'kernel32::SetDllDirectoryW(w "")'
   StrCpy $PingAlreadySent "false"
   StrCpy $AbortInstallation "false"
+  ; Initialize PostSigningData to detect case of not being set at all
+  StrCpy $PostSigningData "stub_installer:unset"
   StrCpy $LANGUAGE 0
   ; This macro is used to set the brand name variables but the ini file method
   ; isn't supported for the stub installer.
@@ -1554,9 +1557,9 @@ Function CommonOnInit
   ${Unless} ${AtLeastWin10}
     StrCpy $ExitCode "${ERR_PREINSTALL_SYS_OS_REQ}"
     ${If} "$CpuSupportsSSE" == "0"
-      strCpy $R7 "$(WARN_MIN_SUPPORTED_OSVER_CPU_MSG)"
+      strCpy $R7 "$(WARN_MIN_SUPPORTED_OSVER_CPU_MSG2)"
     ${Else}
-      strCpy $R7 "$(WARN_MIN_SUPPORTED_OSVER_MSG)"
+      strCpy $R7 "$(WARN_MIN_SUPPORTED_OSVER_MSG2)"
     ${EndIf}
     MessageBox MB_OKCANCEL|MB_ICONSTOP "$R7" /SD IDCANCEL IDCANCEL +2
     ExecShell "open" "${URLWinPre10NeedsEsr115}"
@@ -1567,7 +1570,7 @@ Function CommonOnInit
   ; SSE2 CPU support
   ${If} "$CpuSupportsSSE" == "0"
     StrCpy $ExitCode "${ERR_PREINSTALL_SYS_HW_REQ}"
-    MessageBox MB_OKCANCEL|MB_ICONSTOP "$(WARN_MIN_SUPPORTED_CPU_MSG)" /SD IDCANCEL IDCANCEL +2
+    MessageBox MB_OKCANCEL|MB_ICONSTOP "$(WARN_MIN_SUPPORTED_CPU_MSG2)" /SD IDCANCEL IDCANCEL +2
     ExecShell "open" "${URLSystemRequirements}"
     StrCpy $AbortInstallation "true"
     Return
@@ -1713,7 +1716,7 @@ Function CommonOnInit
   Call CanWrite
   ${If} "$CanWriteToInstallDir" == "false"
     StrCpy $ExitCode "${ERR_PREINSTALL_NOT_WRITABLE}"
-    MessageBox MB_OK|MB_ICONEXCLAMATION "$(WARN_WRITE_ACCESS_QUIT)$\n$\n$INSTDIR" /SD IDOK
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(WARN_WRITE_ACCESS_QUIT2)$\n$\n$INSTDIR" /SD IDOK
     StrCpy $AbortInstallation "true"
     Return
   ${EndIf}
@@ -1723,7 +1726,7 @@ Function CommonOnInit
   Call CheckSpace
   ${If} "$HasRequiredSpaceAvailable" == "false"
       StrCpy $ExitCode "${ERR_PREINSTALL_SPACE}"
-    MessageBox MB_OK|MB_ICONEXCLAMATION "$(WARN_DISK_SPACE_QUIT)"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(WARN_DISK_SPACE_QUIT2)"
     StrCpy $AbortInstallation "true"
     Return
   ${EndIf}

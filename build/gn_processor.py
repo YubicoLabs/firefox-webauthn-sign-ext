@@ -9,16 +9,16 @@ import subprocess
 import sys
 import tempfile
 from collections import defaultdict, deque
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from copy import deepcopy
-from importlib import util
 from pathlib import Path
 from shutil import which
 
 import mozpack.path as mozpath
-import six
 from mozbuild.bootstrap import bootstrap_toolchain
 from mozbuild.dirutils import mkdir
 from mozbuild.frontend.sandbox import alphabetical_sorted
+from mozfile import json as mozfile_json
 
 license_header = """# This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -31,7 +31,7 @@ generated_header = """
 """
 
 
-class MozbuildWriter(object):
+class MozbuildWriter:
     def __init__(self, fh):
         self._fh = fh
         self.indent = ""
@@ -52,17 +52,15 @@ class MozbuildWriter(object):
             return raw.replace("\n", "\n" + self.indent)
         if isinstance(v, bool):
             return repr(v)
-        return '"%s"' % v
+        return f'"{v}"'
 
     def finalize(self):
         if self._library_name:
             self.write("\n")
             if self._shared_library:
-                self.write_ln(
-                    "SharedLibrary(%s)" % self.mb_serialize(self._library_name)
-                )
+                self.write_ln(f"SharedLibrary({self.mb_serialize(self._library_name)})")
             else:
-                self.write_ln("Library(%s)" % self.mb_serialize(self._library_name))
+                self.write_ln(f"Library({self.mb_serialize(self._library_name)})")
 
     def write(self, content):
         self._fh.write(content)
@@ -103,7 +101,7 @@ class MozbuildWriter(object):
                 self._shared_library = True
             else:
                 self.write("\n")
-                self.write_ln("%s = %s" % (key, self.mb_serialize(value)))
+                self.write_ln(f"{key} = {self.mb_serialize(value)}")
                 self.write("\n")
 
     def write_mozbuild_dict(self, key, value):
@@ -120,11 +118,11 @@ class MozbuildWriter(object):
                 self.write_ln("GeneratedFile(")
                 self.indent += " " * self._indent_increment
                 for o in value["outputs"]:
-                    self.write_ln("%s," % (self.mb_serialize(o)))
+                    self.write_ln(f"{self.mb_serialize(o)},")
                 for k, v in sorted(value.items()):
                     if k == "outputs":
                         continue
-                    self.write_ln("%s=%s," % (k, self.mb_serialize(v)))
+                    self.write_ln(f"{k}={self.mb_serialize(v)},")
                 self.indent = self.indent[self._indent_increment :]
                 self.write_ln(")")
                 return
@@ -138,13 +136,15 @@ class MozbuildWriter(object):
                         wrote_ln = True
 
                 if not wrote_ln:
-                    self.write_ln("%s[%s] = %s" % subst_vals)
+                    self.write_ln(
+                        f"{key}[{self.mb_serialize(k)}] = {self.mb_serialize(v)}"
+                    )
 
     def write_condition(self, values):
         def mk_condition(k, v):
             if not v:
-                return 'not CONFIG["%s"]' % k
-            return 'CONFIG["%s"] == %s' % (k, self.mb_serialize(v))
+                return f'not CONFIG["{k}"]'
+            return f'CONFIG["{k}"] == {self.mb_serialize(v)}'
 
         self.write("\n")
         self.write("if ")
@@ -197,8 +197,8 @@ def filter_gn_config(path, gn_result, sandbox_vars, input_vars, gn_target):
         "OS_TARGET": oses[input_vars["target_os"]],
         "TARGET_CPU": cpus.get(input_vars["target_cpu"], input_vars["target_cpu"]),
     }
-    if "use_x11" in input_vars:
-        mozbuild_args["MOZ_X11"] = "1" if input_vars["use_x11"] else None
+    if "ozone_platform_x11" in input_vars:
+        mozbuild_args["MOZ_X11"] = "1" if input_vars["ozone_platform_x11"] else None
 
     gn_out["mozbuild_args"] = mozbuild_args
     all_deps = find_deps(gn_result["targets"], gn_target)
@@ -250,6 +250,7 @@ def filter_gn_config(path, gn_result, sandbox_vars, input_vars, gn_target):
                     for d in spec[spec_attr]
                     if "CR_XCODE_VERSION" not in d
                     and "CR_SYSROOT_HASH" not in d
+                    and "CR_SYSROOT_KEY" not in d
                     and "_FORTIFY_SOURCE" not in d
                 ]
             if spec_attr == "include_dirs":
@@ -265,7 +266,13 @@ def filter_gn_config(path, gn_result, sandbox_vars, input_vars, gn_target):
 
 
 def process_gn_config(
-    gn_config, topsrcdir, srcdir, non_unified_sources, sandbox_vars, mozilla_flags
+    gn_config,
+    topsrcdir,
+    srcdir,
+    non_unified_sources,
+    sandbox_vars,
+    mozilla_flags,
+    mozilla_add_override_dir,
 ):
     # Translates a json gn config into attributes that can be used to write out
     # moz.build files for this configuration.
@@ -293,11 +300,11 @@ def process_gn_config(
         if path.startswith("//"):
             path = path[2:]
         if not path.startswith("/"):
-            path = "/%s/%s" % (project_relsrcdir, path)
+            path = f"/{project_relsrcdir}/{path}"
         return path
 
     # Process all targets from the given gn project and its dependencies.
-    for target_fullname, spec in six.iteritems(targets):
+    for target_fullname, spec in targets.items():
         target_path, target_name = target_info(target_fullname)
         context_attrs = {}
 
@@ -307,13 +314,13 @@ def process_gn_config(
         if spec["type"] in ("static_library", "shared_library", "source_set", "action"):
             if name.startswith("lib"):
                 name = name[3:]
-            context_attrs["LIBRARY_NAME"] = six.ensure_text(name)
+            context_attrs["LIBRARY_NAME"] = str(name)
         else:
             raise Exception(
                 "The following GN target type is not currently "
-                'consumed by moz.build: "%s". It may need to be '
+                f'consumed by moz.build: "{spec["type"]}". It may need to be '
                 "added, or you may need to re-run the "
-                "`GnConfigGen` step." % spec["type"]
+                "`GnConfigGen` step."
             )
 
         if spec["type"] == "shared_library":
@@ -336,19 +343,18 @@ def process_gn_config(
         extensions = set()
         use_defines_in_asflags = False
 
-        for f in spec.get("sources", []):
-            f = f.lstrip("//")
+        for f in [item.lstrip("//") for item in spec.get("sources", [])]:
             ext = mozpath.splitext(f)[-1]
             extensions.add(ext)
-            src = "%s/%s" % (project_relsrcdir, f)
-            if ext == ".h" or ext == ".inc":
+            src = f"{project_relsrcdir}/{f}"
+            if ext in {".h", ".inc"}:
                 continue
             elif ext == ".def":
                 context_attrs["SYMBOLS_FILE"] = src
             elif ext != ".S" and src not in non_unified_sources:
-                unified_sources.append("/%s" % src)
+                unified_sources.append(f"/{src}")
             else:
-                sources.append("/%s" % src)
+                sources.append(f"/{src}")
             # The Mozilla build system doesn't use DEFINES for building
             # ASFILES.
             if ext == ".s":
@@ -378,8 +384,8 @@ def process_gn_config(
                     # tree or we simply didn't vendor. Print a warning in this case.
                     if not resolved.endswith("gn-output/gen"):
                         print(
-                            "Included path: '%s' does not exist, dropping include from GN "
-                            "configuration." % resolved,
+                            f"Included path: '{resolved}' does not exist, dropping include from GN "
+                            "configuration.",
                             file=sys.stderr,
                         )
                     continue
@@ -404,7 +410,7 @@ def process_gn_config(
             ]
             for f in flags:
                 # the result may be a string or a list.
-                if isinstance(f, six.string_types):
+                if isinstance(f, str):
                     context_attrs.setdefault(var, []).append(f)
                 else:
                     context_attrs.setdefault(var, []).extend(f)
@@ -419,6 +425,9 @@ def process_gn_config(
 
         # Add some features to all contexts. Put here in case LOCAL_INCLUDES
         # order matters.
+        if mozilla_add_override_dir != "":
+            context_attrs["LOCAL_INCLUDES"] += [mozilla_add_override_dir]
+
         context_attrs["LOCAL_INCLUDES"] += [
             "!/ipc/ipdl/_ipdlheaders",
             "/ipc/chromium/src",
@@ -489,7 +498,7 @@ def find_common_attrs(config_attributes):
     def make_difference(reference, input_attrs):
         # Modifies `input_attrs` so that after calling this function it contains
         # no parts it has in common with in `reference`.
-        for k, input_value in list(six.iteritems(input_attrs)):
+        for k, input_value in list(input_attrs.items()):
             common_value = reference.get(k)
             if common_value:
                 if isinstance(input_value, list):
@@ -516,27 +525,112 @@ def find_common_attrs(config_attributes):
     return common_attrs
 
 
-def write_mozbuild(
+def write_mozbuild(topsrcdir, write_mozbuild_variables, relsrcdir, configs):
+    target_srcdir = mozpath.join(topsrcdir, relsrcdir)
+    mkdir(target_srcdir)
+
+    target_mozbuild = mozpath.join(target_srcdir, "moz.build")
+    with open(target_mozbuild, "w") as fh:
+        mb = MozbuildWriter(fh)
+        mb.write(license_header)
+        mb.write("\n")
+        mb.write(generated_header)
+
+        try:
+            if relsrcdir in write_mozbuild_variables["INCLUDE_TK_CFLAGS_DIRS"]:
+                mb.write('if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":\n')
+                mb.write('    CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]\n')
+        except KeyError:
+            pass
+        try:
+            if relsrcdir in write_mozbuild_variables["INCLUDE_SYSTEM_GBM_HANDLING"]:
+                mb.write('CXXFLAGS += CONFIG["MOZ_GBM_CFLAGS"]\n')
+                mb.write('if not CONFIG["MOZ_SYSTEM_GBM"]:\n')
+                mb.write('    LOCAL_INCLUDES += [ "/third_party/gbm/gbm/" ]\n')
+        except KeyError:
+            pass
+        try:
+            if relsrcdir in write_mozbuild_variables["INCLUDE_SYSTEM_LIBDRM_HANDLING"]:
+                mb.write('CXXFLAGS += CONFIG["MOZ_LIBDRM_CFLAGS"]\n')
+                mb.write('if not CONFIG["MOZ_SYSTEM_LIBDRM"]:\n')
+                mb.write('    LOCAL_INCLUDES += [ "/third_party/drm/drm/",\n')
+                mb.write('                        "/third_party/drm/drm/include/",\n')
+                mb.write(
+                    '                        "/third_party/drm/drm/include/libdrm" ]\n'
+                )
+        except KeyError:
+            pass
+        try:
+            if (
+                relsrcdir
+                in write_mozbuild_variables["INCLUDE_SYSTEM_PIPEWIRE_HANDLING"]
+            ):
+                mb.write('CXXFLAGS += CONFIG["MOZ_PIPEWIRE_CFLAGS"]\n')
+                mb.write('if not CONFIG["MOZ_SYSTEM_PIPEWIRE"]:\n')
+                mb.write('    LOCAL_INCLUDES += [ "/third_party/pipewire/" ]\n')
+        except KeyError:
+            pass
+        try:
+            if relsrcdir in write_mozbuild_variables["INCLUDE_SYSTEM_LIBVPX_HANDLING"]:
+                mb.write('if not CONFIG["MOZ_SYSTEM_LIBVPX"]:\n')
+                mb.write('    LOCAL_INCLUDES += [ "/media/libvpx/libvpx/" ]\n')
+                mb.write('    CXXFLAGS += CONFIG["MOZ_LIBVPX_CFLAGS"]\n')
+        except KeyError:
+            pass
+        try:
+            if relsrcdir in write_mozbuild_variables["INCLUDE_SYSTEM_DAV1D_HANDLING"]:
+                mb.write('if CONFIG["MOZ_SYSTEM_AV1"]:\n')
+                mb.write('    CXXFLAGS += CONFIG["MOZ_SYSTEM_DAV1D_CFLAGS"]\n')
+                mb.write('    CXXFLAGS += CONFIG["MOZ_SYSTEM_LIBAOM_CFLAGS"]\n')
+        except KeyError:
+            pass
+
+        all_args = [args for args, _ in configs]
+
+        # Start with attributes that will be a part of the mozconfig
+        # for every configuration, then factor by other potentially useful
+        # combinations.
+        # FIXME: this is a time-bomb. See bug 1775202.
+        for attrs in (
+            (),
+            ("MOZ_DEBUG",),
+            ("OS_TARGET",),
+            ("TARGET_CPU",),
+            ("MOZ_DEBUG", "OS_TARGET"),
+            ("OS_TARGET", "MOZ_X11"),
+            ("OS_TARGET", "TARGET_CPU"),
+            ("OS_TARGET", "TARGET_CPU", "MOZ_X11"),
+            ("OS_TARGET", "TARGET_CPU", "MOZ_DEBUG"),
+            ("OS_TARGET", "TARGET_CPU", "MOZ_DEBUG", "MOZ_X11"),
+        ):
+            conditions = set()
+            for args in all_args:
+                cond = tuple((k, args.get(k) or "") for k in attrs)
+                conditions.add(cond)
+
+            for cond in sorted(conditions):
+                common_attrs = find_common_attrs([
+                    attrs
+                    for args, attrs in configs
+                    if all((args.get(k) or "") == v for k, v in cond)
+                ])
+                if any(common_attrs.values()):
+                    if cond:
+                        mb.write_condition(dict(cond))
+                    mb.write_attrs(common_attrs)
+                    if cond:
+                        mb.terminate_condition()
+
+        mb.finalize()
+    return target_mozbuild
+
+
+def write_mozbuild_files(
     topsrcdir,
     srcdir,
-    non_unified_sources,
-    gn_configs,
-    mozilla_flags,
+    all_mozbuild_results,
     write_mozbuild_variables,
 ):
-    all_mozbuild_results = []
-
-    for gn_config in gn_configs:
-        mozbuild_attrs = process_gn_config(
-            gn_config,
-            topsrcdir,
-            srcdir,
-            non_unified_sources,
-            gn_config["sandbox_vars"],
-            mozilla_flags,
-        )
-        all_mozbuild_results.append(mozbuild_attrs)
-
     # Translate {config -> {dirs -> build info}} into
     #           {dirs -> [(config, build_info)]}
     configs_by_dir = defaultdict(list)
@@ -547,84 +641,11 @@ def write_mozbuild(
             configs_by_dir[d].append((mozbuild_args, build_data))
 
     mozbuilds = set()
+    # threading this section did not produce noticeable speed gains
     for relsrcdir, configs in sorted(configs_by_dir.items()):
-        target_srcdir = mozpath.join(topsrcdir, relsrcdir)
-        mkdir(target_srcdir)
-
-        target_mozbuild = mozpath.join(target_srcdir, "moz.build")
-        mozbuilds.add(target_mozbuild)
-        with open(target_mozbuild, "w") as fh:
-            mb = MozbuildWriter(fh)
-            mb.write(license_header)
-            mb.write("\n")
-            mb.write(generated_header)
-
-            try:
-                if relsrcdir in write_mozbuild_variables["INCLUDE_TK_CFLAGS_DIRS"]:
-                    mb.write('if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":\n')
-                    mb.write('    CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]\n')
-            except KeyError:
-                pass
-            try:
-                if (
-                    relsrcdir
-                    in write_mozbuild_variables["INCLUDE_SYSTEM_LIBVPX_HANDLING"]
-                ):
-                    mb.write('if not CONFIG["MOZ_SYSTEM_LIBVPX"]:\n')
-                    mb.write('    LOCAL_INCLUDES += [ "/media/libvpx/libvpx/" ]\n')
-                    mb.write('    CXXFLAGS += CONFIG["MOZ_LIBVPX_CFLAGS"]\n')
-            except KeyError:
-                pass
-            try:
-                if (
-                    relsrcdir
-                    in write_mozbuild_variables["INCLUDE_SYSTEM_DAV1D_HANDLING"]
-                ):
-                    mb.write('if CONFIG["MOZ_SYSTEM_AV1"]:\n')
-                    mb.write('    CXXFLAGS += CONFIG["MOZ_SYSTEM_DAV1D_CFLAGS"]\n')
-                    mb.write('    CXXFLAGS += CONFIG["MOZ_SYSTEM_LIBAOM_CFLAGS"]\n')
-            except KeyError:
-                pass
-
-            all_args = [args for args, _ in configs]
-
-            # Start with attributes that will be a part of the mozconfig
-            # for every configuration, then factor by other potentially useful
-            # combinations.
-            # FIXME: this is a time-bomb. See bug 1775202.
-            for attrs in (
-                (),
-                ("MOZ_DEBUG",),
-                ("OS_TARGET",),
-                ("TARGET_CPU",),
-                ("MOZ_DEBUG", "OS_TARGET"),
-                ("OS_TARGET", "MOZ_X11"),
-                ("OS_TARGET", "TARGET_CPU"),
-                ("OS_TARGET", "TARGET_CPU", "MOZ_X11"),
-                ("OS_TARGET", "TARGET_CPU", "MOZ_DEBUG"),
-                ("OS_TARGET", "TARGET_CPU", "MOZ_DEBUG", "MOZ_X11"),
-            ):
-                conditions = set()
-                for args in all_args:
-                    cond = tuple(((k, args.get(k) or "") for k in attrs))
-                    conditions.add(cond)
-
-                for cond in sorted(conditions):
-                    common_attrs = find_common_attrs(
-                        [
-                            attrs
-                            for args, attrs in configs
-                            if all((args.get(k) or "") == v for k, v in cond)
-                        ]
-                    )
-                    if any(common_attrs.values()):
-                        if cond:
-                            mb.write_condition(dict(cond))
-                        mb.write_attrs(common_attrs)
-                        if cond:
-                            mb.terminate_condition()
-
-            mb.finalize()
+        mozbuilds.add(
+            write_mozbuild(topsrcdir, write_mozbuild_variables, relsrcdir, configs)
+        )
 
     # write the project moz.build file
     dirs_mozbuild = mozpath.join(srcdir, "moz.build")
@@ -650,7 +671,7 @@ def write_mozbuild(
         ):
             conditions = set()
             for args in dirs_by_config.keys():
-                cond = tuple(((k, dict(args).get(k) or "") for k in attrs))
+                cond = tuple((k, dict(args).get(k) or "") for k in attrs)
                 conditions.add(cond)
 
             for cond in sorted(conditions):
@@ -669,7 +690,7 @@ def write_mozbuild(
                 if common_dirs:
                     if cond:
                         mb.write_condition(dict(cond))
-                    mb.write_mozbuild_list("DIRS", ["/%s" % d for d in common_dirs])
+                    mb.write_mozbuild_list("DIRS", [f"/{d}" for d in common_dirs])
                     if cond:
                         mb.terminate_condition()
 
@@ -682,48 +703,46 @@ def write_mozbuild(
 
 
 def generate_gn_config(
+    topsrcdir,
     build_root_dir,
     target_dir,
     gn_binary,
     input_variables,
     sandbox_variables,
     gn_target,
-    preprocessor,
     moz_build_flag,
+    non_unified_sources,
+    mozilla_flags,
+    mozilla_add_override_dir,
 ):
     def str_for_arg(v):
         if v in (True, False):
             return str(v).lower()
-        return '"%s"' % v
+        return f'"{v}"'
+
+    build_root_dir = topsrcdir / build_root_dir
+    srcdir = build_root_dir / target_dir
 
     input_variables = input_variables.copy()
-    input_variables.update(
-        {
-            f"{moz_build_flag}": True,
-            "concurrent_links": 1,
-            "action_pool_depth": 1,
-        }
-    )
+    input_variables.update({
+        f"{moz_build_flag}": True,
+        "concurrent_links": 1,
+        "action_pool_depth": 1,
+    })
 
     if input_variables["target_os"] == "win":
-        input_variables.update(
-            {
-                "visual_studio_path": "/",
-                "visual_studio_version": 2015,
-                "wdk_path": "/",
-            }
-        )
+        input_variables.update({
+            "visual_studio_path": "/",
+            "visual_studio_version": 2015,
+            "wdk_path": "/",
+            "windows_sdk_version": "n/a",
+        })
     if input_variables["target_os"] == "mac":
-        input_variables.update(
-            {
-                "mac_sdk_path": "/",
-                "enable_wmax_tokens": False,
-            }
-        )
+        input_variables.update({
+            "mac_sdk_path": "/",
+        })
 
-    gn_args = "--args=%s" % " ".join(
-        ["%s=%s" % (k, str_for_arg(v)) for k, v in six.iteritems(input_variables)]
-    )
+    gn_args = f"--args={' '.join([f'{k}={str_for_arg(v)}' for k, v in input_variables.items()])}"
     with tempfile.TemporaryDirectory() as tempdir:
         # On Mac, `tempdir` starts with /var which is a symlink to /private/var.
         # We resolve the symlinks in `tempdir` here so later usage with
@@ -739,29 +758,32 @@ def generate_gn_config(
             "--root=./",  # must find the google build directory in this directory
             f"--dotfile={target_dir}/.gn",
         ]
-        print('Running "%s"' % " ".join(gen_args), file=sys.stderr)
+        print(f'Running "{" ".join(gen_args)}"', file=sys.stderr)
         subprocess.check_call(gen_args, cwd=build_root_dir, stderr=subprocess.STDOUT)
 
         gn_config_file = resolved_tempdir / "project.json"
-        if preprocessor:
-            preprocessor.main(gn_config_file)
-
-        with open(gn_config_file, "r") as fh:
-            gn_out = json.load(fh)
-            gn_out = filter_gn_config(
-                resolved_tempdir, gn_out, sandbox_variables, input_variables, gn_target
+        with open(gn_config_file) as fh:
+            raw_json = fh.read()
+            raw_json = raw_json.replace(f"{target_dir}/", "")
+            raw_json = raw_json.replace(f"{target_dir}:", ":")
+            gn_config = mozfile_json.loads(raw_json)
+            gn_config = filter_gn_config(
+                resolved_tempdir,
+                gn_config,
+                sandbox_variables,
+                input_variables,
+                gn_target,
             )
-            return gn_out
-
-
-def load_preprocessor(script_name):
-    if script_name and os.path.isfile(script_name):
-        print(f"Loading preprocessor {script_name}")
-        spec = util.spec_from_file_location("preprocess", script_name)
-        module = util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    return None
+            gn_config = process_gn_config(
+                gn_config,
+                topsrcdir,
+                srcdir,
+                non_unified_sources,
+                gn_config["sandbox_vars"],
+                mozilla_flags,
+                mozilla_add_override_dir,
+            )
+            return gn_config
 
 
 def main():
@@ -773,8 +795,8 @@ def main():
     if not gn_binary:
         raise Exception("The GN program must be present to generate GN configs.")
 
-    with open(args.config, "r") as fh:
-        config = json.load(fh)
+    with open(args.config) as fh:
+        config = mozfile_json.load(fh)
 
     topsrcdir = Path(__file__).parent.parent.resolve()
 
@@ -800,38 +822,56 @@ def main():
                     "target_os": target_os,
                 }
                 if target_os == "linux":
-                    for use_x11 in (True, False):
-                        vars["use_x11"] = use_x11
+                    for enable_x11 in (True, False):
+                        vars["ozone_platform_x11"] = enable_x11
                         vars_set.append(vars.copy())
                 else:
                     if target_os == "openbsd":
-                        vars["use_x11"] = True
+                        vars["ozone_platform_x11"] = True
                     vars_set.append(vars)
 
-    preprocessor = load_preprocessor(config.get("preprocessing_script", None))
-
     gn_configs = []
-    for vars in vars_set:
-        gn_configs.append(
-            generate_gn_config(
-                topsrcdir / config["build_root_dir"],
+    NUM_WORKERS = 5
+    with ProcessPoolExecutor(max_workers=NUM_WORKERS) as executor:
+        # Submit tasks to the executor
+        futures = {
+            executor.submit(
+                generate_gn_config,
+                topsrcdir,
+                config["build_root_dir"],
                 config["target_dir"],
                 gn_binary,
                 vars,
                 config["gn_sandbox_variables"],
                 config["gn_target"],
-                preprocessor,
                 config["moz_build_flag"],
-            )
-        )
+                config["non_unified_sources"],
+                config["mozilla_flags"],
+                config["mozilla_add_override_dir"],
+            ): vars
+            for vars in vars_set
+        }
+
+        # Process completed tasks as they finish
+        error_generating_configs = False
+        for future in as_completed(futures):
+            try:
+                gn_configs.append(future.result())
+            except Exception as e:
+                print(f"[Task] Task failed with exception: {e}")
+                error_generating_configs = True
+
+        if error_generating_configs:
+            print("\nGenerating configs failed.  See errors above.\n", file=sys.stderr)
+            sys.exit(1)
+
+        print("All generation tasks have been processed.")
 
     print("Writing moz.build files")
-    write_mozbuild(
+    write_mozbuild_files(
         topsrcdir,
         topsrcdir / config["build_root_dir"] / config["target_dir"],
-        config["non_unified_sources"],
         gn_configs,
-        config["mozilla_flags"],
         config["write_mozbuild_variables"],
     )
 

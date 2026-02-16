@@ -1,9 +1,7 @@
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import {
   DiscoveryStreamAdminInner,
-  CollapseToggle,
   DiscoveryStreamAdminUI,
-  Personalization,
   ToggleStoryButton,
 } from "content-src/components/DiscoveryStreamAdmin/DiscoveryStreamAdmin";
 import React from "react";
@@ -77,6 +75,11 @@ describe("DiscoveryStreamAdmin", () => {
             Weather: {
               suggestions: [],
             },
+            InferredPersonalization: {
+              inferredInterests: {},
+              coarseInferredInterests: {},
+              coarsePrivateInferredInterests: {},
+            },
           }}
         />
       );
@@ -107,6 +110,11 @@ describe("DiscoveryStreamAdmin", () => {
             DiscoveryStream: state,
             Weather: {
               suggestions: [],
+            },
+            InferredPersonalization: {
+              inferredInterests: {},
+              coarseInferredInterests: {},
+              coarsePrivateInferredInterests: {},
             },
           }}
         />
@@ -164,7 +172,7 @@ describe("DiscoveryStreamAdmin", () => {
       );
     });
     it("should fire syncRemoteSettings with DISCOVERY_STREAM_DEV_SYNC_RS", () => {
-      wrapper.find("button").at(5).simulate("click");
+      wrapper.find("button").at(6).simulate("click");
       assert.calledWith(
         dispatch,
         ac.OnlyToMain({
@@ -186,64 +194,6 @@ describe("DiscoveryStreamAdmin", () => {
     });
   });
 
-  describe("#Personalization", () => {
-    let dispatch;
-    beforeEach(() => {
-      dispatch = sandbox.stub();
-      wrapper = shallow(
-        <Personalization
-          dispatch={dispatch}
-          state={{
-            Personalization: {
-              lastUpdated: 1000,
-              initialized: true,
-            },
-          }}
-        />
-      );
-    });
-    it("should render with pref checkbox, lastUpdated, and initialized", () => {
-      assert.lengthOf(wrapper.find("TogglePrefCheckbox"), 1);
-      assert.equal(
-        wrapper.find("td").at(1).text(),
-        "Personalization Last Updated"
-      );
-      assert.equal(
-        wrapper.find("td").at(2).text(),
-        new Date(1000).toLocaleString()
-      );
-      assert.equal(
-        wrapper.find("td").at(3).text(),
-        "Personalization Initialized"
-      );
-      assert.equal(wrapper.find("td").at(4).text(), "true");
-    });
-    it("should render with no data with no last updated", () => {
-      wrapper = shallow(
-        <Personalization
-          dispatch={dispatch}
-          state={{
-            Personalization: {
-              version: 2,
-              lastUpdated: 0,
-              initialized: true,
-            },
-          }}
-        />
-      );
-      assert.equal(wrapper.find("td").at(2).text(), "(no data)");
-    });
-    it("should dispatch DISCOVERY_STREAM_PERSONALIZATION_TOGGLE", () => {
-      wrapper.instance().togglePersonalization();
-      assert.calledWith(
-        dispatch,
-        ac.OnlyToMain({
-          type: at.DISCOVERY_STREAM_PERSONALIZATION_TOGGLE,
-        })
-      );
-    });
-  });
-
   describe("#ToggleStoryButton", () => {
     it("should fire onClick in toggle button", async () => {
       let result = "";
@@ -255,28 +205,6 @@ describe("DiscoveryStreamAdmin", () => {
       wrapper.find("button").simulate("click");
 
       assert.equal(result, "spoc");
-    });
-  });
-});
-
-describe("CollapseToggle", () => {
-  let wrapper;
-  beforeEach(() => {
-    wrapper = shallow(<CollapseToggle location={{ routes: [""] }} />);
-  });
-
-  describe("rendering inner content", () => {
-    it("should not render DiscoveryStreamAdminInner for about:newtab (no hash)", () => {
-      wrapper.setProps({ location: { hash: "", routes: [""] } });
-      assert.lengthOf(wrapper.find(DiscoveryStreamAdminInner), 0);
-    });
-
-    it("should render DiscoveryStreamAdminInner for about:newtab#devtools and subroutes", () => {
-      wrapper.setProps({ location: { hash: "#devtools", routes: [""] } });
-      assert.lengthOf(wrapper.find(DiscoveryStreamAdminInner), 1);
-
-      wrapper.setProps({ location: { hash: "#devtools-foo", routes: [""] } });
-      assert.lengthOf(wrapper.find(DiscoveryStreamAdminInner), 1);
     });
   });
 });

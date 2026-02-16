@@ -1,4 +1,4 @@
-#! /usr/bin/env node
+#! /usr/bin/env -S node
 
 /**
  * @license
@@ -6,11 +6,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {randomUUID} from 'crypto';
-import fs from 'fs';
 import {spawn} from 'node:child_process';
-import os from 'os';
-import path from 'path';
+import {randomUUID} from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import {globSync} from 'glob';
 import yargs from 'yargs';
@@ -47,6 +47,7 @@ const {
   shard,
   reporter,
   printMemory,
+  ignoreUnexpectedlyPassing,
 } = yargs(hideBin(process.argv))
   .parserConfiguration({'unknown-options-as-args': true})
   .scriptName('@puppeteer/mocha-runner')
@@ -84,6 +85,10 @@ const {
     requiresArg: true,
   })
   .option('print-memory', {
+    boolean: true,
+    default: false,
+  })
+  .option('ignore-unexpectedly-passing', {
     boolean: true,
     default: false,
   })
@@ -184,9 +189,9 @@ async function main() {
       console.log('Running', JSON.stringify(parameters), tmpFilename);
       const args = [
         '-u',
-        path.join(__dirname, 'interface.js'),
+        path.join(import.meta.dirname, 'interface.cjs'),
         '-R',
-        !reporter ? path.join(__dirname, 'reporter.js') : reporter,
+        !reporter ? path.join(import.meta.dirname, 'reporter.cjs') : reporter,
         '-O',
         `output=${tmpFilename}`,
         '-n',
@@ -203,6 +208,7 @@ async function main() {
       }).sort((a, b) => {
         return a.localeCompare(b);
       });
+
       if (shard) {
         // Shard ID is 1-based.
         const [shardId, shards] = shard.split('-').map(s => {
@@ -225,23 +231,20 @@ async function main() {
       } else {
         args.push(...specs);
       }
-      const handle = spawn(
-        'npx',
-        [
-          ...(useCoverage
-            ? ['c8', '--check-coverage', '--lines', '90', 'npx']
-            : []),
-          'mocha',
-          ...mochaArgs.map(String),
-          ...args,
-        ],
-        {
-          shell: true,
-          cwd: process.cwd(),
-          stdio: 'inherit',
-          env,
-        },
-      );
+      const mochaCommand = [
+        ...(useCoverage
+          ? ['c8', '--check-coverage', '--lines', '90', 'npx']
+          : []),
+        'mocha',
+        ...mochaArgs.map(String),
+        ...args,
+      ];
+      const handle = spawn('npx', mochaCommand, {
+        shell: true,
+        cwd: process.cwd(),
+        stdio: 'inherit',
+        env,
+      });
       await new Promise<void>((resolve, reject) => {
         handle.on('error', err => {
           reject(err);
@@ -261,10 +264,15 @@ async function main() {
           }
         })();
         console.log('Finished', JSON.stringify(parameters));
-        const updates = getExpectationUpdates(results, applicableExpectations, {
-          platforms: [os.platform()],
-          parameters,
-        });
+        const updates = getExpectationUpdates(
+          results,
+          applicableExpectations,
+          {
+            platforms: [os.platform()],
+            parameters,
+          },
+          ignoreUnexpectedlyPassing,
+        );
         const totalTests = results.stats.tests;
         results.parameters = parameters;
         results.platform = platform;

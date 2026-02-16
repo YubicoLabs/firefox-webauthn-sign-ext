@@ -9,7 +9,7 @@
     from itertools import groupby
 %>
 
-#[cfg(feature = "gecko")] use crate::gecko_bindings::structs::nsCSSPropertyID;
+#[cfg(feature = "gecko")] use crate::gecko_bindings::structs::NonCustomCSSPropertyId;
 use crate::properties::{
     longhands::{
         self, visibility::computed_value::T as Visibility,
@@ -18,14 +18,17 @@ use crate::properties::{
     PropertyDeclaration, PropertyDeclarationId,
 };
 #[cfg(feature = "gecko")] use crate::properties::{
+    gecko,
     longhands::content_visibility::computed_value::T as ContentVisibility,
     NonCustomPropertyId,
 };
 use std::ptr;
 use std::mem;
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 use super::ComputedValues;
+use crate::derives::*;
 use crate::properties::OwnedPropertyDeclarationId;
+use crate::dom::AttributeTracker;
 use crate::values::animated::{Animate, Procedure, ToAnimatedValue, ToAnimatedZero};
 use crate::values::animated::effects::AnimatedFilter;
 #[cfg(feature = "gecko")] use crate::values::computed::TransitionProperty;
@@ -35,13 +38,14 @@ use crate::values::distance::{ComputeSquaredDistance, SquaredDistance};
 use crate::values::generics::effects::Filter;
 use void::{self, Void};
 use crate::properties_and_values::value::CustomAnimatedValue;
+use debug_unreachable::debug_unreachable;
 
-/// Convert nsCSSPropertyID to TransitionProperty
+/// Convert NonCustomCSSPropertyId to TransitionProperty
 #[cfg(feature = "gecko")]
 #[allow(non_upper_case_globals)]
-impl From<nsCSSPropertyID> for TransitionProperty {
-    fn from(property: nsCSSPropertyID) -> TransitionProperty {
-        TransitionProperty::NonCustom(NonCustomPropertyId::from_nscsspropertyid(property).unwrap())
+impl From<NonCustomCSSPropertyId> for TransitionProperty {
+    fn from(property: NonCustomCSSPropertyId) -> TransitionProperty {
+        TransitionProperty::NonCustom(NonCustomPropertyId::from_noncustomcsspropertyid(property).unwrap())
     }
 }
 
@@ -179,7 +183,7 @@ impl PartialEq for AnimationValue {
 impl AnimationValue {
     /// Returns the longhand id this animated value corresponds to.
     #[inline]
-    pub fn id(&self) -> PropertyDeclarationId {
+    pub fn id(&self) -> PropertyDeclarationId<'_> {
         if let AnimationValue::Custom(animated_value) = self {
             return PropertyDeclarationId::Custom(&animated_value.name);
         }
@@ -253,6 +257,7 @@ impl AnimationValue {
         context: &mut Context,
         style: &ComputedValues,
         initial: &ComputedValues,
+        attribute_tracker: &mut AttributeTracker,
     ) -> Option<Self> {
         use super::PropertyDeclarationVariantRepr;
 
@@ -279,7 +284,7 @@ impl AnimationValue {
                 context.for_non_inherited_property = ${"false" if inherit else "true"};
                 % if system:
                 if let Some(sf) = value.get_system() {
-                    longhands::system_font::resolve_system_font(sf, context)
+                    gecko::system_font::resolve_system_font(sf, context)
                 }
                 % endif
                 % if boxed:
@@ -375,6 +380,7 @@ impl AnimationValue {
                         context.builder.stylist.unwrap(),
                         context,
                         &mut cache,
+                        attribute_tracker,
                     )
                 };
                 return AnimationValue::from_declaration(
@@ -382,6 +388,7 @@ impl AnimationValue {
                     context,
                     style,
                     initial,
+                    attribute_tracker,
                 )
             },
             PropertyDeclaration::Custom(ref declaration) => {
@@ -389,6 +396,7 @@ impl AnimationValue {
                     declaration,
                     context,
                     initial,
+                    attribute_tracker
                 )?)
             },
             _ => return None // non animatable properties will get included because of shorthands. ignore.
@@ -695,7 +703,7 @@ impl Animate for AnimatedFilter {
             % endfor
             % for func in ['Brightness', 'Contrast', 'Opacity', 'Saturate']:
             (&Filter::${func}(this), &Filter::${func}(other)) => {
-                Ok(Filter::${func}(animate_multiplicative_factor(this, other, procedure)?))
+                Ok(Filter::${func}(animate_multiplicative_factor(this.0, other.0, procedure)?.into()))
             },
             % endfor
             _ => Err(()),
@@ -711,7 +719,7 @@ impl ToAnimatedZero for AnimatedFilter {
             Filter::${func}(ref this) => Ok(Filter::${func}(this.to_animated_zero()?)),
             % endfor
             % for func in ['Brightness', 'Contrast', 'Opacity', 'Saturate']:
-            Filter::${func}(_) => Ok(Filter::${func}(1.)),
+            Filter::${func}(_) => Ok(Filter::${func}(1.0.into())),
             % endfor
             _ => Err(()),
         }

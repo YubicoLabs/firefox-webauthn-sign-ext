@@ -8,22 +8,24 @@
 
 #include "nsImageMap.h"
 
+#include "mozilla/PresShell.h"
+#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/Event.h"  // for Event
 #include "mozilla/dom/HTMLAreaElement.h"
 #include "mozilla/gfx/PathHelpers.h"
-#include "mozilla/UniquePtr.h"
-#include "nsString.h"
-#include "nsReadableUtils.h"
-#include "nsPresContext.h"
-#include "nsNameSpaceManager.h"
-#include "nsGkAtoms.h"
-#include "nsImageFrame.h"
+#include "nsContentUtils.h"
 #include "nsCoord.h"
+#include "nsGkAtoms.h"
 #include "nsIContentInlines.h"
 #include "nsIScriptError.h"
-#include "nsContentUtils.h"
+#include "nsImageFrame.h"
 #include "nsLayoutUtils.h"
+#include "nsNameSpaceManager.h"
+#include "nsPresContext.h"
+#include "nsReadableUtils.h"
+#include "nsString.h"
+#include "nsTArray.h"
 
 #ifdef ACCESSIBILITY
 #  include "nsAccessibilityService.h"
@@ -41,23 +43,23 @@ class Area {
   virtual void ParseCoords(const nsAString& aSpec);
 
   virtual bool IsInside(nscoord x, nscoord y) const = 0;
-  virtual void Draw(nsIFrame* aFrame, DrawTarget& aDrawTarget,
-                    const ColorPattern& aColor,
-                    const StrokeOptions& aStrokeOptions) = 0;
+  virtual void DrawFocus(nsIFrame* aFrame, DrawTarget& aDrawTarget,
+                         const ColorPattern& aColor,
+                         const StrokeOptions& aStrokeOptions) = 0;
   virtual void GetRect(nsIFrame* aFrame, nsRect& aRect) = 0;
 
-  void HasFocus(bool aHasFocus);
+  void SetHasFocus(bool aHasFocus) { mHasFocus = aHasFocus; }
+
+  bool HasFocus() const { return mHasFocus; }
 
   RefPtr<HTMLAreaElement> mArea;
-  UniquePtr<nscoord[]> mCoords;
-  int32_t mNumCoords;
-  bool mHasFocus;
+  nsTArray<nscoord> mCoords;
+  bool mHasFocus = false;
 };
 
 Area::Area(HTMLAreaElement* aArea) : mArea(aArea) {
   MOZ_COUNT_CTOR(Area);
   MOZ_ASSERT(mArea, "How did that happen?");
-  mNumCoords = 0;
   mHasFocus = false;
 }
 
@@ -87,8 +89,7 @@ void Area::ParseCoords(const nsAString& aSpec) {
     /*
      * Nothing in an empty list
      */
-    mNumCoords = 0;
-    mCoords = nullptr;
+    mCoords.Clear();
     if (*cp == '\0') {
       free(cp);
       return;
@@ -174,11 +175,8 @@ void Area::ParseCoords(const nsAString& aSpec) {
     /*
      * Allocate space for the coordinate array.
      */
-    UniquePtr<nscoord[]> value_list = MakeUnique<nscoord[]>(cnt);
-    if (!value_list) {
-      free(cp);
-      return;
-    }
+    nsTArray<nscoord> value_list;
+    value_list.SetLength(cnt);
 
     /*
      * Second pass to copy integer values into list.
@@ -209,14 +207,11 @@ void Area::ParseCoords(const nsAString& aSpec) {
       }
     }
 
-    mNumCoords = cnt;
     mCoords = std::move(value_list);
 
     free(cp);
   }
 }
-
-void Area::HasFocus(bool aHasFocus) { mHasFocus = aHasFocus; }
 
 //----------------------------------------------------------------------
 
@@ -224,29 +219,27 @@ class DefaultArea final : public Area {
  public:
   explicit DefaultArea(HTMLAreaElement* aArea);
 
-  virtual bool IsInside(nscoord x, nscoord y) const override;
-  virtual void Draw(nsIFrame* aFrame, DrawTarget& aDrawTarget,
-                    const ColorPattern& aColor,
-                    const StrokeOptions& aStrokeOptions) override;
-  virtual void GetRect(nsIFrame* aFrame, nsRect& aRect) override;
+  bool IsInside(nscoord x, nscoord y) const override;
+  void DrawFocus(nsIFrame* aFrame, DrawTarget& aDrawTarget,
+                 const ColorPattern& aColor,
+                 const StrokeOptions& aStrokeOptions) override;
+  void GetRect(nsIFrame* aFrame, nsRect& aRect) override;
 };
 
 DefaultArea::DefaultArea(HTMLAreaElement* aArea) : Area(aArea) {}
 
 bool DefaultArea::IsInside(nscoord x, nscoord y) const { return true; }
 
-void DefaultArea::Draw(nsIFrame* aFrame, DrawTarget& aDrawTarget,
-                       const ColorPattern& aColor,
-                       const StrokeOptions& aStrokeOptions) {
-  if (mHasFocus) {
-    nsRect r(nsPoint(0, 0), aFrame->GetSize());
-    const nscoord kOnePixel = nsPresContext::CSSPixelsToAppUnits(1);
-    r.width -= kOnePixel;
-    r.height -= kOnePixel;
-    Rect rect = ToRect(nsLayoutUtils::RectToGfxRect(
-        r, aFrame->PresContext()->AppUnitsPerDevPixel()));
-    StrokeSnappedEdgesOfRect(rect, aDrawTarget, aColor, aStrokeOptions);
-  }
+void DefaultArea::DrawFocus(nsIFrame* aFrame, DrawTarget& aDrawTarget,
+                            const ColorPattern& aColor,
+                            const StrokeOptions& aStrokeOptions) {
+  nsRect r(nsPoint(0, 0), aFrame->GetSize());
+  const nscoord kOnePixel = nsPresContext::CSSPixelsToAppUnits(1);
+  r.width -= kOnePixel;
+  r.height -= kOnePixel;
+  Rect rect = ToRect(nsLayoutUtils::RectToGfxRect(
+      r, aFrame->PresContext()->AppUnitsPerDevPixel()));
+  StrokeSnappedEdgesOfRect(rect, aDrawTarget, aColor, aStrokeOptions);
 }
 
 void DefaultArea::GetRect(nsIFrame* aFrame, nsRect& aRect) {
@@ -260,12 +253,12 @@ class RectArea final : public Area {
  public:
   explicit RectArea(HTMLAreaElement* aArea);
 
-  virtual void ParseCoords(const nsAString& aSpec) override;
-  virtual bool IsInside(nscoord x, nscoord y) const override;
-  virtual void Draw(nsIFrame* aFrame, DrawTarget& aDrawTarget,
-                    const ColorPattern& aColor,
-                    const StrokeOptions& aStrokeOptions) override;
-  virtual void GetRect(nsIFrame* aFrame, nsRect& aRect) override;
+  void ParseCoords(const nsAString& aSpec) override;
+  bool IsInside(nscoord x, nscoord y) const override;
+  void DrawFocus(nsIFrame* aFrame, DrawTarget& aDrawTarget,
+                 const ColorPattern& aColor,
+                 const StrokeOptions& aStrokeOptions) override;
+  void GetRect(nsIFrame* aFrame, nsRect& aRect) override;
 };
 
 RectArea::RectArea(HTMLAreaElement* aArea) : Area(aArea) {}
@@ -275,7 +268,7 @@ void RectArea::ParseCoords(const nsAString& aSpec) {
 
   bool saneRect = true;
   int32_t flag = nsIScriptError::warningFlag;
-  if (mNumCoords >= 4) {
+  if (mCoords.Length() >= 4) {
     if (mCoords[0] > mCoords[2]) {
       // x-coords in reversed order
       nscoord x = mCoords[2];
@@ -292,7 +285,7 @@ void RectArea::ParseCoords(const nsAString& aSpec) {
       saneRect = false;
     }
 
-    if (mNumCoords > 4) {
+    if (mCoords.Length() > 4) {
       // Someone missed the concept of a rect here
       saneRect = false;
     }
@@ -307,7 +300,7 @@ void RectArea::ParseCoords(const nsAString& aSpec) {
 }
 
 bool RectArea::IsInside(nscoord x, nscoord y) const {
-  if (mNumCoords >= 4) {  // Note: > is for nav compatibility
+  if (mCoords.Length() >= 4) {  // Note: > is for nav compatibility
     nscoord x1 = mCoords[0];
     nscoord y1 = mCoords[1];
     nscoord x2 = mCoords[2];
@@ -321,36 +314,36 @@ bool RectArea::IsInside(nscoord x, nscoord y) const {
   return false;
 }
 
-void RectArea::Draw(nsIFrame* aFrame, DrawTarget& aDrawTarget,
-                    const ColorPattern& aColor,
-                    const StrokeOptions& aStrokeOptions) {
-  if (mHasFocus) {
-    if (mNumCoords >= 4) {
-      nscoord x1 = nsPresContext::CSSPixelsToAppUnits(mCoords[0]);
-      nscoord y1 = nsPresContext::CSSPixelsToAppUnits(mCoords[1]);
-      nscoord x2 = nsPresContext::CSSPixelsToAppUnits(mCoords[2]);
-      nscoord y2 = nsPresContext::CSSPixelsToAppUnits(mCoords[3]);
-      NS_ASSERTION(x1 <= x2 && y1 <= y2,
-                   "Someone screwed up RectArea::ParseCoords");
-      nsRect r(x1, y1, x2 - x1, y2 - y1);
-      Rect rect = ToRect(nsLayoutUtils::RectToGfxRect(
-          r, aFrame->PresContext()->AppUnitsPerDevPixel()));
-      StrokeSnappedEdgesOfRect(rect, aDrawTarget, aColor, aStrokeOptions);
-    }
+void RectArea::DrawFocus(nsIFrame* aFrame, DrawTarget& aDrawTarget,
+                         const ColorPattern& aColor,
+                         const StrokeOptions& aStrokeOptions) {
+  if (mCoords.Length() < 4) {
+    return;
   }
+  nscoord x1 = nsPresContext::CSSPixelsToAppUnits(mCoords[0]);
+  nscoord y1 = nsPresContext::CSSPixelsToAppUnits(mCoords[1]);
+  nscoord x2 = nsPresContext::CSSPixelsToAppUnits(mCoords[2]);
+  nscoord y2 = nsPresContext::CSSPixelsToAppUnits(mCoords[3]);
+  NS_ASSERTION(x1 <= x2 && y1 <= y2,
+               "Someone screwed up RectArea::ParseCoords");
+  nsRect r(x1, y1, x2 - x1, y2 - y1);
+  Rect rect = ToRect(nsLayoutUtils::RectToGfxRect(
+      r, aFrame->PresContext()->AppUnitsPerDevPixel()));
+  StrokeSnappedEdgesOfRect(rect, aDrawTarget, aColor, aStrokeOptions);
 }
 
 void RectArea::GetRect(nsIFrame* aFrame, nsRect& aRect) {
-  if (mNumCoords >= 4) {
-    nscoord x1 = nsPresContext::CSSPixelsToAppUnits(mCoords[0]);
-    nscoord y1 = nsPresContext::CSSPixelsToAppUnits(mCoords[1]);
-    nscoord x2 = nsPresContext::CSSPixelsToAppUnits(mCoords[2]);
-    nscoord y2 = nsPresContext::CSSPixelsToAppUnits(mCoords[3]);
-    NS_ASSERTION(x1 <= x2 && y1 <= y2,
-                 "Someone screwed up RectArea::ParseCoords");
-
-    aRect.SetRect(x1, y1, x2, y2);
+  if (mCoords.Length() < 4) {
+    return;
   }
+  nscoord x1 = nsPresContext::CSSPixelsToAppUnits(mCoords[0]);
+  nscoord y1 = nsPresContext::CSSPixelsToAppUnits(mCoords[1]);
+  nscoord x2 = nsPresContext::CSSPixelsToAppUnits(mCoords[2]);
+  nscoord y2 = nsPresContext::CSSPixelsToAppUnits(mCoords[3]);
+  NS_ASSERTION(x1 <= x2 && y1 <= y2,
+               "Someone screwed up RectArea::ParseCoords");
+
+  aRect.SetRect(x1, y1, x2, y2);
 }
 
 //----------------------------------------------------------------------
@@ -359,12 +352,12 @@ class PolyArea final : public Area {
  public:
   explicit PolyArea(HTMLAreaElement* aArea);
 
-  virtual void ParseCoords(const nsAString& aSpec) override;
-  virtual bool IsInside(nscoord x, nscoord y) const override;
-  virtual void Draw(nsIFrame* aFrame, DrawTarget& aDrawTarget,
-                    const ColorPattern& aColor,
-                    const StrokeOptions& aStrokeOptions) override;
-  virtual void GetRect(nsIFrame* aFrame, nsRect& aRect) override;
+  void ParseCoords(const nsAString& aSpec) override;
+  bool IsInside(nscoord x, nscoord y) const override;
+  void DrawFocus(nsIFrame* aFrame, DrawTarget& aDrawTarget,
+                 const ColorPattern& aColor,
+                 const StrokeOptions& aStrokeOptions) override;
+  void GetRect(nsIFrame* aFrame, nsRect& aRect) override;
 };
 
 PolyArea::PolyArea(HTMLAreaElement* aArea) : Area(aArea) {}
@@ -372,8 +365,8 @@ PolyArea::PolyArea(HTMLAreaElement* aArea) : Area(aArea) {}
 void PolyArea::ParseCoords(const nsAString& aSpec) {
   Area::ParseCoords(aSpec);
 
-  if (mNumCoords >= 2) {
-    if (mNumCoords & 1U) {
+  if (mCoords.Length() >= 2) {
+    if (mCoords.Length() & 1U) {
       logMessage(mArea, aSpec, nsIScriptError::warningFlag,
                  "ImageMapPolyOddNumberOfCoords");
     }
@@ -384,16 +377,16 @@ void PolyArea::ParseCoords(const nsAString& aSpec) {
 }
 
 bool PolyArea::IsInside(nscoord x, nscoord y) const {
-  if (mNumCoords >= 6) {
+  if (mCoords.Length() >= 6) {
     int32_t intersects = 0;
     nscoord wherex = x;
     nscoord wherey = y;
-    int32_t totalv = mNumCoords / 2;
-    int32_t totalc = totalv * 2;
+    size_t totalv = mCoords.Length() / 2;
+    size_t totalc = totalv * 2;
     nscoord xval = mCoords[totalc - 2];
     nscoord yval = mCoords[totalc - 1];
-    int32_t end = totalc;
-    int32_t pointer = 1;
+    size_t end = totalc;
+    size_t pointer = 1;
 
     if ((yval >= wherey) != (mCoords[pointer] >= wherey)) {
       if ((xval >= wherex) == (mCoords[0] >= wherex)) {
@@ -457,47 +450,46 @@ bool PolyArea::IsInside(nscoord x, nscoord y) const {
   return false;
 }
 
-void PolyArea::Draw(nsIFrame* aFrame, DrawTarget& aDrawTarget,
-                    const ColorPattern& aColor,
-                    const StrokeOptions& aStrokeOptions) {
-  if (mHasFocus) {
-    if (mNumCoords >= 6) {
-      // Where possible, we want all horizontal and vertical lines to align on
-      // pixel rows or columns, and to start at pixel boundaries so that one
-      // pixel dashing neatly sits on pixels to give us neat lines. To achieve
-      // that we draw each line segment as a separate path, snapping it to
-      // device pixels if applicable.
-      nsPresContext* pc = aFrame->PresContext();
-      Point p1(pc->CSSPixelsToDevPixels(mCoords[0]),
-               pc->CSSPixelsToDevPixels(mCoords[1]));
-      Point p2, p1snapped, p2snapped;
-      for (int32_t i = 2; i < mNumCoords - 1; i += 2) {
-        p2.x = pc->CSSPixelsToDevPixels(mCoords[i]);
-        p2.y = pc->CSSPixelsToDevPixels(mCoords[i + 1]);
-        p1snapped = p1;
-        p2snapped = p2;
-        SnapLineToDevicePixelsForStroking(p1snapped, p2snapped, aDrawTarget,
-                                          aStrokeOptions.mLineWidth);
-        aDrawTarget.StrokeLine(p1snapped, p2snapped, aColor, aStrokeOptions);
-        p1 = p2;
-      }
-      p2.x = pc->CSSPixelsToDevPixels(mCoords[0]);
-      p2.y = pc->CSSPixelsToDevPixels(mCoords[1]);
-      p1snapped = p1;
-      p2snapped = p2;
-      SnapLineToDevicePixelsForStroking(p1snapped, p2snapped, aDrawTarget,
-                                        aStrokeOptions.mLineWidth);
-      aDrawTarget.StrokeLine(p1snapped, p2snapped, aColor, aStrokeOptions);
-    }
+void PolyArea::DrawFocus(nsIFrame* aFrame, DrawTarget& aDrawTarget,
+                         const ColorPattern& aColor,
+                         const StrokeOptions& aStrokeOptions) {
+  if (mCoords.Length() < 6) {
+    return;
   }
+  // Where possible, we want all horizontal and vertical lines to align on
+  // pixel rows or columns, and to start at pixel boundaries so that one
+  // pixel dashing neatly sits on pixels to give us neat lines. To achieve
+  // that we draw each line segment as a separate path, snapping it to
+  // device pixels if applicable.
+  nsPresContext* pc = aFrame->PresContext();
+  Point p1(pc->CSSPixelsToDevPixels(mCoords[0]),
+           pc->CSSPixelsToDevPixels(mCoords[1]));
+  Point p2, p1snapped, p2snapped;
+  for (size_t i = 2; i < mCoords.Length() - 1; i += 2) {
+    p2.x = pc->CSSPixelsToDevPixels(mCoords[i]);
+    p2.y = pc->CSSPixelsToDevPixels(mCoords[i + 1]);
+    p1snapped = p1;
+    p2snapped = p2;
+    SnapLineToDevicePixelsForStroking(p1snapped, p2snapped, aDrawTarget,
+                                      aStrokeOptions.mLineWidth);
+    aDrawTarget.StrokeLine(p1snapped, p2snapped, aColor, aStrokeOptions);
+    p1 = p2;
+  }
+  p2.x = pc->CSSPixelsToDevPixels(mCoords[0]);
+  p2.y = pc->CSSPixelsToDevPixels(mCoords[1]);
+  p1snapped = p1;
+  p2snapped = p2;
+  SnapLineToDevicePixelsForStroking(p1snapped, p2snapped, aDrawTarget,
+                                    aStrokeOptions.mLineWidth);
+  aDrawTarget.StrokeLine(p1snapped, p2snapped, aColor, aStrokeOptions);
 }
 
 void PolyArea::GetRect(nsIFrame* aFrame, nsRect& aRect) {
-  if (mNumCoords >= 6) {
+  if (mCoords.Length() >= 6) {
     nscoord x1, x2, y1, y2, xtmp, ytmp;
     x1 = x2 = nsPresContext::CSSPixelsToAppUnits(mCoords[0]);
     y1 = y2 = nsPresContext::CSSPixelsToAppUnits(mCoords[1]);
-    for (int32_t i = 2; i < mNumCoords - 1; i += 2) {
+    for (size_t i = 2; i < mCoords.Length() - 1; i += 2) {
       xtmp = nsPresContext::CSSPixelsToAppUnits(mCoords[i]);
       ytmp = nsPresContext::CSSPixelsToAppUnits(mCoords[i + 1]);
       x1 = x1 < xtmp ? x1 : xtmp;
@@ -516,12 +508,12 @@ class CircleArea final : public Area {
  public:
   explicit CircleArea(HTMLAreaElement* aArea);
 
-  virtual void ParseCoords(const nsAString& aSpec) override;
-  virtual bool IsInside(nscoord x, nscoord y) const override;
-  virtual void Draw(nsIFrame* aFrame, DrawTarget& aDrawTarget,
-                    const ColorPattern& aColor,
-                    const StrokeOptions& aStrokeOptions) override;
-  virtual void GetRect(nsIFrame* aFrame, nsRect& aRect) override;
+  void ParseCoords(const nsAString& aSpec) override;
+  bool IsInside(nscoord x, nscoord y) const override;
+  void DrawFocus(nsIFrame* aFrame, DrawTarget& aDrawTarget,
+                 const ColorPattern& aColor,
+                 const StrokeOptions& aStrokeOptions) override;
+  void GetRect(nsIFrame* aFrame, nsRect& aRect) override;
 };
 
 CircleArea::CircleArea(HTMLAreaElement* aArea) : Area(aArea) {}
@@ -531,13 +523,13 @@ void CircleArea::ParseCoords(const nsAString& aSpec) {
 
   bool wrongNumberOfCoords = false;
   int32_t flag = nsIScriptError::warningFlag;
-  if (mNumCoords >= 3) {
+  if (mCoords.Length() >= 3) {
     if (mCoords[2] < 0) {
       logMessage(mArea, aSpec, nsIScriptError::errorFlag,
                  "ImageMapCircleNegativeRadius");
     }
 
-    if (mNumCoords > 3) {
+    if (mCoords.Length() > 3) {
       wrongNumberOfCoords = true;
     }
   } else {
@@ -552,7 +544,7 @@ void CircleArea::ParseCoords(const nsAString& aSpec) {
 
 bool CircleArea::IsInside(nscoord x, nscoord y) const {
   // Note: > is for nav compatibility
-  if (mNumCoords >= 3) {
+  if (mCoords.Length() >= 3) {
     nscoord x1 = mCoords[0];
     nscoord y1 = mCoords[1];
     nscoord radius = mCoords[2];
@@ -569,42 +561,41 @@ bool CircleArea::IsInside(nscoord x, nscoord y) const {
   return false;
 }
 
-void CircleArea::Draw(nsIFrame* aFrame, DrawTarget& aDrawTarget,
-                      const ColorPattern& aColor,
-                      const StrokeOptions& aStrokeOptions) {
-  if (mHasFocus) {
-    if (mNumCoords >= 3) {
-      Point center(aFrame->PresContext()->CSSPixelsToDevPixels(mCoords[0]),
-                   aFrame->PresContext()->CSSPixelsToDevPixels(mCoords[1]));
-      Float diameter =
-          2 * aFrame->PresContext()->CSSPixelsToDevPixels(mCoords[2]);
-      if (diameter <= 0) {
-        return;
-      }
-      RefPtr<PathBuilder> builder = aDrawTarget.CreatePathBuilder();
-      AppendEllipseToPath(builder, center, Size(diameter, diameter));
-      RefPtr<Path> circle = builder->Finish();
-      aDrawTarget.Stroke(circle, aColor, aStrokeOptions);
-    }
+void CircleArea::DrawFocus(nsIFrame* aFrame, DrawTarget& aDrawTarget,
+                           const ColorPattern& aColor,
+                           const StrokeOptions& aStrokeOptions) {
+  if (mCoords.Length() < 3) {
+    return;
   }
+  Point center(aFrame->PresContext()->CSSPixelsToDevPixels(mCoords[0]),
+               aFrame->PresContext()->CSSPixelsToDevPixels(mCoords[1]));
+  Float diameter = 2 * aFrame->PresContext()->CSSPixelsToDevPixels(mCoords[2]);
+  if (diameter <= 0) {
+    return;
+  }
+  RefPtr<PathBuilder> builder = aDrawTarget.CreatePathBuilder();
+  AppendEllipseToPath(builder, center, Size(diameter, diameter));
+  RefPtr<Path> circle = builder->Finish();
+  aDrawTarget.Stroke(circle, aColor, aStrokeOptions);
 }
 
 void CircleArea::GetRect(nsIFrame* aFrame, nsRect& aRect) {
-  if (mNumCoords >= 3) {
-    nscoord x1 = nsPresContext::CSSPixelsToAppUnits(mCoords[0]);
-    nscoord y1 = nsPresContext::CSSPixelsToAppUnits(mCoords[1]);
-    nscoord radius = nsPresContext::CSSPixelsToAppUnits(mCoords[2]);
-    if (radius < 0) {
-      return;
-    }
-
-    aRect.SetRect(x1 - radius, y1 - radius, x1 + radius, y1 + radius);
+  if (mCoords.Length() < 3) {
+    return;
   }
+  nscoord x1 = nsPresContext::CSSPixelsToAppUnits(mCoords[0]);
+  nscoord y1 = nsPresContext::CSSPixelsToAppUnits(mCoords[1]);
+  nscoord radius = nsPresContext::CSSPixelsToAppUnits(mCoords[2]);
+  if (radius < 0) {
+    return;
+  }
+
+  aRect.SetRect(x1 - radius, y1 - radius, x1 + radius, y1 + radius);
 }
 
 //----------------------------------------------------------------------
 
-nsImageMap::nsImageMap() : mImageFrame(nullptr), mConsiderWholeSubtree(false) {}
+nsImageMap::nsImageMap() = default;
 
 nsImageMap::~nsImageMap() {
   NS_ASSERTION(mAreas.Length() == 0, "Destroy was not called");
@@ -756,22 +747,34 @@ HTMLAreaElement* nsImageMap::GetAreaAt(uint32_t aIndex) const {
   return mAreas.ElementAt(aIndex)->mArea;
 }
 
-void nsImageMap::Draw(nsIFrame* aFrame, DrawTarget& aDrawTarget,
-                      const ColorPattern& aColor,
-                      const StrokeOptions& aStrokeOptions) {
+void nsImageMap::DrawFocus(nsIFrame* aFrame, DrawTarget& aDrawTarget,
+                           const ColorPattern& aColor,
+                           const StrokeOptions& aStrokeOptions) {
+  if (!mHasFocus) {
+    return;
+  }
   for (auto& area : mAreas) {
-    area->Draw(aFrame, aDrawTarget, aColor, aStrokeOptions);
+    if (area->HasFocus()) {
+      area->DrawFocus(aFrame, aDrawTarget, aColor, aStrokeOptions);
+    }
   }
 }
 
 void nsImageMap::MaybeUpdateAreas(nsIContent* aContent) {
   if (aContent == mMap || mConsiderWholeSubtree) {
     UpdateAreas();
+
+    // If the mouse cursor hovered an <area> or will hover an <area>, we may
+    // need to update the cursor and dispatch mouse/pointer boundary events.
+    // So, let's enqueue a synthesized mouse move.
+    if (PresShell* const presShell = aContent->OwnerDoc()->GetPresShell()) {
+      presShell->SynthesizeMouseMove(false);
+    }
   }
 }
 
 void nsImageMap::AttributeChanged(dom::Element* aElement, int32_t aNameSpaceID,
-                                  nsAtom* aAttribute, int32_t aModType,
+                                  nsAtom* aAttribute, AttrModType aModType,
                                   const nsAttrValue* aOldValue) {
   // If the parent of the changing content node is our map then update
   // the map.  But only do this if the node is an HTML <area> or <a>
@@ -790,11 +793,12 @@ void nsImageMap::AttributeChanged(dom::Element* aElement, int32_t aNameSpaceID,
   }
 }
 
-void nsImageMap::ContentAppended(nsIContent* aFirstNewContent) {
+void nsImageMap::ContentAppended(nsIContent* aFirstNewContent,
+                                 const ContentAppendInfo&) {
   MaybeUpdateAreas(aFirstNewContent->GetParent());
 }
 
-void nsImageMap::ContentInserted(nsIContent* aChild) {
+void nsImageMap::ContentInserted(nsIContent* aChild, const ContentInsertInfo&) {
   MaybeUpdateAreas(aChild->GetParent());
 }
 
@@ -818,7 +822,7 @@ static UniquePtr<Area> TakeArea(nsImageMap::AreaList& aAreas,
 }
 
 void nsImageMap::ContentWillBeRemoved(nsIContent* aChild,
-                                      const BatchRemovalState*) {
+                                      const ContentRemoveInfo&) {
   if (aChild->GetParent() != mMap && !mConsiderWholeSubtree) {
     return;
   }
@@ -865,11 +869,12 @@ nsresult nsImageMap::HandleEvent(Event* aEvent) {
   for (auto& area : mAreas) {
     if (area->mArea == targetContent) {
       // Set or Remove internal focus
-      area->HasFocus(focus);
+      area->SetHasFocus(focus);
       // Now invalidate the rect
       if (mImageFrame) {
         mImageFrame->InvalidateFrame();
       }
+      mHasFocus = focus;
       break;
     }
   }

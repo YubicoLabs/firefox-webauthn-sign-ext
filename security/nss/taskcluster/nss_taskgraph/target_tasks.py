@@ -24,12 +24,16 @@ PLATFORM_ALIASES = {
     "win-make": "windows2022-32",
     "win64": "windows2022-64",
     "win": "windows2022-32",
+    "mac": "macosx64",
+    "mac-make": "macosx64",
 }
 
 
 def filter_platform(platform, task):
     if "build_platform" not in task.attributes:
         return False
+    if platform == "all":
+        return True
     task_platform = task.attributes["build_platform"]
     # Check the platform name.
     keep = task_platform == PLATFORM_ALIASES.get(platform, platform)
@@ -42,6 +46,7 @@ def filter_platform(platform, task):
         or platform == "win64-make"
         or platform == "win-make"
         or platform == "aarch64-make"
+        or platform == "mac-make"
     ):
         keep &= task.attributes["make"]
     elif platform == "linux64-fuzz" or platform == "linux-fuzz":

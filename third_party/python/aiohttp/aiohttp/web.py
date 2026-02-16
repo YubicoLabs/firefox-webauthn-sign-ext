@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from contextlib import suppress
 from importlib import import_module
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -287,10 +288,13 @@ __all__ = (
 )
 
 
-try:
+if TYPE_CHECKING:
     from ssl import SSLContext
-except ImportError:  # pragma: no cover
-    SSLContext = Any  # type: ignore[misc,assignment]
+else:
+    try:
+        from ssl import SSLContext
+    except ImportError:  # pragma: no cover
+        SSLContext = object  # type: ignore[misc,assignment]
 
 # Only display warning when using -Wdefault, -We, -X dev or similar.
 warnings.filterwarnings("ignore", category=NotAppKeyWarning, append=True)
@@ -305,18 +309,12 @@ async def _run_app(
     port: Optional[int] = None,
     path: Union[PathLike, TypingIterable[PathLike], None] = None,
     sock: Optional[Union[socket.socket, TypingIterable[socket.socket]]] = None,
-    shutdown_timeout: float = 60.0,
-    keepalive_timeout: float = 75.0,
     ssl_context: Optional[SSLContext] = None,
     print: Optional[Callable[..., None]] = print,
     backlog: int = 128,
-    access_log_class: Type[AbstractAccessLogger] = AccessLogger,
-    access_log_format: str = AccessLogger.LOG_FORMAT,
-    access_log: Optional[logging.Logger] = access_logger,
-    handle_signals: bool = True,
     reuse_address: Optional[bool] = None,
     reuse_port: Optional[bool] = None,
-    handler_cancellation: bool = False,
+    **kwargs: Any,  # TODO(PY311): Use Unpack
 ) -> None:
     # An internal function to actually do all dirty job for application running
     if asyncio.iscoroutine(app):
@@ -324,16 +322,7 @@ async def _run_app(
 
     app = cast(Application, app)
 
-    runner = AppRunner(
-        app,
-        handle_signals=handle_signals,
-        access_log_class=access_log_class,
-        access_log_format=access_log_format,
-        access_log=access_log,
-        keepalive_timeout=keepalive_timeout,
-        shutdown_timeout=shutdown_timeout,
-        handler_cancellation=handler_cancellation,
-    )
+    runner = AppRunner(app, **kwargs)
 
     await runner.setup()
 
@@ -341,7 +330,7 @@ async def _run_app(
 
     try:
         if host is not None:
-            if isinstance(host, (str, bytes, bytearray, memoryview)):
+            if isinstance(host, str):
                 sites.append(
                     TCPSite(
                         runner,
@@ -480,6 +469,7 @@ def run_app(
     reuse_port: Optional[bool] = None,
     handler_cancellation: bool = False,
     loop: Optional[asyncio.AbstractEventLoop] = None,
+    **kwargs: Any,
 ) -> None:
     """Run an app locally"""
     if loop is None:
@@ -511,6 +501,7 @@ def run_app(
             reuse_address=reuse_address,
             reuse_port=reuse_port,
             handler_cancellation=handler_cancellation,
+            **kwargs,
         )
     )
 
@@ -545,21 +536,21 @@ def main(argv: List[str]) -> None:
     arg_parser.add_argument(
         "-H",
         "--hostname",
-        help="TCP/IP hostname to serve on (default: %(default)r)",
-        default="localhost",
+        help="TCP/IP hostname to serve on (default: localhost)",
+        default=None,
     )
     arg_parser.add_argument(
         "-P",
         "--port",
         help="TCP/IP port to serve on (default: %(default)r)",
         type=int,
-        default="8080",
+        default=8080,
     )
     arg_parser.add_argument(
         "-U",
         "--path",
-        help="Unix file system path to serve on. Specifying a path will cause "
-        "hostname and port arguments to be ignored.",
+        help="Unix file system path to serve on. Can be combined with hostname "
+        "to serve on both Unix and TCP.",
     )
     args, extra_argv = arg_parser.parse_known_args(argv)
 
@@ -581,13 +572,19 @@ def main(argv: List[str]) -> None:
     # Compatibility logic
     if args.path is not None and not hasattr(socket, "AF_UNIX"):
         arg_parser.error(
-            "file system paths not supported by your operating" " environment"
+            "file system paths not supported by your operating environment"
         )
 
     logging.basicConfig(level=logging.DEBUG)
 
+    if args.path and args.hostname is None:
+        host = port = None
+    else:
+        host = args.hostname or "localhost"
+        port = args.port
+
     app = func(extra_argv)
-    run_app(app, host=args.hostname, port=args.port, path=args.path)
+    run_app(app, host=host, port=port, path=args.path)
     arg_parser.exit(message="Stopped\n")
 
 

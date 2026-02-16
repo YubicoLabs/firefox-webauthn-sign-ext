@@ -6,8 +6,8 @@
 const {
   createElement,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
-const ReactDOM = require("resource://devtools/client/shared/vendor/react-dom.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
+const ReactDOM = require("resource://devtools/client/shared/vendor/react-dom.mjs");
 const {
   Provider,
   createProvider,
@@ -80,7 +80,6 @@ class WebConsoleWrapper {
    * @param {WebConsoleUI} webConsoleUI
    * @param {Toolbox} toolbox
    * @param {Document} document
-   *
    */
   constructor(parentNode, webConsoleUI, toolbox, document) {
     EventEmitter.decorate(this);
@@ -125,13 +124,21 @@ class WebConsoleWrapper {
         },
       });
 
+      const serviceContainer = this.getServiceContainer();
+
       const app = AppErrorBoundary(
         {
           componentName: "Console",
           panel: L10N.getStr("ToolboxTabWebconsole.label"),
+          // The AppErrorBoundary renders a link to file a bug, but in the case of the
+          // browser console, we need to have a specific handler to open the link in the
+          // main Firefox window
+          openLink: webConsoleUI.isBrowserConsole
+            ? serviceContainer.openLink
+            : null,
         },
         App({
-          serviceContainer: this.getServiceContainer(),
+          serviceContainer,
           webConsoleUI,
           onFirstMeaningfulPaint: resolve,
           closeSplitConsole: this.closeSplitConsole.bind(this),
@@ -178,9 +185,9 @@ class WebConsoleWrapper {
    * Query the reducer store for the current state of filtering
    * a given type of message
    *
-   * @param {String} filter
+   * @param {string} filter
    *        Type of message to be filtered.
-   * @return {Boolean}
+   * @return {boolean}
    *         True if this type of message should be displayed.
    */
   getFilterState(filter) {
@@ -363,7 +370,7 @@ class WebConsoleWrapper {
 
   /**
    *
-   * @param {String} expression: The expression to evaluate
+   * @param {string} expression: The expression to evaluate
    */
   dispatchEvaluateExpression(expression) {
     store.dispatch(actions.evaluateExpression(expression));
@@ -429,7 +436,7 @@ class WebConsoleWrapper {
 
         if (this.queuedMessageUpdates.length) {
           await store.dispatch(
-            actions.networkMessageUpdates(this.queuedMessageUpdates, null)
+            actions.networkMessageUpdates(this.queuedMessageUpdates)
           );
           this.webConsoleUI.emitForTests("network-messages-updated");
           this.queuedMessageUpdates = [];

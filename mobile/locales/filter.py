@@ -19,8 +19,10 @@ def test(mod, path, entity=None):
         # keep this file list in sync with jar.mn
         if path in (
             "chrome/global/commonDialogs.properties",
-            "chrome/global/intl.properties",
             "chrome/global/intl.css",
+            "toolkit/branding/brandings.ftl",
+            "toolkit/global/processTypes.ftl",
+            "toolkit/global/resetProfile.ftl",
         ):
             return "error"
         if re.match(r"toolkit/about/[^/]*About.ftl", path):
@@ -41,6 +43,9 @@ def test(mod, path, entity=None):
         if re.match(r"toolkit/about/[^/]*Webrtc.ftl", path):
             # error on toolkit/about/*Webrtc.ftl
             return "error"
+        if re.match(r"toolkit/about/[^/]*Logging.ftl", path):
+            # error on toolkit/about/*Logging.ftl
+            return "error"
         return "ignore"
 
     if mod == "dom":
@@ -51,14 +56,5 @@ def test(mod, path, entity=None):
         ):
             return "error"
         return "ignore"
-
-    if mod not in ("mobile", "mobile/android"):
-        # we only have exceptions for mobile*
-        return "error"
-    if mod == "mobile/android":
-        if entity is None:
-            if re.match(r"mobile-l10n.js", path):
-                return "ignore"
-        return "error"
 
     return "error"

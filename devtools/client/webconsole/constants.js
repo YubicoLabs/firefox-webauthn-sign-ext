@@ -52,7 +52,7 @@ const actionTypes = {
   REVERSE_SEARCH_NEXT: "REVERSE_SEARCH_NEXT",
   REVERSE_SEARCH_BACK: "REVERSE_SEARCH_BACK",
   EAGER_EVALUATION_TOGGLE: "EAGER_EVALUATION_TOGGLE",
-  WARNING_GROUPS_TOGGLE: "WARNING_GROUPS_TOGGLE",
+  GROUP_SIMILAR_MESSAGES_TOGGLE: "GROUP_SIMILAR_MESSAGES_TOGGLE",
   WILL_NAVIGATE: "WILL_NAVIGATE",
   EDITOR_SET_WIDTH: "EDITOR_SET_WIDTH",
 };
@@ -84,8 +84,6 @@ const prefs = {
       EDITOR_WIDTH: "input.editorWidth",
       // Show the Editor onboarding UI
       EDITOR_ONBOARDING: "devtools.webconsole.input.editorOnboarding",
-      // Show the Input Context the selector
-      CONTEXT_SELECTOR: "devtools.webconsole.input.context",
       // Persist the "enable network monitoring" option
       ENABLE_NETWORK_MONITORING:
         "devtools.browserconsole.enableNetworkMonitoring",
@@ -95,7 +93,7 @@ const prefs = {
       SIDEBAR_TOGGLE: "devtools.webconsole.sidebarToggle",
       AUTOCOMPLETE: "devtools.webconsole.input.autocomplete",
       EAGER_EVALUATION: "devtools.webconsole.input.eagerEvaluation",
-      GROUP_WARNINGS: "devtools.webconsole.groupWarningMessages",
+      GROUP_SIMILAR_MESSAGES: "devtools.webconsole.groupSimilarMessages",
     },
   },
 };

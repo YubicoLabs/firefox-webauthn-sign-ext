@@ -9,10 +9,10 @@
 
 #include "mozilla/StaticPtr.h"
 #include "mozilla/UniquePtr.h"
-#include "nsCoord.h"
-#include "nsCOMPtr.h"
-#include "nsFont.h"
 #include "nsAtom.h"
+#include "nsCOMPtr.h"
+#include "nsCoord.h"
+#include "nsFont.h"
 #include "nsLanguageAtomService.h"
 
 namespace mozilla {
@@ -72,6 +72,11 @@ struct LangGroupFontPrefs {
         return &mDefaultCursiveFont;
       case StyleGenericFontFamily::Fantasy:
         return &mDefaultFantasyFont;
+      case StyleGenericFontFamily::Math:
+        // TODO(eri): Change to a specific math font once the generic
+        // math family is no longer mapped to "serif.x-math". See
+        // `gfxPlatformFontList::AddGenericFonts`.
+        return &mDefaultSerifFont;
       case StyleGenericFontFamily::SystemUi:
         return &mDefaultSystemUiFont;
       case StyleGenericFontFamily::MozEmoji:
@@ -113,28 +118,8 @@ class StaticPresData {
   /**
    * Given a language, get the language group name, which can
    * be used as an argument to LangGroupFontPrefs::Initialize()
-   *
-   * aNeedsToCache is used for two things.  If null, it indicates that
-   * the nsLanguageAtomService is safe to cache the result of the
-   * language group lookup, either because we're on the main thread,
-   * or because we're on a style worker thread but the font lock has
-   * been acquired.  If non-null, it indicates that it's not safe to
-   * cache the result of the language group lookup (because we're on
-   * a style worker thread without the lock acquired).  In this case,
-   * GetLanguageGroup will store true in *aNeedsToCache true if we
-   * would have cached the result of a new lookup, and false if we
-   * were able to use an existing cached result.  Thus, callers that
-   * get a true *aNeedsToCache outparam value should make an effort
-   * to re-call GetLanguageGroup when it is safe to cache, to avoid
-   * recomputing the language group again later.
    */
-  nsStaticAtom* GetLangGroup(nsAtom* aLanguage,
-                             bool* aNeedsToCache = nullptr) const;
-
-  /**
-   * Same as GetLangGroup, but will not cache the result
-   */
-  nsStaticAtom* GetUncachedLangGroup(nsAtom* aLanguage) const;
+  nsStaticAtom* GetLangGroup(nsAtom* aLanguage) const;
 
   /**
    * Fetch the user's font preferences for the given aLanguage's
@@ -150,7 +135,19 @@ class StaticPresData {
    * with an additional per-session cache that new callers can use if they don't
    * have a PresContext.
    *
-   * See comment on GetLangGroup for the usage of aNeedsToCache.
+   * aNeedsToCache is used for two things.  If null, it indicates that
+   * it is safe for the StaticPresData to cache the result of the
+   * prefs lookup, either because we're on the main thread,
+   * or because we're on a style worker thread but the font lock has
+   * been acquired.  If non-null, it indicates that it's not safe to
+   * cache the result of the prefs lookup (because we're on
+   * a style worker thread without the lock acquired).  In this case,
+   * GetFontPrefsForLang will store true in *aNeedsToCache true if we
+   * would have cached the result of a new lookup, and false if we
+   * were able to use an existing cached result.  Thus, callers that
+   * get a true *aNeedsToCache outparam value should make an effort
+   * to re-call GetFontPrefsForLang when it is safe to cache, to avoid
+   * recomputing the prefs again later.
    */
   const LangGroupFontPrefs* GetFontPrefsForLang(nsAtom* aLanguage,
                                                 bool* aNeedsToCache = nullptr);

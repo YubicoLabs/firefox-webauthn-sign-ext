@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsHashPropertyBag_h___
-#define nsHashPropertyBag_h___
+#ifndef nsHashPropertyBag_h_
+#define nsHashPropertyBag_h_
 
 #include "nsIVariant.h"
 #include "nsIWritablePropertyBag.h"
@@ -59,22 +59,22 @@ class nsHashPropertyBagOMT final : public nsHashPropertyBagBase {
  protected:
   // Doesn't need to dispatch to main thread because it cannot contain
   // XPCVariants
-  virtual ~nsHashPropertyBagOMT() = default;
+  ~nsHashPropertyBagOMT() = default;
 };
 
 /* A cycle collected nsHashPropertyBag for main-thread-only use. */
 class nsHashPropertyBagCC final : public nsHashPropertyBagBase {
  public:
   nsHashPropertyBagCC() = default;
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsHashPropertyBagCC,
                                            nsIWritablePropertyBag)
  protected:
-  virtual ~nsHashPropertyBagCC() = default;
+  ~nsHashPropertyBagCC() = default;
 };
 
 inline nsISupports* ToSupports(nsHashPropertyBagBase* aPropertyBag) {
   return static_cast<nsIWritablePropertyBag*>(aPropertyBag);
 }
 
-#endif /* nsHashPropertyBag_h___ */
+#endif /* nsHashPropertyBag_h_ */

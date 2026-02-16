@@ -18,6 +18,17 @@ const SOCIAL_TRACKING_TABLE_PREF =
 const EMAIL_TRACKING_TABLE_NAME = "mochitest5-track-simple";
 const EMAIL_TRACKING_TABLE_PREF =
   "urlclassifier.features.emailtracking.blocklistTables";
+const CONSENTMANAGER_ANNOTATION_TABLE_NAME = "mochitest6-track-simple";
+const CONSENTMANAGER_ANNOTATION_TABLE_PREF =
+  "urlclassifier.features.consentmanager.annotate.blocklistTables";
+const ANTIFRAUD_ANNOTATION_TABLE_NAME = "mochitest7-track-simple";
+const ANTIFRAUD_ANNOTATION_TABLE_PREF =
+  "urlclassifier.features.antifraud.annotate.blocklistTables";
+
+const PROVIDER_V5_LISTS_PREF = "browser.safebrowsing.provider.google5.lists";
+const MALWARE_TABLE_PREF = "urlclassifier.malwareTable";
+const MALWARE_V5_TABLE_NAME = "test-google5-malware-proto";
+const MALWARE_HOST = "malware.example.com/";
 
 let timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
 
@@ -36,6 +47,8 @@ export var UrlClassifierTestUtils = {
     let entitylistedURL = "itisatrap.org/?resource=itisatracker.org";
     let socialTrackingURL = "social-tracking.example.org/";
     let emailTrackingURL = "email-tracking.example.org/";
+    let consentmanagerAnnotationURL = "consent-manager.example.org/";
+    let antifraudAnnotationURL = "anti-fraud.example.org/";
 
     let annotationUpdate =
       "n:1000\ni:" +
@@ -65,6 +78,16 @@ export var UrlClassifierTestUtils = {
       annotationURL5.length +
       "\n" +
       annotationURL5 +
+      "\n" +
+      "a:6:32:" +
+      consentmanagerAnnotationURL.length +
+      "\n" +
+      consentmanagerAnnotationURL +
+      "\n" +
+      "a:7:32:" +
+      antifraudAnnotationURL.length +
+      "\n" +
+      antifraudAnnotationURL +
       "\n";
     let socialAnnotationUpdate =
       "n:1000\ni:" +
@@ -74,6 +97,24 @@ export var UrlClassifierTestUtils = {
       socialTrackingURL.length +
       "\n" +
       socialTrackingURL +
+      "\n";
+    let consentmanagerAnnotationUpdate =
+      "n:1000\ni:" +
+      CONSENTMANAGER_ANNOTATION_TABLE_NAME +
+      "\nad:1\n" +
+      "a:1:32:" +
+      consentmanagerAnnotationURL.length +
+      "\n" +
+      consentmanagerAnnotationURL +
+      "\n";
+    let antifraudAnnotationUpdate =
+      "n:1000\ni:" +
+      ANTIFRAUD_ANNOTATION_TABLE_NAME +
+      "\nad:1\n" +
+      "a:1:32:" +
+      antifraudAnnotationURL.length +
+      "\n" +
+      antifraudAnnotationURL +
       "\n";
     let annotationEntitylistUpdate =
       "n:1000\ni:" +
@@ -102,6 +143,16 @@ export var UrlClassifierTestUtils = {
       trackingURL3.length +
       "\n" +
       trackingURL3 +
+      "\n" +
+      "a:4:32:" +
+      consentmanagerAnnotationURL.length +
+      "\n" +
+      consentmanagerAnnotationURL +
+      "\n" +
+      "a:5:32:" +
+      antifraudAnnotationURL.length +
+      "\n" +
+      antifraudAnnotationURL +
       "\n";
     let socialTrackingUpdate =
       "n:1000\ni:" +
@@ -141,6 +192,16 @@ export var UrlClassifierTestUtils = {
         pref: SOCIAL_ANNOTATION_TABLE_PREF,
         name: SOCIAL_ANNOTATION_TABLE_NAME,
         update: socialAnnotationUpdate,
+      },
+      {
+        pref: CONSENTMANAGER_ANNOTATION_TABLE_PREF,
+        name: CONSENTMANAGER_ANNOTATION_TABLE_NAME,
+        update: consentmanagerAnnotationUpdate,
+      },
+      {
+        pref: ANTIFRAUD_ANNOTATION_TABLE_PREF,
+        name: ANTIFRAUD_ANNOTATION_TABLE_NAME,
+        update: antifraudAnnotationUpdate,
       },
       {
         pref: ANNOTATION_ENTITYLIST_TABLE_PREF,
@@ -194,11 +255,73 @@ export var UrlClassifierTestUtils = {
   cleanupTestTrackers() {
     Services.prefs.clearUserPref(ANNOTATION_TABLE_PREF);
     Services.prefs.clearUserPref(SOCIAL_ANNOTATION_TABLE_PREF);
+    Services.prefs.clearUserPref(CONSENTMANAGER_ANNOTATION_TABLE_PREF);
+    Services.prefs.clearUserPref(ANTIFRAUD_ANNOTATION_TABLE_PREF);
     Services.prefs.clearUserPref(ANNOTATION_ENTITYLIST_TABLE_PREF);
     Services.prefs.clearUserPref(TRACKING_TABLE_PREF);
     Services.prefs.clearUserPref(SOCIAL_TRACKING_TABLE_PREF);
     Services.prefs.clearUserPref(EMAIL_TRACKING_TABLE_PREF);
     Services.prefs.clearUserPref(ENTITYLIST_TABLE_PREF);
+  },
+
+  addTestV5Entry() {
+    let urlClassifierTestUtils = Cc[
+      "@mozilla.org/url-classifier/test-utils;1"
+    ].getService(Ci.nsIUrlClassifierTestUtils);
+    let lookupHash = urlClassifierTestUtils.generateLookupHash(MALWARE_HOST);
+
+    let updateData = urlClassifierTestUtils.makeUpdateResponseV5(
+      "test",
+      lookupHash
+    );
+
+    Services.prefs.setCharPref(PROVIDER_V5_LISTS_PREF, MALWARE_V5_TABLE_NAME);
+    Services.prefs.setCharPref(MALWARE_TABLE_PREF, MALWARE_V5_TABLE_NAME);
+
+    return new Promise((resolve, reject) => {
+      let dbService = Cc["@mozilla.org/url-classifier/dbservice;1"].getService(
+        Ci.nsIUrlClassifierDBService
+      );
+      let listener = {
+        QueryInterface: iid => {
+          if (
+            iid.equals(Ci.nsISupports) ||
+            iid.equals(Ci.nsIUrlClassifierUpdateObserver)
+          ) {
+            return listener;
+          }
+
+          throw Components.Exception("", Cr.NS_ERROR_NO_INTERFACE);
+        },
+        updateUrlRequested: () => {},
+        streamFinished: () => {},
+        updateError: () => {
+          reject("Got updateError when updating test-google5-malware-proto");
+        },
+        updateSuccess: () => {
+          resolve();
+        },
+      };
+
+      try {
+        dbService.beginUpdate(
+          listener,
+          "test-google5-malware-proto",
+          "google5"
+        );
+        dbService.beginStream("", "");
+        dbService.updateStream(updateData);
+        dbService.finishStream();
+        dbService.finishUpdate();
+      } catch (e) {
+        reject("Failed to do a V5 update with dbService.");
+      }
+    });
+  },
+
+  cleanupTestV5Entry() {
+    Services.prefs.clearUserPref(PROVIDER_V5_LISTS_PREF);
+    Services.prefs.clearUserPref(MALWARE_TABLE_PREF);
   },
 
   /**
@@ -249,8 +372,9 @@ export var UrlClassifierTestUtils = {
 
   /**
    * Handle the next "urlclassifier-before-block-channel" event.
-   * @param {Object} options
-   * @param {String} [options.filterOrigin] - Only handle event for channels
+   *
+   * @param {object} options
+   * @param {string} [options.filterOrigin] - Only handle event for channels
    * with matching origin.
    * @param {function} [options.onBeforeBlockChannel] - Optional callback for
    * the event. Called before acting on the channel.

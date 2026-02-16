@@ -1,4 +1,3 @@
-/* eslint-env webextensions */
 "use strict";
 
 const PRINT_POSTDATA = httpURL("print_postdata.sjs");
@@ -189,7 +188,7 @@ async function testLoadAndRedirect(
 
       info(`thirdProcessID: ${thirdProcessID}`);
       Assert.equal(firstProcessID != thirdProcessID, expectedProcessSwitch);
-      Assert.ok(secondProcessID == thirdProcessID);
+      Assert.equal(secondProcessID, thirdProcessID);
     }
   );
 }

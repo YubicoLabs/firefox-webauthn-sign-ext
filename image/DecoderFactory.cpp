@@ -5,6 +5,7 @@
 
 #include "DecoderFactory.h"
 
+#include "ImageUtils.h"
 #include "nsMimeTypes.h"
 #include "mozilla/RefPtr.h"
 
@@ -57,6 +58,8 @@ DecoderType DecoderFactory::GetDecoderType(const char* aMimeType) {
     type = DecoderType::JPEG;
   } else if (!strcmp(aMimeType, IMAGE_JPG)) {
     type = DecoderType::JPEG;
+  } else if (!strcmp(aMimeType, IMAGE_JPEG_PDF)) {
+    type = DecoderType::JPEG_PDF;
 
     // BMP
   } else if (!strcmp(aMimeType, IMAGE_BMP)) {
@@ -85,8 +88,7 @@ DecoderType DecoderFactory::GetDecoderType(const char* aMimeType) {
     // AVIF
   }
 #ifdef MOZ_AV1
-  else if (!strcmp(aMimeType, IMAGE_AVIF) &&
-           StaticPrefs::image_avif_enabled()) {
+  else if (!strcmp(aMimeType, IMAGE_AVIF)) {
     type = DecoderType::AVIF;
   }
 #endif
@@ -97,24 +99,6 @@ DecoderType DecoderFactory::GetDecoderType(const char* aMimeType) {
 #endif
 
   return type;
-}
-
-/* static */
-DecoderFlags DecoderFactory::GetDefaultDecoderFlagsForType(DecoderType aType) {
-  auto flags = DefaultDecoderFlags();
-
-#ifdef MOZ_AV1
-  if (aType == DecoderType::AVIF) {
-    if (StaticPrefs::image_avif_sequence_enabled()) {
-      flags |= DecoderFlags::AVIF_SEQUENCES_ENABLED;
-    }
-    if (StaticPrefs::image_avif_sequence_animate_avif_major_branded_images()) {
-      flags |= DecoderFlags::AVIF_ANIMATE_AVIF_MAJOR;
-    }
-  }
-#endif
-
-  return flags;
 }
 
 /* static */
@@ -131,10 +115,12 @@ already_AddRefed<Decoder> DecoderFactory::GetDecoder(DecoderType aType,
       decoder = new nsGIFDecoder2(aImage);
       break;
     case DecoderType::JPEG:
+    case DecoderType::JPEG_PDF:
       // If we have all the data we don't want to waste cpu time doing
       // a progressive decode.
       decoder = new nsJPEGDecoder(
-          aImage, aIsRedecode ? Decoder::SEQUENTIAL : Decoder::PROGRESSIVE);
+          aImage, aIsRedecode ? Decoder::SEQUENTIAL : Decoder::PROGRESSIVE,
+          aType == DecoderType::JPEG_PDF);
       break;
     case DecoderType::BMP:
       decoder = new nsBMPDecoder(aImage);
@@ -244,7 +230,11 @@ nsresult DecoderFactory::CreateAnimationDecoder(
   }
 
   MOZ_ASSERT(aType == DecoderType::GIF || aType == DecoderType::PNG ||
-                 aType == DecoderType::WEBP || aType == DecoderType::AVIF,
+                 aType == DecoderType::WEBP || aType == DecoderType::AVIF
+#ifdef MOZ_JXL
+                 || aType == DecoderType::JXL
+#endif
+             ,
              "Calling CreateAnimationDecoder for non-animating DecoderType");
 
   // Create an anonymous decoder. Interaction with the SurfaceCache and the
@@ -299,7 +289,11 @@ already_AddRefed<Decoder> DecoderFactory::CloneAnimationDecoder(
   // rediscover it is animated).
   DecoderType type = aDecoder->GetType();
   MOZ_ASSERT(type == DecoderType::GIF || type == DecoderType::PNG ||
-                 type == DecoderType::WEBP || type == DecoderType::AVIF,
+                 type == DecoderType::WEBP || type == DecoderType::AVIF
+#ifdef MOZ_JXL
+                 || type == DecoderType::JXL
+#endif
+             ,
              "Calling CloneAnimationDecoder for non-animating DecoderType");
 
   RefPtr<Decoder> decoder = GetDecoder(type, nullptr, /* aIsRedecode = */ true);

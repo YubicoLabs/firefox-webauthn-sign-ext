@@ -12,15 +12,14 @@
 #include <windows.h>
 #include <shlobj.h>
 
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/ModuleVersionInfo.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/Unused.h"
 #include "mozilla/WinDllServices.h"
 #include "mozilla/WinHeaderOnlyUtils.h"
 #include "nsReadableUtils.h"
 #include "nsWindowsHelpers.h"
 #include "nsXULAppAPI.h"
+#include "prenv.h"
 
 namespace mozilla {
 
@@ -56,7 +55,7 @@ static Vector<nsString> GetKeyboardLayoutDlls() {
         strTempSize) {
       nsString ws(strTemp, ((strTempSize + 1) / sizeof(wchar_t)) - 1);
       ToLowerCase(ws);  // To facilitate case-insensitive searches
-      Unused << result.emplaceBack(std::move(ws));
+      (void)result.emplaceBack(std::move(ws));
     }
   }
 }
@@ -197,7 +196,11 @@ Maybe<ModuleTrustFlags> ModuleEvaluator::GetTrust(
   // The JIT profiling module doesn't really have any other practical way to
   // match; hard-code it as being trusted.
   if (dllLeafLower.EqualsLiteral("jitpi.dll")) {
-    return Some(ModuleTrustFlags::JitPI);
+    if (PR_GetEnvSecure("JS_LOAD_VTUNE_LIB")) {
+      return Some(ModuleTrustFlags::JitPI);
+    } else {
+      return Some(ModuleTrustFlags::None);
+    }
   }
 
   ModuleTrustFlags result = ModuleTrustFlags::None;

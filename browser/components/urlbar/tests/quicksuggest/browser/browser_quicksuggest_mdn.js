@@ -50,6 +50,22 @@ add_task(async function basic() {
     );
     Assert.equal(result.payload.provider, "Mdn");
 
+    const row = element.row;
+    const icon = row.querySelector(".urlbarView-favicon");
+    Assert.equal(icon.src, "chrome://global/skin/icons/mdn.svg");
+    const title = row.querySelector(".urlbarView-title");
+    Assert.equal(title.textContent, suggestion.title);
+    const subtitle = row.querySelector(".urlbarView-subtitle");
+    Assert.equal(subtitle.textContent, "MDN Web Docs");
+    const description = row.querySelector(".urlbarView-row-body-description");
+    Assert.equal(description.textContent, suggestion.description);
+    const bottomLabel = row.querySelector(".urlbarView-bottom-label");
+    Assert.equal(bottomLabel.textContent, "Recommended");
+    const bottomUrl = row.querySelector(".urlbarView-url");
+    const expectedUrl = makeExpectedUrl(suggestion.url);
+    const displayUrl = expectedUrl.replace(/^https:\/\//, "");
+    Assert.equal(bottomUrl.textContent, displayUrl);
+
     const onLoad = BrowserTestUtils.browserLoaded(
       gBrowser.selectedBrowser,
       false,
@@ -73,7 +89,7 @@ add_task(async function rowLabel() {
 
   const { element } = await UrlbarTestUtils.getDetailsOfResultAt(window, 1);
   const row = element.row;
-  Assert.equal(row.getAttribute("label"), "Recommended resource");
+  Assert.ok(!row.hasAttribute("label"), "Row should not have a label");
 
   await UrlbarTestUtils.promisePopupClose(window);
 });
@@ -90,7 +106,7 @@ add_task(async function disable() {
   Assert.equal(UrlbarTestUtils.getResultCount(window), 1);
 
   const { result } = await UrlbarTestUtils.getDetailsOfResultAt(window, 0);
-  Assert.equal(result.providerName, "HeuristicFallback");
+  Assert.equal(result.providerName, "UrlbarProviderHeuristicFallback");
 
   await SpecialPowers.popPrefEnv();
   await QuickSuggestTestUtils.forceSync();
@@ -98,13 +114,13 @@ add_task(async function disable() {
 
 // Tests the "Not interested" result menu dismissal command.
 add_task(async function resultMenu_notInterested() {
-  await doDismissTest("not_interested");
+  let result = await doDismissTest("not_interested");
 
   Assert.equal(UrlbarPrefs.get("suggest.mdn"), false);
-  const exists = await QuickSuggest.blockedSuggestions.has(
-    REMOTE_SETTINGS_DATA[0].attachment[0].url
+  Assert.ok(
+    !(await QuickSuggest.isResultDismissed(result)),
+    "The result should not be dismissed"
   );
-  Assert.ok(!exists);
 
   // Re-enable suggestions and wait until MDNSuggestions syncs them from
   // remote settings again.
@@ -114,15 +130,15 @@ add_task(async function resultMenu_notInterested() {
 
 // Tests the "Not relevant" result menu dismissal command.
 add_task(async function resultMenu_notRelevant() {
-  await doDismissTest("not_relevant");
+  let result = await doDismissTest("not_relevant");
 
   Assert.equal(UrlbarPrefs.get("suggest.mdn"), true);
-  const exists = await QuickSuggest.blockedSuggestions.has(
-    REMOTE_SETTINGS_DATA[0].attachment[0].url
+  Assert.ok(
+    await QuickSuggest.isResultDismissed(result),
+    "The result should be dismissed"
   );
-  Assert.ok(exists);
 
-  await QuickSuggest.blockedSuggestions.clear();
+  await QuickSuggest.clearDismissedSuggestions();
 });
 
 // Tests the "Manage" result menu.
@@ -159,12 +175,18 @@ async function doDismissTest(command) {
     "The result should be a MDN result"
   );
 
+  let { result } = details;
+
   // Click the command.
-  await UrlbarTestUtils.openResultMenuAndClickItem(
-    window,
-    ["[data-l10n-id=firefox-suggest-command-dont-show-mdn]", command],
-    { resultIndex, openByMouse: true }
+  let dismissalPromise = TestUtils.topicObserved(
+    "quicksuggest-dismissals-changed"
   );
+  await UrlbarTestUtils.openResultMenuAndClickItem(window, [command], {
+    resultIndex,
+    openByMouse: true,
+  });
+  info("Awaiting dismissal promise");
+  await dismissalPromise;
 
   // The row should be a tip now.
   Assert.ok(gURLBar.view.isOpen, "The view should remain open after dismissal");
@@ -234,4 +256,18 @@ async function doDismissTest(command) {
   }
 
   await UrlbarTestUtils.promisePopupClose(window);
+
+  return result;
+}
+
+function makeExpectedUrl(originalUrl) {
+  let url = new URL(originalUrl);
+  url.searchParams.set("utm_medium", "firefox-desktop");
+  url.searchParams.set("utm_source", "firefox-suggest");
+  url.searchParams.set(
+    "utm_campaign",
+    "firefox-mdn-web-docs-suggestion-experiment"
+  );
+  url.searchParams.set("utm_content", "treatment");
+  return url.href;
 }

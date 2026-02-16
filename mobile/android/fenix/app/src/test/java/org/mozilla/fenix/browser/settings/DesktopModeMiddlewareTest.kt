@@ -7,29 +7,30 @@ package org.mozilla.fenix.browser.settings
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.state.action.DefaultDesktopModeAction
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.store.BrowserStore
-import mozilla.components.support.test.ext.joinBlocking
-import mozilla.components.support.test.libstate.ext.waitUntilIdle
-import mozilla.components.support.test.rule.MainCoroutineRule
-import mozilla.components.support.test.rule.runTestOnMain
+import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mozilla.fenix.GleanMetrics.DesktopMode
 import org.mozilla.fenix.browser.desktopmode.DesktopModeMiddleware
 import org.mozilla.fenix.browser.desktopmode.DesktopModeRepository
+import org.mozilla.fenix.helpers.FenixGleanTestRule
 
 @RunWith(AndroidJUnit4::class)
 class DesktopModeMiddlewareTest {
 
     @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
+    val gleanTestRule = FenixGleanTestRule(testContext)
 
     @Test
-    fun `GIVEN desktop mode is enabled WHEN the Store is initialized THEN the middleware should set the correct value in the Store`() = runTestOnMain {
+    fun `GIVEN desktop mode is enabled WHEN the Store is initialized THEN the middleware should set the correct value in the Store`() = runTest {
         val expected = true
         val middleware = createMiddleware(
             scope = this,
@@ -40,8 +41,7 @@ class DesktopModeMiddlewareTest {
             middleware = listOf(middleware),
         )
 
-        advanceUntilIdle()
-        store.waitUntilIdle()
+        testScheduler.advanceUntilIdle()
 
         launch {
             assertEquals(expected, store.state.desktopMode)
@@ -49,7 +49,7 @@ class DesktopModeMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN desktop mode is disabled WHEN the Store is initialized THEN the middleware should set the correct value in the Store`() = runTestOnMain {
+    fun `GIVEN desktop mode is disabled WHEN the Store is initialized THEN the middleware should set the correct value in the Store`() = runTest {
         val expected = false
         val middleware = createMiddleware(
             scope = this,
@@ -60,8 +60,7 @@ class DesktopModeMiddlewareTest {
             middleware = listOf(middleware),
         )
 
-        advanceUntilIdle()
-        store.waitUntilIdle()
+        testScheduler.advanceUntilIdle()
 
         launch {
             assertEquals(expected, store.state.desktopMode)
@@ -69,7 +68,7 @@ class DesktopModeMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN desktop mode is enabled WHEN the user toggles desktop mode off THEN the preference is updated`() = runTestOnMain {
+    fun `GIVEN desktop mode is enabled WHEN the user toggles desktop mode off THEN the preference is updated`() = runTest {
         val expected = false
         val middleware = createMiddleware(
             scope = this,
@@ -84,15 +83,13 @@ class DesktopModeMiddlewareTest {
             middleware = listOf(middleware),
         )
 
-        advanceUntilIdle()
-        store.waitUntilIdle()
-        store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode).joinBlocking()
-        advanceUntilIdle()
-        store.waitUntilIdle()
+        testScheduler.advanceUntilIdle()
+        store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode)
+        testScheduler.advanceUntilIdle()
     }
 
     @Test
-    fun `GIVEN desktop mode is disabled WHEN the user toggles desktop mode on THEN the preference is updated`() = runTestOnMain {
+    fun `GIVEN desktop mode is disabled WHEN the user toggles desktop mode on THEN the preference is updated`() = runTest {
         val expected = true
         val middleware = createMiddleware(
             scope = this,
@@ -107,14 +104,13 @@ class DesktopModeMiddlewareTest {
             middleware = listOf(middleware),
         )
 
-        advanceUntilIdle()
-        store.waitUntilIdle()
+        testScheduler.advanceUntilIdle()
 
-        store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode).joinBlocking()
+        store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode)
     }
 
     @Test
-    fun `GIVEN the user has toggled on desktop mode WHEN the preference update fails THEN the preference is reverted`() = runTestOnMain {
+    fun `GIVEN the user has toggled on desktop mode WHEN the preference update fails THEN the preference is reverted`() = runTest {
         val expected = false
         val middleware = createMiddleware(
             scope = this,
@@ -130,11 +126,9 @@ class DesktopModeMiddlewareTest {
             middleware = listOf(middleware),
         )
 
-        advanceUntilIdle()
-        store.waitUntilIdle()
-        store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode).joinBlocking()
-        advanceUntilIdle()
-        store.waitUntilIdle()
+        testScheduler.advanceUntilIdle()
+        store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode)
+        testScheduler.advanceUntilIdle()
 
         launch {
             assertEquals(expected, store.state.desktopMode)
@@ -142,7 +136,7 @@ class DesktopModeMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN the user has toggled off desktop mode WHEN the preference update fails THEN the preference is reverted`() = runTestOnMain {
+    fun `GIVEN the user has toggled off desktop mode WHEN the preference update fails THEN the preference is reverted`() = runTest {
         val expected = true
         val middleware = createMiddleware(
             scope = this,
@@ -158,15 +152,36 @@ class DesktopModeMiddlewareTest {
             middleware = listOf(middleware),
         )
 
-        advanceUntilIdle()
-        store.waitUntilIdle()
-        store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode).joinBlocking()
-        advanceUntilIdle()
-        store.waitUntilIdle()
+        testScheduler.advanceUntilIdle()
+        store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode)
+        testScheduler.advanceUntilIdle()
 
         launch {
             assertEquals(expected, store.state.desktopMode)
         }
+    }
+
+    @Test
+    fun `GIVEN desktop mode is disabled WHEN the user toggles desktop mode on THEN record settings always request desktop site telemetry`() = runTest {
+        val middleware = createMiddleware(
+            scope = this,
+            getDesktopBrowsingEnabled = { false },
+        )
+        val store = BrowserStore(
+            initialState = BrowserState(),
+            middleware = listOf(middleware),
+        )
+
+        assertNull(DesktopMode.settingsAlwaysRequestDesktopSite.testGetValue())
+
+        testScheduler.advanceUntilIdle()
+        store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode)
+        testScheduler.advanceUntilIdle()
+
+        assertNotNull(DesktopMode.settingsAlwaysRequestDesktopSite.testGetValue())
+        val snapshot = DesktopMode.settingsAlwaysRequestDesktopSite.testGetValue()!!
+        assertEquals(1, snapshot.size)
+        assertEquals("settings_always_request_desktop_site", snapshot.single().name)
     }
 
     private fun createMiddleware(

@@ -18,8 +18,7 @@ use crossbeam_channel::{bounded, Sender};
 use flate2::read::GzDecoder;
 use serde_json::Value as JsonValue;
 
-use glean::net;
-use glean::{ConfigurationBuilder, PingRateLimit};
+use glean::{net, ConfigurationBuilder, PingRateLimit, TestGetValue};
 
 mod metrics {
     #![allow(non_upper_case_globals)]
@@ -39,22 +38,15 @@ mod metrics {
 }
 
 mod pings {
+    use super::*;
     use glean::private::PingType;
     use once_cell::sync::Lazy;
 
     #[allow(non_upper_case_globals)]
     pub static validation: Lazy<PingType> = Lazy::new(|| {
-        glean::private::PingType::new(
-            "validation",
-            true,
-            true,
-            true,
-            true,
-            true,
-            vec![],
-            vec![],
-            true,
-        )
+        common::PingBuilder::new("validation")
+            .with_send_if_empty(true)
+            .build()
     });
 }
 
@@ -66,7 +58,8 @@ struct ReportingUploader {
 }
 
 impl net::PingUploader for ReportingUploader {
-    fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+    fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+        let upload_request = upload_request.capable(|_| true).unwrap();
         let calls = self.calls.fetch_add(1, Ordering::SeqCst);
         let body = upload_request.body;
         let decode = |body: Vec<u8>| {

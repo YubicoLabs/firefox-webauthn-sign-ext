@@ -21,9 +21,8 @@ import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
  * is visible. You can use the "expanded" attribute to force the accordion
  * card to show its content on initial render.
  *
- *
  * @property {string} heading - The heading text that will be used for the card.
- * @property {string} icon - (optional) A flag to indicate the header should include an icon
+ * @property {string} iconSrc - Path to the icon that should be displayed in the card.
  * @property {string} type - (optional) The type of card. No type specified
  *   will be the default card. The other available type is "accordion"
  * @property {boolean} expanded - A flag to indicate whether the card is
@@ -35,12 +34,14 @@ export default class MozCard extends MozLitElement {
   static queries = {
     detailsEl: "#moz-card-details",
     headingEl: "#heading",
-    contentSlotEl: "#content",
+    contentEl: "#content",
+    summaryEl: "summary",
+    contentSlotEl: "#content-slot",
   };
 
   static properties = {
-    heading: { type: String },
-    icon: { type: Boolean },
+    heading: { type: String, fluent: true },
+    iconSrc: { type: String },
     type: { type: String, reflect: true },
     expanded: { type: Boolean },
   };
@@ -56,15 +57,19 @@ export default class MozCard extends MozLitElement {
       return "";
     }
     return html`
-      <div id="heading-wrapper">
+      <div id="heading-wrapper" part="moz-card-heading-wrapper">
         ${when(
           this.type == "accordion",
           () => html`<div class="chevron-icon"></div>`
         )}
         ${when(
-          this.icon,
+          !!this.iconSrc,
           () =>
-            html`<div part="icon" id="heading-icon" role="presentation"></div>`
+            html`<img
+              id="heading-icon"
+              src=${this.iconSrc}
+              role="presentation"
+            />`
         )}
         <span id="heading" title=${ifDefined(this.heading)} part="heading"
           >${this.heading}</span
@@ -82,7 +87,7 @@ export default class MozCard extends MozLitElement {
           ?open=${this.expanded}
         >
           <summary part="summary">${this.headingTemplate()}</summary>
-          <div id="content"><slot></slot></div>
+          <div id="content"><slot id="content-slot"></slot></div>
         </details>
       `;
     }

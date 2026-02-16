@@ -6,13 +6,17 @@
 
 #include "LoadedScript.h"
 
+#include "mozilla/AlreadyAddRefed.h"  // already_AddRefed
 #include "mozilla/HoldDropJSObjects.h"
+#include "mozilla/RefPtr.h"     // RefPtr, mozilla::MakeRefPtr
 #include "mozilla/UniquePtr.h"  // mozilla::UniquePtr
 
 #include "mozilla/dom/ScriptLoadContext.h"  // ScriptLoadContext
 #include "jsfriendapi.h"
-#include "js/Modules.h"       // JS::{Get,Set}ModulePrivate
-#include "LoadContextBase.h"  // LoadContextBase
+#include "js/Modules.h"                 // JS::{Get,Set}ModulePrivate
+#include "js/experimental/JSStencil.h"  // JS::SizeOfStencil
+#include "LoadContextBase.h"            // LoadContextBase
+#include "nsIChannel.h"                 // nsIChannel
 
 namespace JS::loader {
 
@@ -22,20 +26,28 @@ namespace JS::loader {
 
 MOZ_DEFINE_MALLOC_SIZE_OF(LoadedScriptMallocSizeOf)
 
+// LoadedScript itself doesn't have to be cycle-collected,
+// but ModuleScript subclass needs cycle-collection.
+//
+// Provide a base class that does nothing.
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(LoadedScript)
   NS_INTERFACE_MAP_ENTRY(nsISupports)
 NS_INTERFACE_MAP_END
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(LoadedScript)
-
-NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(LoadedScript)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mFetchOptions)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mBaseURL)
-NS_IMPL_CYCLE_COLLECTION_UNLINK_END
-
-NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(LoadedScript)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mFetchOptions)
-NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+// LoadedScript can be accessed from multiple threads.
+//
+// For instance, worker script loader passes the ScriptLoadRequest and
+// the associated LoadedScript to the main thread to perform the actual load.
+// Even while it's handled by the main thread, the LoadedScript is
+// the target of the worker thread's cycle collector.
+//
+// Fields that can be modified by other threads shouldn't be touched by
+// the cycle collection.
+//
+// Currently there's no field that can form a cycle at this point.
+// If you're adding any field here, please make sure the field is not modified
+// by other threads.
+NS_IMPL_CYCLE_COLLECTION(LoadedScript)
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(LoadedScript)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(LoadedScript)
@@ -43,15 +55,41 @@ NS_IMPL_CYCLE_COLLECTING_RELEASE(LoadedScript)
 LoadedScript::LoadedScript(ScriptKind aKind,
                            mozilla::dom::ReferrerPolicy aReferrerPolicy,
                            ScriptFetchOptions* aFetchOptions, nsIURI* aURI)
-    : mKind(aKind),
+    : mDataType(DataType::eUnknown),
+      mKind(aKind),
       mReferrerPolicy(aReferrerPolicy),
+      mSerializedStencilOffset(0),
+      mCacheEntryId(InvalidCacheEntryId),
+      mIsDirty(false),
+      mTookLongInPreviousRuns(false),
       mFetchOptions(aFetchOptions),
       mURI(aURI),
-      mDataType(DataType::eUnknown),
-      mReceivedScriptTextLength(0),
-      mBytecodeOffset(0) {
+      mReceivedScriptTextLength(0) {
   MOZ_ASSERT(mFetchOptions);
   MOZ_ASSERT(mURI);
+}
+
+LoadedScript::LoadedScript(const LoadedScript& aOther)
+    : mDataType(DataType::eCachedStencil),
+      mKind(aOther.mKind),
+      mReferrerPolicy(aOther.mReferrerPolicy),
+      mSerializedStencilOffset(0),
+      mCacheEntryId(aOther.mCacheEntryId),
+      mIsDirty(aOther.mIsDirty),
+      mTookLongInPreviousRuns(aOther.mTookLongInPreviousRuns),
+      mFetchOptions(aOther.mFetchOptions),
+      mURI(aOther.mURI),
+      mBaseURL(aOther.mBaseURL),
+      mReceivedScriptTextLength(0),
+      mStencil(aOther.mStencil) {
+  MOZ_ASSERT(mFetchOptions);
+  MOZ_ASSERT(mURI);
+  // NOTE: This is only for the cached stencil case.
+  //       The script text and the serialized stencil are not reflected.
+  MOZ_DIAGNOSTIC_ASSERT(aOther.mDataType == DataType::eCachedStencil);
+  MOZ_DIAGNOSTIC_ASSERT(mStencil);
+  MOZ_ASSERT(!mScriptData);
+  MOZ_ASSERT(mSRIAndSerializedStencil.empty());
 }
 
 LoadedScript::~LoadedScript() {
@@ -96,6 +134,10 @@ size_t LoadedScript::SizeOfIncludingThis(
     mozilla::MallocSizeOf aMallocSizeOf) const {
   size_t bytes = aMallocSizeOf(this);
 
+  if (mFetchOptions) {
+    bytes += mFetchOptions->SizeOfIncludingThis(aMallocSizeOf);
+  }
+
   if (IsTextSource()) {
     if (IsUTF16Text()) {
       bytes += ScriptText<char16_t>().sizeOfExcludingThis(aMallocSizeOf);
@@ -104,9 +146,12 @@ size_t LoadedScript::SizeOfIncludingThis(
     }
   }
 
-  bytes += mScriptBytecode.sizeOfExcludingThis(aMallocSizeOf);
+  bytes += mSRIAndSerializedStencil.sizeOfExcludingThis(aMallocSizeOf);
 
-  // NOTE: Stencil is reported by SpiderMonkey.
+  if (mStencil) {
+    bytes += JS::SizeOfStencil(mStencil, aMallocSizeOf);
+  }
+
   return bytes;
 }
 
@@ -118,8 +163,8 @@ void LoadedScript::AssociateWithScript(JSScript* aScript) {
   // increment our reference count by calling HostAddRefTopLevelScript(). This
   // is decremented by HostReleaseTopLevelScript() below when the JSScript dies.
 
-  MOZ_ASSERT(JS::GetScriptPrivate(aScript).isUndefined());
-  JS::SetScriptPrivate(aScript, JS::PrivateValue(this));
+  MOZ_ASSERT(GetScriptPrivate(aScript).isUndefined());
+  SetScriptPrivate(aScript, PrivateValue(this));
 }
 
 nsresult LoadedScript::GetScriptSource(JSContext* aCx,
@@ -134,8 +179,7 @@ nsresult LoadedScript::GetScriptSource(JSContext* aCx,
     scriptLoadContext->GetInlineScriptText(inlineData);
 
     size_t nbytes = inlineData.Length() * sizeof(char16_t);
-    JS::UniqueTwoByteChars chars(
-        static_cast<char16_t*>(JS_malloc(aCx, nbytes)));
+    UniqueTwoByteChars chars(static_cast<char16_t*>(JS_malloc(aCx, nbytes)));
     if (!chars) {
       return NS_ERROR_OUT_OF_MEMORY;
     }
@@ -153,7 +197,7 @@ nsresult LoadedScript::GetScriptSource(JSContext* aCx,
 
   size_t length = ScriptTextLength();
   if (IsUTF16Text()) {
-    JS::UniqueTwoByteChars chars;
+    UniqueTwoByteChars chars;
     chars.reset(ScriptText<char16_t>().extractOrCopyRawBuffer());
     if (!chars) {
       JS_ReportOutOfMemory(aCx);
@@ -170,7 +214,7 @@ nsresult LoadedScript::GetScriptSource(JSContext* aCx,
   }
 
   MOZ_ASSERT(IsUTF8Text());
-  mozilla::UniquePtr<Utf8Unit[], JS::FreePolicy> chars;
+  mozilla::UniquePtr<Utf8Unit[], FreePolicy> chars;
   chars.reset(ScriptText<Utf8Unit>().extractOrCopyRawBuffer());
   if (!chars) {
     JS_ReportOutOfMemory(aCx);
@@ -186,17 +230,33 @@ nsresult LoadedScript::GetScriptSource(JSContext* aCx,
   return NS_OK;
 }
 
+static bool IsInternalURIScheme(nsIURI* uri) {
+  return uri->SchemeIs("moz-extension") || uri->SchemeIs("resource") ||
+         uri->SchemeIs("moz-src") || uri->SchemeIs("chrome");
+}
+
+void LoadedScript::SetBaseURLFromChannelAndOriginalURI(nsIChannel* aChannel,
+                                                       nsIURI* aOriginalURI) {
+  // Fixup moz-extension: and resource: URIs, because the channel URI will
+  // point to file:, which won't be allowed to load.
+  if (aOriginalURI && IsInternalURIScheme(aOriginalURI)) {
+    mBaseURL = aOriginalURI;
+  } else {
+    aChannel->GetURI(getter_AddRefs(mBaseURL));
+  }
+}
+
 inline void CheckModuleScriptPrivate(LoadedScript* script,
-                                     const JS::Value& aPrivate) {
+                                     const Value& aPrivate) {
 #ifdef DEBUG
   if (script->IsModuleScript()) {
     JSObject* module = script->AsModuleScript()->mModuleRecord.unbarrieredGet();
-    MOZ_ASSERT_IF(module, JS::GetModulePrivate(module) == aPrivate);
+    MOZ_ASSERT_IF(module, GetModulePrivate(module) == aPrivate);
   }
 #endif
 }
 
-void HostAddRefTopLevelScript(const JS::Value& aPrivate) {
+void HostAddRefTopLevelScript(const Value& aPrivate) {
   // Increment the reference count of a LoadedScript object that is now pointed
   // to by a JSScript. The reference count is decremented by
   // HostReleaseTopLevelScript() below.
@@ -206,7 +266,7 @@ void HostAddRefTopLevelScript(const JS::Value& aPrivate) {
   script->AddRef();
 }
 
-void HostReleaseTopLevelScript(const JS::Value& aPrivate) {
+void HostReleaseTopLevelScript(const Value& aPrivate) {
   // Decrement the reference count of a LoadedScript object that was pointed to
   // by a JSScript. The reference count was originally incremented by
   // HostAddRefTopLevelScript() above.
@@ -238,6 +298,16 @@ ClassicScript::ClassicScript(mozilla::dom::ReferrerPolicy aReferrerPolicy,
 }
 
 //////////////////////////////////////////////////////////////
+// ImportMapScript
+//////////////////////////////////////////////////////////////
+
+ImportMapScript::ImportMapScript(mozilla::dom::ReferrerPolicy aReferrerPolicy,
+                                 ScriptFetchOptions* aFetchOptions,
+                                 nsIURI* aURI)
+    : LoadedScript(ScriptKind::eImportMap, aReferrerPolicy, aFetchOptions,
+                   aURI) {}
+
+//////////////////////////////////////////////////////////////
 // ModuleScript
 //////////////////////////////////////////////////////////////
 
@@ -249,6 +319,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(ModuleScript, LoadedScript)
   tmp->UnlinkModuleRecord();
   tmp->mParseError.setUndefined();
   tmp->mErrorToRethrow.setUndefined();
+  tmp->DropDiskCacheReference();
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(ModuleScript, LoadedScript)
@@ -262,17 +333,38 @@ NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
 ModuleScript::ModuleScript(mozilla::dom::ReferrerPolicy aReferrerPolicy,
                            ScriptFetchOptions* aFetchOptions, nsIURI* aURI)
-    : LoadedScript(ScriptKind::eModule, aReferrerPolicy, aFetchOptions, aURI),
-      mHadImportMap(false),
-      mDebuggerDataInitialized(false) {
+    : LoadedScript(ScriptKind::eModule, aReferrerPolicy, aFetchOptions, aURI) {
   MOZ_ASSERT(!ModuleRecord());
   MOZ_ASSERT(!HasParseError());
   MOZ_ASSERT(!HasErrorToRethrow());
 }
 
+ModuleScript::ModuleScript(const LoadedScript& aOther) : LoadedScript(aOther) {
+  MOZ_ASSERT(!ModuleRecord());
+  MOZ_ASSERT(!HasParseError());
+  MOZ_ASSERT(!HasErrorToRethrow());
+}
+
+/* static */
+already_AddRefed<ModuleScript> ModuleScript::FromCache(
+    const LoadedScript& aScript) {
+  MOZ_DIAGNOSTIC_ASSERT(aScript.IsModuleScript());
+  MOZ_DIAGNOSTIC_ASSERT(aScript.IsCachedStencil());
+
+  return mozilla::MakeRefPtr<ModuleScript>(aScript).forget();
+}
+
+already_AddRefed<LoadedScript> ModuleScript::ToCache() {
+  MOZ_DIAGNOSTIC_ASSERT(IsCachedStencil());
+  MOZ_DIAGNOSTIC_ASSERT(!HasParseError());
+  MOZ_DIAGNOSTIC_ASSERT(!HasErrorToRethrow());
+
+  return mozilla::MakeRefPtr<LoadedScript>(*this).forget();
+}
+
 void ModuleScript::Shutdown() {
   if (mModuleRecord) {
-    JS::ClearModuleEnvironment(mModuleRecord);
+    ClearModuleEnvironment(mModuleRecord);
   }
 
   UnlinkModuleRecord();
@@ -288,9 +380,9 @@ void ModuleScript::UnlinkModuleRecord() {
     // writing undefined into the module private, so it won't create any
     // black-gray edges.
     JSObject* module = mModuleRecord.unbarrieredGet();
-    if (JS::IsCyclicModule(module)) {
-      MOZ_ASSERT(JS::GetModulePrivate(module).toPrivate() == this);
-      JS::ClearModulePrivate(module);
+    if (IsCyclicModule(module)) {
+      MOZ_ASSERT(GetModulePrivate(module).toPrivate() == this);
+      ClearModulePrivate(module);
     }
     mModuleRecord = nullptr;
   }
@@ -301,26 +393,26 @@ ModuleScript::~ModuleScript() {
   UnlinkModuleRecord();
 }
 
-void ModuleScript::SetModuleRecord(JS::Handle<JSObject*> aModuleRecord) {
+void ModuleScript::SetModuleRecord(Handle<JSObject*> aModuleRecord) {
   MOZ_ASSERT(!mModuleRecord);
   MOZ_ASSERT_IF(IsModuleScript(), !AsModuleScript()->HasParseError());
   MOZ_ASSERT_IF(IsModuleScript(), !AsModuleScript()->HasErrorToRethrow());
 
   mModuleRecord = aModuleRecord;
 
-  if (JS::IsCyclicModule(mModuleRecord)) {
+  if (IsCyclicModule(mModuleRecord)) {
     // Make module's host defined field point to this object. The JS engine will
     // increment our reference count by calling HostAddRefTopLevelScript(). This
     // is decremented when the field is cleared in UnlinkModuleRecord() above or
     // when the module record dies.
-    MOZ_ASSERT(JS::GetModulePrivate(mModuleRecord).isUndefined());
-    JS::SetModulePrivate(mModuleRecord, JS::PrivateValue(this));
+    MOZ_ASSERT(GetModulePrivate(mModuleRecord).isUndefined());
+    SetModulePrivate(mModuleRecord, PrivateValue(this));
   }
 
   mozilla::HoldJSObjects(this);
 }
 
-void ModuleScript::SetParseError(const JS::Value& aError) {
+void ModuleScript::SetParseError(const Value& aError) {
   MOZ_ASSERT(!aError.isUndefined());
   MOZ_ASSERT(!HasParseError());
   MOZ_ASSERT(!HasErrorToRethrow());
@@ -330,7 +422,7 @@ void ModuleScript::SetParseError(const JS::Value& aError) {
   mozilla::HoldJSObjects(this);
 }
 
-void ModuleScript::SetErrorToRethrow(const JS::Value& aError) {
+void ModuleScript::SetErrorToRethrow(const Value& aError) {
   MOZ_ASSERT(!aError.isUndefined());
 
   // This is only called after SetModuleRecord() or SetParseError() so we don't
@@ -342,12 +434,5 @@ void ModuleScript::SetErrorToRethrow(const JS::Value& aError) {
 
 void ModuleScript::SetForPreload(bool aValue) { mForPreload = aValue; }
 void ModuleScript::SetHadImportMap(bool aValue) { mHadImportMap = aValue; }
-
-void ModuleScript::SetDebuggerDataInitialized() {
-  MOZ_ASSERT(ModuleRecord());
-  MOZ_ASSERT(!mDebuggerDataInitialized);
-
-  mDebuggerDataInitialized = true;
-}
 
 }  // namespace JS::loader

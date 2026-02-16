@@ -4,16 +4,25 @@
 
 use std::borrow::Cow;
 
+use malloc_size_of_derive::MallocSizeOf;
+use serde::Serialize;
+
 use super::{metrics::*, CommonMetricData, LabeledMetricData, Lifetime};
 
-#[derive(Debug)]
+#[derive(Debug, MallocSizeOf)]
 pub struct CoreMetrics {
     pub client_id: UuidMetric,
     pub first_run_date: DatetimeMetric,
     pub os: StringMetric,
+    pub attribution_source: StringMetric,
+    pub attribution_medium: StringMetric,
+    pub attribution_campaign: StringMetric,
+    pub attribution_term: StringMetric,
+    pub attribution_content: StringMetric,
+    pub distribution_name: StringMetric,
 }
 
-#[derive(Debug)]
+#[derive(Debug, MallocSizeOf)]
 pub struct AdditionalMetrics {
     /// The number of times we encountered an IO error
     /// when writing a pending ping to disk.
@@ -31,6 +40,10 @@ pub struct AdditionalMetrics {
     /// An experimentation identifier derived and provided by the application
     /// for the purpose of experimentation enrollment.
     pub experimentation_id: StringMetric,
+
+    /// The number of times we had to clamp an event timestamp
+    /// for exceeding the range of a signed 64-bit integer (9223372036854775807).
+    pub event_timestamp_clamped: CounterMetric,
 }
 
 impl CoreMetrics {
@@ -65,6 +78,60 @@ impl CoreMetrics {
                 disabled: false,
                 dynamic_label: None,
             }),
+
+            attribution_source: StringMetric::new(CommonMetricData {
+                name: "source".into(),
+                category: "attribution".into(),
+                send_in_pings: vec!["glean_client_info".into()],
+                lifetime: Lifetime::User,
+                disabled: false,
+                dynamic_label: None,
+            }),
+
+            attribution_medium: StringMetric::new(CommonMetricData {
+                name: "medium".into(),
+                category: "attribution".into(),
+                send_in_pings: vec!["glean_client_info".into()],
+                lifetime: Lifetime::User,
+                disabled: false,
+                dynamic_label: None,
+            }),
+
+            attribution_campaign: StringMetric::new(CommonMetricData {
+                name: "campaign".into(),
+                category: "attribution".into(),
+                send_in_pings: vec!["glean_client_info".into()],
+                lifetime: Lifetime::User,
+                disabled: false,
+                dynamic_label: None,
+            }),
+
+            attribution_term: StringMetric::new(CommonMetricData {
+                name: "term".into(),
+                category: "attribution".into(),
+                send_in_pings: vec!["glean_client_info".into()],
+                lifetime: Lifetime::User,
+                disabled: false,
+                dynamic_label: None,
+            }),
+
+            attribution_content: StringMetric::new(CommonMetricData {
+                name: "content".into(),
+                category: "attribution".into(),
+                send_in_pings: vec!["glean_client_info".into()],
+                lifetime: Lifetime::User,
+                disabled: false,
+                dynamic_label: None,
+            }),
+
+            distribution_name: StringMetric::new(CommonMetricData {
+                name: "name".into(),
+                category: "distribution".into(),
+                send_in_pings: vec!["glean_client_info".into()],
+                lifetime: Lifetime::User,
+                disabled: false,
+                dynamic_label: None,
+            }),
         }
     }
 }
@@ -75,7 +142,7 @@ impl AdditionalMetrics {
             io_errors: CounterMetric::new(CommonMetricData {
                 name: "io".into(),
                 category: "glean.error".into(),
-                send_in_pings: vec!["metrics".into()],
+                send_in_pings: vec!["metrics".into(), "health".into()],
                 lifetime: Lifetime::Ping,
                 disabled: false,
                 dynamic_label: None,
@@ -86,7 +153,7 @@ impl AdditionalMetrics {
                     cmd: CommonMetricData {
                         name: "pings_submitted".into(),
                         category: "glean.validation".into(),
-                        send_in_pings: vec!["metrics".into(), "baseline".into()],
+                        send_in_pings: vec!["metrics".into(), "baseline".into(), "health".into()],
                         lifetime: Lifetime::Ping,
                         disabled: false,
                         dynamic_label: None,
@@ -99,7 +166,7 @@ impl AdditionalMetrics {
                 CommonMetricData {
                     name: "shutdown_wait".into(),
                     category: "glean.validation".into(),
-                    send_in_pings: vec!["metrics".into()],
+                    send_in_pings: vec!["metrics".into(), "health".into()],
                     lifetime: Lifetime::Ping,
                     disabled: false,
                     dynamic_label: None,
@@ -111,7 +178,7 @@ impl AdditionalMetrics {
                 CommonMetricData {
                     name: "shutdown_dispatcher_wait".into(),
                     category: "glean.validation".into(),
-                    send_in_pings: vec!["metrics".into()],
+                    send_in_pings: vec!["metrics".into(), "health".into()],
                     lifetime: Lifetime::Ping,
                     disabled: false,
                     dynamic_label: None,
@@ -135,11 +202,20 @@ impl AdditionalMetrics {
                 disabled: false,
                 dynamic_label: None,
             }),
+
+            event_timestamp_clamped: CounterMetric::new(CommonMetricData {
+                name: "event_timestamp_clamped".into(),
+                category: "glean.error".into(),
+                send_in_pings: vec!["health".into()],
+                lifetime: Lifetime::Ping,
+                disabled: false,
+                dynamic_label: None,
+            }),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, MallocSizeOf)]
 pub struct UploadMetrics {
     pub ping_upload_failure: LabeledMetric<CounterMetric>,
     pub discarded_exceeding_pings_size: MemoryDistributionMetric,
@@ -160,7 +236,7 @@ impl UploadMetrics {
                     cmd: CommonMetricData {
                         name: "ping_upload_failure".into(),
                         category: "glean.upload".into(),
-                        send_in_pings: vec!["metrics".into()],
+                        send_in_pings: vec!["metrics".into(), "health".into()],
                         lifetime: Lifetime::Ping,
                         disabled: false,
                         dynamic_label: None,
@@ -172,14 +248,15 @@ impl UploadMetrics {
                     Cow::from("status_code_unknown"),
                     Cow::from("unrecoverable"),
                     Cow::from("recoverable"),
+                    Cow::from("incapable"),
                 ]),
             ),
 
             discarded_exceeding_pings_size: MemoryDistributionMetric::new(
                 CommonMetricData {
-                    name: "discarded_exceeding_ping_size".into(),
+                    name: "discarded_exceeding_pings_size".into(),
                     category: "glean.upload".into(),
-                    send_in_pings: vec!["metrics".into()],
+                    send_in_pings: vec!["metrics".into(), "health".into()],
                     lifetime: Lifetime::Ping,
                     disabled: false,
                     dynamic_label: None,
@@ -191,7 +268,7 @@ impl UploadMetrics {
                 CommonMetricData {
                     name: "pending_pings_directory_size".into(),
                     category: "glean.upload".into(),
-                    send_in_pings: vec!["metrics".into()],
+                    send_in_pings: vec!["metrics".into(), "health".into()],
                     lifetime: Lifetime::Ping,
                     disabled: false,
                     dynamic_label: None,
@@ -202,7 +279,7 @@ impl UploadMetrics {
             deleted_pings_after_quota_hit: CounterMetric::new(CommonMetricData {
                 name: "deleted_pings_after_quota_hit".into(),
                 category: "glean.upload".into(),
-                send_in_pings: vec!["metrics".into()],
+                send_in_pings: vec!["metrics".into(), "health".into()],
                 lifetime: Lifetime::Ping,
                 disabled: false,
                 dynamic_label: None,
@@ -211,7 +288,7 @@ impl UploadMetrics {
             pending_pings: CounterMetric::new(CommonMetricData {
                 name: "pending_pings".into(),
                 category: "glean.upload".into(),
-                send_in_pings: vec!["metrics".into()],
+                send_in_pings: vec!["metrics".into(), "health".into()],
                 lifetime: Lifetime::Ping,
                 disabled: false,
                 dynamic_label: None,
@@ -221,7 +298,7 @@ impl UploadMetrics {
                 CommonMetricData {
                     name: "send_success".into(),
                     category: "glean.upload".into(),
-                    send_in_pings: vec!["metrics".into()],
+                    send_in_pings: vec!["metrics".into(), "health".into()],
                     lifetime: Lifetime::Ping,
                     disabled: false,
                     dynamic_label: None,
@@ -233,7 +310,7 @@ impl UploadMetrics {
                 CommonMetricData {
                     name: "send_failure".into(),
                     category: "glean.upload".into(),
-                    send_in_pings: vec!["metrics".into()],
+                    send_in_pings: vec!["metrics".into(), "health".into()],
                     lifetime: Lifetime::Ping,
                     disabled: false,
                     dynamic_label: None,
@@ -244,7 +321,7 @@ impl UploadMetrics {
             in_flight_pings_dropped: CounterMetric::new(CommonMetricData {
                 name: "in_flight_pings_dropped".into(),
                 category: "glean.upload".into(),
-                send_in_pings: vec!["metrics".into()],
+                send_in_pings: vec!["metrics".into(), "health".into()],
                 lifetime: Lifetime::Ping,
                 disabled: false,
                 dynamic_label: None,
@@ -253,7 +330,7 @@ impl UploadMetrics {
             missing_send_ids: CounterMetric::new(CommonMetricData {
                 name: "missing_send_ids".into(),
                 category: "glean.upload".into(),
-                send_in_pings: vec!["metrics".into()],
+                send_in_pings: vec!["metrics".into(), "health".into()],
                 lifetime: Lifetime::Ping,
                 disabled: false,
                 dynamic_label: None,
@@ -262,7 +339,7 @@ impl UploadMetrics {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, MallocSizeOf)]
 pub struct DatabaseMetrics {
     pub size: MemoryDistributionMetric,
 
@@ -280,7 +357,7 @@ impl DatabaseMetrics {
                 CommonMetricData {
                     name: "size".into(),
                     category: "glean.database".into(),
-                    send_in_pings: vec!["metrics".into()],
+                    send_in_pings: vec!["metrics".into(), "health".into()],
                     lifetime: Lifetime::Ping,
                     disabled: false,
                     dynamic_label: None,
@@ -290,8 +367,8 @@ impl DatabaseMetrics {
 
             rkv_load_error: StringMetric::new(CommonMetricData {
                 name: "rkv_load_error".into(),
-                category: "glean.error".into(),
-                send_in_pings: vec!["metrics".into()],
+                category: "glean.database".into(),
+                send_in_pings: vec!["metrics".into(), "health".into()],
                 lifetime: Lifetime::Ping,
                 disabled: false,
                 dynamic_label: None,
@@ -301,7 +378,7 @@ impl DatabaseMetrics {
                 CommonMetricData {
                     name: "write_time".into(),
                     category: "glean.database".into(),
-                    send_in_pings: vec!["metrics".into()],
+                    send_in_pings: vec!["metrics".into(), "health".into()],
                     lifetime: Lifetime::Ping,
                     disabled: true,
                     dynamic_label: None,
@@ -310,4 +387,157 @@ impl DatabaseMetrics {
             ),
         }
     }
+}
+
+/// Possible values for the `glean.health.exception_state` health metric.
+pub enum ExceptionState {
+    /// No database on disk, but the plaintext file contained a valid client ID.
+    EmptyDb,
+    /// Existing database, but no client ID, however a client ID in the plaintext file.
+    RegenDb,
+    /// The database contained a c0ffee client ID.
+    C0ffeeInDb,
+    /// The client IDs in the database and the plaintext file differ.
+    ClientIdMismatch,
+}
+
+impl From<ExceptionState> for String {
+    fn from(value: ExceptionState) -> Self {
+        use ExceptionState::*;
+        String::from(match value {
+            EmptyDb => "empty-db",
+            RegenDb => "regen-db",
+            C0ffeeInDb => "c0ffee-in-db",
+            ClientIdMismatch => "client-id-mismatch",
+        })
+    }
+}
+
+#[derive(Debug, MallocSizeOf)]
+pub struct HealthMetrics {
+    // Information about the data directory prior to Glean initialization.
+    pub data_directory_info: ObjectMetric,
+    // A running count of the number of initializations.
+    pub init_count: CounterMetric,
+
+    // An exceptional state was detected upon trying to laod the database.
+    pub exception_state: StringMetric,
+    // A client_id recovered from a `client_id.txt` file on disk.
+    pub recovered_client_id: UuidMetric,
+
+    pub file_read_error: LabeledCounter,
+    pub file_write_error: LabeledCounter,
+}
+
+impl HealthMetrics {
+    pub fn new() -> HealthMetrics {
+        HealthMetrics {
+            data_directory_info: ObjectMetric::new(CommonMetricData {
+                name: "data_directory_info".into(),
+                category: "glean.health".into(),
+                send_in_pings: vec!["metrics".into(), "health".into()],
+                lifetime: Lifetime::Ping,
+                disabled: false,
+                dynamic_label: None,
+            }),
+            init_count: CounterMetric::new(CommonMetricData {
+                name: "init_count".into(),
+                category: "glean.health".into(),
+                send_in_pings: vec!["health".into()],
+                lifetime: Lifetime::User,
+                disabled: false,
+                dynamic_label: None,
+            }),
+            exception_state: StringMetric::new(CommonMetricData {
+                name: "exception_state".into(),
+                category: "glean.health".into(),
+                send_in_pings: vec!["health".into()],
+                lifetime: Lifetime::Ping,
+                disabled: false,
+                dynamic_label: None,
+            }),
+            recovered_client_id: UuidMetric::new(CommonMetricData {
+                name: "recovered_client_id".into(),
+                category: "glean.health".into(),
+                send_in_pings: vec!["health".into()],
+                lifetime: Lifetime::Ping,
+                disabled: false,
+                dynamic_label: None,
+            }),
+            file_read_error: LabeledMetric::<CounterMetric>::new(
+                LabeledMetricData::Common {
+                    cmd: CommonMetricData {
+                        category: "glean.health".into(),
+                        name: "file_read_error".into(),
+                        send_in_pings: vec!["health".into()],
+                        lifetime: Lifetime::Ping,
+                        disabled: false,
+                        dynamic_label: None,
+                    },
+                },
+                Some(vec![
+                    Cow::from("parse"),
+                    Cow::from("permission-denied"),
+                    Cow::from("io"),
+                    Cow::from("c0ffee-in-file"),
+                    Cow::from("file-not-found"),
+                ]),
+            ),
+            file_write_error: LabeledMetric::<CounterMetric>::new(
+                LabeledMetricData::Common {
+                    cmd: CommonMetricData {
+                        category: "glean.health".into(),
+                        name: "file_write_error".into(),
+                        send_in_pings: vec!["health".into()],
+                        lifetime: Lifetime::Ping,
+                        disabled: false,
+                        dynamic_label: None,
+                    },
+                },
+                Some(vec![
+                    Cow::from("not-found"),
+                    Cow::from("permission-denied"),
+                    Cow::from("io"),
+                ]),
+            ),
+        }
+    }
+}
+
+pub type DataDirectoryInfoObject = Vec<DataDirectoryInfoObjectItem>;
+
+#[derive(Debug, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DataDirectoryInfoObjectItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dir_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dir_exists: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dir_created: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dir_modified: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default = "Vec::new")]
+    pub files: DataDirectoryInfoObjectItemItemFiles,
+}
+
+pub type DataDirectoryInfoObjectItemItemFiles = Vec<DataDirectoryInfoObjectItemItemFilesItem>;
+
+#[derive(Debug, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DataDirectoryInfoObjectItemItemFilesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_created: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_modified: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_size: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
 }

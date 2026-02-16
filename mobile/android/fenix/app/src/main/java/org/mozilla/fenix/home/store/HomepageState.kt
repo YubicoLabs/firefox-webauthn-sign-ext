@@ -4,18 +4,18 @@
 
 package org.mozilla.fenix.home.store
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.colorResource
 import mozilla.components.feature.top.sites.TopSite
+import mozilla.components.ui.icons.R
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
-import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
 import org.mozilla.fenix.components.appstate.AppState
+import org.mozilla.fenix.components.appstate.setup.checklist.SetupChecklistState
 import org.mozilla.fenix.components.components
-import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.ext.shouldShowRecentSyncedTabs
 import org.mozilla.fenix.ext.shouldShowRecentTabs
 import org.mozilla.fenix.home.bookmarks.Bookmark
@@ -26,9 +26,10 @@ import org.mozilla.fenix.home.recentsyncedtabs.RecentSyncedTabState
 import org.mozilla.fenix.home.recenttabs.RecentTab
 import org.mozilla.fenix.home.recentvisits.RecentlyVisitedItem
 import org.mozilla.fenix.home.topsites.TopSiteColors
-import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.home.ui.getAttr
+import org.mozilla.fenix.search.SearchDialogFragment
+import org.mozilla.fenix.termsofuse.store.PrivacyNoticeBannerState
 import org.mozilla.fenix.utils.Settings
-import org.mozilla.fenix.wallpapers.WallpaperState
 
 /**
  * State object that describes the homepage.
@@ -36,26 +37,37 @@ import org.mozilla.fenix.wallpapers.WallpaperState
 internal sealed class HomepageState {
 
     /**
-     * Height in [Dp] for the bottom of the scrollable view, based on
-     * what's currently visible on the screen.
+     * Data related to the header of the homepage.
      */
-    abstract val bottomSpacerHeight: Dp
+    abstract val headerState: HeaderState
+
+    /**
+     * Flag indicating whether the first frame of the homescreen has been drawn.
+     */
+    abstract val firstFrameDrawn: Boolean
+
+    /**
+     * Whether search is currently active on the homepage.
+     */
+    abstract val isSearchInProgress: Boolean
 
     /**
      * State type corresponding with private browsing mode.
      *
-     * @property feltPrivateBrowsingEnabled Whether felt private browsing is enabled.
-     * @property bottomSpacerHeight Height in [Dp] for the bottom of the scrollable view, based on
-     * what's currently visible on the screen.
+     * @property headerState State related to the header of the homepage.
+     * @property firstFrameDrawn Flag indicating whether the first frame of the homescreen has been drawn.
+     * @property isSearchInProgress Whether search is currently active on the homepage.
      */
     internal data class Private(
-        val feltPrivateBrowsingEnabled: Boolean,
-        override val bottomSpacerHeight: Dp,
+        override val headerState: HeaderState,
+        override val firstFrameDrawn: Boolean = false,
+        override val isSearchInProgress: Boolean,
     ) : HomepageState()
 
     /**
      * State corresponding with the homepage in normal browsing mode.
      *
+     * @property shouldShowPrivacyNoticeBanner If the privacy notice banner should show.
      * @property nimbusMessage Optional message to display.
      * @property topSites List of [TopSite] to display.
      * @property recentTabs List of [RecentTab] to display.
@@ -70,16 +82,21 @@ internal sealed class HomepageState {
      * @property showBookmarks Whether to show bookmarks.
      * @property showRecentlyVisited Whether to show recent history section.
      * @property showPocketStories Whether to show the pocket stories section.
-     * @property showSearchBar Whether to show the search bar.
+     * @property showCollections Whether to show the collections section.
+     * @property headerState State related to the header of the homepage.
+     * @property searchBarVisible Whether the middle search bar should be visible or not.
+     * @property searchBarEnabled Whether the middle search bar is enabled or not.
+     * @property firstFrameDrawn Flag indicating whether the first frame of the homescreen has been drawn.
+     * @property setupChecklistState Optional state of the setup checklist feature.
      * @property topSiteColors The color set defined by [TopSiteColors] used to style a top site.
      * @property cardBackgroundColor Background color for card items.
      * @property buttonBackgroundColor Background [Color] for buttons.
      * @property buttonTextColor Text [Color] for buttons.
-     * @property customizeHomeButtonBackgroundColor Background [Color] for customize home button.
-     * @property bottomSpacerHeight Height in [Dp] for the bottom of the scrollable view, based on
-     * what's currently visible on the screen.
+     * @property isSearchInProgress Whether search is currently active on the homepage.
+     * @property bottomPadding Amount of padding to display at the bottom of the homepage.
      */
     internal data class Normal(
+        val shouldShowPrivacyNoticeBanner: Boolean,
         val nimbusMessage: NimbusMessageState?,
         val topSites: List<TopSite>,
         val recentTabs: List<RecentTab>,
@@ -94,21 +111,19 @@ internal sealed class HomepageState {
         val showBookmarks: Boolean,
         val showRecentlyVisited: Boolean,
         val showPocketStories: Boolean,
-        val showSearchBar: Boolean,
+        val showCollections: Boolean,
+        override val headerState: HeaderState,
+        val searchBarVisible: Boolean,
+        val searchBarEnabled: Boolean,
+        override val firstFrameDrawn: Boolean = false,
+        val setupChecklistState: SetupChecklistState?,
         val topSiteColors: TopSiteColors,
         val cardBackgroundColor: Color,
         val buttonBackgroundColor: Color,
         val buttonTextColor: Color,
-        val customizeHomeButtonBackgroundColor: Color,
-        override val bottomSpacerHeight: Dp,
-    ) : HomepageState() {
-
-        /**
-         * Whether to show customize home button.
-         */
-        val showCustomizeHome: Boolean
-            get() = showTopSites || showRecentTabs || showBookmarks || showRecentlyVisited || showPocketStories
-    }
+        override val isSearchInProgress: Boolean,
+        val bottomPadding: Int,
+    ) : HomepageState()
 
     val browsingMode: BrowsingMode
         get() = when (this) {
@@ -116,90 +131,159 @@ internal sealed class HomepageState {
             is Private -> BrowsingMode.Private
         }
 
+    /**
+     * Returns whether the homepage is in the "Minimal Layout" state, where only the shortcuts and
+     * stories are visible (but both or either can be hidden). This is for the purpose of adding a
+     * weighted spacer in between so the stories are anchored to the bottom.
+     */
+    internal fun isMinimalLayout(): Boolean {
+        return (this as? Normal)?.run {
+            !showRecentTabs && !showRecentSyncedTab && !showBookmarks && !showRecentlyVisited
+        } ?: false
+    }
+
     companion object {
+        private const val BOTTOM_PADDING_TOP_TOOLBAR = 68
+        private const val BOTTOM_PADDING_BOTTOM_TOOLBAR = 32
 
         /**
          * Builds a new [HomepageState] from the current [AppState] and [Settings].
          *
          * @param appState State to build the [HomepageState] from.
-         * @param browsingModeManager Manager holding current state of whether the browser is in private mode or not.
+         * @param privacyNoticeBannerState State of the privacy notice banner.
          * @param settings [Settings] corresponding to how the homepage should be displayed.
          */
         @Composable
         internal fun build(
             appState: AppState,
-            browsingModeManager: BrowsingModeManager,
+            privacyNoticeBannerState: PrivacyNoticeBannerState,
             settings: Settings,
         ): HomepageState {
-            return with(appState) {
-                if (browsingModeManager.mode.isPrivate) {
-                    Private(
-                        feltPrivateBrowsingEnabled = settings.feltPrivateBrowsingEnabled,
-                        bottomSpacerHeight = getBottomSpace(),
-                    )
-                } else {
-                    Normal(
-                        nimbusMessage = NimbusMessageState.build(appState),
-                        topSites = topSites,
-                        recentTabs = recentTabs,
-                        syncedTab = when (recentSyncedTabState) {
-                            RecentSyncedTabState.None,
-                            RecentSyncedTabState.Loading,
-                            -> null
-
-                            is RecentSyncedTabState.Success -> recentSyncedTabState.tabs.firstOrNull()
-                        },
-                        bookmarks = bookmarks,
-                        recentlyVisited = recentHistory,
-                        collectionsState = CollectionsState.build(
-                            appState = appState,
-                            browserState = components.core.store.state,
-                            browsingModeManager = browsingModeManager,
-                        ),
-                        pocketState = PocketState.build(appState, settings),
-                        showTopSites = settings.showTopSitesFeature && topSites.isNotEmpty(),
-                        showRecentTabs = shouldShowRecentTabs(settings),
-                        showBookmarks = settings.showBookmarksHomeFeature && bookmarks.isNotEmpty(),
-                        showRecentSyncedTab = shouldShowRecentSyncedTabs(),
-                        showRecentlyVisited = settings.historyMetadataUIFeature && recentHistory.isNotEmpty(),
-                        showPocketStories = settings.showPocketRecommendationsFeature &&
-                            recommendationState.pocketStories.isNotEmpty() && firstFrameDrawn,
-                        showSearchBar = settings.enableHomepageSearchBar,
-                        topSiteColors = TopSiteColors.colors(wallpaperState = wallpaperState),
-                        cardBackgroundColor = wallpaperState.cardBackgroundColor,
-                        buttonBackgroundColor = wallpaperState.buttonBackgroundColor,
-                        buttonTextColor = wallpaperState.buttonTextColor,
-                        customizeHomeButtonBackgroundColor = wallpaperState.customizeHomeButtonBackgroundColor(),
-                        bottomSpacerHeight = getBottomSpace(),
-                    )
-                }
+            return if (appState.mode.isPrivate) {
+                buildPrivateState(
+                    appState = appState,
+                    settings = settings,
+                )
+            } else {
+                buildNormalState(
+                    appState = appState,
+                    privacyNoticeBannerState = privacyNoticeBannerState,
+                    settings = settings,
+                )
             }
         }
-    }
-}
 
-@Composable
-private fun WallpaperState.customizeHomeButtonBackgroundColor(): Color {
-    var buttonColor: Color = FirefoxTheme.colors.actionTertiary
+        /**
+         * Builds a new [HomepageState.Private] from the current [AppState] and [Settings].
+         *
+         * @param appState State to build the [HomepageState.Private] from.
+         * @param settings [Settings] corresponding to how the homepage should be displayed.
+         */
+        @Composable
+        private fun buildPrivateState(
+            appState: AppState,
+            settings: Settings,
+        ) = with(appState) {
+            Private(
+                headerState = HeaderState(
+                    showHeader = settings.showHomepageHeader,
+                    wordmarkTextColor = null,
+                    privateBrowsingButtonColor = colorResource(
+                        getAttr(
+                            R.attr.mozac_ic_private_mode_circle_fill_icon_color,
+                        ),
+                    ),
+                ),
+                firstFrameDrawn = firstFrameDrawn,
+                isSearchInProgress = searchState.isSearchActive,
+            )
+        }
 
-    composeRunIfWallpaperCardColorsAreAvailable { cardColorLight, cardColorDark ->
-        buttonColor = if (isSystemInDarkTheme()) {
-            cardColorDark
-        } else {
-            cardColorLight
+        /**
+         * Builds a new [HomepageState.Normal] from the current [AppState] and [Settings].
+         *
+         * @param appState State to build the [HomepageState.Normal] from.
+         * @param privacyNoticeBannerState State of the privacy notice banner.
+         * @param settings [Settings] corresponding to how the homepage should be displayed.
+         */
+        @Composable
+        private fun buildNormalState(
+            appState: AppState,
+            privacyNoticeBannerState: PrivacyNoticeBannerState,
+            settings: Settings,
+        ) = with(appState) {
+            Normal(
+                shouldShowPrivacyNoticeBanner = privacyNoticeBannerState.visible,
+                nimbusMessage = NimbusMessageState.build(appState, privacyNoticeBannerState),
+                topSites = topSites,
+                recentTabs = recentTabs,
+                syncedTab = when (recentSyncedTabState) {
+                    RecentSyncedTabState.None,
+                    RecentSyncedTabState.Loading,
+                    -> null
+                    is RecentSyncedTabState.Success -> recentSyncedTabState.tabs.firstOrNull()
+                },
+                bookmarks = bookmarks,
+                recentlyVisited = recentHistory,
+                collectionsState = CollectionsState.build(
+                    appState = appState,
+                    browserState = components.core.store.state,
+                ),
+                pocketState = PocketState.build(appState = appState, settings = settings),
+                showTopSites = settings.showTopSitesFeature && topSites.isNotEmpty(),
+                showRecentTabs = shouldShowRecentTabs(settings),
+                showBookmarks = settings.showBookmarksHomeFeature && bookmarks.isNotEmpty(),
+                showRecentSyncedTab = shouldShowRecentSyncedTabs() && settings.showSyncedTabs,
+                showRecentlyVisited = settings.historyMetadataUIFeature && recentHistory.isNotEmpty(),
+                showPocketStories = settings.showPocketRecommendationsFeature &&
+                    recommendationState.pocketStories.isNotEmpty(),
+                showCollections = settings.collections,
+                headerState = HeaderState(
+                    showHeader = settings.showHomepageHeader,
+                    wordmarkTextColor = wallpaperState.textColor,
+                    privateBrowsingButtonColor = wallpaperState.iconColor,
+                ),
+                searchBarVisible = shouldShowSearchBar(appState = appState),
+                searchBarEnabled = settings.enableHomepageSearchBar &&
+                    settings.toolbarPosition == ToolbarPosition.TOP &&
+                    LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT,
+                firstFrameDrawn = firstFrameDrawn,
+                setupChecklistState = setupChecklistState,
+                topSiteColors = TopSiteColors.colors(wallpaperState = wallpaperState),
+                cardBackgroundColor = wallpaperState.cardBackgroundColor,
+                buttonBackgroundColor = wallpaperState.buttonBackgroundColor,
+                buttonTextColor = wallpaperState.buttonTextColor,
+                isSearchInProgress = searchState.isSearchActive,
+                bottomPadding = if (settings.toolbarPosition == ToolbarPosition.TOP) {
+                    BOTTOM_PADDING_TOP_TOOLBAR
+                } else {
+                    BOTTOM_PADDING_BOTTOM_TOOLBAR
+                },
+            )
         }
     }
-
-    return buttonColor
 }
 
-@Composable
-private fun getBottomSpace(): Dp {
-    val toolbarHeight = LocalContext.current.settings().getBottomToolbarContainerHeight().dp
-    // We need this 88 dp because of this bug: https://github.com/mozilla-mobile/fenix/issues/20833
-    val extraSpace = 88.dp
+/**
+ * A simple wrapper around state required for the homepage header.
+ *
+ * @property showHeader whether the header should be shown
+ * @property wordmarkTextColor an optional color for the wordmark text
+ * @property privateBrowsingButtonColor the color to use for the private browsing button
+ */
+internal data class HeaderState(
+    val showHeader: Boolean,
+    val wordmarkTextColor: Color?,
+    val privateBrowsingButtonColor: Color,
+)
 
-    return toolbarHeight + extraSpace + HOME_APP_BAR_HEIGHT
-}
-
-private val HOME_APP_BAR_HEIGHT = 48.dp
+/**
+ * Returns whether the search bar should be shown. Only show if the search dialog
+ * [SearchDialogFragment] is not visible, and the user does not have their toolbar set to be on the
+ * bottom, and the screen is not in landscape mode. This is in addition to logic in the view layer
+ * which hides the middle search bar when the users scrolls down. This is separate from the middle
+ * search bar being enabled in settings since the toolbar address bar needs to react to the middle
+ * search bar's visibility.
+ */
+private fun shouldShowSearchBar(appState: AppState) =
+    !appState.searchState.isSearchActive

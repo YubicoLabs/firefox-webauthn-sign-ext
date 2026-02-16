@@ -43,20 +43,20 @@ impl<'a> BitReader<'a> {
 
     pub fn verify_ending(&mut self, i: u8) -> Res<()> {
         if (i + self.current_bit) > 7 {
-            return Err(Error::HuffmanDecompressionFailed);
+            return Err(Error::HuffmanDecompression);
         }
 
         if self.input.is_empty() {
             Ok(())
         } else if self.offset != self.input.len() {
-            Err(Error::HuffmanDecompressionFailed)
+            Err(Error::HuffmanDecompression)
         } else if self.input[self.input.len() - 1] & ((0x1 << (i + self.current_bit)) - 1)
             == ((0x1 << (i + self.current_bit)) - 1)
         {
             self.current_bit = 0;
             Ok(())
         } else {
-            Err(Error::HuffmanDecompressionFailed)
+            Err(Error::HuffmanDecompression)
         }
     }
 
@@ -69,21 +69,18 @@ impl<'a> BitReader<'a> {
 ///
 /// # Errors
 ///
-/// This function may return `HuffmanDecompressionFailed` if `input` is not a correct
+/// This function may return `Error::HuffmanDecompression` if `input` is not a correct
 /// huffman-encoded array of bits.
 ///
 /// # Panics
 ///
 /// Never, but rust can't know that.
-pub fn decode_huffman(input: &[u8]) -> Res<Vec<u8>> {
+pub fn decode(input: &[u8]) -> Res<Vec<u8>> {
     let mut reader = BitReader::new(input);
-    let mut output = Vec::new();
+    let mut output = Vec::with_capacity(input.len() * 2); // Huffman typically expands, so start with a reasonable guestimate.
     while reader.has_more_data() {
         if let Some(c) = decode_character(&mut reader)? {
-            if c == 256 {
-                return Err(Error::HuffmanDecompressionFailed);
-            }
-            output.push(u8::try_from(c).unwrap());
+            output.push(u8::try_from(c).map_err(|_| Error::HuffmanDecompression)?);
         }
     }
 
@@ -118,8 +115,8 @@ fn decode_character(reader: &mut BitReader) -> Res<Option<u16>> {
 ///
 /// Never, but rust doesn't know that.
 #[must_use]
-pub fn encode_huffman(input: &[u8]) -> Vec<u8> {
-    let mut output: Vec<u8> = Vec::new();
+pub fn encode(input: &[u8]) -> Vec<u8> {
+    let mut output: Vec<u8> = Vec::with_capacity(input.len()); // Huffman compresses, so this should be big enough to not reallocate.
     let mut left: u8 = 8;
     let mut saved: u8 = 0;
     for c in input {
@@ -127,12 +124,12 @@ pub fn encode_huffman(input: &[u8]) -> Vec<u8> {
 
         // Fill the previous byte
         if e.len < left {
-            let b = u8::try_from(e.val & 0xFF).unwrap();
+            let b = (e.val & 0xFF) as u8; // Safe due to the mask.
             saved |= b << (left - e.len);
             left -= e.len;
             e.len = 0;
         } else {
-            let v: u8 = u8::try_from(e.val >> (e.len - left)).unwrap();
+            let v: u8 = u8::try_from(e.val >> (e.len - left)).expect("fits into u8");
             saved |= v;
             output.push(saved);
             e.len -= left;
@@ -142,14 +139,14 @@ pub fn encode_huffman(input: &[u8]) -> Vec<u8> {
 
         // Write full bytes
         while e.len >= 8 {
-            let v: u8 = u8::try_from((e.val >> (e.len - 8)) & 0xFF).unwrap();
+            let v: u8 = ((e.val >> (e.len - 8)) & 0xFF) as u8; // Safe due to the mask.
             output.push(v);
             e.len -= 8;
         }
 
         // Write the rest into saved.
         if e.len > 0 {
-            saved = u8::try_from(e.val & ((1 << e.len) - 1)).unwrap() << (8 - e.len);
+            saved = u8::try_from(e.val & ((1 << e.len) - 1)).expect("fits into u8") << (8 - e.len);
             left = 8 - e.len;
         }
     }
@@ -164,8 +161,9 @@ pub fn encode_huffman(input: &[u8]) -> Vec<u8> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use super::{decode_huffman, encode_huffman, Error};
+    use super::{decode, encode, Error};
 
     struct TestElement {
         pub val: &'static [u8],
@@ -239,7 +237,7 @@ mod tests {
     #[test]
     fn encoder() {
         for e in TEST_CASES {
-            let out = encode_huffman(e.val);
+            let out = encode(e.val);
             assert_eq!(out[..], *e.res);
         }
     }
@@ -247,7 +245,7 @@ mod tests {
     #[test]
     fn decoder() {
         for e in TEST_CASES {
-            let res = decode_huffman(e.res);
+            let res = decode(e.res);
             assert!(res.is_ok());
             assert_eq!(res.unwrap()[..], *e.val);
         }
@@ -255,9 +253,6 @@ mod tests {
 
     #[test]
     fn decoder_error_wrong_ending() {
-        assert_eq!(
-            decode_huffman(WRONG_END),
-            Err(Error::HuffmanDecompressionFailed)
-        );
+        assert_eq!(decode(WRONG_END), Err(Error::HuffmanDecompression));
     }
 }

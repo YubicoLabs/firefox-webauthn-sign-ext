@@ -3,13 +3,18 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { SearchOneOffs } from "moz-src:///browser/components/search/SearchOneOffs.sys.mjs";
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
-  UrlbarPrefs: "resource:///modules/UrlbarPrefs.sys.mjs",
-  UrlbarUtils: "resource:///modules/UrlbarUtils.sys.mjs",
+const lazy = XPCOMUtils.declareLazy({
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
+  UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
+  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
 });
+
+/**
+ * @import {LegacySearchOneOffButton} from "moz-src:///browser/components/search/SearchOneOffs.sys.mjs"
+ * @import {UrlbarView} from "moz-src:///browser/components/urlbar/UrlbarView.sys.mjs"
+ */
 
 /**
  * The one-off search buttons in the urlbar.
@@ -67,12 +72,12 @@ export class UrlbarSearchOneOffs extends SearchOneOffs {
       if (this.view.isOpen) {
         this._rebuild();
       }
-      this.view.controller.addQueryListener(this);
+      this.view.controller.addListener(this);
     } else {
       this.telemetryOrigin = null;
       this.style.display = "none";
       this.textbox = null;
-      this.view.controller.removeQueryListener(this);
+      this.view.controller.removeListener(this);
     }
   }
 
@@ -112,7 +117,7 @@ export class UrlbarSearchOneOffs extends SearchOneOffs {
   /**
    * The selected one-off including the search-settings button.
    *
-   * @param {DOMElement|null} button
+   * @param {?LegacySearchOneOffButton} button
    *   The selected one-off button. Null if no one-off is selected.
    */
   set selectedButton(button) {
@@ -165,7 +170,7 @@ export class UrlbarSearchOneOffs extends SearchOneOffs {
   /**
    * Called when a one-off is clicked.
    *
-   * @param {event} event
+   * @param {MouseEvent|KeyboardEvent} event
    *   The event that triggered the pick.
    * @param {object} searchMode
    *   Used by UrlbarInput.setSearchMode to enter search mode. See setSearchMode
@@ -196,7 +201,7 @@ export class UrlbarSearchOneOffs extends SearchOneOffs {
 
     let userTypedSearchString =
       this.input.value && this.input.getAttribute("pageproxystate") != "valid";
-    let engine = Services.search.getEngineByName(searchMode.engineName);
+    let engine = lazy.SearchService.getEngineByName(searchMode.engineName);
 
     let { where, params } = this._whereToOpen(event);
 
@@ -259,7 +264,7 @@ export class UrlbarSearchOneOffs extends SearchOneOffs {
    * Sets the tooltip for a one-off button with an engine.  This should set
    * either the `tooltiptext` attribute or the relevant l10n ID.
    *
-   * @param {element} button
+   * @param {LegacySearchOneOffButton} button
    *   The one-off button.
    */
   setTooltipForEngineButton(button) {
@@ -282,7 +287,7 @@ export class UrlbarSearchOneOffs extends SearchOneOffs {
    * Overrides the willHide method in the superclass to account for the local
    * search mode buttons.
    *
-   * @returns {boolean}
+   * @returns {Promise<boolean>}
    *   True if we will hide the one-offs when they are requested.
    */
   async willHide() {
@@ -329,6 +334,12 @@ export class UrlbarSearchOneOffs extends SearchOneOffs {
   async _rebuildEngineList(engines, addEngines) {
     await super._rebuildEngineList(engines, addEngines);
 
+    const messageIDs = {
+      actions: "search-one-offs-actions",
+      bookmarks: "search-one-offs-bookmarks",
+      history: "search-one-offs-history",
+      tabs: "search-one-offs-tabs",
+    };
     for (let { source, pref, restrict } of lazy.UrlbarUtils
       .LOCAL_SEARCH_MODES) {
       if (!lazy.UrlbarPrefs.get(pref)) {
@@ -339,7 +350,7 @@ export class UrlbarSearchOneOffs extends SearchOneOffs {
       button.id = `urlbar-engine-one-off-item-${name}`;
       button.setAttribute("class", "searchbar-engine-one-off-item");
       button.setAttribute("tabindex", "-1");
-      this.document.l10n.setAttributes(button, `search-one-offs-${name}`, {
+      this.document.l10n.setAttributes(button, messageIDs[name], {
         restrict,
       });
       button.source = source;
@@ -351,7 +362,7 @@ export class UrlbarSearchOneOffs extends SearchOneOffs {
    * Overrides the superclass's click listener to handle clicks on local
    * one-offs in addition to engine one-offs.
    *
-   * @param {event} event
+   * @param {MouseEvent} event
    *   The click event.
    */
   _on_click(event) {
@@ -360,7 +371,7 @@ export class UrlbarSearchOneOffs extends SearchOneOffs {
       return;
     }
 
-    let button = event.originalTarget;
+    let button = /** @type {LegacySearchOneOffButton} */ (event.originalTarget);
 
     if (!button.engine && !button.source) {
       return;

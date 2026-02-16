@@ -4,14 +4,12 @@
 
 package org.mozilla.fenix.webcompat.middleware
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
 import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.support.base.log.logger.Logger
 import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 /**
  * Service that handles the submission requests for the report broken site feature.
@@ -35,18 +33,25 @@ class DefaultWebCompatReporterRetrievalService(
     private val webCompatInfoDeserializer: WebCompatInfoDeserializer,
 ) : WebCompatReporterRetrievalService {
 
-    private val logger = Logger("WebCompatReporterRetrievalService")
+    private val logger = Logger("DefaultWebCompatReporterRetrievalService")
 
-    override suspend fun retrieveInfo(): WebCompatInfoDto? = withContext(Dispatchers.Main) {
-        suspendCoroutine { continuation ->
-            browserStore.state.selectedTab?.engineState?.engineSession?.getWebCompatInfo(
+    override suspend fun retrieveInfo(): WebCompatInfoDto? {
+        val session = browserStore.state.selectedTab?.engineState?.engineSession
+            ?: return null
+
+        return suspendCancellableCoroutine { continuation ->
+            session.getWebCompatInfo(
                 onResult = { details ->
-                    val webCompatInfo = webCompatInfoDeserializer.decode(string = details.toString())
-                    continuation.resume(webCompatInfo)
+                    if (continuation.isActive) {
+                        val webCompatInfo = webCompatInfoDeserializer.decode(details.toString())
+                        continuation.resume(webCompatInfo)
+                    }
                 },
-                onException = {
-                    logger.error("Error retrieving web compat info", it)
-                    continuation.resume(null)
+                onException = { exception ->
+                    logger.error("Error retrieving web compat info from engine", exception)
+                    if (continuation.isActive) {
+                        continuation.resume(null)
+                    }
                 },
             )
         }

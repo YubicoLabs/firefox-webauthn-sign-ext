@@ -38,6 +38,26 @@ bool EventQueue::PushEvent(AccEvent* aEvent) {
     return true;
   }
 
+  if (aEvent->mEventRule == AccEvent::eRemoveDupes && !mEvents.IsEmpty()) {
+    // Check for duplicate events. If aEvent is identical to an older event, do
+    // not append aEvent. We do this here rather than in CoalesceEvents because
+    // CoalesceEvents never *removes* events; it only sets them to eDoNotEmit.
+    // If there are many duplicate events and we appended them, this would
+    // result in a massive event queue and coalescing would become increasingly
+    // slow with each event queued. Doing it here, we avoid appending a
+    // duplicate event in the first place.
+    uint32_t last = mEvents.Length() - 1;
+    for (uint32_t index = last; index <= last; --index) {
+      AccEvent* checkEvent = mEvents[index];
+      if (checkEvent->mEventType == aEvent->mEventType &&
+          checkEvent->mEventRule == aEvent->mEventRule &&
+          checkEvent->mAccessible == aEvent->mAccessible) {
+        aEvent->mEventRule = AccEvent::eDoNotEmit;
+        return true;
+      }
+    }
+  }
+
   // XXX(Bug 1631371) Check if this should use a fallible operation as it
   // pretended earlier, or change the return type to void.
   mEvents.AppendElement(aEvent);
@@ -45,10 +65,10 @@ bool EventQueue::PushEvent(AccEvent* aEvent) {
   // Filter events.
   CoalesceEvents();
 
-  if (aEvent->mEventRule != AccEvent::eDoNotEmit &&
-      (aEvent->mEventType == nsIAccessibleEvent::EVENT_NAME_CHANGE ||
-       aEvent->mEventType == nsIAccessibleEvent::EVENT_TEXT_REMOVED ||
-       aEvent->mEventType == nsIAccessibleEvent::EVENT_TEXT_INSERTED)) {
+  if (aEvent->mEventType == nsIAccessibleEvent::EVENT_NAME_CHANGE ||
+      aEvent->mEventType == nsIAccessibleEvent::EVENT_TEXT_REMOVED ||
+      aEvent->mEventType == nsIAccessibleEvent::EVENT_TEXT_INSERTED) {
+    MOZ_ASSERT(aEvent->mEventRule != AccEvent::eDoNotEmit);
     PushNameOrDescriptionChange(aEvent);
   }
   return true;
@@ -110,7 +130,7 @@ bool EventQueue::PushNameOrDescriptionChange(AccEvent* aOrigEvent) {
         bool fireNameChange = parent->IsHTMLFileInput();
         if (!fireNameChange) {
           nsAutoString name;
-          ENameValueFlag nameFlag = parent->Name(name);
+          ENameValueFlag nameFlag = parent->DirectName(name);
           switch (nameFlag) {
             case eNameOK:
               // Descendants of subtree may have been removed, making the name
@@ -125,6 +145,9 @@ bool EventQueue::PushNameOrDescriptionChange(AccEvent* aOrigEvent) {
               // If the descendants of this accessible were removed, the name
               // may be calculated using the tooltip. We can guess that the name
               // was obtained from the subtree before.
+              fireNameChange = true;
+              break;
+            case eNameFromRelations:
               fireNameChange = true;
               break;
             default:
@@ -258,23 +281,9 @@ void EventQueue::CoalesceEvents() {
       break;  // eCoalesceTextSelChange
     }
 
-    case AccEvent::eRemoveDupes: {
-      // Check for repeat events, coalesce newly appended event by more older
-      // event.
-      for (uint32_t index = tail - 1; index < tail; index--) {
-        AccEvent* accEvent = mEvents[index];
-        if (accEvent->mEventType == tailEvent->mEventType &&
-            accEvent->mEventRule == tailEvent->mEventRule &&
-            accEvent->mAccessible == tailEvent->mAccessible) {
-          tailEvent->mEventRule = AccEvent::eDoNotEmit;
-          return;
-        }
-      }
-      break;  // case eRemoveDupes
-    }
-
     default:
-      break;  // case eAllowDupes, eDoNotEmit
+      // eRemoveDupes is handled in PushEvent.
+      break;  // case eRemoveDupes, eAllowDupes, eDoNotEmit
   }  // switch
 }
 

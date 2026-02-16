@@ -39,6 +39,7 @@ open class BaseSessionTest(
         const val CLICK_TO_REPLACE_HTML_PATH = "/assets/www/clickToReplace.html"
         const val CLIPBOARD_READ_HTML_PATH = "/assets/www/clipboard_read.html"
         const val CONTENT_CRASH_URL = "about:crashcontent"
+        const val CONTENT_CRASH_JAVA_URL = "about:crashcontentjava"
         const val DND_HTML_PATH = "/assets/www/dnd.html"
         const val DND_XORIGIN_HTML_PATH = "/assets/www/dnd_xorigin.html"
         const val DOWNLOAD_HTML_PATH = "/assets/www/download.html"
@@ -87,6 +88,8 @@ open class BaseSessionTest(
         const val VIEWPORT_PATH = "/assets/www/viewport.html"
         const val IFRAME_REDIRECT_LOCAL = "/assets/www/iframe_redirect_local.html"
         const val IFRAME_REDIRECT_AUTOMATION = "/assets/www/iframe_redirect_automation.html"
+        const val IFRAME_SANDBOX_BLOCK = "/assets/www/iframe_sandbox_block.html"
+        const val IFRAME_SANDBOX_ALLOW = "/assets/www/iframe_sandbox_allow.html"
         const val AUTOPLAY_PATH = "/assets/www/autoplay.html"
         const val SIMPLE_SCROLL_TEST_PATH = "/assets/www/simple-scroll.html"
         const val SCROLL_TEST_PATH = "/assets/www/scroll.html"
@@ -97,8 +100,9 @@ open class BaseSessionTest(
         const val STORAGE_TITLE_HTML_PATH = "/assets/www/reflect_local_storage_into_title.html"
         const val HUNG_SCRIPT = "/assets/www/hungScript.html"
         const val PUSH_HTML_PATH = "/assets/www/push/push.html"
-        const val OPEN_WINDOW_PATH = "/assets/www/worker/open_window.html"
-        const val OPEN_WINDOW_TARGET_PATH = "/assets/www/worker/open_window_target.html"
+        const val OPEN_WINDOW_PATH = "https://example.org/tests/junit/open_window.html"
+        const val OPEN_WINDOW_TARGET_PATH = "https://example.org/tests/junit/open_window_target.html"
+        const val CLICK_ACTION_PATH = "/assets/www/worker/click-action.html"
         const val DATA_URI_PATH = "/assets/www/data_uri.html"
         const val IFRAME_UNKNOWN_PROTOCOL = "/assets/www/iframe_unknown_protocol.html"
         const val MEDIA_SESSION_DOM1_PATH = "/assets/www/media_session_dom1.html"
@@ -126,11 +130,13 @@ open class BaseSessionTest(
         const val SCROLL_HANDOFF_HTML_PATH = "/assets/www/scroll-handoff.html"
         const val SHOW_DYNAMIC_TOOLBAR_HTML_PATH = "/assets/www/showDynamicToolbar.html"
         const val HIDE_DYNAMIC_TOOLBAR_HTML_PATH = "/assets/www/hideDynamicToolbar.html"
+        const val HIDE_DYNAMIC_TOOLBAR_ON_RESIZES_VISUAL_HTML_PATH = "/assets/www/hideDynamicToolbarOnResizesVisual.html"
         const val CONTEXT_MENU_AUDIO_HTML_PATH = "/assets/www/context_menu_audio.html"
         const val CONTEXT_MENU_IMAGE_NESTED_HTML_PATH = "/assets/www/context_menu_image_nested.html"
         const val CONTEXT_MENU_IMAGE_HTML_PATH = "/assets/www/context_menu_image.html"
         const val CONTEXT_MENU_LINK_HTML_PATH = "/assets/www/context_menu_link.html"
         const val CONTEXT_MENU_LINK_TEXT_HTML_PATH = "/assets/www/context_menu_link_text.html"
+        const val CONTEXT_MENU_LINK_TEXT_HTML_NORMAL_LENGTH_PATH = "/assets/www/context_menu_normal_link_text.html"
         const val CONTEXT_MENU_VIDEO_HTML_PATH = "/assets/www/context_menu_video.html"
         const val CONTEXT_MENU_BLOB_FULL_HTML_PATH = "/assets/www/context_menu_blob_full.html"
         const val CONTEXT_MENU_BLOB_BUFFERED_HTML_PATH = "/assets/www/context_menu_blob_buffered.html"
@@ -139,6 +145,7 @@ open class BaseSessionTest(
         const val BODY_FULLY_COVERED_BY_GREEN_ELEMENT = "/assets/www/red-background-body-fully-covered-by-green-element.html"
         const val COLOR_GRID_HTML_PATH = "/assets/www/color_grid.html"
         const val COLOR_ORANGE_BACKGROUND_HTML_PATH = "/assets/www/color_orange_background.html"
+        const val FT_FONT_HTML_PATH = "/assets/www/ft_font.html"
         const val TRACEMONKEY_PDF_PATH = "/assets/www/tracemonkey.pdf"
         const val HELLO_PDF_WORLD_PDF_PATH = "/assets/www/helloPDFWorld.pdf"
         const val ORANGE_PDF_PATH = "/assets/www/orange.pdf"
@@ -149,10 +156,17 @@ open class BaseSessionTest(
         const val INTERSECTION_OBSERVER_DESKTOP_HTML_PATH = "/assets/www/intersection-observer-desktop.html"
         const val BUG1909181_HTML_PATH = "/assets/www/bug1909181.html"
         const val BUG1912358_HTML_PATH = "/assets/www/bug1912358.html"
+        const val BUG1985669_HTML_PATH = "/assets/www/bug1985669.html"
+        const val BUG1993407_HTML_PATH = "/assets/www/bug1993407.html"
+        const val BUG1994311_HTML_PATH = "/assets/www/bug1994311.html"
+        const val PAGE_EXTRACTION_HTML_PATH = "/assets/www/page-extraction.html"
         const val POSITION_STICKY_HTML_PATH = "/assets/www/position-sticky.html"
         const val POSITION_STICKY_ON_MAIN_THREAD_HTML_PATH = "/assets/www/position-sticky-on-main-thread.html"
         const val INTERACTIVE_WIDGET_HTML_PATH = "/assets/www/interactive-widget.html"
         const val INTERACTIVE_WIDGET_OVERLAYS_CONTENT_HTML_PATH = "/assets/www/interactive-widget-overlays-content.html"
+        const val VIEW_TRANSITION_SNAPSHOT_SIZE = "/assets/www/view-transition-snapshot-size.html"
+        const val FRAMEBUSTING_CHILD_URI = "https://example.org/tests/junit/framebusting_child.html"
+        const val FRAMEBUSTING_PARENT_URI = "https://example.net/tests/junit/framebusting_parent.html"
 
         const val TEST_ENDPOINT = GeckoSessionTestRule.TEST_ENDPOINT
         const val TEST_HOST = GeckoSessionTestRule.TEST_HOST
@@ -290,8 +304,14 @@ open class BaseSessionTest(
 
     fun GeckoSession.getLinkColor(selector: String) = sessionRule.getLinkColor(this, selector)
 
+    fun GeckoSession.getWebExtensionsSchemaPermissionNames(typeNames: Array<String>): List<String> =
+        sessionRule.getWebExtensionsSchemaPermissionNames(this, typeNames).asJSList<String>()
+
     fun GeckoSession.setResolutionAndScaleTo(resolution: Float) =
         sessionRule.setResolutionAndScaleTo(this, resolution)
+
+    fun GeckoSession.setHandlingUserInput(handlingUserInput: Boolean) =
+        sessionRule.setHandlingUserInput(this, handlingUserInput)
 
     fun GeckoSession.triggerCookieBannerDetected() =
         sessionRule.triggerCookieBannerDetected(this)
@@ -304,6 +324,12 @@ open class BaseSessionTest(
 
     fun GeckoSession.triggerLanguageStateChange(languageState: JSONObject) =
         sessionRule.triggerLanguageStateChange(this, languageState)
+
+    fun GeckoSession.teardownAlertsService() =
+        sessionRule.teardownAlertsService(this)
+
+    fun GeckoSession.notifyUserGestureActivation() = sessionRule.notifyUserGestureActivation(this)
+
     var GeckoSession.active: Boolean
         get() = sessionRule.getActive(this)
         set(value) = setActive(value)
@@ -312,7 +338,7 @@ open class BaseSessionTest(
     fun Any?.asJsonArray(): JSONArray = this as JSONArray
 
     @Suppress("UNCHECKED_CAST")
-    fun<V> JSONObject.asMap(): Map<String?, V?> {
+    fun <V> JSONObject.asMap(): Map<String?, V?> {
         val result = HashMap<String?, V?>()
         for (key in this.keys()) {
             result[key] = this[key] as V
@@ -321,7 +347,7 @@ open class BaseSessionTest(
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun<T> Any?.asJSList(): List<T> {
+    fun <T> Any?.asJSList(): List<T> {
         val array = this.asJsonArray()
         val result = ArrayList<T>()
 

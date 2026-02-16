@@ -171,6 +171,11 @@ var gTests = [
         promisePopupNotificationShown("webRTC-shareDevices"),
         simulateAudioOutputRequest({ deviceCount: 1 }),
       ]);
+      is(
+        document.activeElement.className,
+        "popup-notification-primary-button primary footer-button",
+        "popup button focus"
+      );
       checkDeviceSelectors(["speaker"]);
       await escapePrompt();
     },
@@ -224,8 +229,8 @@ var gTests = [
           const device = aSubject
             .QueryInterface(Ci.nsIArrayExtensions)
             .GetElementAt(0).wrappedJSObject;
-          // `this` is the BrowserTestUtilsChild.
-          this.contentWindow.wrappedJSObject.message(device.id);
+          // content defined by BrowserTestUtilsChild.
+          content.wrappedJSObject.message(device.id);
           return true;
         }
       );

@@ -3,6 +3,18 @@
 
 "use strict";
 
+const AVAILABLE = "available";
+const BLOCKED = "blocked";
+
+const AI_FEATURES_ENABLED_PREF = "browser.ai.control.default";
+const AI_TARGETING = `'${AI_FEATURES_ENABLED_PREF}'|preferenceValue == '${AVAILABLE}'`;
+
+add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
+});
+
 // This test verifies that searching filters the features to just that subset that
 // contains the search terms.
 add_task(async function testFilterFeatures() {
@@ -25,17 +37,10 @@ add_task(async function testFilterFeatures() {
     {
       ...DEFAULT_LABS_RECIPES[3],
       slug: "test-featureD",
-      bucketConfig: {
-        ...ExperimentFakes.recipe.bucketConfig,
-        count: 1000,
-      },
+      bucketConfig: NimbusTestUtils.factories.recipe.bucketConfig,
     },
   ];
   const cleanup = await setupLabsTest(recipes);
-
-  await SpecialPowers.pushPrefEnv({
-    set: [["browser.preferences.experimental", true]],
-  });
 
   await BrowserTestUtils.openNewForegroundTab(
     gBrowser,
@@ -114,9 +119,19 @@ add_task(async function testFilterFeatures() {
   }
 
   // Reset the search entirely.
-  const searchInput = doc.getElementById("searchInput");
-  searchInput.value = "";
-  searchInput.doCommand();
+  {
+    const searchInput = doc.getElementById("searchInput");
+    let searchCompletedPromise = BrowserTestUtils.waitForEvent(
+      gBrowser.contentWindow,
+      "PreferencesSearchCompleted",
+      evt => evt.detail == ""
+    );
+    searchInput.select();
+    EventUtils.synthesizeKey("VK_BACK_SPACE");
+    await searchCompletedPromise;
+  }
+
+  info(`Resetted the search`);
 
   // Clearing the search will go to the general pane so switch back to the experimental pane.
   EventUtils.synthesizeMouseAtCenter(
@@ -178,6 +193,94 @@ add_task(async function testFilterFeatures() {
   await cleanup();
 });
 
+add_task(async function testUpdateTriggersRerender() {
+  Services.prefs.setStringPref(AI_FEATURES_ENABLED_PREF, AVAILABLE);
+
+  const recipes = [
+    {
+      ...DEFAULT_LABS_RECIPES[0],
+      slug: "always-available",
+      targeting: "true",
+    },
+    {
+      ...DEFAULT_LABS_RECIPES[1],
+      slug: "requires-pref",
+      targeting: AI_TARGETING,
+    },
+  ];
+
+  const cleanup = await setupLabsTest(recipes);
+
+  await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    "about:preferences#paneExperimental"
+  );
+
+  const doc = gBrowser.contentDocument;
+
+  await TestUtils.waitForCondition(
+    () => doc.querySelector(".featureGate"),
+    "wait for features to be added to the DOM"
+  );
+
+  Assert.ok(
+    !!doc.getElementById(recipes[0].slug),
+    "expect always-available recipe to be present"
+  );
+
+  Assert.ok(
+    !!doc.getElementById(recipes[1].slug),
+    "expect requires-pref recipe to be present"
+  );
+
+  {
+    info("Disabling AI features pref");
+    const promise = promiseRecipesUpdated();
+    Services.prefs.setStringPref(AI_FEATURES_ENABLED_PREF, BLOCKED);
+    await promise;
+  }
+
+  Assert.ok(
+    !!doc.getElementById(recipes[0].slug),
+    "expect always-visible recipe to be present"
+  );
+
+  Assert.equal(
+    doc.getElementById(recipes[1].slug),
+    null,
+    "expect requires-pref recipe to be hidden"
+  );
+
+  {
+    info("Re-enabling AI features pref");
+    const promise = promiseRecipesUpdated();
+    Services.prefs.setStringPref(AI_FEATURES_ENABLED_PREF, AVAILABLE);
+    await promise;
+  }
+
+  Assert.ok(
+    !!doc.getElementById(recipes[0].slug),
+    "expect always-available recipe to be present"
+  );
+
+  Assert.ok(
+    !!doc.getElementById(recipes[1].slug),
+    "expect requires-pref recipe to be present"
+  );
+
+  BrowserTestUtils.removeTab(gBrowser.selectedTab);
+
+  await cleanup();
+
+  Services.prefs.clearUserPref(AI_FEATURES_ENABLED_PREF);
+});
+
+async function promiseRecipesUpdated() {
+  await TestUtils.topicObserved("experimental-pane-loaded");
+
+  info("Experimental Pane Reloaded");
+}
+
 function checkVisibility(element, expected, desc) {
   return expected
     ? is_element_visible(element, desc)
@@ -186,7 +289,7 @@ function checkVisibility(element, expected, desc) {
 
 function enterSearch(doc, query) {
   let searchInput = doc.getElementById("searchInput");
-  searchInput.focus();
+  searchInput.select();
 
   let searchCompletedPromise = BrowserTestUtils.waitForEvent(
     gBrowser.contentWindow,

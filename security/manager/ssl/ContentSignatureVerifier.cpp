@@ -15,6 +15,7 @@
 #include "mozilla/Base64.h"
 #include "mozilla/Logging.h"
 #include "mozilla/dom/Promise.h"
+#include "mozilla/glean/SecurityManagerSslMetrics.h"
 #include "nsCOMPtr.h"
 #include "nsPromiseFlatString.h"
 #include "nsSecurityHeaderParser.h"
@@ -103,9 +104,7 @@ static nsresult VerifyContentSignatureInternal(
     const nsACString& aData, const nsACString& aCSHeader,
     const nsACString& aCertChain, const nsACString& aHostname,
     AppTrustedRoot aTrustedRoot,
-    /* out */
-    mozilla::Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS&
-        aErrorLabel,
+    /* out */ nsACString& aErrorLabel,
     /* out */ nsACString& aCertFingerprint, /* out */ uint32_t& aErrorValue);
 static nsresult ParseContentSignatureHeader(
     const nsACString& aContentSignatureHeader,
@@ -113,8 +112,7 @@ static nsresult ParseContentSignatureHeader(
 
 nsresult VerifyContentSignatureTask::CalculateResult() {
   // 3 is the default, non-specific, "something failed" error.
-  Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS errorLabel =
-      Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err3;
+  nsAutoCString errorLabel("otherError"_ns);
   nsAutoCString certFingerprint;
   uint32_t errorValue = 3;
   nsresult rv = VerifyContentSignatureInternal(
@@ -123,9 +121,12 @@ nsresult VerifyContentSignatureTask::CalculateResult() {
   if (NS_FAILED(rv)) {
     CSVerifier_LOG(("CSVerifier: Signature verification failed"));
     if (certFingerprint.Length() > 0) {
-      Telemetry::AccumulateCategoricalKeyed(certFingerprint, errorLabel);
+      glean::security::content_signature_verification_errors
+          .Get(certFingerprint, errorLabel)
+          .Add();
     }
-    Accumulate(Telemetry::CONTENT_SIGNATURE_VERIFICATION_STATUS, errorValue);
+    glean::security::content_signature_verification_status
+        .AccumulateSingleSample(errorValue);
     if (rv == NS_ERROR_INVALID_SIGNATURE) {
       return NS_OK;
     }
@@ -133,7 +134,8 @@ nsresult VerifyContentSignatureTask::CalculateResult() {
   }
 
   mSignatureVerified = true;
-  Accumulate(Telemetry::CONTENT_SIGNATURE_VERIFICATION_STATUS, 0);
+  glean::security::content_signature_verification_status.AccumulateSingleSample(
+      0);
 
   return NS_OK;
 }
@@ -204,8 +206,7 @@ static nsresult VerifyContentSignatureInternal(
     const nsACString& aData, const nsACString& aCSHeader,
     const nsACString& aCertChain, const nsACString& aHostname,
     AppTrustedRoot aTrustedRoot,
-    /* out */
-    Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS& aErrorLabel,
+    /* out */ nsACString& aErrorLabel,
     /* out */ nsACString& aCertFingerprint,
     /* out */ uint32_t& aErrorValue) {
   nsTArray<nsTArray<uint8_t>> certList;
@@ -266,18 +267,15 @@ static nsresult VerifyContentSignatureInternal(
     }
     // otherwise, assume the signature was invalid
     if (result == mozilla::pkix::Result::ERROR_EXPIRED_CERTIFICATE) {
-      aErrorLabel =
-          Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err4;
+      aErrorLabel = "expiredCert"_ns;
       aErrorValue = 4;
     } else if (result ==
                mozilla::pkix::Result::ERROR_NOT_YET_VALID_CERTIFICATE) {
-      aErrorLabel =
-          Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err5;
+      aErrorLabel = "certNotValidYet"_ns;
       aErrorValue = 5;
     } else {
       // Building cert chain failed for some other reason.
-      aErrorLabel =
-          Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err6;
+      aErrorLabel = "buildCertChainFailed"_ns;
       aErrorValue = 6;
     }
     CSVerifier_LOG(("CSVerifier: The supplied chain is bad (%s)",
@@ -298,7 +296,7 @@ static nsresult VerifyContentSignatureInternal(
   result = CheckCertHostname(certInput, hostnameInput);
   if (result != Success) {
     // EE cert isnot valid for the given host name.
-    aErrorLabel = Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err7;
+    aErrorLabel = "eeCertForWrongHost"_ns;
     aErrorValue = 7;
     return NS_ERROR_INVALID_SIGNATURE;
   }
@@ -308,7 +306,7 @@ static nsresult VerifyContentSignatureInternal(
   // This should never fail, because we've already built a verified certificate
   // chain with this certificate.
   if (result != Success) {
-    aErrorLabel = Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err8;
+    aErrorLabel = "extractKeyError"_ns;
     aErrorValue = 8;
     CSVerifier_LOG(("CSVerifier: couldn't decode certificate to get spki"));
     return NS_ERROR_INVALID_SIGNATURE;
@@ -319,14 +317,14 @@ static nsresult VerifyContentSignatureInternal(
   UniqueCERTSubjectPublicKeyInfo spki(
       SECKEY_DecodeDERSubjectPublicKeyInfo(&spkiItem));
   if (!spki) {
-    aErrorLabel = Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err8;
+    aErrorLabel = "extractKeyError"_ns;
     aErrorValue = 8;
     CSVerifier_LOG(("CSVerifier: couldn't decode spki"));
     return NS_ERROR_INVALID_SIGNATURE;
   }
   mozilla::UniqueSECKEYPublicKey key(SECKEY_ExtractPublicKey(spki.get()));
   if (!key) {
-    aErrorLabel = Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err8;
+    aErrorLabel = "extractKeyError"_ns;
     aErrorValue = 8;
     CSVerifier_LOG(("CSVerifier: unable to extract a key"));
     return NS_ERROR_INVALID_SIGNATURE;
@@ -372,31 +370,31 @@ static nsresult VerifyContentSignatureInternal(
       VFY_CreateContext(key.get(), &signatureItem, oid, nullptr));
   if (!cx) {
     // Creating context failed.
-    aErrorLabel = Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err9;
+    aErrorLabel = "vfyContextError"_ns;
     aErrorValue = 9;
     return NS_ERROR_INVALID_SIGNATURE;
   }
 
   if (VFY_Begin(cx.get()) != SECSuccess) {
     // Creating context failed.
-    aErrorLabel = Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err9;
+    aErrorLabel = "vfyContextError"_ns;
     aErrorValue = 9;
     return NS_ERROR_INVALID_SIGNATURE;
   }
   if (VFY_Update(cx.get(), kPREFIX, sizeof(kPREFIX)) != SECSuccess) {
-    aErrorLabel = Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err1;
+    aErrorLabel = "invalid"_ns;
     aErrorValue = 1;
     return NS_ERROR_INVALID_SIGNATURE;
   }
   if (VFY_Update(cx.get(),
                  reinterpret_cast<const unsigned char*>(aData.BeginReading()),
                  aData.Length()) != SECSuccess) {
-    aErrorLabel = Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err1;
+    aErrorLabel = "invalid"_ns;
     aErrorValue = 1;
     return NS_ERROR_INVALID_SIGNATURE;
   }
   if (VFY_End(cx.get()) != SECSuccess) {
-    aErrorLabel = Telemetry::LABELS_CONTENT_SIGNATURE_VERIFICATION_ERRORS::err1;
+    aErrorLabel = "invalid"_ns;
     aErrorValue = 1;
     return NS_ERROR_INVALID_SIGNATURE;
   }

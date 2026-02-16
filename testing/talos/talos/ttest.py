@@ -3,14 +3,15 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 """A generic means of running an URL based browser test
-   follows the following steps
-     - creates a profile
-     - tests the profile
-     - gets metrics for the current test environment
-     - loads the url
-     - collects info on any counters while test runs
-     - waits for a 'dump' from the browser
+follows the following steps
+  - creates a profile
+  - tests the profile
+  - gets metrics for the current test environment
+  - loads the url
+  - collects info on any counters while test runs
+  - waits for a 'dump' from the browser
 """
+
 import json
 import os
 import platform
@@ -21,7 +22,6 @@ import time
 
 import mozcrash
 import mozfile
-import six
 from mozlog import get_proxy_logger
 
 from talos import results, talosconfig, utils
@@ -33,7 +33,7 @@ from talos.utils import TalosCrash, TalosRegression, run_in_debug_mode
 LOG = get_proxy_logger()
 
 
-class TTest(object):
+class TTest:
     def check_for_crashes(self, browser_config, minidump_dir, test_name):
         # check for minidumps
         found = mozcrash.check_for_crashes(
@@ -106,7 +106,7 @@ class TTest(object):
             test_config, global_counters, browser_config.get("framework")
         )
 
-        for i in six.moves.range(test_config["cycles"]):
+        for i in range(test_config["cycles"]):
             time.sleep(0.25)
             LOG.info(
                 "Running cycle %d/%d for %s test..."
@@ -256,9 +256,9 @@ class TTest(object):
                 )
 
         # include global (cross-cycle) counters
-        test_results.all_counter_results.extend(
-            [{key: value} for key, value in global_counters.items()]
-        )
+        test_results.all_counter_results.extend([
+            {key: value} for key, value in global_counters.items()
+        ])
         for c in test_results.all_counter_results:
             for key, value in c.items():
                 LOG.debug("COUNTER %r: %s" % (key, value))

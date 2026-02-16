@@ -96,6 +96,15 @@ def test_cli_run_with_setup(run, capfd):
     assert ret == 1
 
 
+def test_cli_run_with_all_skipped(run, capfd):
+    # implicitly call setup
+    ret = run(["-l", "setupskipped"])
+    out, err = capfd.readouterr()
+    assert "setup skipped" in out
+    assert "ERROR" in err
+    assert ret == 1
+
+
 def test_cli_for_exclude_list(run, monkeypatch, capfd):
     ret = run(["-l", "excludes", "--check-exclude-list"])
     out, err = capfd.readouterr()
@@ -130,32 +139,30 @@ def test_cli_run_with_stdin_filename(run, filedir, capfd, monkeypatch, tmp_path)
             run(["--stdin-filename=foo.txt", arg])
 
     capfd.readouterr()
-    monkeypatch.setattr("sys.stdin", io.StringIO("foobar"))
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"foobar\n")))
     run(["-l", "string", f"--stdin-filename={filedir}/foobar.py"])
     out, err = capfd.readouterr()
     assert out == "✖ 0 problems (0 errors, 0 warnings, 0 fixed)\n"
 
-    monkeypatch.setattr("sys.stdin", io.StringIO("foobar"))
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"foobar\n")))
     run(["-l", "string", f"--stdin-filename={filedir}/foobar.py", "--dump-stdin-file"])
     out, err = capfd.readouterr()
     assert out == "foobar\n"
 
-    monkeypatch.setattr("sys.stdin", io.StringIO("foobar"))
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"foobar\n")))
     run(["-l", "string", f"--stdin-filename={filedir}/foobar.py", "--fix"])
     out, err = capfd.readouterr()
     assert out == "foobar\n"
 
-    monkeypatch.setattr("sys.stdin", io.StringIO("foobar"))
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"foobar\n")))
     tmpfile = tmp_path / "temp"
-    run(
-        [
-            "-l",
-            "string",
-            f"--stdin-filename={filedir}/foobar.py",
-            "--dump-stdin-file",
-            str(tmpfile),
-        ]
-    )
+    run([
+        "-l",
+        "string",
+        f"--stdin-filename={filedir}/foobar.py",
+        "--dump-stdin-file",
+        str(tmpfile),
+    ])
     out, err = capfd.readouterr()
     assert out == ""
     assert tmpfile.read_text() == "foobar\n"

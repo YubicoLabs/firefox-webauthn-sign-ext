@@ -42,11 +42,6 @@
 #else
 #  define WASM_RELAXED_SIMD_ENABLED 0
 #endif
-#ifdef ENABLE_WASM_MEMORY64
-#  define WASM_MEMORY64_ENABLED 1
-#else
-#  define WASM_MEMORY64_ENABLED 0
-#endif
 #ifdef ENABLE_WASM_MEMORY_CONTROL
 #  define WASM_MEMORY_CONTROL_ENABLED 1
 #else
@@ -62,42 +57,24 @@
 #else
 #  define WASM_MOZ_INTGEMM_ENABLED 0
 #endif
-#ifdef ENABLE_WASM_MULTI_MEMORY
-#  define WASM_MULTI_MEMORY_ENABLED 1
-#else
-#  define WASM_MULTI_MEMORY_ENABLED 0
-#endif
 #ifdef ENABLE_WASM_BRANCH_HINTING
 #  define WASM_BRANCH_HINTING_ENABLED 1
 #else
 #  define WASM_BRANCH_HINTING_ENABLED 0
 #endif
-#ifdef ENABLE_WASM_JS_STRING_BUILTINS
-#  define WASM_JS_STRING_BUILTINS_ENABLED 1
+#ifdef ENABLE_WASM_CUSTOM_PAGE_SIZES
+#  define WASM_CUSTOM_PAGE_SIZES_ENABLED 1
 #else
-#  define WASM_JS_STRING_BUILTINS_ENABLED 0
+#  define WASM_CUSTOM_PAGE_SIZES_ENABLED 0
+#endif
+#ifdef ENABLE_WASM_COMPACT_IMPORTS
+#  define WASM_COMPACT_IMPORTS_ENABLED 1
+#else
+#  define WASM_COMPACT_IMPORTS_ENABLED 0
 #endif
 
 // clang-format off
 #define JS_FOR_WASM_FEATURES(FEATURE)                                   \
-  FEATURE(                                                              \
-    /* capitalized name   */ ExnRef,                                    \
-    /* lower case name    */ exnref,                                    \
-    /* compile predicate  */ true,                                      \
-    /* compiler predicate */ AnyCompilerAvailable(cx),                  \
-    /* flag predicate     */ true,                                      \
-    /* flag force enable  */ false,                                     \
-    /* flag fuzz enable   */ true,                                      \
-    /* preference name    */ exnref)                                    \
-  FEATURE(                                                              \
-    /* capitalized name   */ JSStringBuiltins,                          \
-    /* lower case name    */ jsStringBuiltins,                          \
-    /* compile predicate  */ WASM_JS_STRING_BUILTINS_ENABLED,           \
-    /* compiler predicate */ AnyCompilerAvailable(cx),                  \
-    /* flag predicate     */ true,                                      \
-    /* flag force enable  */ false,                                     \
-    /* flag fuzz enable   */ true,                                      \
-    /* preference name    */ js_string_builtins)                        \
   FEATURE(                                                              \
     /* capitalized name   */ RelaxedSimd,                               \
     /* lower case name    */ v128Relaxed,                               \
@@ -108,15 +85,6 @@
     /* flag fuzz enable   */ true,                                      \
     /* preference name    */ relaxed_simd)                              \
   FEATURE(                                                              \
-    /* capitalized name   */ Memory64,                                  \
-    /* lower case name    */ memory64,                                  \
-    /* compile predicate  */ WASM_MEMORY64_ENABLED,                     \
-    /* compiler predicate */ AnyCompilerAvailable(cx),                  \
-    /* flag predicate     */ true,                                      \
-    /* flag force enable  */ false,                                     \
-    /* flag fuzz enable   */ true,                                      \
-    /* preference name    */ memory64)                                  \
-  FEATURE(                                                              \
     /* capitalized name   */ MemoryControl,                             \
     /* lower case name    */ memoryControl,                             \
     /* compile predicate  */ WASM_MEMORY_CONTROL_ENABLED,               \
@@ -126,22 +94,13 @@
     /* flag fuzz enable   */ false,                                     \
     /* preference name    */ memory_control)                            \
   FEATURE(                                                              \
-    /* capitalized name   */ MultiMemory,                               \
-    /* lower case name    */ multiMemory,                               \
-    /* compile predicate  */ WASM_MULTI_MEMORY_ENABLED,                 \
-    /* compiler predicate */ AnyCompilerAvailable(cx),                  \
-    /* flag predicate     */ true,                                      \
-    /* flag force enable  */ false,                                     \
-    /* flag fuzz enable   */ true,                                      \
-    /* preference name    */ multi_memory)                              \
-  FEATURE(                                                              \
     /* capitalized name   */ JSPromiseIntegration,                      \
     /* lower case name    */ jsPromiseIntegration,                      \
     /* compile predicate  */ WASM_JSPI_ENABLED,                         \
     /* compiler predicate */ IonPlatformSupport(),                      \
     /* flag predicate     */ true,                                      \
     /* flag force enable  */ false,                                     \
-    /* flag fuzz enable   */ false,                                     \
+    /* flag fuzz enable   */ true,                                      \
     /* preference name    */ js_promise_integration)                    \
   FEATURE(                                                              \
     /* capitalized name   */ MozIntGemm,                                \
@@ -165,11 +124,29 @@
     /* capitalized name   */ BranchHinting,                             \
     /* lower case name    */ branchHinting,                             \
     /* compile predicate  */ WASM_BRANCH_HINTING_ENABLED,               \
-    /* compiler predicate */ IonAvailable(cx),                          \
+    /* compiler predicate */ true,                                      \
     /* flag predicate     */ true,                                      \
     /* flag force enable  */ false,                                     \
     /* flag fuzz enable   */ true,                                      \
-    /* preference name    */ branch_hinting)
+    /* preference name    */ branch_hinting)                            \
+  FEATURE(                                                              \
+    /* capitalized name   */ CustomPageSizes,                           \
+    /* lower case name    */ customPageSizes,                           \
+    /* compile predicate  */ WASM_CUSTOM_PAGE_SIZES_ENABLED,            \
+    /* compiler predicate */ BaselineAvailable(cx),                     \
+    /* flag predicate     */ !IsFuzzingIon(cx),                         \
+    /* flag force enable  */ false,                                     \
+    /* flag fuzz enable   */ true,                                      \
+    /* preference name    */ custom_page_sizes)                         \
+  FEATURE(                                                              \
+    /* capitalized name   */ CompactImports,                            \
+    /* lower case name    */ compactImports,                            \
+    /* compile predicate  */ WASM_COMPACT_IMPORTS_ENABLED,              \
+    /* compiler predicate */ AnyCompilerAvailable(cx),                  \
+    /* flag predicate     */ true,                                      \
+    /* flag force enable  */ false,                                     \
+    /* flag fuzz enable   */ true,                                      \
+    /* preference name    */ compact_imports)
 
 // clang-format on
 

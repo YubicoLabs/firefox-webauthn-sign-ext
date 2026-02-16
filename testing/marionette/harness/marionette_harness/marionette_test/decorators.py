@@ -113,10 +113,11 @@ def skip_unless_browser_pref(reason, pref, predicate=bool):
     Example: ::
 
       class TestSomething(MarionetteTestCase):
-          @skip_unless_browser_pref("Sessionstore needs to be enabled for crashes",
-                                    "browser.sessionstore.resume_from_crash",
-                                    lambda value: value is True,
-                                    )
+          @skip_unless_browser_pref(
+              "Sessionstore needs to be enabled for crashes",
+              "browser.sessionstore.resume_from_crash",
+              lambda value: value is True,
+          )
           def test_foo(self):
               pass  # test implementation here
 
@@ -132,7 +133,7 @@ def skip_unless_browser_pref(reason, pref, predicate=bool):
         def skip_wrapper(self, *args, **kwargs):
             value = self.marionette.get_pref(pref)
             if value is None:
-                self.fail("No such browser preference: {0!r}".format(pref))
+                self.fail(f"No such browser preference: {pref!r}")
             if not predicate(value):
                 raise SkipTest(reason)
             return test_item(self, *args, **kwargs)

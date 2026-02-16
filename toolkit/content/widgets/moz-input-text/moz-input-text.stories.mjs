@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { html, ifDefined } from "../vendor/lit.all.mjs";
+import { html, ifDefined, classMap } from "../vendor/lit.all.mjs";
 import "./moz-input-text.mjs";
 
 export default {
@@ -43,21 +43,25 @@ const Template = ({
   value,
   iconSrc,
   disabled,
+  readonly,
   l10nId,
   description,
   supportPage,
   accessKey,
   hasSlottedDescription,
   hasSlottedSupportLink,
+  ellipsized,
 }) => html`
   <moz-input-text
     name=${name}
     value=${ifDefined(value || null)}
     iconsrc=${ifDefined(iconSrc || null)}
     ?disabled=${disabled}
+    ?readonly=${readonly}
     data-l10n-id=${l10nId}
     support-page=${ifDefined(supportPage || null)}
     accesskey=${ifDefined(accessKey || null)}
+    class=${classMap({ "text-truncated-ellipsis": ellipsized })}
   >
     ${hasSlottedDescription
       ? html`<div slot="description">${description}</div>`
@@ -74,6 +78,7 @@ Default.args = {
   value: "",
   iconSrc: "",
   disabled: false,
+  readonly: false,
   l10nId: "moz-input-text-label",
   supportPage: "",
   accessKey: "",
@@ -113,6 +118,13 @@ Disabled.args = {
   disabled: true,
 };
 
+export const Readonly = Template.bind({});
+Readonly.args = {
+  ...Default.args,
+  l10nId: "moz-input-text-description",
+  readonly: true,
+};
+
 export const WithAccesskey = Template.bind({});
 WithAccesskey.args = {
   ...Default.args,
@@ -131,4 +143,11 @@ WithSlottedSupportLink.args = {
   ...Default.args,
   hasSlottedSupportLink: true,
   l10nId: "moz-input-text-description",
+};
+
+export const WithEllipsizedLabel = Template.bind({});
+WithEllipsizedLabel.args = {
+  ...Default.args,
+  ellipsized: true,
+  l10nId: "moz-input-text-label-wrapped",
 };

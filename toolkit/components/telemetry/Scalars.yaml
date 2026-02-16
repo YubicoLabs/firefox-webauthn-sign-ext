@@ -164,7 +164,7 @@ installation.firstSeen:
       value "NotFoundError" if file not found or other values
       depending on the failure reason.
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: string
     notification_emails:
       - rtestard@mozilla.com
@@ -184,7 +184,7 @@ installation.firstSeen:
       The type of installer used to install Firefox.
       The value is one of "stub", "full", or "msix"
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: string
     notification_emails:
       - rtestard@mozilla.com
@@ -204,7 +204,7 @@ installation.firstSeen:
       The application version installed by the installer
       (not necessarily the current version)
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: string
     notification_emails:
       - rtestard@mozilla.com
@@ -223,7 +223,7 @@ installation.firstSeen:
     description: >
       Whether the installer is running from an elevated admin user
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: boolean
     notification_emails:
       - rtestard@mozilla.com
@@ -242,7 +242,7 @@ installation.firstSeen:
     description: >
       'Whether there was already an install in this location'
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: boolean
     notification_emails:
       - rtestard@mozilla.com
@@ -261,7 +261,7 @@ installation.firstSeen:
     description: >
       'Whether the top-level profile directory existed'
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: boolean
     notification_emails:
       - rtestard@mozilla.com
@@ -280,7 +280,7 @@ installation.firstSeen:
     description: >
       'Whether there was already any non-MSIX install on this system'
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: boolean
     notification_emails:
       - rtestard@mozilla.com
@@ -299,7 +299,7 @@ installation.firstSeen:
     description: >
       'Whether there was already any MSIX install on this system'
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: boolean
     notification_emails:
       - rtestard@mozilla.com
@@ -319,7 +319,7 @@ installation.firstSeen:
       (optional, present if installer_type is "full")
       Whether this was a silent install
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: boolean
     notification_emails:
       - rtestard@mozilla.com
@@ -339,7 +339,7 @@ installation.firstSeen:
       (optional, present if installer_type is "full")
       Whether this was an MSI install
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: boolean
     notification_emails:
       - rtestard@mozilla.com
@@ -359,7 +359,7 @@ installation.firstSeen:
       (optional, present if installer_type is "full")
       Whether the default path was used
     keyed: false
-    expires: "140"
+    expires: "152"
     kind: boolean
     notification_emails:
       - rtestard@mozilla.com
@@ -377,11 +377,44 @@ browser.backup:
     bug_numbers:
       - 1908727
     description: >
-      True if the BackupService is enabled by default.
+      True if the BackupService has initialized and reached idle. You may want
+      to use archive_enabled/restore_enabled to determine whether those
+      features are available, or use scheduler_enabled for whether automatic
+      backups are enabled.
     expires: never
     kind: boolean
     notification_emails:
       - mconley@mozilla.com
+    release_channel_collection: opt-out
+    products:
+      - 'firefox'
+    record_in_processes:
+      - 'main'
+  archive_enabled:
+    bug_numbers:
+      - 1908727
+    description: >
+      True if the user can create backups, i.e. it has not been disabled by a
+      pref or otherwise deemed incompatible.
+    expires: never
+    kind: boolean
+    notification_emails:
+      - drubino@mozilla.com
+    release_channel_collection: opt-out
+    products:
+      - 'firefox'
+    record_in_processes:
+      - 'main'
+  restore_enabled:
+    bug_numbers:
+      - 1908727
+    description: >
+      True if the user can restore backups, i.e. it has not been disabled by a
+      pref or otherwise deemed incompatible.
+    expires: never
+    kind: boolean
+    notification_emails:
+      - drubino@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -802,7 +835,7 @@ browser.engagement:
     kind: uint
     notification_emails:
       - bmiroglio@mozilla.com
-      - aoprea@mozilla.com
+      - omc-core@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -835,7 +868,7 @@ browser.engagement:
     kind: uint
     notification_emails:
       - bmiroglio@mozilla.com
-      - aoprea@mozilla.com
+      - omc-core@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -1946,13 +1979,14 @@ extensions.apis.dnr:
       - 1850890
       - 1881406
       - 1946276
+      - 1984461
     description: >
       Counters for startup cache data hits or misses on initializating
       DNR rules for extensions loaded on application startup.
       The expected keys are 'hit' and 'miss'.
       This probe is mirrored from a Glean metric with the same name.
     keyed: true
-    expires: '145'
+    expires: '155'
     kind: uint
     notification_emails:
       - addons-dev-internal@mozilla.com
@@ -1966,9 +2000,10 @@ extensions.apis.dnr:
       - 1850890
       - 1881406
       - 1946276
+      - 1984461
     description: >
       Max amount of DNR rules being evaluated.
-    expires: '145'
+    expires: '155'
     kind: uint
     notification_emails:
       - addons-dev-internal@mozilla.com
@@ -1983,9 +2018,11 @@ extensions.startupCache:
       - 1767336
       - 1892151
       - 1928258
+      - 1958168
+      - 1994581
     description: >
       The amount of bytes writted into the Extensions StartupCache file.
-    expires: "140"
+    expires: "154"
     kind: uint
     notification_emails:
       - addons-dev-internal@mozilla.com
@@ -1999,10 +2036,12 @@ extensions.startupCache:
       - 1767336
       - 1892151
       - 1928258
+      - 1958168
+      - 1994581
     description: >
       The amount of times an unexpected error has been raised while
       reading the Extensions StartupCache file
-    expires: "140"
+    expires: "154"
     kind: uint
     keyed: true
     notification_emails:
@@ -2016,6 +2055,8 @@ extensions.startupCache:
     bug_numbers:
       - 1767336
       - 1912170
+      - 1958168
+      - 1994581
     description: >
       Time to load and deserialize the extensions startupCache data.
       This scalar is mirroring the never expiring Glean metric named
@@ -2024,7 +2065,7 @@ extensions.startupCache:
       Unlike the related glean metric, this scalar has an expiring date,
       set as a deadline to consider removing the mirrored scalar in
       favor to just use the Glean metric).
-    expires: "140"
+    expires: "154"
     kind: uint
     notification_emails:
       - addons-dev-internal@mozilla.com
@@ -2875,27 +2916,6 @@ webrtc.video:
     record_in_processes:
       - 'content'
 
-mathml:
-  doc_count:
-    bug_numbers:
-      - 1362187
-      - 1538985
-      - 1590350
-    description: >
-      The number of documents that contained enabled MathML elements.
-    expires: never
-    kind: uint
-    notification_emails:
-      - emilio@mozilla.com
-      - fred.wang@free.fr
-      - dev-tech-layout@lists.mozilla.org
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - 'content'
-
 media:
   element_in_page_count:
     bug_numbers:
@@ -3668,26 +3688,6 @@ telemetry:
       - 'fennec'
     record_in_processes:
       - 'main'
-
-  event_counts:
-    bug_numbers:
-      - 1440673
-    description: >
-      The counts of events recorded in the process, category, method, and
-      object of the key, even if event recording for the category was not
-      enabled.
-    expires: never
-    kind: uint
-    keyed: true
-    notification_emails:
-      - telemetry-client-dev@mozilla.com
-      - chutten@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-      - 'fennec'
-    record_in_processes:
-      - 'all'
 
   data_upload_optin:
     bug_numbers:
@@ -5195,120 +5195,6 @@ browser.search.adclicks:
     record_in_processes:
       - main
 
-browser.searchinit:
-  engine_invalid_webextension:
-    bug_numbers:
-      - 1665938
-      - 1691050
-      - 1725501
-      - 1763528
-      - 1801017
-      - 1832463
-      - 1871199
-      - 1897049
-      - 1933857
-    description: >
-      Records the WebExtension ID of a search engine where the WebExtension
-      is not installed (= 1), disabled (= 2), search engine no longer specified (= 4),
-      a different name (= 5), where the submission URL is different between the
-      search engine and the WebExtension (= 6). The value '3' has been replaced
-      by '6' to distinguish newer entries.
-    expires: "140"
-    keyed: true
-    kind: uint
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-      - mbanner@mozilla.com
-    products:
-      - 'firefox'
-    record_in_processes:
-      - 'main'
-    release_channel_collection: opt-out
-
-  secure_opensearch_engine_count:
-    bug_numbers:
-      - 1789438
-      - 1811158
-      - 1846899
-      - 1881408
-      - 1916866
-    description: >
-      Records the number of secure (i.e., using https) OpenSearch search
-      engines a given user has installed
-    expires: "145"
-    keyed: false
-    kind: uint
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    products:
-      - 'firefox'
-    record_in_processes:
-      - 'main'
-    release_channel_collection: opt-out
-
-  insecure_opensearch_engine_count:
-    bug_numbers:
-      - 1789438
-      - 1811158
-      - 1846899
-      - 1881408
-      - 1916866
-    description: >
-      Records the number of insecure (i.e., using http) OpenSearch search
-      engines a given user has installed
-    expires: "145"
-    keyed: false
-    kind: uint
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    products:
-      - 'firefox'
-    record_in_processes:
-      - 'main'
-    release_channel_collection: opt-out
-
-  secure_opensearch_update_count:
-    bug_numbers:
-      - 1789438
-      - 1811158
-      - 1846899
-      - 1881408
-      - 1916866
-    description: >
-      Records the number of OpenSearch search engines with secure updates
-      enabled (i.e., using https) a given user has installed
-    expires: "145"
-    keyed: false
-    kind: uint
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    products:
-      - 'firefox'
-    record_in_processes:
-      - 'main'
-    release_channel_collection: opt-out
-
-  insecure_opensearch_update_count:
-    bug_numbers:
-      - 1789438
-      - 1811158
-      - 1846899
-      - 1881408
-      - 1916866
-    description: >
-      Records the number of OpenSearch search engines with insecure updates
-      enabled (i.e., using http) a given user has installed
-    expires: "145"
-    keyed: false
-    kind: uint
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    products:
-      - 'firefox'
-    record_in_processes:
-      - 'main'
-    release_channel_collection: opt-out
-
 startup:
   profile_selection_reason:
     bug_numbers:
@@ -5377,10 +5263,13 @@ startup:
     bug_numbers:
       - 1878339
       - 1916867
+      - 1958171
+      - 1994608
+      - 2010455
     description: >
       The version of the profiles.ini database loaded during startup. A value
       of "0" is used to indicate that no file was present during startup.
-    expires: "140"
+    expires: "156"
     keyed: false
     kind: string
     notification_emails:
@@ -5400,10 +5289,13 @@ startup:
     bug_numbers:
       - 1878339
       - 1916867
+      - 1958171
+      - 1994608
+      - 2010455
     description: >
       This records the number of known profiles after startup completes. This
       includes any profiles that were created during startup.
-    expires: "140"
+    expires: "156"
     keyed: false
     kind: uint
     notification_emails:
@@ -5673,23 +5565,6 @@ networking:
       - 'main'
       - 'socket'
 
-  speculative_connect_outcome:
-    bug_numbers:
-      - 909865
-    description: >
-      Counts the occurrence of each outcome of a speculative connection
-    expires: never
-    kind: uint
-    keyed: true
-    notification_emails:
-      - necko@mozilla.com
-      - acreskey@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-    record_in_processes:
-      - 'main'
-
   doh_heuristics_attempts:
     bug_numbers:
       - 1784258
@@ -5942,83 +5817,6 @@ urlbar:
       A uint recording the deletion count for autofilled string in the urlbar.
       This occurs when the user deletes whole autofilled string by BACKSPACE or
       DELETE key while the autofilled string is selected.
-    expires: never
-    kind: uint
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-
-urlbar.impression:
-  autofill_about:
-    bug_numbers:
-      - 1774305
-      - 1780188
-    description: >
-      Counts how many times about-page type was autofilled per engagement.
-    expires: never
-    kind: uint
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-  autofill_adaptive:
-    bug_numbers:
-      - 1774305
-      - 1780188
-    description: >
-      Counts how many times adaptive history type was autofilled per engagement.
-    expires: never
-    kind: uint
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-  autofill_origin:
-    bug_numbers:
-      - 1774305
-      - 1780188
-    description: >
-      Counts how many times origin type was autofilled per engagement.
-    expires: never
-    kind: uint
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-  autofill_other:
-    bug_numbers:
-      - 1774305
-      - 1780188
-    description: >
-      Counts how many times other type was autofilled per engagement.
-    expires: never
-    kind: uint
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-  autofill_url:
-    bug_numbers:
-      - 1774305
-      - 1780188
-    description: >
-      Counts how many times url type was autofilled per engagement.
     expires: never
     kind: uint
     notification_emails:
@@ -6503,107 +6301,6 @@ contextual.services.topsites:
     notification_emails:
       - najiang@mozilla.com
     release_channel_collection: opt-out
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-
-shopping:
-  nimbus_disabled:
-    bug_numbers:
-      - 1847231
-    description: >
-      Indicates if Nimbus has disabled the use of the shopping component.
-      This scalar is mirroring the Glean metric named
-      shopping.settings.nimbus_disabled_shopping, which is defined in
-      toolkit/components/shopping/metrics.yaml.
-    expires: "147"
-    kind: boolean
-    notification_emails:
-      - betling@mozilla.com
-      - fx-desktop-shopping-eng@mozilla.com
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-  component_opted_out:
-    bug_numbers:
-      - 1847231
-    description: >
-      Indicates if the user has opted out of using the shopping component.
-      Set during shopping component init and updated when changed in browser.
-      This scalar is mirroring the Glean metric named
-      shopping.settings.component_opted_out, which is defined in
-      toolkit/components/shopping/metrics.yaml.
-    expires: "147"
-    kind: boolean
-    notification_emails:
-      - betling@mozilla.com
-      - fx-desktop-shopping-eng@mozilla.com
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-  has_onboarded:
-    bug_numbers:
-      - 1847231
-    description: >
-      Indicates if the user has completed the Shopping product Onboarding
-      experience. Set during shopping component init and updated when changed
-      in browser. This scalar is mirroring the Glean metric named
-      shopping.settings.has_onboarded, which is defined in
-      toolkit/components/shopping/metrics.yaml.
-    expires: "147"
-    kind: boolean
-    notification_emails:
-      - betling@mozilla.com
-      - fx-desktop-shopping-eng@mozilla.com
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-  product_page_visits:
-    bug_numbers:
-      - 1848160
-    description: >
-      Counts number of visits to a supported retailer product page while
-      enrolled in either the control or treatment branches of the shopping
-      experiment.
-    expires: "147"
-    kind: uint
-    notification_emails:
-      - betling@mozilla.com
-      - fx-desktop-shopping-eng@mozilla.com
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-  disabled_ads:
-    bug_numbers:
-      - 1858540
-    description: >
-      Indicates if the user has manually disabled ads. Set during shopping
-      component init and updated when changed in browser.
-    expires: "147"
-    kind: boolean
-    notification_emails:
-      - betling@mozilla.com
-      - fx-desktop-shopping-eng@mozilla.com
-    products:
-      - 'firefox'
-    record_in_processes:
-      - main
-  auto_open_user_disabled:
-    bug_numbers:
-      - 1879119
-    description: >
-      Indicates if the user has manually disabled the auto open sidebar feature.
-      Set during shopping component init and updated when changed in browser.
-    expires: "147"
-    kind: boolean
-    notification_emails:
-      - betling@mozilla.com
-      - fx-desktop-shopping-eng@mozilla.com
     products:
       - 'firefox'
     record_in_processes:
@@ -7484,6 +7181,17 @@ telemetry.test:
     expires: never
     kind: boolean
     keyed: true
+    notification_emails: [glean-team@mozilla.com]
+    products: ["firefox", "thunderbird"]
+    record_in_processes: ["all"]
+    release_channel_collection: opt-out
+
+  mirror_for_unordered_quantity:
+    bug_numbers: [2012590]
+    description: >
+      Test only. This is a mirror probe for a Glean quantity metric.
+    expires: never
+    kind: uint
     notification_emails: [glean-team@mozilla.com]
     products: ["firefox", "thunderbird"]
     record_in_processes: ["all"]

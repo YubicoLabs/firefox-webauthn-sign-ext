@@ -164,7 +164,7 @@ def parse_config_file(
                 file_path = os.path.join(path, file_name)
                 break
         else:
-            raise IOError("Can't find %s in %s!" % (file_name, search_path))
+            raise OSError("Can't find %s in %s!" % (file_name, search_path))
     if file_name.endswith(".py"):
         global_dict = {}
         local_dict = {}
@@ -208,26 +208,25 @@ def download_config_file(url, file_name):
             print("Error downloading from url %s: %s" % (url, str(e)))
         except socket.timeout as e:
             print("Time out accessing %s: %s" % (url, str(e)))
-        except socket.error as e:
+        except OSError as e:
             print("Socket error when accessing %s: %s" % (url, str(e)))
         print("Sleeping %d seconds before retrying" % sleeptime)
         time.sleep(sleeptime)
         sleeptime = sleeptime * 2
-        if sleeptime > max_sleeptime:
-            sleeptime = max_sleeptime
+        sleeptime = min(sleeptime, max_sleeptime)
         n += 1
 
     try:
         f = open(file_name, "w")
         f.write(contents)
         f.close()
-    except IOError as e:
+    except OSError as e:
         print("Error writing downloaded contents to file %s: %s" % (file_name, str(e)))
         raise SystemError(-1)
 
 
 # BaseConfig {{{1
-class BaseConfig(object):
+class BaseConfig:
     """Basic config setting/getting."""
 
     def __init__(
@@ -346,7 +345,7 @@ class BaseConfig(object):
             "--dump-config",
             action="store_true",
             dest="dump_config",
-            help="List and dump the config generated from this run to " "a JSON file.",
+            help="List and dump the config generated from this run to a JSON file.",
         )
         self.config_parser.add_option(
             "--dump-config-hierarchy",
@@ -533,25 +532,21 @@ class BaseConfig(object):
                     file_name = os.path.basename(cf)
                     file_path = os.path.join(os.getcwd(), file_name)
                     download_config_file(cf, file_path)
-                    all_cfg_files_and_dicts.append(
-                        (
+                    all_cfg_files_and_dicts.append((
+                        file_path,
+                        parse_config_file(
                             file_path,
-                            parse_config_file(
-                                file_path,
-                                search_path=["."],
-                            ),
-                        )
-                    )
+                            search_path=["."],
+                        ),
+                    ))
                 else:
-                    all_cfg_files_and_dicts.append(
-                        (
+                    all_cfg_files_and_dicts.append((
+                        cf,
+                        parse_config_file(
                             cf,
-                            parse_config_file(
-                                cf,
-                                search_path=config_paths + [DEFAULT_CONFIG_PATH],
-                            ),
-                        )
-                    )
+                            search_path=config_paths + [DEFAULT_CONFIG_PATH],
+                        ),
+                    ))
             except Exception:
                 if cf in options.opt_config_files:
                     print("WARNING: optional config file not found %s" % cf)

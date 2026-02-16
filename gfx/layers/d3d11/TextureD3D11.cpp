@@ -20,13 +20,14 @@
 #include "mozilla/gfx/FileHandleWrapper.h"
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/gfxVars.h"
+#include "mozilla/gfx/SourceSurfaceD3D11.h"
 #include "mozilla/ipc/FileDescriptor.h"
 #include "mozilla/layers/CompositorBridgeChild.h"
 #include "mozilla/layers/D3D11ZeroCopyTextureImage.h"
-#include "mozilla/layers/GpuProcessD3D11QueryMap.h"
+#include "mozilla/layers/FenceD3D11.h"
+#include "mozilla/layers/CompositeProcessD3D11FencesHolderMap.h"
 #include "mozilla/layers/GpuProcessD3D11TextureMap.h"
 #include "mozilla/layers/HelpersD3D11.h"
-#include "mozilla/layers/VideoProcessorD3D11.h"
 #include "mozilla/webrender/RenderD3D11TextureHost.h"
 #include "mozilla/webrender/RenderThread.h"
 #include "mozilla/webrender/WebRenderAPI.h"
@@ -245,21 +246,14 @@ DataTextureSourceD3D11::~DataTextureSourceD3D11() {}
 enum class SerializeWithMoz2D : bool { No, Yes };
 
 template <typename T>  // ID3D10Texture2D or ID3D11Texture2D
-static bool LockD3DTexture(
-    T* aTexture, SerializeWithMoz2D aSerialize = SerializeWithMoz2D::No) {
+static bool LockD3DTexture(T* aTexture) {
   MOZ_ASSERT(aTexture);
   RefPtr<IDXGIKeyedMutex> mutex;
   aTexture->QueryInterface((IDXGIKeyedMutex**)getter_AddRefs(mutex));
   // Textures created by the DXVA decoders don't have a mutex for
   // synchronization
   if (mutex) {
-    HRESULT hr;
-    if (aSerialize == SerializeWithMoz2D::Yes) {
-      AutoSerializeWithMoz2D serializeWithMoz2D(BackendType::DIRECT2D1_1);
-      hr = mutex->AcquireSync(0, 10000);
-    } else {
-      hr = mutex->AcquireSync(0, 10000);
-    }
+    HRESULT hr = mutex->AcquireSync(0, 10000);
     if (hr == WAIT_TIMEOUT) {
       RefPtr<ID3D11Device> device;
       aTexture->GetDevice(getter_AddRefs(device));
@@ -292,35 +286,30 @@ static bool HasKeyedMutex(T* aTexture) {
 }
 
 template <typename T>  // ID3D10Texture2D or ID3D11Texture2D
-static void UnlockD3DTexture(
-    T* aTexture, SerializeWithMoz2D aSerialize = SerializeWithMoz2D::No) {
+static void UnlockD3DTexture(T* aTexture) {
   MOZ_ASSERT(aTexture);
   RefPtr<IDXGIKeyedMutex> mutex;
   aTexture->QueryInterface((IDXGIKeyedMutex**)getter_AddRefs(mutex));
   if (mutex) {
-    HRESULT hr;
-    if (aSerialize == SerializeWithMoz2D::Yes) {
-      AutoSerializeWithMoz2D serializeWithMoz2D(BackendType::DIRECT2D1_1);
-      hr = mutex->ReleaseSync(0);
-    } else {
-      hr = mutex->ReleaseSync(0);
-    }
+    HRESULT hr = mutex->ReleaseSync(0);
     if (FAILED(hr)) {
       NS_WARNING("Failed to unlock the texture");
     }
   }
 }
 
-D3D11TextureData::D3D11TextureData(ID3D11Texture2D* aTexture,
-                                   uint32_t aArrayIndex,
-                                   RefPtr<gfx::FileHandleWrapper> aSharedHandle,
-                                   gfx::IntSize aSize,
-                                   gfx::SurfaceFormat aFormat,
-                                   TextureAllocationFlags aFlags)
+D3D11TextureData::D3D11TextureData(
+    ID3D11Device* aDevice, ID3D11Texture2D* aTexture, uint32_t aArrayIndex,
+    RefPtr<gfx::FileHandleWrapper> aSharedHandle, gfx::IntSize aSize,
+    gfx::SurfaceFormat aFormat,
+    const Maybe<CompositeProcessFencesHolderId> aFencesHolderId,
+    const RefPtr<FenceD3D11> aWriteFence, TextureAllocationFlags aFlags)
     : mSize(aSize),
       mFormat(aFormat),
-      mNeedsClear(aFlags & ALLOC_CLEAR_BUFFER),
       mHasKeyedMutex(HasKeyedMutex(aTexture)),
+      mFencesHolderId(aFencesHolderId),
+      mWriteFence(aWriteFence),
+      mNeedsClear(aFlags & ALLOC_CLEAR_BUFFER),
       mTexture(aTexture),
       mSharedHandle(std::move(aSharedHandle)),
       mArrayIndex(aArrayIndex),
@@ -328,25 +317,7 @@ D3D11TextureData::D3D11TextureData(ID3D11Texture2D* aTexture,
   MOZ_ASSERT(aTexture);
 }
 
-static void DestroyDrawTarget(RefPtr<DrawTarget>& aDT,
-                              RefPtr<ID3D11Texture2D>& aTexture) {
-  // An Azure DrawTarget needs to be locked when it gets nullptr'ed as this is
-  // when it calls EndDraw. This EndDraw should not execute anything so it
-  // shouldn't -really- need the lock but the debug layer chokes on this.
-  LockD3DTexture(aTexture.get(), SerializeWithMoz2D::Yes);
-  aDT = nullptr;
-
-  // Do the serialization here, so we can hold it while destroying the texture.
-  AutoSerializeWithMoz2D serializeWithMoz2D(BackendType::DIRECT2D1_1);
-  UnlockD3DTexture(aTexture.get(), SerializeWithMoz2D::No);
-  aTexture = nullptr;
-}
-
 D3D11TextureData::~D3D11TextureData() {
-  if (mDrawTarget) {
-    DestroyDrawTarget(mDrawTarget, mTexture);
-  }
-
   if (mGpuProcessTextureId.isSome()) {
     auto* textureMap = GpuProcessD3D11TextureMap::Get();
     if (textureMap) {
@@ -355,64 +326,48 @@ D3D11TextureData::~D3D11TextureData() {
       gfxCriticalNoteOnce << "GpuProcessD3D11TextureMap does not exist";
     }
   }
-
-  if (mGpuProcessQueryId.isSome()) {
-    auto* queryMap = GpuProcessD3D11QueryMap::Get();
-    if (queryMap) {
-      queryMap->Unregister(mGpuProcessQueryId.ref());
+  if (mFencesHolderId.isSome()) {
+    MOZ_ASSERT(mFencesHolderId->IsValid());
+    auto* fencesHolderMap = CompositeProcessD3D11FencesHolderMap::Get();
+    if (fencesHolderMap) {
+      fencesHolderMap->Unregister(mFencesHolderId.ref());
     } else {
-      gfxCriticalNoteOnce << "GpuProcessD3D11QueryMap does not exist";
+      gfxCriticalNoteOnce
+          << "CompositeProcessD3D11FencesHolderMap does not exist";
     }
   }
 }
 
 bool D3D11TextureData::Lock(OpenMode aMode) {
-  if (mHasKeyedMutex &&
-      !LockD3DTexture(mTexture.get(), SerializeWithMoz2D::Yes)) {
+  if (mFencesHolderId.isSome()) {
+    MOZ_ASSERT(mFencesHolderId->IsValid());
+    auto* fencesHolderMap = CompositeProcessD3D11FencesHolderMap::Get();
+    fencesHolderMap->WaitAllFencesAndForget(mFencesHolderId.ref(), mDevice);
+  }
+
+  if (mHasKeyedMutex && !LockD3DTexture(mTexture.get())) {
     return false;
-  }
-
-  if (NS_IsMainThread()) {
-    if (!PrepareDrawTargetInLock(aMode)) {
-      Unlock();
-      return false;
-    }
-  }
-
-  return true;
-}
-
-bool D3D11TextureData::PrepareDrawTargetInLock(OpenMode aMode) {
-  // Make sure that successful write-lock means we will have a DrawTarget to
-  // write into.
-  if (!mDrawTarget && (aMode & OpenMode::OPEN_WRITE || mNeedsClear)) {
-    mDrawTarget = BorrowDrawTarget();
-    if (!mDrawTarget) {
-      return false;
-    }
-  }
-
-  // Reset transform
-  mDrawTarget->SetTransform(Matrix());
-
-  if (mNeedsClear) {
-    mDrawTarget->ClearRect(Rect(0, 0, mSize.width, mSize.height));
-    mNeedsClear = false;
   }
 
   return true;
 }
 
 void D3D11TextureData::Unlock() {
+  IncrementAndSignalWriteFence();
+  if (mFencesHolderId.isSome()) {
+    MOZ_ASSERT(mFencesHolderId->IsValid());
+    auto* fencesHolderMap = CompositeProcessD3D11FencesHolderMap::Get();
+    fencesHolderMap->SetWriteFence(mFencesHolderId.ref(), mWriteFence);
+  }
   if (mHasKeyedMutex) {
-    UnlockD3DTexture(mTexture.get(), SerializeWithMoz2D::Yes);
+    UnlockD3DTexture(mTexture.get());
   }
 }
 
 void D3D11TextureData::FillInfo(TextureData::Info& aInfo) const {
   aInfo.size = mSize;
   aInfo.format = mFormat;
-  aInfo.supportsMoz2D = true;
+  aInfo.supportsMoz2D = false;
   aInfo.hasSynchronization = mHasKeyedMutex;
 }
 
@@ -432,8 +387,7 @@ bool D3D11TextureData::SerializeSpecific(
     SurfaceDescriptorD3D10* const aOutDesc) {
   *aOutDesc = SurfaceDescriptorD3D10(
       mSharedHandle, mGpuProcessTextureId, mArrayIndex, mFormat, mSize,
-      mColorSpace, mColorRange, /* hasKeyedMutex */ mHasKeyedMutex,
-      /* fenceInfo */ Nothing(), mGpuProcessQueryId);
+      mColorSpace, mColorRange, mHasKeyedMutex, mFencesHolderId);
   return true;
 }
 
@@ -458,10 +412,22 @@ already_AddRefed<TextureClient> D3D11TextureData::CreateTextureClient(
     ID3D11Texture2D* aTexture, uint32_t aIndex, gfx::IntSize aSize,
     gfx::SurfaceFormat aFormat, gfx::ColorSpace2 aColorSpace,
     gfx::ColorRange aColorRange, KnowsCompositor* aKnowsCompositor,
-    RefPtr<ZeroCopyUsageInfo> aUsageInfo) {
+    ZeroCopyUsageInfo* aUsageInfo, const RefPtr<FenceD3D11> aWriteFence) {
+  MOZ_ASSERT(aTexture);
+
+  RefPtr<ID3D11Device> device;
+  aTexture->GetDevice(getter_AddRefs(device));
+
+  Maybe<CompositeProcessFencesHolderId> fencesHolderId;
+  if (aWriteFence) {
+    auto* fencesHolderMap = layers::CompositeProcessD3D11FencesHolderMap::Get();
+    fencesHolderId = Some(CompositeProcessFencesHolderId::GetNext());
+    fencesHolderMap->Register(fencesHolderId.ref());
+  }
+
   D3D11TextureData* data = new D3D11TextureData(
-      aTexture, aIndex, nullptr, aSize, aFormat,
-      TextureAllocationFlags::ALLOC_MANUAL_SYNCHRONIZATION);
+      device, aTexture, aIndex, nullptr, aSize, aFormat, fencesHolderId,
+      aWriteFence, TextureAllocationFlags::ALLOC_MANUAL_SYNCHRONIZATION);
   data->mColorSpace = aColorSpace;
   data->SetColorRange(aColorRange);
 
@@ -487,13 +453,6 @@ D3D11TextureData* D3D11TextureData::Create(IntSize aSize, SurfaceFormat aFormat,
   return Create(aSize, aFormat, nullptr, aFlags, aDevice);
 }
 
-D3D11TextureData* D3D11TextureData::Create(SourceSurface* aSurface,
-                                           TextureAllocationFlags aFlags,
-                                           ID3D11Device* aDevice) {
-  return Create(aSurface->GetSize(), aSurface->GetFormat(), aSurface, aFlags,
-                aDevice);
-}
-
 D3D11TextureData* D3D11TextureData::Create(IntSize aSize, SurfaceFormat aFormat,
                                            SourceSurface* aSurface,
                                            TextureAllocationFlags aFlags,
@@ -517,24 +476,84 @@ D3D11TextureData* D3D11TextureData::Create(IntSize aSize, SurfaceFormat aFormat,
       DXGI_FORMAT_B8G8R8A8_UNORM, aSize.width, aSize.height, 1, 1,
       D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
 
-  if (aFormat == SurfaceFormat::NV12) {
-    newDesc.Format = DXGI_FORMAT_NV12;
-  } else if (aFormat == SurfaceFormat::P010) {
-    newDesc.Format = DXGI_FORMAT_P010;
-  } else if (aFormat == SurfaceFormat::P016) {
-    newDesc.Format = DXGI_FORMAT_P016;
+  // This supported formats list matches DXGITextureHostD3D11::PushDisplayItems.
+  switch (aFormat) {
+    case gfx::SurfaceFormat::B8G8R8X8:
+    case gfx::SurfaceFormat::R8G8B8X8:
+      newDesc.Format = DXGI_FORMAT_B8G8R8X8_UNORM;
+      break;
+    case gfx::SurfaceFormat::B8G8R8A8:
+    case gfx::SurfaceFormat::R8G8B8A8:
+      newDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+      break;
+    case gfx::SurfaceFormat::R10G10B10A2_UINT32:
+    case gfx::SurfaceFormat::R10G10B10X2_UINT32:
+      newDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+      break;
+    case gfx::SurfaceFormat::R16G16B16A16F:
+      newDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+      break;
+    case gfx::SurfaceFormat::NV12:
+      newDesc.Format = DXGI_FORMAT_NV12;
+      break;
+    case gfx::SurfaceFormat::P010:
+      newDesc.Format = DXGI_FORMAT_P010;
+      break;
+    case gfx::SurfaceFormat::P016:
+      newDesc.Format = DXGI_FORMAT_P016;
+      break;
+    case gfx::SurfaceFormat::A8R8G8B8:
+    case gfx::SurfaceFormat::X8R8G8B8:
+    case gfx::SurfaceFormat::R8G8B8:
+    case gfx::SurfaceFormat::B8G8R8:
+    case gfx::SurfaceFormat::R5G6B5_UINT16:
+    case gfx::SurfaceFormat::A8:
+    case gfx::SurfaceFormat::A16:
+    case gfx::SurfaceFormat::R8G8:
+    case gfx::SurfaceFormat::R16G16:
+    case gfx::SurfaceFormat::YUV420:
+    case gfx::SurfaceFormat::YUV420P10:
+    case gfx::SurfaceFormat::YUV422P10:
+    case gfx::SurfaceFormat::NV16:
+    case gfx::SurfaceFormat::YUY2:
+    case gfx::SurfaceFormat::HSV:
+    case gfx::SurfaceFormat::Lab:
+    case gfx::SurfaceFormat::Depth:
+    case gfx::SurfaceFormat::UNKNOWN:
+      // Per advice from Sotaro, these formats are not supported for video.
+      gfxCriticalNoteOnce
+          << "D3D11TextureData::Create: Unsupported SurfaceFormat %u"
+          << static_cast<unsigned int>(aFormat);
+      return nullptr;
   }
 
   newDesc.MiscFlags =
       D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED;
+  bool useFence = false;
   bool useKeyedMutex = false;
   if (!NS_IsMainThread()) {
     // On the main thread we use the syncobject to handle synchronization.
     if (!(aFlags & ALLOC_MANUAL_SYNCHRONIZATION)) {
-      newDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE |
-                          D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
-      useKeyedMutex = true;
+      if (!(aFlags & USE_D3D11_KEYED_MUTEX)) {
+        auto* fencesHolderMap = CompositeProcessD3D11FencesHolderMap::Get();
+        useFence = fencesHolderMap && FenceD3D11::IsSupported(device);
+      }
+      if (!useFence) {
+        newDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE |
+                            D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+        useKeyedMutex = true;
+      }
     }
+  }
+
+  Maybe<CompositeProcessFencesHolderId> fencesHolderId;
+  RefPtr<FenceD3D11> fence;
+  if (useFence) {
+    fence = FenceD3D11::Create(device);
+    if (!fence) {
+      return nullptr;
+    }
+    fencesHolderId = Some(CompositeProcessFencesHolderId::GetNext());
   }
 
   if (aSurface && useKeyedMutex &&
@@ -576,7 +595,6 @@ D3D11TextureData* D3D11TextureData::Create(IntSize aSize, SurfaceFormat aFormat,
   RefPtr<ID3D11Texture2D> texture11;
 
   {
-    AutoSerializeWithMoz2D serializeWithMoz2D(BackendType::DIRECT2D1_1);
     D3D11MTAutoEnter lock(mt.forget());
 
     HRESULT hr = device->CreateTexture2D(&newDesc, uploadDataPtr,
@@ -599,10 +617,10 @@ D3D11TextureData* D3D11TextureData::Create(IntSize aSize, SurfaceFormat aFormat,
   // aSurface then bizarely this isn't covered, so we insert a manual
   // lock/unlock pair to force this.
   if (aSurface && useKeyedMutex) {
-    if (!LockD3DTexture(texture11.get(), SerializeWithMoz2D::Yes)) {
+    if (!LockD3DTexture(texture11.get())) {
       return nullptr;
     }
-    UnlockD3DTexture(texture11.get(), SerializeWithMoz2D::Yes);
+    UnlockD3DTexture(texture11.get());
   }
 
   RefPtr<IDXGIResource1> resource;
@@ -629,8 +647,14 @@ D3D11TextureData* D3D11TextureData::Create(IntSize aSize, SurfaceFormat aFormat,
   RefPtr<gfx::FileHandleWrapper> handle =
       new gfx::FileHandleWrapper(UniqueFileHandle(sharedHandle));
 
+  if (useFence) {
+    auto* fencesHolderMap = CompositeProcessD3D11FencesHolderMap::Get();
+    fencesHolderMap->Register(fencesHolderId.ref());
+  }
+
   D3D11TextureData* data =
-      new D3D11TextureData(texture11, 0, handle, aSize, aFormat, aFlags);
+      new D3D11TextureData(device, texture11, 0, handle, aSize, aFormat,
+                           fencesHolderId, fence, aFlags);
 
   texture11->GetDevice(getter_AddRefs(device));
   if (XRE_IsGPUProcess() &&
@@ -650,7 +674,6 @@ D3D11TextureData* D3D11TextureData::Create(IntSize aSize, SurfaceFormat aFormat,
 }
 
 void D3D11TextureData::Deallocate(LayersIPCChannel* aAllocator) {
-  mDrawTarget = nullptr;
   mTexture = nullptr;
 }
 
@@ -667,28 +690,29 @@ TextureFlags D3D11TextureData::GetTextureFlags() const {
   return TextureFlags::WAIT_HOST_USAGE_END;
 }
 
-void D3D11TextureData::RegisterQuery(RefPtr<ID3D11Query> aQuery,
-                                     bool aOnlyForOverlay) {
-  MOZ_ASSERT(XRE_IsGPUProcess());
-  MOZ_ASSERT(GpuProcessD3D11QueryMap::Get());
-
-  if (!GpuProcessD3D11QueryMap::Get()) {
+void D3D11TextureData::IncrementAndSignalWriteFence() {
+  if (mFencesHolderId.isNothing() || !mWriteFence) {
     return;
   }
 
-  if (mGpuProcessQueryId.isNothing()) {
-    mGpuProcessQueryId = Some(GpuProcessQueryId::GetNext());
+  MOZ_ASSERT(mFencesHolderId->IsValid());
+
+  auto* fencesHolderMap = CompositeProcessD3D11FencesHolderMap::Get();
+  if (!fencesHolderMap) {
+    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    return;
   }
-  mGpuProcessQueryId.ref().mOnlyForOverlay = aOnlyForOverlay;
-  GpuProcessD3D11QueryMap::Get()->Register(mGpuProcessQueryId.ref(), aQuery);
+
+  mWriteFence->IncrementAndSignal();
+  fencesHolderMap->SetWriteFence(mFencesHolderId.ref(), mWriteFence);
 }
 
 DXGIYCbCrTextureData* DXGIYCbCrTextureData::Create(
     ID3D11Texture2D* aTextureY, ID3D11Texture2D* aTextureCb,
     ID3D11Texture2D* aTextureCr, const gfx::IntSize& aSize,
     const gfx::IntSize& aSizeY, const gfx::IntSize& aSizeCbCr,
-    gfx::ColorDepth aColorDepth, YUVColorSpace aYUVColorSpace,
-    gfx::ColorRange aColorRange) {
+    const gfx::ColorDepth aColorDepth, const YUVColorSpace aYUVColorSpace,
+    const gfx::ColorRange aColorRange) {
   if (!aTextureY || !aTextureCb || !aTextureCr) {
     return nullptr;
   }
@@ -740,21 +764,62 @@ DXGIYCbCrTextureData* DXGIYCbCrTextureData::Create(
   const RefPtr<gfx::FileHandleWrapper> sharedHandleCr =
       new gfx::FileHandleWrapper(UniqueFileHandle(handleCr));
 
-  DXGIYCbCrTextureData* texture = new DXGIYCbCrTextureData();
-  texture->mHandles[0] = sharedHandleY;
-  texture->mHandles[1] = sharedHandleCb;
-  texture->mHandles[2] = sharedHandleCr;
-  texture->mD3D11Textures[0] = aTextureY;
-  texture->mD3D11Textures[1] = aTextureCb;
-  texture->mD3D11Textures[2] = aTextureCr;
-  texture->mSize = aSize;
-  texture->mSizeY = aSizeY;
-  texture->mSizeCbCr = aSizeCbCr;
-  texture->mColorDepth = aColorDepth;
-  texture->mYUVColorSpace = aYUVColorSpace;
-  texture->mColorRange = aColorRange;
+  auto* fenceHolderMap = CompositeProcessD3D11FencesHolderMap::Get();
+  if (!fenceHolderMap) {
+    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    return nullptr;
+  }
 
+  RefPtr<ID3D11Device> device;
+  aTextureY->GetDevice(getter_AddRefs(device));
+  if (!device) {
+    return nullptr;
+  }
+
+  RefPtr<FenceD3D11> fence = FenceD3D11::Create(device);
+  if (!fence) {
+    return nullptr;
+  }
+
+  auto fencesHolderId = CompositeProcessFencesHolderId::GetNext();
+  fenceHolderMap->Register(fencesHolderId);
+
+  RefPtr<ID3D11Texture2D> textures[3] = {aTextureY, aTextureCb, aTextureCr};
+  RefPtr<gfx::FileHandleWrapper> handles[3] = {sharedHandleY, sharedHandleCb,
+                                               sharedHandleCr};
+
+  DXGIYCbCrTextureData* texture = new DXGIYCbCrTextureData(
+      textures, handles, aSize, aSizeY, aSizeCbCr, aColorDepth, aYUVColorSpace,
+      aColorRange, fencesHolderId, fence);
   return texture;
+}
+
+DXGIYCbCrTextureData::DXGIYCbCrTextureData(
+    RefPtr<ID3D11Texture2D> (&aD3D11Textures)[3],
+    RefPtr<gfx::FileHandleWrapper>(aHandles)[3], const gfx::IntSize& aSize,
+    const gfx::IntSize& aSizeY, const gfx::IntSize& aSizeCbCr,
+    const gfx::ColorDepth aColorDepth, const gfx::YUVColorSpace aYUVColorSpace,
+    const gfx::ColorRange aColorRange,
+    const CompositeProcessFencesHolderId aFencesHolderId,
+    const RefPtr<FenceD3D11> aWriteFence)
+    : mSize(aSize),
+      mSizeY(aSizeY),
+      mSizeCbCr(aSizeCbCr),
+      mColorDepth(aColorDepth),
+      mYUVColorSpace(aYUVColorSpace),
+      mColorRange(aColorRange),
+      mFencesHolderId(aFencesHolderId),
+      mWriteFence(aWriteFence),
+      mD3D11Textures{aD3D11Textures[0], aD3D11Textures[1], aD3D11Textures[2]},
+      mHandles{aHandles[0], aHandles[1], aHandles[2]} {}
+
+DXGIYCbCrTextureData::~DXGIYCbCrTextureData() {
+  auto* fenceHolderMap = CompositeProcessD3D11FencesHolderMap::Get();
+  if (!fenceHolderMap) {
+    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    return;
+  }
+  fenceHolderMap->Unregister(mFencesHolderId);
 }
 
 void DXGIYCbCrTextureData::FillInfo(TextureData::Info& aInfo) const {
@@ -766,9 +831,9 @@ void DXGIYCbCrTextureData::FillInfo(TextureData::Info& aInfo) const {
 
 void DXGIYCbCrTextureData::SerializeSpecific(
     SurfaceDescriptorDXGIYCbCr* const aOutDesc) {
-  *aOutDesc = SurfaceDescriptorDXGIYCbCr(mHandles[0], mHandles[1], mHandles[2],
-                                         mSize, mSizeY, mSizeCbCr, mColorDepth,
-                                         mYUVColorSpace, mColorRange);
+  *aOutDesc = SurfaceDescriptorDXGIYCbCr(
+      mHandles[0], mHandles[1], mHandles[2], mSize, mSizeY, mSizeCbCr,
+      mColorDepth, mYUVColorSpace, mColorRange, mFencesHolderId);
 }
 
 bool DXGIYCbCrTextureData::Serialize(SurfaceDescriptor& aOutDescriptor) {
@@ -824,17 +889,8 @@ already_AddRefed<TextureHost> CreateTextureHostD3D11(
 
 already_AddRefed<DrawTarget> D3D11TextureData::BorrowDrawTarget() {
   MOZ_ASSERT(NS_IsMainThread() || NS_IsInCanvasThreadOrWorker());
-
-  if (!mDrawTarget && mTexture) {
-    // This may return a null DrawTarget
-    mDrawTarget = Factory::CreateDrawTargetForD3D11Texture(mTexture, mFormat);
-    if (!mDrawTarget) {
-      gfxCriticalNote << "Could not borrow DrawTarget (D3D11) " << (int)mFormat;
-    }
-  }
-
-  RefPtr<DrawTarget> result = mDrawTarget;
-  return result.forget();
+  gfxCriticalNote << "Could not borrow DrawTarget (D3D11) " << (int)mFormat;
+  return nullptr;
 }
 
 bool D3D11TextureData::UpdateFromSurface(gfx::SourceSurface* aSurface) {
@@ -881,7 +937,7 @@ static RefPtr<ID3D11Texture2D> OpenSharedD3D11Texture(
 
   RefPtr<ID3D11Texture2D> texture;
   if (gpuProcessTextureId.isSome()) {
-    auto* textureMap = layers::GpuProcessD3D11TextureMap::Get();
+    auto* textureMap = GpuProcessD3D11TextureMap::Get();
     if (textureMap) {
       texture = textureMap->GetTexture(gpuProcessTextureId.ref());
     }
@@ -901,15 +957,33 @@ DXGITextureHostD3D11::DXGITextureHostD3D11(
       mHandle(aDescriptor.handle()),
       mGpuProcessTextureId(aDescriptor.gpuProcessTextureId()),
       mArrayIndex(aDescriptor.arrayIndex()),
-      mGpuProcessQueryId(aDescriptor.gpuProcessQueryId()),
       mSize(aDescriptor.size()),
       mFormat(aDescriptor.format()),
       mHasKeyedMutex(aDescriptor.hasKeyedMutex()),
-      mAcquireFenceInfo(aDescriptor.fenceInfo().isSome()
-                            ? aDescriptor.fenceInfo().ref()
-                            : gfx::FenceInfo()),
+      mFencesHolderId(aDescriptor.fencesHolderId()),
       mColorSpace(aDescriptor.colorSpace()),
-      mColorRange(aDescriptor.colorRange()) {}
+      mColorRange(aDescriptor.colorRange()) {
+  if (!mFencesHolderId) {
+    return;
+  }
+  MOZ_ASSERT(mFencesHolderId->IsValid());
+  if (auto* fenceHolderMap = CompositeProcessD3D11FencesHolderMap::Get()) {
+    fenceHolderMap->RegisterReference(mFencesHolderId.ref());
+  } else {
+    MOZ_ASSERT_UNREACHABLE("FencesHolderMap not available");
+  }
+}
+
+DXGITextureHostD3D11::~DXGITextureHostD3D11() {
+  if (!mFencesHolderId) {
+    return;
+  }
+  if (auto* fenceHolderMap = CompositeProcessD3D11FencesHolderMap::Get()) {
+    fenceHolderMap->Unregister(mFencesHolderId.ref());
+  } else {
+    MOZ_ASSERT_UNREACHABLE("FencesHolderMap not available");
+  }
+}
 
 already_AddRefed<gfx::DataSourceSurface> DXGITextureHostD3D11::GetAsSurface(
     gfx::DataSourceSurface* aSurface) {
@@ -984,9 +1058,7 @@ already_AddRefed<gfx::DataSourceSurface> DXGITextureHostD3D11::GetAsSurface(
 }
 
 already_AddRefed<gfx::DataSourceSurface>
-DXGITextureHostD3D11::GetAsSurfaceWithDevice(
-    ID3D11Device* const aDevice,
-    DataMutex<RefPtr<VideoProcessorD3D11>>& aVideoProcessorD3D11) {
+DXGITextureHostD3D11::GetAsSurfaceWithDevice(ID3D11Device* const aDevice) {
   if (!aDevice) {
     return nullptr;
   }
@@ -996,179 +1068,20 @@ DXGITextureHostD3D11::GetAsSurfaceWithDevice(
     return nullptr;
   }
 
-  bool isLocked = LockD3DTexture(d3dTexture.get());
-  if (!isLocked) {
+  if (mGpuProcessTextureId.isSome()) {
+    auto* textureMap = layers::GpuProcessD3D11TextureMap::Get();
+    if (textureMap) {
+      textureMap->DisableZeroCopyNV12Texture(mGpuProcessTextureId.ref());
+    }
+  }
+
+  RefPtr<gfx::SourceSurface> sourceSurface = gfx::SourceSurfaceD3D11::Create(
+      d3dTexture, mArrayIndex, mColorSpace, mColorRange, mFencesHolderId);
+  if (!sourceSurface) {
     return nullptr;
   }
 
-  const auto onExit =
-      mozilla::MakeScopeExit([&]() { UnlockD3DTexture(d3dTexture.get()); });
-
-  bool isRGB = [&]() {
-    switch (mFormat) {
-      case gfx::SurfaceFormat::R8G8B8X8:
-      case gfx::SurfaceFormat::R8G8B8A8:
-      case gfx::SurfaceFormat::B8G8R8A8:
-      case gfx::SurfaceFormat::B8G8R8X8:
-        return true;
-      default:
-        break;
-    }
-    return false;
-  }();
-
-  if (isRGB) {
-    RefPtr<gfx::DrawTarget> dt =
-        gfx::Factory::CreateDrawTargetForD3D11Texture(d3dTexture, mFormat);
-    if (!dt) {
-      return nullptr;
-    }
-    RefPtr<gfx::SourceSurface> surface = dt->Snapshot();
-    if (!surface) {
-      return nullptr;
-    }
-    RefPtr<DataSourceSurface> dataSurface = surface->GetDataSurface();
-    if (!dataSurface) {
-      return nullptr;
-    }
-    return dataSurface.forget();
-  }
-
-  if (mFormat != gfx::SurfaceFormat::NV12 &&
-      mFormat != gfx::SurfaceFormat::P010 &&
-      mFormat != gfx::SurfaceFormat::P016) {
-    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
-    return nullptr;
-  }
-
-  RefPtr<ID3D11Device> device;
-  d3dTexture->GetDevice(getter_AddRefs(device));
-  if (!device) {
-    gfxCriticalNoteOnce << "Failed to get D3D11 device from source texture";
-    return nullptr;
-  }
-
-  RefPtr<ID3D11DeviceContext> context;
-  device->GetImmediateContext(getter_AddRefs(context));
-
-  auto* queryMap = GpuProcessD3D11QueryMap::Get();
-  if (queryMap && mGpuProcessQueryId.isSome()) {
-    auto query = queryMap->GetQuery(mGpuProcessQueryId.ref());
-    if (query) {
-      // Wait ID3D11Query of D3D11Texture2D copy complete just before blitting
-      // for video overlay with non Intel GPUs. See Bug 1817617.
-      BOOL result;
-      bool ret = layers::WaitForFrameGPUQuery(device, context, query, &result);
-      if (!ret) {
-        gfxCriticalNoteOnce << "WaitForFrameGPUQuery() failed";
-      }
-    } else {
-      gfxCriticalNoteOnce << "Failed to get ID3D11Query";
-    }
-  }
-
-  CD3D11_TEXTURE2D_DESC desc;
-  d3dTexture->GetDesc(&desc);
-
-  desc = CD3D11_TEXTURE2D_DESC(
-      DXGI_FORMAT_B8G8R8A8_UNORM, desc.Width, desc.Height, 1, 1,
-      D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
-  desc.MiscFlags =
-      D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED;
-
-  RefPtr<ID3D11Texture2D> copiedTexture;
-  HRESULT hr =
-      device->CreateTexture2D(&desc, nullptr, getter_AddRefs(copiedTexture));
-  if (FAILED(hr)) {
-    gfxCriticalNoteOnce << "Failed to create copiedTexture: " << gfx::hexa(hr);
-    return nullptr;
-  }
-
-  {
-    auto lock = aVideoProcessorD3D11.Lock();
-    auto& videoProcessor = lock.ref();
-    if (videoProcessor && (videoProcessor->mDevice != device)) {
-      videoProcessor = nullptr;
-    }
-
-    if (!videoProcessor) {
-      videoProcessor = VideoProcessorD3D11::Create(device);
-      if (!videoProcessor) {
-        gfxCriticalNoteOnce << "Failed to create VideoProcessorD3D11";
-        return nullptr;
-      }
-    }
-
-    hr = videoProcessor->Init(mSize);
-    if (FAILED(hr)) {
-      gfxCriticalNoteOnce << "Failed to init VideoProcessorD3D11"
-                          << gfx::hexa(hr);
-      return nullptr;
-    }
-
-    VideoProcessorD3D11::InputTextureInfo info(mColorSpace, mColorRange,
-                                               mArrayIndex, d3dTexture);
-    if (!videoProcessor->CallVideoProcessorBlt(info, copiedTexture)) {
-      gfxCriticalNoteOnce << "CallVideoProcessorBlt failed";
-      return nullptr;
-    }
-  }
-
-  {
-    // Wait VideoProcessorBlt gpu task complete.
-    RefPtr<ID3D11Query> query;
-    CD3D11_QUERY_DESC desc(D3D11_QUERY_EVENT);
-    hr = device->CreateQuery(&desc, getter_AddRefs(query));
-    if (FAILED(hr) || !query) {
-      gfxWarning() << "Could not create D3D11_QUERY_EVENT: " << gfx::hexa(hr);
-      return nullptr;
-    }
-
-    context->End(query);
-
-    BOOL result;
-    bool ret = WaitForFrameGPUQuery(device, context, query, &result);
-    if (!ret) {
-      gfxCriticalNoteOnce << "WaitForFrameGPUQuery() failed";
-    }
-  }
-
-  RefPtr<IDXGIResource1> resource;
-  copiedTexture->QueryInterface((IDXGIResource1**)getter_AddRefs(resource));
-  if (!resource) {
-    gfxCriticalNoteOnce << "Failed to get IDXGIResource";
-    return nullptr;
-  }
-
-  HANDLE sharedHandle;
-  hr = resource->CreateSharedHandle(
-      nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr,
-      &sharedHandle);
-  if (FAILED(hr)) {
-    gfxCriticalNoteOnce << "GetSharedHandle failed: " << gfx::hexa(hr);
-    return nullptr;
-  }
-
-  RefPtr<gfx::FileHandleWrapper> handle =
-      new gfx::FileHandleWrapper(UniqueFileHandle(sharedHandle));
-
-  d3dTexture = OpenSharedD3D11Texture(aDevice, handle->GetHandle());
-  if (!d3dTexture) {
-    gfxCriticalNoteOnce << "Failed to open copied texture handle";
-    return nullptr;
-  }
-
-  RefPtr<gfx::DrawTarget> dt = gfx::Factory::CreateDrawTargetForD3D11Texture(
-      d3dTexture, gfx::SurfaceFormat::B8G8R8A8);
-  if (!dt) {
-    gfxCriticalNote << "Failed to create DrawTarget (D3D11)";
-    return nullptr;
-  }
-  RefPtr<gfx::SourceSurface> surface = dt->Snapshot();
-  if (!surface) {
-    return nullptr;
-  }
-  RefPtr<DataSourceSurface> dataSurface = surface->GetDataSurface();
+  RefPtr<DataSourceSurface> dataSurface = sourceSurface->GetDataSurface();
   if (!dataSurface) {
     return nullptr;
   }
@@ -1182,8 +1095,7 @@ void DXGITextureHostD3D11::CreateRenderTexture(
 
   RefPtr<wr::RenderDXGITextureHost> texture = new wr::RenderDXGITextureHost(
       mHandle, mGpuProcessTextureId, mArrayIndex, mFormat, mColorSpace,
-      mColorRange, mSize, mHasKeyedMutex, mAcquireFenceInfo,
-      mGpuProcessQueryId);
+      mColorRange, mSize, mHasKeyedMutex, mFencesHolderId);
   if (mFlags & TextureFlags::SOFTWARE_DECODED_VIDEO) {
     texture->SetIsSoftwareDecodedVideo();
   }
@@ -1199,7 +1111,10 @@ uint32_t DXGITextureHostD3D11::NumSubTextures() {
     case gfx::SurfaceFormat::R8G8B8X8:
     case gfx::SurfaceFormat::R8G8B8A8:
     case gfx::SurfaceFormat::B8G8R8A8:
-    case gfx::SurfaceFormat::B8G8R8X8: {
+    case gfx::SurfaceFormat::B8G8R8X8:
+    case gfx::SurfaceFormat::R10G10B10A2_UINT32:
+    case gfx::SurfaceFormat::R10G10B10X2_UINT32:
+    case gfx::SurfaceFormat::R16G16B16A16F: {
       return 1;
     }
     case gfx::SurfaceFormat::NV12:
@@ -1230,7 +1145,10 @@ void DXGITextureHostD3D11::PushResourceUpdates(
     case gfx::SurfaceFormat::R8G8B8X8:
     case gfx::SurfaceFormat::R8G8B8A8:
     case gfx::SurfaceFormat::B8G8R8A8:
-    case gfx::SurfaceFormat::B8G8R8X8: {
+    case gfx::SurfaceFormat::B8G8R8X8:
+    case gfx::SurfaceFormat::R10G10B10A2_UINT32:
+    case gfx::SurfaceFormat::R10G10B10X2_UINT32:
+    case gfx::SurfaceFormat::R16G16B16A16F: {
       MOZ_ASSERT(aImageKeys.length() == 1);
 
       wr::ImageDescriptor descriptor(mSize, GetFormat());
@@ -1300,7 +1218,20 @@ void DXGITextureHostD3D11::PushDisplayItems(
     preferExternalCompositing = false;
   }
 
+  // This supported format list matches D3D11TextureData::Create.
   switch (GetFormat()) {
+    case gfx::SurfaceFormat::R10G10B10A2_UINT32:
+    case gfx::SurfaceFormat::R10G10B10X2_UINT32:
+    case gfx::SurfaceFormat::R16G16B16A16F: {
+      // WebRender isn't HDR ready so we have to push to the compositor.
+      preferCompositorSurface = preferExternalCompositing = true;
+      MOZ_ASSERT(aImageKeys.length() == 1);
+      aBuilder.PushImage(aBounds, aClip, true, false, aFilter, aImageKeys[0],
+                         !(mFlags & TextureFlags::NON_PREMULTIPLIED),
+                         wr::ColorF{1.0f, 1.0f, 1.0f, 1.0f},
+                         preferCompositorSurface, preferExternalCompositing);
+      break;
+    }
     case gfx::SurfaceFormat::R8G8B8X8:
     case gfx::SurfaceFormat::R8G8B8A8:
     case gfx::SurfaceFormat::B8G8R8A8:
@@ -1313,13 +1244,22 @@ void DXGITextureHostD3D11::PushDisplayItems(
       break;
     }
     case gfx::SurfaceFormat::P010:
-    case gfx::SurfaceFormat::P016:
-    case gfx::SurfaceFormat::NV12: {
+    case gfx::SurfaceFormat::P016: {
       // DXGI_FORMAT_P010 stores its 10 bit value in the most significant bits
       // of each 16 bit word with the unused lower bits cleared to zero so that
       // it may be handled as if it was DXGI_FORMAT_P016. This is approximately
       // perceptually correct. However, due to rounding error, the precise
       // quantized value after sampling may be off by 1.
+      MOZ_ASSERT(aImageKeys.length() == 2);
+      aBuilder.PushP010Image(
+          aBounds, aClip, true, aImageKeys[0], aImageKeys[1],
+          wr::ColorDepth::Color16,
+          wr::ToWrYuvColorSpace(ToYUVColorSpace(mColorSpace)),
+          wr::ToWrColorRange(mColorRange), aFilter, preferCompositorSurface,
+          preferExternalCompositing);
+      break;
+    }
+    case gfx::SurfaceFormat::NV12: {
       MOZ_ASSERT(aImageKeys.length() == 2);
       aBuilder.PushNV12Image(
           aBounds, aClip, true, aImageKeys[0], aImageKeys[1],
@@ -1330,7 +1270,25 @@ void DXGITextureHostD3D11::PushDisplayItems(
           preferExternalCompositing);
       break;
     }
-    default: {
+    case gfx::SurfaceFormat::A8R8G8B8:
+    case gfx::SurfaceFormat::X8R8G8B8:
+    case gfx::SurfaceFormat::R8G8B8:
+    case gfx::SurfaceFormat::B8G8R8:
+    case gfx::SurfaceFormat::R5G6B5_UINT16:
+    case gfx::SurfaceFormat::A8:
+    case gfx::SurfaceFormat::A16:
+    case gfx::SurfaceFormat::R8G8:
+    case gfx::SurfaceFormat::R16G16:
+    case gfx::SurfaceFormat::YUV420:
+    case gfx::SurfaceFormat::YUV420P10:
+    case gfx::SurfaceFormat::YUV422P10:
+    case gfx::SurfaceFormat::NV16:
+    case gfx::SurfaceFormat::YUY2:
+    case gfx::SurfaceFormat::HSV:
+    case gfx::SurfaceFormat::Lab:
+    case gfx::SurfaceFormat::Depth:
+    case gfx::SurfaceFormat::UNKNOWN: {
+      // Per advice from Sotaro, these formats are not supported for video.
       MOZ_ASSERT_UNREACHABLE("unexpected to be called");
     }
   }
@@ -1341,8 +1299,9 @@ bool DXGITextureHostD3D11::SupportsExternalCompositing(
   if (aBackend == WebRenderBackend::SOFTWARE) {
     return true;
   }
-  // XXX Add P010 and P016 support.
-  if (GetFormat() == gfx::SurfaceFormat::NV12) {
+  if (GetFormat() == gfx::SurfaceFormat::NV12 ||
+      GetFormat() == gfx::SurfaceFormat::P010 ||
+      GetFormat() == gfx::SurfaceFormat::P016) {
     if ((mFlags & TextureFlags::SOFTWARE_DECODED_VIDEO) &&
         (gfx::gfxVars::UseWebRenderDCompVideoSwOverlayWin())) {
       return true;
@@ -1352,22 +1311,69 @@ bool DXGITextureHostD3D11::SupportsExternalCompositing(
       return true;
     }
   }
+
+  bool useDcompTextureOverlay =
+      wr::RenderDXGITextureHost::UseDCompositionTextureOverlay(GetFormat()) &&
+      mFencesHolderId.isSome() &&
+      !(mFlags & TextureFlags::ALLOC_BY_BUFFER_PROVIDER);
+  if (useDcompTextureOverlay) {
+    return true;
+  }
+
   return false;
+}
+
+void DXGITextureHostD3D11::NotifyNotUsed() {
+  if (!mReadFence || mFencesHolderId.isNothing()) {
+    return;
+  }
+
+  auto* fenceHolderMap = CompositeProcessD3D11FencesHolderMap::Get();
+  if (!fenceHolderMap) {
+    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    return;
+  }
+  fenceHolderMap->SetReadFence(mFencesHolderId.ref(), mReadFence);
+  mReadFence = nullptr;
+}
+
+void DXGITextureHostD3D11::SetReadFence(Fence* aReadFence) {
+  MOZ_ASSERT(aReadFence);
+  MOZ_ASSERT(aReadFence->AsFenceD3D11());
+
+  if (!aReadFence || !aReadFence->AsFenceD3D11() ||
+      mFencesHolderId.isNothing()) {
+    return;
+  }
+
+  mReadFence = aReadFence->AsFenceD3D11();
 }
 
 DXGIYCbCrTextureHostD3D11::DXGIYCbCrTextureHostD3D11(
     TextureFlags aFlags, const SurfaceDescriptorDXGIYCbCr& aDescriptor)
     : TextureHost(TextureHostType::DXGIYCbCr, aFlags),
+      mHandles{aDescriptor.handleY(), aDescriptor.handleCb(),
+               aDescriptor.handleCr()},
       mSize(aDescriptor.size()),
       mSizeY(aDescriptor.sizeY()),
       mSizeCbCr(aDescriptor.sizeCbCr()),
-      mIsLocked(false),
       mColorDepth(aDescriptor.colorDepth()),
       mYUVColorSpace(aDescriptor.yUVColorSpace()),
-      mColorRange(aDescriptor.colorRange()) {
-  mHandles[0] = aDescriptor.handleY();
-  mHandles[1] = aDescriptor.handleCb();
-  mHandles[2] = aDescriptor.handleCr();
+      mColorRange(aDescriptor.colorRange()),
+      mFencesHolderId(aDescriptor.fencesHolderId()) {
+  if (auto* fenceHolderMap = CompositeProcessD3D11FencesHolderMap::Get()) {
+    fenceHolderMap->RegisterReference(mFencesHolderId);
+  } else {
+    MOZ_ASSERT_UNREACHABLE("FencesHolderMap not available");
+  }
+}
+
+DXGIYCbCrTextureHostD3D11::~DXGIYCbCrTextureHostD3D11() {
+  if (auto* fenceHolderMap = CompositeProcessD3D11FencesHolderMap::Get()) {
+    fenceHolderMap->Unregister(mFencesHolderId);
+  } else {
+    MOZ_ASSERT_UNREACHABLE("FencesHolderMap not available");
+  }
 }
 
 void DXGIYCbCrTextureHostD3D11::CreateRenderTexture(
@@ -1375,7 +1381,8 @@ void DXGIYCbCrTextureHostD3D11::CreateRenderTexture(
   MOZ_ASSERT(mExternalImageId.isSome());
 
   RefPtr<wr::RenderTextureHost> texture = new wr::RenderDXGIYCbCrTextureHost(
-      mHandles, mYUVColorSpace, mColorDepth, mColorRange, mSizeY, mSizeCbCr);
+      mHandles, mYUVColorSpace, mColorDepth, mColorRange, mSizeY, mSizeCbCr,
+      mFencesHolderId);
 
   wr::RenderThread::Get()->RegisterExternalImage(aExternalImageId,
                                                  texture.forget());
@@ -1452,6 +1459,31 @@ void DXGIYCbCrTextureHostD3D11::PushDisplayItems(
 bool DXGIYCbCrTextureHostD3D11::SupportsExternalCompositing(
     WebRenderBackend aBackend) {
   return aBackend == WebRenderBackend::SOFTWARE;
+}
+
+void DXGIYCbCrTextureHostD3D11::NotifyNotUsed() {
+  if (!mReadFence) {
+    return;
+  }
+
+  auto* fenceHolderMap = CompositeProcessD3D11FencesHolderMap::Get();
+  if (!fenceHolderMap) {
+    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    return;
+  }
+  fenceHolderMap->SetReadFence(mFencesHolderId, mReadFence);
+  mReadFence = nullptr;
+}
+
+void DXGIYCbCrTextureHostD3D11::SetReadFence(Fence* aReadFence) {
+  MOZ_ASSERT(aReadFence);
+  MOZ_ASSERT(aReadFence->AsFenceD3D11());
+
+  if (!aReadFence || !aReadFence->AsFenceD3D11()) {
+    return;
+  }
+
+  mReadFence = aReadFence->AsFenceD3D11();
 }
 
 bool DataTextureSourceD3D11::Update(DataSourceSurface* aSurface,

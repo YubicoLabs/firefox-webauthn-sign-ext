@@ -7,7 +7,9 @@ package org.mozilla.fenix.shortcut
 import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.LifecycleOwner
 import androidx.navigation.NavController
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.mapNotNull
@@ -17,11 +19,13 @@ import mozilla.components.feature.pwa.WebAppUseCases
 import mozilla.components.lib.state.ext.flowScoped
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.BrowserFragmentDirections
+import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.utils.Settings
 
 /**
- * Displays the [PwaOnboardingDialogFragment] info dialog when a PWA is opened in the browser for the third time.
+ * Displays the [PwaOnboardingDialogFragment] info dialog when a PWA is opened for the third time in the browser,
+ * in normal browsing mode only.
  */
 class PwaOnboardingObserver(
     private val store: BrowserStore,
@@ -29,12 +33,13 @@ class PwaOnboardingObserver(
     private val navController: NavController,
     private val settings: Settings,
     private val webAppUseCases: WebAppUseCases,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Main,
 ) {
 
     private var scope: CoroutineScope? = null
 
     fun start() {
-        scope = store.flowScoped(lifecycleOwner) { flow ->
+        scope = store.flowScoped(lifecycleOwner, dispatcher) { flow ->
             flow.mapNotNull { state ->
                 state.selectedTab
             }
@@ -42,7 +47,11 @@ class PwaOnboardingObserver(
                     it.content.webAppManifest
                 }
                 .collect {
-                    if (webAppUseCases.isInstallable() && !settings.userKnowsAboutPwas) {
+                    if (
+                        webAppUseCases.isInstallable() &&
+                        !settings.userKnowsAboutPwas &&
+                        settings.lastKnownMode == BrowsingMode.Normal
+                    ) {
                         settings.incrementVisitedInstallableCount()
                         if (settings.shouldShowPwaCfr) {
                             navigateToPwaOnboarding()

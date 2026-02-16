@@ -37,6 +37,7 @@ linux64-asan/debug:
             NSS_DISABLE_UNLOAD: "1"
             CC: "clang"
             CCC: "clang++"
+            CFLAGS: "-O2"
         allow-ptrace: true
     attributes:
         asan: true
@@ -53,6 +54,9 @@ linux64/opt-make:
     description: "Linux 64 (opt, make)"
     attributes:
         make: true
+    worker:
+        env:
+            BUILD_OPT: "1"
 
 linux64/opt-fips:
     description: "Linux 64 (FIPS opt)"

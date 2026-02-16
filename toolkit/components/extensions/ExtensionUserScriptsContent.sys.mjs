@@ -12,11 +12,9 @@
 
 import { ExtensionUtils } from "resource://gre/modules/ExtensionUtils.sys.mjs";
 import { ExtensionCommon } from "resource://gre/modules/ExtensionCommon.sys.mjs";
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
-/** @type {Lazy} */
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   Schemas: "resource://gre/modules/Schemas.sys.mjs",
 });
 

@@ -29,15 +29,16 @@ keyUsage:[digitalSignature,nonRepudiation,keyEncipherment,
           dataEncipherment,keyAgreement,keyCertSign,cRLSign]
 extKeyUsage:[serverAuth,clientAuth,codeSigning,emailProtection
              nsSGC, # Netscape Server Gated Crypto
-             OCSPSigning,timeStamping]
+             OCSPSigning,timeStamping,tlsBinding]
 subjectAlternativeName:[<dNSName|directoryName|"ip4:"iPV4Address>,...]
 authorityInformationAccess:<OCSP URI>
 certificatePolicies:[<policy OID>,...]
 nameConstraints:{permitted,excluded}:[<dNSName|directoryName>,...]
 nsCertType:sslServer
 TLSFeature:[<TLSFeature>,...]
-embeddedSCTList:[<key specification>:<YYYYMMDD>,...]
+embeddedSCTList:[<key specification>:<YYYYMMDD>[:<leaf index>],...]
 delegationUsage:
+qcStatements:[<statement OID[:info OID]>,...]
 
 Where:
   [] indicates an optional field or component of a field
@@ -94,7 +95,6 @@ from struct import pack
 
 import pyct
 import pykey
-import six
 from pyasn1.codec.der import decoder, encoder
 from pyasn1.type import constraint, tag, univ, useful
 from pyasn1_modules import rfc2459
@@ -110,12 +110,12 @@ class UnknownBaseError(Error):
     """Base class for handling unexpected input in this module."""
 
     def __init__(self, value):
-        super(UnknownBaseError, self).__init__()
+        super().__init__()
         self.value = value
         self.category = "input"
 
     def __str__(self):
-        return 'Unknown %s type "%s"' % (self.category, repr(self.value))
+        return f'Unknown {self.category} type "{repr(self.value)}"'
 
 
 class UnknownAlgorithmTypeError(UnknownBaseError):
@@ -211,18 +211,18 @@ class InvalidSCTSpecification(Error):
     """Helper exception type to handle invalid SCT specifications."""
 
     def __init__(self, value):
-        super(InvalidSCTSpecification, self).__init__()
+        super().__init__()
         self.value = value
 
     def __str__(self):
-        return repr('invalid SCT specification "{}"' % self.value)
+        return f'invalid SCT specification "{self.value}"'
 
 
 class InvalidSerialNumber(Error):
     """Exception type to handle invalid serial numbers."""
 
     def __init__(self, value):
-        super(InvalidSerialNumber, self).__init__()
+        super().__init__()
         self.value = value
 
     def __str__(self):
@@ -255,7 +255,7 @@ def stringToDN(string, tag=None):
     optional implicit tag in cases where the Name needs to be tagged
     differently."""
     if string and "/" not in string:
-        string = "/CN=%s" % string
+        string = f"/CN={string}"
     rdns = rfc2459.RDNSequence()
     pattern = "/(C|ST|L|O|OU|CN|emailAddress)="
     split = re.split(pattern, string)
@@ -293,9 +293,7 @@ def stringToDN(string, tag=None):
             # The value may have things like '\0' (i.e. a slash followed by
             # the number zero) that have to be decoded into the resulting
             # '\x00' (i.e. a byte with value zero).
-            nameComponent[encoding] = six.ensure_binary(value).decode(
-                encoding="unicode_escape"
-            )
+            nameComponent[encoding] = value.encode().decode(encoding="unicode_escape")
         ava["value"] = nameComponent
         rdn = rfc2459.RelativeDistinguishedName()
         rdn.setComponentByPosition(0, ava)
@@ -361,13 +359,13 @@ def serialBytesToString(serialBytes):
     the corresponding serial number string."""
     serialBytesLen = len(serialBytes)
     if serialBytesLen > 127:
-        raise InvalidSerialNumber("{} bytes is too long".format(serialBytesLen))
+        raise InvalidSerialNumber(f"{serialBytesLen} bytes is too long")
     # Prepend the ASN.1 INTEGER tag and length bytes.
     stringBytes = [getASN1Tag(univ.Integer), serialBytesLen] + serialBytes
     return bytes(stringBytes)
 
 
-class Certificate(object):
+class Certificate:
     """Utility class for reading a certificate specification and
     generating a signed x509 certificate"""
 
@@ -410,22 +408,22 @@ class Certificate(object):
         the build system on OS X (see the comment above main, later in
         this file)."""
         hasher = hashlib.sha256()
-        hasher.update(six.ensure_binary(str(self.versionValue)))
-        hasher.update(six.ensure_binary(self.signature))
-        hasher.update(six.ensure_binary(self.issuer))
-        hasher.update(six.ensure_binary(str(self.notBefore)))
-        hasher.update(six.ensure_binary(str(self.notAfter)))
-        hasher.update(six.ensure_binary(self.subject))
+        hasher.update(str(self.versionValue).encode())
+        hasher.update(self.signature.encode())
+        hasher.update(self.issuer.encode())
+        hasher.update(str(self.notBefore).encode())
+        hasher.update(str(self.notAfter).encode())
+        hasher.update(self.subject.encode())
         if self.extensionLines:
             for extensionLine in self.extensionLines:
-                hasher.update(six.ensure_binary(extensionLine))
+                hasher.update(extensionLine.encode())
         if self.savedEmbeddedSCTListData:
             # savedEmbeddedSCTListData is
             # (embeddedSCTListSpecification, critical), where |critical|
             # may be None
-            hasher.update(six.ensure_binary(self.savedEmbeddedSCTListData[0]))
+            hasher.update(self.savedEmbeddedSCTListData[0].encode())
             if self.savedEmbeddedSCTListData[1]:
-                hasher.update(six.ensure_binary(self.savedEmbeddedSCTListData[1]))
+                hasher.update(self.savedEmbeddedSCTListData[1].encode())
         serialBytes = [c for c in hasher.digest()[:20]]
         # Ensure that the most significant bit isn't set (which would
         # indicate a negative number, which isn't valid for serial
@@ -516,6 +514,8 @@ class Certificate(object):
             self.savedEmbeddedSCTListData = (value, critical)
         elif extensionType == "delegationUsage":
             self.addDelegationUsage(critical)
+        elif extensionType == "qcStatements":
+            self.addQCStatements(value, critical)
         else:
             raise UnknownExtensionTypeError(extensionType)
 
@@ -578,6 +578,8 @@ class Certificate(object):
             return univ.ObjectIdentifier("1.3.6.1.5.5.7.3.9")
         if keyPurpose == "timeStamping":
             return rfc2459.id_kp_timeStamping
+        if keyPurpose == "tlsBinding":
+            return univ.ObjectIdentifier("0.4.0.194115.1.0")
         raise UnknownKeyPurposeTypeError(keyPurpose)
 
     def addExtKeyUsage(self, extKeyUsage, critical):
@@ -609,9 +611,7 @@ class Certificate(object):
                 # The string may have things like '\0' (i.e. a slash
                 # followed by the number zero) that have to be decoded into
                 # the resulting '\x00' (i.e. a byte with value zero).
-                generalName["dNSName"] = six.ensure_binary(name).decode(
-                    "unicode_escape"
-                )
+                generalName["dNSName"] = name.encode().decode("unicode_escape")
             subjectAlternativeName.setComponentByPosition(count, generalName)
         self.addExtension(
             rfc2459.id_ce_subjectAltName, subjectAlternativeName, critical
@@ -626,10 +626,11 @@ class Certificate(object):
     def addCertificatePolicies(self, policyOIDs, critical):
         policies = rfc2459.CertificatePolicies()
         for pos, policyOID in enumerate(policyOIDs.split(",")):
-            if policyOID == "any":
-                policyOID = "2.5.29.32.0"
+            policyOIDMapped = policyOID
+            if policyOIDMapped == "any":
+                policyOIDMapped = "2.5.29.32.0"
             policy = rfc2459.PolicyInformation()
-            policyIdentifier = rfc2459.CertPolicyId(policyOID)
+            policyIdentifier = rfc2459.CertPolicyId(policyOIDMapped)
             policy["policyIdentifier"] = policyIdentifier
             policies.setComponentByPosition(pos, policy)
         self.addExtension(rfc2459.id_ce_certificatePolicies, policies, critical)
@@ -701,15 +702,20 @@ class Certificate(object):
         (scts, critical) = self.savedEmbeddedSCTListData
         encodedSCTs = []
         for sctSpec in scts.split(","):
-            match = re.search(r"(\w+):(\d{8})", sctSpec)
+            match = re.search(r"(\w+):(\d{8}):?(\d+)?", sctSpec)
             if not match:
                 raise InvalidSCTSpecification(sctSpec)
             keySpec = match.group(1)
+            leafIndex = match.group(3)
+            if leafIndex:
+                leafIndex = int(leafIndex)
             key = pykey.keyFromSpecification(keySpec)
             time = datetime.datetime.strptime(match.group(2), "%Y%m%d")
             tbsCertificate = self.getTBSCertificate()
             tbsDER = encoder.encode(tbsCertificate)
-            sct = pyct.SCT(key, time, pyct.PrecertEntry(tbsDER, self.issuerKey))
+            sct = pyct.SCT(
+                key, time, pyct.PrecertEntry(tbsDER, self.issuerKey), leafIndex
+            )
             signed = sct.signAndEncode()
             lengthPrefix = pack("!H", len(signed))
             encodedSCTs.append(lengthPrefix + signed)
@@ -720,6 +726,29 @@ class Certificate(object):
             univ.ObjectIdentifier("1.3.6.1.4.1.11129.2.4.2"),
             univ.OctetString(extensionBytes),
             critical,
+        )
+
+    def addQCStatements(self, qcStatements, critical):
+        sequence = univ.Sequence()
+        for pos, qcStatement in enumerate(qcStatements.split(",")):
+            parts = qcStatement.split(":")
+            statementID = parts[0]
+            statementInfo = None
+            if len(parts) > 1:
+                statementInfo = parts[1]
+            qcStatementSequence = univ.Sequence()
+            qcStatementSequence.setComponentByPosition(
+                0, univ.ObjectIdentifier(statementID)
+            )
+            if statementInfo:
+                statementInfoSequence = univ.Sequence()
+                statementInfoSequence.setComponentByPosition(
+                    0, univ.ObjectIdentifier(statementInfo)
+                )
+                qcStatementSequence.setComponentByPosition(1, statementInfoSequence)
+            sequence.setComponentByPosition(pos, qcStatementSequence)
+        self.addExtension(
+            univ.ObjectIdentifier("1.3.6.1.5.5.7.1.3"), sequence, critical
         )
 
     def getVersion(self):
@@ -782,7 +811,7 @@ class Certificate(object):
     def toPEM(self):
         output = "-----BEGIN CERTIFICATE-----"
         der = self.toDER()
-        b64 = six.ensure_text(base64.b64encode(der))
+        b64 = base64.b64encode(der).decode()
         while b64:
             output += "\n" + b64[:64]
             b64 = b64[64:]

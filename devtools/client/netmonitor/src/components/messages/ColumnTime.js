@@ -6,9 +6,9 @@
 
 const {
   Component,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 
 /**
  * Renders the "Time" column of a message.
@@ -29,6 +29,7 @@ class ColumnTime extends Component {
 
   /**
    * Format a DOMHighResTimeStamp (in microseconds) as HH:mm:ss.SSS
+   *
    * @param {number} highResTimeStamp
    */
   formatTime(highResTimeStamp) {

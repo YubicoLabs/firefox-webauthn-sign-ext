@@ -7,8 +7,8 @@
 // See the comment at the top of mfbt/HashTable.h for a comparison between
 // PLDHashTable and mozilla::HashTable.
 
-#ifndef nsTHashtable_h__
-#define nsTHashtable_h__
+#ifndef nsTHashtable_h_
+#define nsTHashtable_h_
 
 #include <iterator>
 #include <new>
@@ -21,10 +21,10 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/OperatorNewExtensions.h"
-#include "mozilla/PodOperations.h"
 #include "mozilla/fallible.h"
 #include "nsPointerHashKeys.h"
 #include "nsTArrayForwardDeclare.h"
+#include "nsCycleCollectionContainerParticipant.h"
 
 template <class EntryType>
 class nsTHashtable;
@@ -430,8 +430,8 @@ class MOZ_NEEDS_NO_VTABLE_TYPE nsTHashtable {
   };
 
   template <class F>
-  auto WithEntryHandle(KeyType aKey,
-                       F&& aFunc) -> std::invoke_result_t<F, EntryHandle&&> {
+  auto WithEntryHandle(KeyType aKey, F&& aFunc)
+      -> std::invoke_result_t<F, EntryHandle&&> {
     return this->mTable.WithEntryHandle(
         EntryType::KeyToPointer(aKey),
         [&aKey, &aFunc](auto entryHandle) -> decltype(auto) {
@@ -650,6 +650,15 @@ static void FixedSizeEntryMover(PLDHashTable*, const PLDHashEntryHdr* aFrom,
   memcpy(aTo, aFrom, N);
 }
 
+// Helper type which wraps the access to EntryType::ALLOW_MEMMOVE. This is done
+// to ensure that the MOZ_NEEDS_MEMMOVABLE_TYPE attribute is applied to the
+// entry if we're going to use FixedSizeEntryMover, performing extra
+// compile-time checks against the use of non-memmoveable types.
+template <class EntryType, bool = EntryType::ALLOW_MEMMOVE>
+struct MOZ_NEEDS_MEMMOVABLE_TYPE CheckAllowMemmove : std::true_type {};
+template <class EntryType>
+struct CheckAllowMemmove<EntryType, false> : std::false_type {};
+
 }  // namespace detail
 }  // namespace mozilla
 
@@ -675,7 +684,9 @@ template <class EntryType>
   // function avoids that problem.
   static const PLDHashTableOps sOps = {
       s_HashKey, s_MatchEntry,
-      EntryType::ALLOW_MEMMOVE
+      // We intentionally indirect the access of ALLOW_MEMMOVE through
+      // CheckAllowMemmove to perform some additional static analysis.
+      mozilla::detail::CheckAllowMemmove<EntryType>::value
           ? mozilla::detail::FixedSizeEntryMover<sizeof(EntryType)>
           : s_CopyEntry,
       // Simplify hashtable clearing in case our entries are trivially
@@ -722,20 +733,21 @@ void nsTHashtable<EntryType>::s_ClearEntry(PLDHashTable* aTable,
 }
 
 class nsCycleCollectionTraversalCallback;
+struct TraceCallbacks;
 
 template <class EntryType>
 inline void ImplCycleCollectionUnlink(nsTHashtable<EntryType>& aField) {
   aField.Clear();
 }
 
-template <class EntryType>
-inline void ImplCycleCollectionTraverse(
-    nsCycleCollectionTraversalCallback& aCallback,
-    const nsTHashtable<EntryType>& aField, const char* aName,
-    uint32_t aFlags = 0) {
-  for (auto iter = aField.ConstIter(); !iter.Done(); iter.Next()) {
-    const EntryType* entry = iter.Get();
-    ImplCycleCollectionTraverse(aCallback, *entry, aName, aFlags);
+// Function template constrained to types that are (possibly const)
+// nsTHashtable.
+template <typename Container, typename Callback,
+          EnableCycleCollectionIf<Container, nsTHashtable> = nullptr>
+inline void ImplCycleCollectionContainer(Container&& aField,
+                                         Callback&& aCallback) {
+  for (auto& entry : aField) {
+    aCallback(entry);
   }
 }
 
@@ -808,7 +820,7 @@ class nsTHashtable<nsPtrHashKey<T>>
     return reinterpret_cast<EntryType*>(Base::GetEntry(aKey));
   }
 
-  bool Contains(T* aKey) const { return Base::Contains(aKey); }
+  bool Contains(const T* aKey) const { return Base::Contains(aKey); }
 
   EntryType* PutEntry(T* aKey) {
     return reinterpret_cast<EntryType*>(Base::PutEntry(aKey));
@@ -876,8 +888,8 @@ class nsTHashtable<nsPtrHashKey<T>>
   };
 
   template <class F>
-  auto WithEntryHandle(KeyType aKey,
-                       F aFunc) -> std::invoke_result_t<F, EntryHandle&&> {
+  auto WithEntryHandle(KeyType aKey, F aFunc)
+      -> std::invoke_result_t<F, EntryHandle&&> {
     return Base::WithEntryHandle(aKey, [&aFunc](auto entryHandle) {
       return aFunc(EntryHandle{std::move(entryHandle)});
     });
@@ -965,4 +977,4 @@ class nsTHashtable<nsPtrHashKey<T>>
   void SwapElements(nsTHashtable& aOther) { Base::SwapElements(aOther); }
 };
 
-#endif  // nsTHashtable_h__
+#endif  // nsTHashtable_h_

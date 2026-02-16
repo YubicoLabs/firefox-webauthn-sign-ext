@@ -46,24 +46,8 @@ const gMockPKCS11ModuleDB = {
     throw new Error("not expecting getInternal() to be called");
   },
 
-  getInternalFIPS() {
-    throw new Error("not expecting getInternalFIPS() to be called");
-  },
-
   listModules() {
     throw new Error("not expecting listModules() to be called");
-  },
-
-  get canToggleFIPS() {
-    throw new Error("not expecting get canToggleFIPS() to be called");
-  },
-
-  toggleFIPSMode() {
-    throw new Error("not expecting toggleFIPSMode() to be called");
-  },
-
-  get isFIPSEnabled() {
-    throw new Error("not expecting get isFIPSEnabled() to be called");
   },
 
   QueryInterface: ChromeUtils.generateQI(["nsIPKCS11ModuleDB"]),
@@ -285,12 +269,12 @@ async function testModuleNameHelper(moduleName, acceptButtonShouldBeDisabled) {
   let moduleNameBox = win.document.getElementById("device_name");
   moduleNameBox.value = moduleName;
   // this makes this not a great test, but it's the easiest way to simulate this
-  moduleNameBox.onchange();
+  moduleNameBox.dispatchEvent(new Event("change", { bubbles: true }));
 
   let dialogNode = win.document.querySelector("dialog");
   Assert.equal(
-    dialogNode.getAttribute("buttondisabledaccept"),
-    acceptButtonShouldBeDisabled ? "true" : null,
+    dialogNode.hasAttribute("buttondisabledaccept"),
+    acceptButtonShouldBeDisabled,
     `dialog accept button should ${
       acceptButtonShouldBeDisabled ? "" : "not "
     }be disabled`

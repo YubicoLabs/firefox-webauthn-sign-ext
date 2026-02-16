@@ -59,6 +59,8 @@ class RenderCompositorNative : public RenderCompositor {
   bool MaybeGrabScreenshot(const gfx::IntSize& aWindowSize) override;
   bool MaybeProcessScreenshotQueue() override;
 
+  void WaitUntilPresentationFlushed() override;
+
   // Interface for wr::Compositor
   void CompositorBeginFrame() override;
   void CompositorEndFrame() override;
@@ -75,7 +77,9 @@ class RenderCompositorNative : public RenderCompositor {
   void AddSurface(wr::NativeSurfaceId aId,
                   const wr::CompositorSurfaceTransform& aTransform,
                   wr::DeviceIntRect aClipRect,
-                  wr::ImageRendering aImageRendering) override;
+                  wr::ImageRendering aImageRendering,
+                  wr::DeviceIntRect aRoundedClipRect,
+                  wr::ClipRadius aClipRadius) override;
 
   struct TileKey {
     TileKey(int32_t aX, int32_t aY) : mX(aX), mY(aY) {}
@@ -110,9 +114,10 @@ class RenderCompositorNative : public RenderCompositor {
   };
 
   struct Surface {
-    explicit Surface(wr::DeviceIntSize aTileSize, bool aIsOpaque)
-        : mTileSize(aTileSize), mIsOpaque(aIsOpaque) {}
-    gfx::IntSize TileSize() {
+    Surface(wr::DeviceIntSize aTileSize, bool aIsOpaque);
+    ~Surface();
+
+    gfx::IntSize TileSize() const {
       return gfx::IntSize(mTileSize.width, mTileSize.height);
     }
 
@@ -169,6 +174,9 @@ class RenderCompositorNativeOGL : public RenderCompositorNative {
             wr::DeviceIntRect aDirtyRect,
             wr::DeviceIntRect aValidRect) override;
   void Unbind() override;
+
+  void AttachExternalImage(wr::NativeSurfaceId aId,
+                           wr::ExternalImageId aExternalImage) override;
 
  protected:
   void InsertFrameDoneSync();

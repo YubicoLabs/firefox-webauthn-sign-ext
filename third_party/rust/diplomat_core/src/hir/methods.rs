@@ -3,9 +3,13 @@
 use std::collections::BTreeSet;
 use std::ops::Deref;
 
-use super::{Attrs, Docs, Ident, IdentBuf, OutType, SelfType, Type, TypeContext};
+use super::{
+    Attrs, Docs, Ident, IdentBuf, InputOnly, OutType, OutputOnly, SelfType, TraitPath, Type,
+    TypeContext,
+};
 
 use super::lifetimes::{Lifetime, LifetimeEnv, Lifetimes, MaybeStatic};
+use super::ty_position::Sealed;
 
 use borrowing_field::BorrowingFieldVisitor;
 use borrowing_param::BorrowingParamVisitor;
@@ -14,35 +18,94 @@ pub mod borrowing_field;
 pub mod borrowing_param;
 
 /// A method exposed to Diplomat.
+/// Used for representing both free functions ([`crate::ast::Function`]) and struct methods ([`crate::ast::Method`]).
+/// The only difference between a free function and a struct method in this struct is that [`Self::param_self`] will always be `None` for a free function.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct Method {
+    /// Documentation specified on the method
     pub docs: Docs,
+    /// The name of the method as initially declared.
     pub name: IdentBuf,
+    /// The name of the generated `extern "C"` function
+    pub abi_name: IdentBuf,
+    /// The lifetimes introduced in this method and surrounding impl block.
     pub lifetime_env: LifetimeEnv,
 
+    /// An &self, &mut self, or Self parameter
     pub param_self: Option<ParamSelf>,
+    /// The parameters of the method
     pub params: Vec<Param>,
+    /// The output type, including whether it returns a Result/Option/Writeable/etc
     pub output: ReturnType,
+    /// Resolved (and inherited) diplomat::attr attributes on this method
     pub attrs: Attrs,
+}
+
+pub trait CallbackInstantiationFunctionality: Sealed {
+    #[allow(clippy::result_unit_err)]
+    fn get_inputs(&self) -> Result<&[CallbackParam], ()>; // the types of the parameters
+    #[allow(clippy::result_unit_err)]
+    fn get_output_type(&self) -> Result<&ReturnType<InputOnly>, ()>;
+}
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+// Note: we do not support borrowing across callbacks
+pub struct Callback {
+    pub param_self: Option<TraitParamSelf>, // this is None for callbacks as method arguments
+    pub params: Vec<CallbackParam>,
+    pub output: Box<ReturnType<InputOnly>>, // this will be used in Rust (note: can technically be a callback, or void)
+    pub name: Option<IdentBuf>,
+    pub attrs: Option<Attrs>,
+    pub docs: Option<Docs>,
+}
+
+// uninstantiatable; represents no callback allowed
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum NoCallback {}
+
+impl Sealed for Callback {}
+impl Sealed for NoCallback {}
+
+impl CallbackInstantiationFunctionality for Callback {
+    fn get_inputs(&self) -> Result<&[CallbackParam], ()> {
+        Ok(&self.params)
+    }
+    fn get_output_type(&self) -> Result<&ReturnType<InputOnly>, ()> {
+        Ok(&self.output)
+    }
+}
+
+impl CallbackInstantiationFunctionality for NoCallback {
+    fn get_inputs(&self) -> Result<&[CallbackParam], ()> {
+        Err(())
+    }
+    fn get_output_type(&self) -> Result<&ReturnType<InputOnly>, ()> {
+        Err(())
+    }
 }
 
 /// Type that the method returns.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum SuccessType {
-    Writeable,
-    OutType(OutType),
+pub enum SuccessType<P: super::TyPosition = OutputOnly> {
+    /// Conceptually returns a string, which gets written to the `write: DiplomatWrite` argument
+    Write,
+    /// A Diplomat type. Some types can be outputs, but not inputs, which is expressed by the `OutType` parameter.
+    OutType(Type<P>),
+    /// A `()` type in Rust.
     Unit,
 }
 
 /// Whether or not the method returns a value or a result.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(clippy::exhaustive_enums)] // this only exists for fallible/infallible, breaking changes for more complex returns are ok
-pub enum ReturnType {
-    Infallible(SuccessType),
-    Fallible(SuccessType, Option<OutType>),
-    Nullable(SuccessType),
+pub enum ReturnType<P: super::TyPosition = OutputOnly> {
+    Infallible(SuccessType<P>),
+    Fallible(SuccessType<P>, Option<Type<P>>),
+    Nullable(SuccessType<P>),
 }
 
 /// The `self` parameter of a method.
@@ -50,6 +113,13 @@ pub enum ReturnType {
 #[non_exhaustive]
 pub struct ParamSelf {
     pub ty: SelfType,
+    pub attrs: Attrs,
+}
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct TraitParamSelf {
+    pub trait_path: TraitPath,
 }
 
 /// A parameter in a method.
@@ -57,13 +127,23 @@ pub struct ParamSelf {
 #[non_exhaustive]
 pub struct Param {
     pub name: IdentBuf,
-    pub ty: Type,
+    pub ty: Type<InputOnly>,
+    pub attrs: Attrs,
+}
+
+/// A parameter in a callback
+/// No name, since all we get is the callback type signature
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct CallbackParam {
+    pub ty: Type<OutputOnly>,
+    pub name: Option<IdentBuf>,
 }
 
 impl SuccessType {
-    /// Returns whether the variant is `Writeable`.
-    pub fn is_writeable(&self) -> bool {
-        matches!(self, SuccessType::Writeable)
+    /// Returns whether the variant is `Write`.
+    pub fn is_write(&self) -> bool {
+        matches!(self, SuccessType::Write)
     }
 
     /// Returns whether the variant is `Unit`.
@@ -91,11 +171,11 @@ impl Deref for ReturnType {
 
 impl ReturnType {
     /// Returns `true` if the FFI function returns `void`. Not that this is different from `is_unit`,
-    /// which will be true for `DiplomatResult<(), E>` and false for infallible writeable.
+    /// which will be true for `DiplomatResult<(), E>` and false for infallible write.
     pub fn is_ffi_unit(&self) -> bool {
         matches!(
             self,
-            ReturnType::Infallible(SuccessType::Unit | SuccessType::Writeable)
+            ReturnType::Infallible(SuccessType::Unit | SuccessType::Write)
         )
     }
 
@@ -156,8 +236,8 @@ impl ReturnType {
 }
 
 impl ParamSelf {
-    pub(super) fn new(ty: SelfType) -> Self {
-        Self { ty }
+    pub(super) fn new(ty: SelfType, attrs: Attrs) -> Self {
+        Self { ty, attrs }
     }
 
     /// Return the number of fields and leaves that will show up in the [`BorrowingFieldVisitor`].
@@ -175,9 +255,15 @@ impl ParamSelf {
     }
 }
 
+impl TraitParamSelf {
+    pub(super) fn new(trait_path: TraitPath) -> Self {
+        Self { trait_path }
+    }
+}
+
 impl Param {
-    pub(super) fn new(name: IdentBuf, ty: Type) -> Self {
-        Self { name, ty }
+    pub(super) fn new(name: IdentBuf, ty: Type<InputOnly>, attrs: Attrs) -> Self {
+        Self { name, ty, attrs }
     }
 }
 
@@ -192,11 +278,17 @@ impl Method {
     ///
     /// This is useful for backends which wish to have lifetime codegen for methods only handle the local
     /// method lifetime, and delegate to generated code on structs for handling the internals of struct lifetimes.
+    ///
+    /// `force_include_slices` is right now *just* for the JS backend.
+    /// Because the JS backend requires us to know information about the allocation of each slice,
+    /// then we need to grab that information in the [`BorrowingParamVisitor`].
+    /// See [`BorrowingParamVisitor::new`] for more.
     pub fn borrowing_param_visitor<'tcx>(
         &'tcx self,
         tcx: &'tcx TypeContext,
+        force_include_slices: bool,
     ) -> BorrowingParamVisitor<'tcx> {
-        BorrowingParamVisitor::new(self, tcx)
+        BorrowingParamVisitor::new(self, tcx, force_include_slices)
     }
 
     /// Returns a new [`BorrowingFieldVisitor`], which allocates memory to

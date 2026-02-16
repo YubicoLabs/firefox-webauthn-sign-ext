@@ -31,7 +31,7 @@ def prepare_tmp_topsrcdir(path):
 
 # mozconfig is not a reusable type (it's actually a module) so, we
 # have to mock it.
-class MockConfig(object):
+class MockConfig:
     def __init__(
         self,
         topsrcdir="/path/to/topsrcdir",
@@ -50,7 +50,7 @@ class MockConfig(object):
                 "DLL_PREFIX": "lib",
                 "DLL_SUFFIX": ".so",
             },
-            **extra_substs
+            **extra_substs,
         )
 
         self.defines = self.substs

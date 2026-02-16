@@ -14,9 +14,10 @@
 
 #include "mozilla/Result.h"
 #include "mozilla/ResultVariant.h"
-#include "mozilla/UniquePtr.h"
+#include "mozilla/WindowsVersion.h"
 #include "mozilla/WinHeaderOnlyUtils.h"
 #include "mozilla/widget/WinTaskbar.h"
+#include "WinUtils.h"
 
 #include "mozilla/Logging.h"
 
@@ -185,7 +186,16 @@ Win11PinToTaskBarResult PinCurrentAppToTaskbarWin11(
   Win11PinToTaskBarResult unlockStatus =
       UnlockLimitedAccessFeature(Win11LimitedAccessFeatureType::Taskbar);
   if (unlockStatus.result != Win11PinToTaskBarResultStatus::Success) {
-    return unlockStatus;
+    // Limited Access Feature no longer necessary for Windows 11 26200 Build
+    // 7840, and possibly other channels.
+    if (!IsWin11OrLater()) {
+      return unlockStatus;
+    }
+
+    TASKBAR_PINNING_LOG(
+        LogLevel::Warning,
+        "Limited Access Feature failed to unlock, attempting to use Taskbar "
+        "Pinning API assuming LAF is no longer necessary.");
   }
 
   HRESULT hr;
@@ -213,21 +223,27 @@ Win11PinToTaskBarResult PinCurrentAppToTaskbarWin11(
                                     primaryAumid = nsString(primaryAumid)](
                                        Win11PinToTaskBarResultStatus status) {
           // Set AUMID back and ensure the icon is set correctly
-          HRESULT hr =
-              SetCurrentProcessExplicitAppUserModelID(primaryAumid.get());
-          if (FAILED(hr)) {
-            TASKBAR_PINNING_LOG(LogLevel::Debug,
-                                "Taskbar: reverting AUMID after pinning "
-                                "operation failed. HRESULT = 0x%lx",
-                                hr);
+          if (!widget::WinUtils::HasPackageIdentity()) {
+            HRESULT hr =
+                SetCurrentProcessExplicitAppUserModelID(primaryAumid.get());
+            if (FAILED(hr)) {
+              TASKBAR_PINNING_LOG(LogLevel::Debug,
+                                  "Taskbar: reverting AUMID after pinning "
+                                  "operation failed. HRESULT = 0x%lx",
+                                  hr);
+            }
           }
           resultStatus = status;
           event.Set();
         };
 
-        hr = SetCurrentProcessExplicitAppUserModelID(aumid.get());
-        if (FAILED(hr)) {
-          return CompletedOperations(Win11PinToTaskBarResultStatus::Failed);
+        // Set the process to have the AUMID of the shortcut we want to pin,
+        // this is only necessary for Win32 builds
+        if (!widget::WinUtils::HasPackageIdentity()) {
+          hr = SetCurrentProcessExplicitAppUserModelID(aumid.get());
+          if (FAILED(hr)) {
+            return CompletedOperations(Win11PinToTaskBarResultStatus::Failed);
+          }
         }
 
         ComPtr<ITaskbarManager> taskbar;
@@ -264,13 +280,15 @@ Win11PinToTaskBarResult PinCurrentAppToTaskbarWin11(
               [&event, &resultStatus,
                primaryAumid](Win11PinToTaskBarResultStatus status) -> HRESULT {
             // Set AUMID back and ensure the icon is set correctly
-            HRESULT hr =
-                SetCurrentProcessExplicitAppUserModelID(primaryAumid.get());
-            if (FAILED(hr)) {
-              TASKBAR_PINNING_LOG(LogLevel::Debug,
-                                  "Taskbar: reverting AUMID after pinning "
-                                  "operation failed. HRESULT = 0x%lx",
-                                  hr);
+            if (!widget::WinUtils::HasPackageIdentity()) {
+              HRESULT hr =
+                  SetCurrentProcessExplicitAppUserModelID(primaryAumid.get());
+              if (FAILED(hr)) {
+                TASKBAR_PINNING_LOG(LogLevel::Debug,
+                                    "Taskbar: reverting AUMID after pinning "
+                                    "operation failed. HRESULT = 0x%lx",
+                                    hr);
+              }
             }
             resultStatus = status;
             event.Set();
@@ -398,7 +416,16 @@ Win11PinToTaskBarResult IsCurrentAppPinnedToTaskbarWin11(bool aCheckOnly) {
   Win11PinToTaskBarResult unlockStatus =
       UnlockLimitedAccessFeature(Win11LimitedAccessFeatureType::Taskbar);
   if (unlockStatus.result != Win11PinToTaskBarResultStatus::Success) {
-    return unlockStatus;
+    // Limited Access Feature no longer necessary for Windows 11 26200 Build
+    // 7840, and possibly other channels.
+    if (!IsWin11OrLater()) {
+      return unlockStatus;
+    }
+
+    TASKBAR_PINNING_LOG(
+        LogLevel::Warning,
+        "Limited Access Feature failed to unlock, attempting to use Taskbar "
+        "Pinning API assuming LAF is no longer necessary.");
   }
 
   HRESULT hr;

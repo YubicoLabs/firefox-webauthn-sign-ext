@@ -3,9 +3,6 @@
 
 "use strict";
 
-/* eslint-env browser */
-/* eslint no-unused-vars: [2, {"vars": "local"}] */
-
 // Load the shared-head file first.
 Services.scriptloader.loadSubScript(
   "chrome://mochitests/content/browser/devtools/client/shared/test/shared-head.js",
@@ -22,10 +19,6 @@ Services.scriptloader.loadSubScript(
 
 // Make sure the ADB addon is removed and ADB is stopped when the test ends.
 registerCleanupFunction(async function () {
-  // Reset the selected tool in case we opened about:devtools-toolbox to
-  // avoid side effects between tests.
-  Services.prefs.clearUserPref("devtools.toolbox.selectedTool");
-
   try {
     const {
       adbAddon,
@@ -217,7 +210,12 @@ async function closeWebExtAboutDevtoolsToolbox(devtoolsWindow, win) {
 async function reloadAboutDebugging(tab) {
   info("reload about:debugging");
 
-  await reloadBrowser(tab.linkedBrowser);
+  is(
+    gBrowser.selectedTab,
+    tab,
+    "The about:debugging tab is the currently selected tab"
+  );
+  await reloadSelectedTab();
   const browser = tab.linkedBrowser;
   const document = browser.contentDocument;
   const window = browser.contentWindow;
@@ -367,6 +365,13 @@ async function connectToRuntime(deviceName, document) {
   await waitUntil(() => !sidebarItem.querySelector(".qa-connect-button"));
 }
 
+async function waitForRuntimePage(name, document) {
+  await waitUntil(() => {
+    const runtimeInfo = document.querySelector(".qa-runtime-name");
+    return runtimeInfo && runtimeInfo.textContent.includes(name);
+  });
+}
+
 async function selectRuntime(deviceName, name, document) {
   const sidebarItem = findSidebarItemByText(deviceName, document);
   const store = document.defaultView.AboutDebugging.store;
@@ -374,10 +379,7 @@ async function selectRuntime(deviceName, name, document) {
 
   sidebarItem.querySelector(".qa-sidebar-link").click();
 
-  await waitUntil(() => {
-    const runtimeInfo = document.querySelector(".qa-runtime-name");
-    return runtimeInfo && runtimeInfo.textContent.includes(name);
-  });
+  await waitForRuntimePage(name, document);
 
   info("Wait for SELECT_PAGE_SUCCESS to be dispatched");
   await onSelectPageSuccess;
@@ -439,7 +441,7 @@ function waitUntilUsbDeviceIsUnplugged(deviceName, aboutDebuggingDocument) {
  *        The browser instance to update.
  * @param {XULTab} tab
  *        The tab to select.
- * @param {Object} store
+ * @param {object} store
  *        The about:debugging redux store.
  */
 async function updateSelectedTab(browser, tab, store) {
@@ -471,7 +473,7 @@ async function updateSelectedTab(browser, tab, store) {
  *        The DevToolsToolbox debugging the target.
  * @param {HTMLElement} inputEl
  *        The <input> element to submit the URL with.
- * @param {String}  url
+ * @param {string}  url
  *        The URL to navigate to.
  */
 async function synthesizeUrlKeyInput(toolbox, inputEl, url) {
@@ -498,7 +500,7 @@ async function synthesizeUrlKeyInput(toolbox, inputEl, url) {
  * Click on a given add-on widget button so that its browser actor is fired.
  * Typically a popup would open, or a listener would be called in the background page.
  *
- * @param {String} addonId
+ * @param {string} addonId
  *        The ID of the add-on to click on.
  */
 function clickOnAddonWidget(addonId) {

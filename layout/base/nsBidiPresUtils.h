@@ -4,17 +4,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsBidiPresUtils_h___
-#define nsBidiPresUtils_h___
+#ifndef nsBidiPresUtils_h_
+#define nsBidiPresUtils_h_
 
 #include "gfxContext.h"
 #include "mozilla/intl/BidiClass.h"
 #include "mozilla/intl/BidiEmbeddingLevel.h"
 #include "nsBidiUtils.h"
-#include "nsHashKeys.h"
 #include "nsCoord.h"
-#include "nsTArray.h"
+#include "nsHashKeys.h"
 #include "nsLineBox.h"
+#include "nsTArray.h"
 
 #ifdef DrawText
 #  undef DrawText
@@ -586,4 +586,4 @@ class nsBidiPresUtils {
   static void StripBidiControlCharacters(char16_t* aText, int32_t& aTextLength);
 };
 
-#endif /* nsBidiPresUtils_h___ */
+#endif /* nsBidiPresUtils_h_ */

@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/CookieChangeEvent.h"
+
 #include "mozilla/dom/CookieChangeEventBinding.h"
 
 namespace mozilla::dom {
@@ -38,6 +39,7 @@ void CookieChangeEvent::GetDeleted(nsTArray<CookieListItem>& aList) const {
 
   event->InitEvent(aType, aEventInit.mBubbles, aEventInit.mCancelable);
   event->SetTrusted(trusted);
+  event->SetComposed(aEventInit.mComposed);
 
   if (aEventInit.mChanged.WasPassed()) {
     event->mChanged = aEventInit.mChanged.Value();

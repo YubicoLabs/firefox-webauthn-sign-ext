@@ -1,16 +1,32 @@
 .. _mozilla_projects_nss_releases:
 
-Releases
-========
+Release Notes
+=============
 
 .. toctree::
    :maxdepth: 0
    :glob:
    :hidden:
 
+   nss_3_120.rst
+   nss_3_119_1.rst
+   nss_3_119.rst
+   nss_3_118_1.rst
+   nss_3_118.rst
+   nss_3_117.rst
+   nss_3_116.rst
+   nss_3_115_1.rst
+   nss_3_115.rst
+   nss_3_114_1.rst
+   nss_3_114.rst
+   nss_3_113.rst
+   nss_3_112_2.rst
+   nss_3_112_1.rst
+   nss_3_112.rst
+   nss_3_111.rst
+   nss_3_110.rst
    nss_3_109.rst
    nss_3_108.rst
-   nss_3_101_3.rst
    nss_3_107.rst
    nss_3_106.rst
    nss_3_105.rst
@@ -18,6 +34,8 @@ Releases
    nss_3_103.rst
    nss_3_102_1.rst
    nss_3_102.rst
+   nss_3_101_4.rst
+   nss_3_101_3.rst
    nss_3_101_2.rst
    nss_3_101_1.rst
    nss_3_101.rst
@@ -82,43 +100,9 @@ Releases
 
 .. note::
 
-   **NSS 3.109** is the latest version of NSS.
-   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_109_release_notes`
+   **NSS 3.120** is the latest version of NSS.
+   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_120_release_notes`
 
-   **NSS 3.101.3 (ESR)** is the latest ESR version of NSS.
-   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_101_3_release_notes`
-
-.. container::
-
-   Changes in 3.109 included in this release:
-
-   - Bug 1939512 - Call BL_Init before RNG_RNGInit() so that special SHA instructions can be used if available
-   - Bug 1930807 - NSS policy updates - fix inaccurate key policy issues
-   - Bug 1945883 - SMIME fuzz target
-   - Bug 1914256 - ASN1 decoder fuzz target
-   - Bug 1936001 - Part 2: Revert "Extract testcases from ssl gtests for fuzzing"
-   - Bug 1915155 - Add fuzz/README.md
-   - Bug 1936001 - Part 4: Fix tstclnt arguments script
-   - Bug 1944545 - Extend pkcs7 fuzz target
-   - Bug 1912320 - Extend certDN fuzz target
-   - Bug 1854095 - delete old docker image definitions and task scheduling code  
-   - Bug 1854095 - apply nspr patch in acvp script
-   - Bug 1854095 - parse try syntax on pushes to nss-try
-   - Bug 1854095 - add "fuzz" task kind
-   - Bug 1854095 - add "test" task kind
-   - Bug 1854095 - add "certs" task kind
-   - Bug 1854095 - add "build" task kind
-   - Bug 1854095 - add "tools" task kind
-   - Bug 1854095 - add "fuzz" docker image
-   - Bug 1854095 - add "gcc-4.4" docker image
-   - Bug 1854095 - add "clang-format" docker image
-   - Bug 1854095 - add "acvp" docker image
-   - Bug 1854095 - add "builds" docker image
-   - Bug 1854095 - switch .taskcluster.yml to taskgraph
-   - Bug 1944300 - restore alloca.h include
-   - Bug 1944300 - refactor run_hacl.sh slightly
-   - Bug 1944300 - ignore all libcrux files in run_hacl.sh
-   - Bug 1944300 - use `diff -u` in HACL* consistency check
-   - Bug 1944300 - revert changes to HACL* files from bug 1866841
-   - Bug 1936001 - Part 3: Package frida corpus script
+   **NSS 3.112.2 (ESR)** is the latest ESR version of NSS.
+   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_112_2_release_notes`
 

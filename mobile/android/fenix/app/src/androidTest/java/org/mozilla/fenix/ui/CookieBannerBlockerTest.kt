@@ -4,7 +4,9 @@
 
 package org.mozilla.fenix.ui
 
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.core.net.toUri
+import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.mozilla.fenix.customannotations.SmokeTest
@@ -13,24 +15,34 @@ import org.mozilla.fenix.helpers.AppAndSystemHelper.runWithCondition
 import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.TestHelper.appContext
 import org.mozilla.fenix.helpers.TestSetup
+import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
 import org.mozilla.fenix.ui.robots.homeScreen
 import org.mozilla.fenix.ui.robots.navigationToolbar
 
 /**
  *  Tests for verifying the new Cookie banner blocker option and functionality.
  */
+@Ignore("Disabled feature in: https://bugzilla.mozilla.org/show_bug.cgi?id=1940418")
 class CookieBannerBlockerTest : TestSetup() {
     @get:Rule
-    val activityTestRule = HomeActivityIntentTestRule.withDefaultSettingsOverrides(skipOnboarding = true)
+    val composeTestRule =
+        AndroidComposeTestRule(
+            HomeActivityIntentTestRule.withDefaultSettingsOverrides(
+                skipOnboarding = true,
+            ),
+        ) { it.activity }
+
+    @get:Rule
+    val memoryLeaksRule = DetectMemoryLeaksRule()
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2419260
     @SmokeTest
     @Test
     fun verifyCookieBannerBlockerSettingsOptionTest() {
         runWithCondition(appContext.settings().shouldUseCookieBannerPrivateMode) {
-            homeScreen {
+            homeScreen(composeTestRule) {
             }.openThreeDotMenu {
-            }.openSettings {
+            }.clickSettingsButton {
                 verifyCookieBannerBlockerButton(enabled = true)
             }
         }
@@ -41,10 +53,10 @@ class CookieBannerBlockerTest : TestSetup() {
     @Test
     fun verifyCFRAfterBlockingTheCookieBanner() {
         runWithCondition(appContext.settings().shouldUseCookieBannerPrivateMode) {
-            homeScreen {
+            homeScreen(composeTestRule) {
             }.togglePrivateBrowsingMode()
 
-            navigationToolbar {
+            navigationToolbar(composeTestRule) {
             }.enterURLAndEnterToBrowser("materiel.net".toUri()) {
                 verifyCookieBannerExists(exists = false)
                 verifyCookieBannerBlockerCFRExists(exists = true)

@@ -9,13 +9,16 @@ It supports various types (`default`, `primary`, `destructive`, `icon`, `icon gh
   <moz-button label="Default">"Default"</moz-button>
   <moz-button type="primary" label="Primary"></moz-button>
   <moz-button type="destructive" label="Destructive"></moz-button>
-  <moz-button iconSrc="chrome://global/skin/icons/more.svg"
-              tooltipText="Icon">
+  <moz-button iconsrc="chrome://global/skin/icons/more.svg"
+              tooltiptext="Icon">
   </moz-button>
-  <moz-button iconSrc="chrome://global/skin/icons/more.svg"
-              tooltipText="Icon Ghost" type="ghost">
+  <moz-button iconsrc="chrome://global/skin/icons/more.svg"
+              tooltiptext="Icon Ghost" type="ghost">
   </moz-button>
   <moz-button type="ghost" label="Ghost"></moz-button>
+  <moz-button type="split"
+              label="Split">
+</moz-button>
 </div>
 ```
 
@@ -25,9 +28,7 @@ More information about this component including design, writing, and localizatio
 
 ### When to use
 
-* Use `moz-button` for actions that require user interaction, such as submitting forms or triggering commands.
-* Use the `type` property to indicate the button's purpose (e.g., `primary`, `destructive`).
-* Use an icon button when the purpose of your button may be easily understood or when space is limited.
+* Confirm an action or make a change.
 
 ### When not to use
 
@@ -103,17 +104,17 @@ moz-button::part(button) {
   background-image: url("chrome://global/skin/icons/more.svg");
 }
 ```
-2) Or you can provide an icon URI via `iconsrc`, in which case setting `type="icon"` is redundant:
+2) Or you can provide an icon URI via `.iconSrc` property / `iconsrc` attribute, in which case setting `type="icon"` is redundant:
 
 ```html
-<moz-button iconSrc="chrome://global/skin/icons/more.svg"
+<moz-button iconsrc="chrome://global/skin/icons/more.svg"
             title="I am an icon button"
             aria-label="I am an icon button">
 </moz-button>
 ```
 
 ```html story
-<moz-button iconSrc="chrome://global/skin/icons/more.svg"
+<moz-button iconsrc="chrome://global/skin/icons/more.svg"
             title="I am an icon button"
             aria-label="I am an icon button">
 </moz-button>
@@ -121,11 +122,39 @@ moz-button::part(button) {
 You can also use `iconsrc` together with `label` to get a button with both icon and text.
 
 ```html
-<moz-button iconSrc="chrome://global/skin/icons/edit-copy.svg" label="Button"></moz-button>
+<moz-button iconsrc="chrome://global/skin/icons/edit-copy.svg" label="Button"></moz-button>
 ```
 
 ```html story
-<moz-button iconSrc="chrome://global/skin/icons/edit-copy.svg" label="Button"></moz-button>
+<moz-button iconsrc="chrome://global/skin/icons/edit-copy.svg" label="Button"></moz-button>
+```
+
+To adjust the icon's position, use the `.iconPosition` property / `iconposition` attribute. It accepts two values: `start` (the default) or `end`.
+
+```html
+<moz-button iconposition="end" iconsrc="chrome://global/skin/icons/edit-copy.svg" label="Button"></moz-button>
+```
+
+```html story
+<moz-button iconposition="end" iconsrc="chrome://global/skin/icons/edit-copy.svg" label="Button"></moz-button>
+```
+
+To add a badge to the icon button, set `.attention` boolean property to `true` or add `attention` attribute to the markup.
+
+```html
+<moz-button iconsrc="chrome://global/skin/icons/more.svg"
+            title="I am an icon button"
+            aria-label="I am an icon button"
+            attention>
+</moz-button>
+```
+
+```html story
+<moz-button iconsrc="chrome://global/skin/icons/more.svg"
+            title="I am an icon button"
+            aria-label="I am an icon button"
+            attention>
+</moz-button>
 ```
 
 ##### Ghost
@@ -137,6 +166,96 @@ Ghost buttons are used for secondary or less prominent actions. They are ideal f
 ```
 ```html story
 <moz-button type="ghost" label="👻 I am a ghost button"></moz-button>
+```
+
+#### Menu Button
+
+When `moz-button` is given a `menuId` property, it functions as a menu button. This property links the button to an associated [panel-list](https://searchfox.org/mozilla-central/source/toolkit/content/widgets/panel-list/panel-list.js) component, which will act as the popup menu. The `menuId` must correspond to the ID of that `panel-list` element.
+
+This built-in integration with `panel-list` offers several automatic features:
+* The button is automatically assigned `aria-haspopup="menu"`.
+* The `aria-expanded` attribute is managed for you, reflecting the open or closed state of the panel.
+* All necessary event listeners to open and close the `panel-list` are handled automatically.
+
+**Note:** The menu must exist in the same root node (e.g. shadow DOM or document) as the button.
+
+For now, you can't associate other types of menu with `moz-button` using `menuId`. In that case you must manually manage:
+* `ariaExpanded` property / `aria-expanded` attribute - to reflect the open/closed state of the menu.
+* `ariaHasPopup` property / `aria-haspopup` attribute - to define the type of popup (menu, listbox, dialog, etc.).
+
+```html
+<moz-button iconsrc="chrome://global/skin/icons/more.svg"
+            title="More options"
+            aria-label="More options"
+            menuid="panel-list">
+</moz-button>
+<panel-list id="panel-list">
+  <panel-item>Option One</panel-item>
+  <panel-item>Option Two</panel-item>
+  <panel-item>Option Three</panel-item>
+</panel-list>
+```
+
+```html story
+<moz-button iconsrc="chrome://global/skin/icons/more.svg"
+            title="More options"
+            aria-label="More options"
+            menuid="panel-list">
+</moz-button>
+<div>
+  <panel-list id="panel-list" stay-open open>
+    <panel-item>Option One</panel-item>
+    <panel-item>Option Two</panel-item>
+    <panel-item>Option Three</panel-item>
+  </panel-list>
+</div>
+```
+
+#### Split Button
+
+Split Button is an action button combined with an adjacent menu button offering additional options. To create a split button, set the `type` to `split` and provide a `menuId` that links to a `panel-list` element. Split Button renders "More options" menu button with chevron icon and default `l10nId`.
+
+```html
+<moz-button type="split"
+            label="Split Button"
+            menuid="panel-list">
+</moz-button>
+<panel-list id="panel-list">
+  <panel-item>Option One</panel-item>
+  <panel-item>Option Two</panel-item>
+  <panel-item>Option Three</panel-item>
+</panel-list>
+```
+
+```html story
+<moz-button type="split"
+            label="Split Button"
+            menuid="panel-list">
+</moz-button>
+<div>
+  <panel-list id="panel-list" stay-open open>
+    <panel-item>Option One</panel-item>
+    <panel-item>Option Two</panel-item>
+    <panel-item>Option Three</panel-item>
+  </panel-list>
+</div>
+```
+
+#### Toggle button
+
+Adding `aria-pressed` to the `moz-button` turns it into a toggle button. The `aria-pressed` attribute represents the button's current "pressed" state.
+
+Refer to [the W3C ARIA documentation](https://w3c.github.io/aria/#aria-pressed) for more information on using `aria-pressed` attribute.
+
+```html
+<moz-button label="Could be pressed" aria-pressed="false"></moz-button>
+<moz-button label="Is already pressed" aria-pressed="true"></moz-button>
+```
+```html story
+<div style={{ display: 'flex', gap: '1rem' }}>
+  <moz-button label="Could be pressed" aria-pressed="false"></moz-button>
+  <moz-button label="Is already pressed" aria-pressed="true"></moz-button>
+</div>
 ```
 
 ### Setting the `size`
@@ -176,10 +295,26 @@ In order to disable the `moz-button`, add `disabled=""` or `disabled` to the mar
 <moz-button label="Button" accesskey="t"></moz-button>
 ```
 
+### Customizing `moz-button`
+
+You can add the inner padding on the `moz-button` to give the button a larger target, and make it clickable when the window and cursor are up against the edge of the screen.
+Use the following variables to achieve this:
+
+```
+--button-outer-padding-inline - Used to set the outer inline padding of toolbar style buttons.
+--button-outer-padding-block - Used to set the outer block padding of toolbar style buttons.
+--button-outer-padding-inline-start - Used to set the outer inline-start padding of toolbar style buttons.
+--button-outer-padding-inline-end - Used to set the outer inline-end padding of toolbar style buttons.
+--button-outer-padding-block-start - Used to set the outer block-start padding of toolbar style buttons.
+--button-outer-padding-block-end - Used to set the outer block-end padding of toolbar style buttons.
+```
+
 ### Fluent usage
 
-The `label`, `tooltiptext`, `title`, `aria-label` and `accesskey` attributes of `moz-button` will generally be provided via [Fluent attributes](https://mozilla-l10n.github.io/localizer-documentation/tools/fluent/basic_syntax.html#attributes).
+The `label`, `tooltiptext`, `title` and `aria-label` attributes of `moz-button` will generally be provided via [Fluent attributes](https://mozilla-l10n.github.io/localizer-documentation/tools/fluent/basic_syntax.html#attributes).
 The relevant `data-l10n-attrs` are set automatically, so to get things working you just need to supply a `data-l10n-id` as you would with any other element.
+
+**Note:** [Bug 1945032](https://bugzilla.mozilla.org/show_bug.cgi?id=1945032) should be fixed before we add automatic fluent support for the `accesskey` attribute. For now `accesskey` should be manually added to the `data-l10n-attrs` if needed.
 
 For example, the following Fluent messages:
 

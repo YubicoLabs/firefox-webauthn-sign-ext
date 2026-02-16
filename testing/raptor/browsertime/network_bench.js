@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-env node */
-
 const { logTest, logTask } = require("./utils/profiling");
 
 const fs = require("fs");
@@ -211,6 +209,38 @@ module.exports = logTest(
           context.log.error("Unsupported test type:" + testType);
         }
       });
+
+      if (browserName === "firefox" && protocol === "h3") {
+        const statsScript = `
+        const gDashboard = Cc["@mozilla.org/network/dashboard;1"].getService(
+          Ci.nsIDashboard
+        );
+        let promise = new Promise((resolve, reject) => {
+          gDashboard.requestHttp3ConnectionStats((data) => {
+            resolve(data);
+          });
+        });
+        let done = false;
+        let result = null;
+        let error = null;
+        promise
+          .catch(e => {
+            error = e;
+          })
+          .then(r => {
+            result = r;
+            done = true;
+          });
+        // Spin the event loop until done becomes true.
+        Services.tm.spinEventLoopUntil(
+          "requestHttpConnections",
+          () => done
+        );
+        return result;
+        `;
+        let res = await commands.js.runPrivileged(statsScript);
+        context.log.info("HTTP/3 Connection Stats" + JSON.stringify(res));
+      }
 
       // No need to close the connection at the last run.
       if (iteration != iterations - 1) {

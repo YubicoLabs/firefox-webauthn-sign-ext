@@ -27,7 +27,6 @@
 #include "mozilla/ProfilerMarkers.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/Try.h"
-#include "mozilla/Unused.h"
 
 #include "GeckoProfiler.h"
 #include "prprf.h"
@@ -384,6 +383,10 @@ nsAppStartup::Quit(uint32_t aMode, int aExitCode, bool* aUserAllowedQuit) {
       }
     }
 
+    // We passed the last line of a shutdown to maybe not happen for legit
+    // reasons after checking CanClose() for all windows above. Now we are
+    // supposed to go away (or restart), for sure.
+
     PROFILER_MARKER_UNTYPED("Shutdown start", OTHER);
     mozilla::RecordShutdownStartTimeStamp();
 
@@ -432,15 +435,20 @@ nsAppStartup::Quit(uint32_t aMode, int aExitCode, bool* aUserAllowedQuit) {
                                     nullptr);
     }
 
-    /* Enumerate through each open window and close it. It's important to do
-       this before we forcequit because this can control whether we really quit
-       at all. e.g. if one of these windows has an unload handler that
-       opens a new window. Ugh. I know. */
+    // Enumerate through each open window and close it.
     CloseAllWindows();
 
     if (mediator) {
       if (ferocity == eAttemptQuit) {
         ferocity = eForceQuit;  // assume success
+
+        // TODO: The above CloseAllWindows() does a window->ForceClose() which
+        // seems to have no way of saying that we refuse to close. It dispatches
+        // events and sends notifications which might race with the below check.
+        // However the flag we check below with domWindow->Closed() should have
+        // always been set synchronously above. In other words: most likely this
+        // entire check can go away and maybe CloseAllWindows could be renamed
+        // to ForceCloseAllWindows.
 
         /* Were we able to immediately close all windows? if not, eAttemptQuit
            failed. This could happen for a variety of reasons; in fact it's
@@ -461,6 +469,8 @@ nsAppStartup::Quit(uint32_t aMode, int aExitCode, bool* aUserAllowedQuit) {
             nsCOMPtr<nsPIDOMWindowOuter> domWindow = do_QueryInterface(window);
             if (domWindow) {
               if (!domWindow->Closed()) {
+                MOZ_DIAGNOSTIC_ASSERT(false,
+                                      "CloseAllWindows() did not succeed.");
                 rv = NS_ERROR_FAILURE;
                 break;
               }
@@ -538,8 +548,7 @@ Result<ShutdownPhase, nsresult> IDLShutdownPhaseToNative(
 
 NS_IMETHODIMP
 nsAppStartup::AdvanceShutdownPhase(IDLShutdownPhase aPhase) {
-  ShutdownPhase nativePhase;
-  MOZ_TRY_VAR(nativePhase, IDLShutdownPhaseToNative(aPhase));
+  ShutdownPhase nativePhase = MOZ_TRY(IDLShutdownPhaseToNative(aPhase));
   AppShutdown::AdvanceShutdownPhase(nativePhase);
   return NS_OK;
 }
@@ -547,8 +556,7 @@ nsAppStartup::AdvanceShutdownPhase(IDLShutdownPhase aPhase) {
 NS_IMETHODIMP
 nsAppStartup::IsInOrBeyondShutdownPhase(IDLShutdownPhase aPhase,
                                         bool* aIsInOrBeyond) {
-  ShutdownPhase nativePhase;
-  MOZ_TRY_VAR(nativePhase, IDLShutdownPhaseToNative(aPhase));
+  ShutdownPhase nativePhase = MOZ_TRY(IDLShutdownPhaseToNative(aPhase));
   *aIsInOrBeyond = AppShutdown::IsInOrBeyond(nativePhase);
   return NS_OK;
 }
@@ -607,6 +615,12 @@ nsAppStartup::ExitLastWindowClosingSurvivalArea(void) {
 NS_IMETHODIMP
 nsAppStartup::GetShuttingDown(bool* aResult) {
   *aResult = AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdownConfirmed);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsAppStartup::GetAttemptingQuit(bool* aResult) {
+  *aResult = mAttemptingQuit;
   return NS_OK;
 }
 
@@ -974,8 +988,7 @@ static nsresult RemoveIncompleteStartupFile() {
         if (NS_WARN_IF(incompleteStartup.isErr())) {
           return;
         }
-        Unused << NS_WARN_IF(
-            NS_FAILED(incompleteStartup.unwrap()->Remove(false)));
+        (void)NS_WARN_IF(NS_FAILED(incompleteStartup.unwrap()->Remove(false)));
       }));
 }
 
@@ -994,7 +1007,7 @@ nsAppStartup::TrackStartupCrashEnd() {
 
   // Remove the incomplete startup canary file, so the next startup doesn't
   // detect a recent startup crash.
-  Unused << NS_WARN_IF(NS_FAILED(RemoveIncompleteStartupFile()));
+  (void)NS_WARN_IF(NS_FAILED(RemoveIncompleteStartupFile()));
 
   // Use the timestamp of XRE_main as an approximation for the lock file
   // timestamp. See MAX_STARTUP_BUFFER for the buffer time period.
@@ -1017,7 +1030,7 @@ nsAppStartup::TrackStartupCrashEnd() {
     // On a successful startup in automatic safe mode, allow the user one more
     // crash in regular mode before returning to safe mode.
     int32_t maxResumedCrashes = 0;
-    int32_t prefType;
+    nsIPrefBranch::PreferenceType prefType;
     rv = Preferences::GetRootBranch(PrefValueKind::Default)
              ->GetPrefType(kPrefMaxResumedCrashes, &prefType);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -1052,7 +1065,8 @@ nsAppStartup::RestartInSafeMode(uint32_t aQuitMode) {
 }
 
 NS_IMETHODIMP
-nsAppStartup::CreateInstanceWithProfile(nsIToolkitProfile* aProfile) {
+nsAppStartup::CreateInstanceWithProfile(nsIToolkitProfile* aProfile,
+                                        const nsTArray<nsString>& aArgs) {
   if (NS_WARN_IF(!aProfile)) {
     return NS_ERROR_FAILURE;
   }
@@ -1085,8 +1099,15 @@ nsAppStartup::CreateInstanceWithProfile(nsIToolkitProfile* aProfile) {
 
   NS_ConvertUTF8toUTF16 wideName(profileName);
 
-  const char16_t* args[] = {u"-P", wideName.get()};
-  rv = process->Runw(false, args, 2);
+  // Build argument list: -P <profile_name> followed by any additional args
+  AutoTArray<const char16_t*, 2> args = {u"-P", wideName.get()};
+
+  // Add optional arguments if provided
+  for (const auto& arg : aArgs) {
+    args.AppendElement(arg.get());
+  }
+
+  rv = process->Runw(false, args.Elements(), args.Length());
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }

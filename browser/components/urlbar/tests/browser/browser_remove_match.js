@@ -11,8 +11,8 @@ add_setup(async function () {
   });
   await SearchTestUtils.installSearchExtension({}, { setAsDefault: true });
 
-  let engine = Services.search.getEngineByName("Example");
-  await Services.search.moveEngine(engine, 0);
+  let engine = SearchService.getEngineByName("Example");
+  await SearchService.moveEngine(engine, 0);
 });
 
 add_task(async function test_remove_history() {
@@ -105,7 +105,7 @@ add_task(async function test_remove_form_history() {
       break;
     }
   }
-  Assert.ok(index < count, "Result found");
+  Assert.less(index, count, "Result found");
 
   EventUtils.synthesizeKey("KEY_Tab", { repeat: index });
   Assert.equal(UrlbarTestUtils.getSelectedRowIndex(window), index);

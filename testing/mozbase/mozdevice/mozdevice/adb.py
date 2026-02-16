@@ -86,11 +86,7 @@ class ADBProcess:
         # to be independent of the individual failing device.
         arg_string = " ".join(self.args)
         arg_string = re.sub(r" -s [\w-]+", "", arg_string)
-        return "args: {}, exitcode: {}, stdout: {}".format(
-            arg_string,
-            self.exitcode,
-            self.stdout,
-        )
+        return f"args: {arg_string}, exitcode: {self.exitcode}, stdout: {self.stdout}"
 
     def __iter__(self):
         assert self.stdout_file == subprocess.PIPE
@@ -562,8 +558,16 @@ class ADBHost(ADBCommand):
 
         ::
 
-            [{'device_serial': 'b313b945', 'state': 'device', 'product': 'd2vzw',
-              'usb': '1-7', 'device': 'd2vzw', 'model': 'SCH_I535' }]
+            [
+                {
+                    "device_serial": "b313b945",
+                    "state": "device",
+                    "product": "d2vzw",
+                    "usb": "1-7",
+                    "device": "d2vzw",
+                    "model": "SCH_I535",
+                }
+            ]
         """
         # b313b945               device usb:1-7 product:d2vzw model:SCH_I535 device:d2vzw
         # from Android system/core/adb/transport.c statename()
@@ -587,7 +591,7 @@ class ADBHost(ADBCommand):
                         )
                     except ValueError:
                         self._logger.warning(
-                            "devices: Unable to parse " "remainder for device %s" % line
+                            "devices: Unable to parse remainder for device %s" % line
                         )
                 devices.append(device)
         for device in devices:
@@ -643,9 +647,9 @@ def ADBDeviceFactory(
         # already created an ADBDevice which means we must only have
         # one device connected and we can re-use the existing ADBDevice.
         devices = list(ADBDEVICES.keys())
-        assert (
-            len(devices) == 1
-        ), "Only one device may be connected if the device serial number is not specified."
+        assert len(devices) == 1, (
+            "Only one device may be connected if the device serial number is not specified."
+        )
         adbdevice = ADBDEVICES[devices[0]]
     elif (
         device is not None
@@ -754,67 +758,65 @@ class ADBDevice(ADBCommand):
     # BUILTINS is used to determine which commands can not be executed
     # via su or run-as. This set of possible builtin commands was
     # obtained from `man builtin` on Linux.
-    BUILTINS = set(
-        [
-            "alias",
-            "bg",
-            "bind",
-            "break",
-            "builtin",
-            "caller",
-            "cd",
-            "command",
-            "compgen",
-            "complete",
-            "compopt",
-            "continue",
-            "declare",
-            "dirs",
-            "disown",
-            "echo",
-            "enable",
-            "eval",
-            "exec",
-            "exit",
-            "export",
-            "false",
-            "fc",
-            "fg",
-            "getopts",
-            "hash",
-            "help",
-            "history",
-            "jobs",
-            "kill",
-            "let",
-            "local",
-            "logout",
-            "mapfile",
-            "popd",
-            "printf",
-            "pushd",
-            "pwd",
-            "read",
-            "readonly",
-            "return",
-            "set",
-            "shift",
-            "shopt",
-            "source",
-            "suspend",
-            "test",
-            "times",
-            "trap",
-            "true",
-            "type",
-            "typeset",
-            "ulimit",
-            "umask",
-            "unalias",
-            "unset",
-            "wait",
-        ]
-    )
+    BUILTINS = set([
+        "alias",
+        "bg",
+        "bind",
+        "break",
+        "builtin",
+        "caller",
+        "cd",
+        "command",
+        "compgen",
+        "complete",
+        "compopt",
+        "continue",
+        "declare",
+        "dirs",
+        "disown",
+        "echo",
+        "enable",
+        "eval",
+        "exec",
+        "exit",
+        "export",
+        "false",
+        "fc",
+        "fg",
+        "getopts",
+        "hash",
+        "help",
+        "history",
+        "jobs",
+        "kill",
+        "let",
+        "local",
+        "logout",
+        "mapfile",
+        "popd",
+        "printf",
+        "pushd",
+        "pwd",
+        "read",
+        "readonly",
+        "return",
+        "set",
+        "shift",
+        "shopt",
+        "source",
+        "suspend",
+        "test",
+        "times",
+        "trap",
+        "true",
+        "type",
+        "typeset",
+        "ulimit",
+        "umask",
+        "unalias",
+        "unset",
+        "wait",
+    ])
 
     def __init__(
         self,
@@ -1129,6 +1131,8 @@ class ADBDevice(ADBCommand):
         self.run_as_package = run_as_package
 
         self._logger.debug("ADBDevice: %s" % self.__dict__)
+        self.shell("settings put system accelerometer_rotation 0")
+        self.shell("settings put system user_rotation 0")
 
     @property
     def is_rooted(self):
@@ -1163,14 +1167,15 @@ class ADBDevice(ADBCommand):
             devices = ADBHost(
                 adb=self._adb_path, adb_host=self._adb_host, adb_port=self._adb_port
             ).devices()
-            if len(devices) > 1:
+            ready_devices = [d for d in devices if d["state"] == "device"]
+            if len(ready_devices) > 1:
                 raise ValueError(
                     "ADBDevice called with multiple devices "
-                    "attached and no device specified"
+                    "available and no device specified"
                 )
-            if len(devices) == 0:
-                raise ADBError("No connected devices found.")
-            device = devices[0]
+            if len(ready_devices) == 0:
+                raise ADBError("No ready devices found.")
+            device = ready_devices[0]
 
         # Allow : in device serial if it matches a tcpip device serial.
         re_device_serial_tcpip = re.compile(r"[^:]+:[0-9]+$")
@@ -1332,7 +1337,7 @@ class ADBDevice(ADBCommand):
             char = file_obj.read(1).decode()
             if not char:
                 break
-            if char != "\r" and char != "\n":
+            if char not in {"\r", "\n"}:
                 line = char + line
             elif line:
                 # we have collected everything up to the beginning of the line
@@ -1601,13 +1606,11 @@ class ADBDevice(ADBCommand):
             if not self.is_rooted:
                 # Note that /sdcard may be accessible while
                 # /mnt/sdcard is not.
-                paths.extend(
-                    [
-                        "/sdcard/test_root",
-                        "/storage/sdcard/test_root",
-                        "/mnt/sdcard/test_root",
-                    ]
-                )
+                paths.extend([
+                    "/sdcard/test_root",
+                    "/storage/sdcard/test_root",
+                    "/mnt/sdcard/test_root",
+                ])
 
         return self._try_test_root_candidates(paths)
 
@@ -3074,9 +3077,7 @@ class ADBDevice(ADBCommand):
             if "remote secure_mkdirs failed" not in str(e):
                 raise
             self._logger.warning(
-                "remote secure_mkdirs failed push('{}', '{}') {}".format(
-                    local, remote, str(e)
-                )
+                f"remote secure_mkdirs failed push('{local}', '{remote}') {str(e)}"
             )
             # Work around change in Android where push creates
             # directories which can not be written by "other" by first
@@ -3388,9 +3389,9 @@ class ADBDevice(ADBCommand):
                 if "No such process" not in str(e):
                     raise
             pid_set = set(pid_list)
-            current_pid_set = set(
-                [str(proc[0]) for proc in self.get_process_list(timeout=timeout)]
-            )
+            current_pid_set = set([
+                str(proc[0]) for proc in self.get_process_list(timeout=timeout)
+            ])
             pid_list = list(pid_set.intersection(current_pid_set))
             if not pid_list:
                 break
@@ -3686,9 +3687,9 @@ class ADBDevice(ADBCommand):
             if uptime:
                 m = re.match(r"up time: ((\d+) days, )*(\d{2}):(\d{2}):(\d{2})", uptime)
                 if m:
-                    uptime = "%d days %d hours %d minutes %d seconds" % tuple(
-                        [int(g or 0) for g in m.groups()[1:]]
-                    )
+                    uptime = "%d days %d hours %d minutes %d seconds" % tuple([
+                        int(g or 0) for g in m.groups()[1:]
+                    ])
                 info["uptime"] = uptime
         return info
 
@@ -4099,6 +4100,64 @@ class ADBDevice(ADBCommand):
                 break
         return package_name
 
+    def install_app_baseline_profile(self, apk_path, replace=False, timeout=None):
+        """Installs an app on the device. Utilize profgen to first extract out the
+        .dm profile and use `adb install-multiple` to properly install the apk along
+        with the generated baseline profile.
+
+        :param str apk_path: The apk file name to be installed.
+        :param bool replace: If True, replace existing application.
+        :param int timeout: The maximum time in
+            seconds for any spawned adb process to complete before
+            throwing an ADBTimeoutError.
+            This timeout is per adb call. The total time spent
+            may exceed this value. If it is not specified, the value
+            set in the ADB constructor is used.
+        :return: string - name of installed package.
+        :raises: :exc:`ADBTimeoutError`
+                 :exc:`ADBError`
+        """
+        # dm files will always share the same stem as the apk file.
+        dm_path = apk_path[:-3] + "dm"
+        command = [
+            "profgen",
+            "extractProfile",
+            "--apk",
+            apk_path,
+            "--output-dex-metadata",
+            dm_path,
+            "--profile-format",
+            "V0_1_5_S",
+        ]
+        subprocess.run(command, check=True)
+        dump_packages = "dumpsys package packages"
+        packages_before = set(self.shell_output(dump_packages, attempts=3).split("\n"))
+        cmd = ["install-multiple"]
+        if replace:
+            cmd.append("-r")
+        cmd.append(apk_path)
+        cmd.append(dm_path)
+        data = self.command_output(cmd, timeout=timeout)
+        if data.find("Success") == -1:
+            raise ADBError(f"install failed for {apk_path}. Got: {data}")
+        packages_after = set(self.shell_output(dump_packages, attempts=3).split("\n"))
+        packages_diff = packages_after - packages_before
+        package_name = None
+        re_pkg = re.compile(r"\s+pkg=Package{[^ ]+ (.*)}")
+        for diff in packages_diff:
+            match = re_pkg.match(diff)
+            if match:
+                package_name = match.group(1)
+                break
+        output = self.shell_output(f"dumpsys package dexopt | grep -A 1 {package_name}")
+        print(output)
+        if "status=speed-profile" not in output:
+            raise Exception(
+                f"{package_name} did not install the baseline profile correctly"
+            )
+
+        return package_name
+
     def is_app_installed(self, app_name, timeout=None):
         """Returns True if an app is installed on the device.
 
@@ -4164,9 +4223,7 @@ class ADBDevice(ADBCommand):
         # starting a new instance may not be what we want depending on what
         # we want to do
         if fail_if_running and self.process_exist(app_name, timeout=timeout):
-            raise ADBError(
-                "Only one instance of an application may be running " "at once"
-            )
+            raise ADBError("Only one instance of an application may be running at once")
 
         if grant_runtime_permissions:
             self.grant_runtime_permissions(app_name)
@@ -4174,12 +4231,10 @@ class ADBDevice(ADBCommand):
         acmd = ["am"] + ["startservice" if is_service else "start"]
         if wait:
             acmd.extend(["-W"])
-        acmd.extend(
-            [
-                "-n",
-                f"{app_name}/{activity_name}",
-            ]
-        )
+        acmd.extend([
+            "-n",
+            f"{app_name}/{activity_name}",
+        ])
         if intent:
             acmd.extend(["-a", intent])
 

@@ -6,62 +6,67 @@
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
-  AppProvidedSearchEngine:
-    "resource://gre/modules/AppProvidedSearchEngine.sys.mjs",
-  AddonSearchEngine: "resource://gre/modules/AddonSearchEngine.sys.mjs",
+  AppProvidedConfigEngine:
+    "moz-src:///toolkit/components/search/ConfigSearchEngine.sys.mjs",
+  AddonSearchEngine:
+    "moz-src:///toolkit/components/search/AddonSearchEngine.sys.mjs",
   BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
+  ConfigSearchEngine:
+    "moz-src:///toolkit/components/search/ConfigSearchEngine.sys.mjs",
   IgnoreLists: "resource://gre/modules/IgnoreLists.sys.mjs",
   loadAndParseOpenSearchEngine:
-    "resource://gre/modules/OpenSearchLoader.sys.mjs",
-  OpenSearchEngine: "resource://gre/modules/OpenSearchEngine.sys.mjs",
-  PolicySearchEngine: "resource://gre/modules/PolicySearchEngine.sys.mjs",
+    "moz-src:///toolkit/components/search/OpenSearchLoader.sys.mjs",
+  OpenSearchEngine:
+    "moz-src:///toolkit/components/search/OpenSearchEngine.sys.mjs",
+  PolicySearchEngine:
+    "moz-src:///toolkit/components/search/PolicySearchEngine.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
-  SearchEngine: "resource://gre/modules/SearchEngine.sys.mjs",
-  SearchEngineSelector: "resource://gre/modules/SearchEngineSelector.sys.mjs",
-  SearchSettings: "resource://gre/modules/SearchSettings.sys.mjs",
-  SearchStaticData: "resource://gre/modules/SearchStaticData.sys.mjs",
-  SearchUtils: "resource://gre/modules/SearchUtils.sys.mjs",
-  UserInstalledAppEngine:
-    "resource://gre/modules/AppProvidedSearchEngine.sys.mjs",
-  UserSearchEngine: "resource://gre/modules/UserSearchEngine.sys.mjs",
+  SearchEngine: "moz-src:///toolkit/components/search/SearchEngine.sys.mjs",
+  SearchEngineInstallError:
+    "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
+  SearchEngineSelector:
+    "moz-src:///toolkit/components/search/SearchEngineSelector.sys.mjs",
+  SearchSettings: "moz-src:///toolkit/components/search/SearchSettings.sys.mjs",
+  SearchStaticData:
+    "moz-src:///toolkit/components/search/SearchStaticData.sys.mjs",
+  SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
+  UserInstalledConfigEngine:
+    "moz-src:///toolkit/components/search/ConfigSearchEngine.sys.mjs",
+  UserSearchEngine:
+    "moz-src:///toolkit/components/search/UserSearchEngine.sys.mjs",
+  logConsole: () =>
+    console.createInstance({
+      prefix: "SearchService",
+      maxLogLevel: lazy.SearchUtils.loggingEnabled ? "Debug" : "Warn",
+    }),
+  timerManager: {
+    service: "@mozilla.org/updates/timer-manager;1",
+    iid: Ci.nsIUpdateTimerManager,
+  },
+  idleService: {
+    service: "@mozilla.org/widget/useridleservice;1",
+    iid: Ci.nsIUserIdleService,
+  },
+  defaultOverrideAllowlist: () => {
+    return new SearchDefaultOverrideAllowlistHandler();
+  },
 });
-
-ChromeUtils.defineLazyGetter(lazy, "logConsole", () => {
-  return console.createInstance({
-    prefix: "SearchService",
-    maxLogLevel: lazy.SearchUtils.loggingEnabled ? "Debug" : "Warn",
-  });
-});
-
-XPCOMUtils.defineLazyServiceGetter(
-  lazy,
-  "timerManager",
-  "@mozilla.org/updates/timer-manager;1",
-  "nsIUpdateTimerManager"
-);
 
 /**
- * @typedef {import("AddonSearchEngine.sys.mjs").AddonSearchEngine} AddonSearchEngine
- * @typedef {import("OpenSearchEngine.sys.mjs").OpenSearchEngine} OpenSearchEngine
- * @typedef {import("SearchEngine.sys.mjs").SearchEngine} SearchEngine
- * @typedef {import("SearchEngineSelector.sys.mjs").RefinedConfig} RefinedConfig
- * @typedef {import("SearchEngineSelector.sys.mjs").SearchEngineSelector} SearchEngineSelector
- * @typedef {import("UserSearchEngine.sys.mjs").FormInfo} FormInfo
+ * @import {AppProvidedConfigEngine} from "ConfigSearchEngine.sys.mjs"
+ * @import {AddonSearchEngine} from "AddonSearchEngine.sys.mjs"
+ * @import {OpenSearchEngine} from "OpenSearchEngine.sys.mjs"
+ * @import {SearchEngine} from "SearchEngine.sys.mjs"
+ * @import {SearchEngineSelector} from "SearchEngineSelector.sys.mjs"
+ * @import {
+ *   RefinedSearchConfig,
+ *   SearchEngineDefinition,
+ * } from "../uniffi-bindgen-gecko-js/components/generated/RustSearch.sys.mjs";
+ * @import {UserSearchEngine, FormInfo} from "UserSearchEngine.sys.mjs"
  */
-
-/**
- * A reference to the handler for the default override allowlist.
- *
- * @type {SearchDefaultOverrideAllowlistHandler}
- */
-ChromeUtils.defineLazyGetter(lazy, "defaultOverrideAllowlist", () => {
-  return new SearchDefaultOverrideAllowlistHandler();
-});
 
 const TOPIC_LOCALES_CHANGE = "intl:app-locales-changed";
 const QUIT_APPLICATION_TOPIC = "quit-application";
@@ -83,179 +88,142 @@ const DONT_SHOW_PROMPT = -1;
 
 // Amount of times the engine has to be used before prompting.
 const ENGINES_SEEN_FOR_PROMPT = 1;
-/**
- * A reason that is used in the change of default search engine event telemetry.
- * These are mutally exclusive.
- */
-const REASON_CHANGE_MAP = new Map([
-  // The cause of the change is unknown.
-  [Ci.nsISearchService.CHANGE_REASON_UNKNOWN, "unknown"],
-  // The user changed the default search engine via the options in the
-  // preferences UI.
-  [Ci.nsISearchService.CHANGE_REASON_USER, "user"],
-  // The change resulted from the user toggling the "Use this search engine in
-  // Private Windows" option in the preferences UI.
-  [Ci.nsISearchService.CHANGE_REASON_USER_PRIVATE_SPLIT, "user_private_split"],
-  // The user changed the default via keys (cmd/ctrl-up/down) in the separate
-  // search bar.
-  [Ci.nsISearchService.CHANGE_REASON_USER_SEARCHBAR, "user_searchbar"],
-  // The user changed the default via context menu on the one-off buttons in the
-  // separate search bar.
-  [
-    Ci.nsISearchService.CHANGE_REASON_USER_SEARCHBAR_CONTEXT,
-    "user_searchbar_context",
-  ],
-  // An add-on requested the change of default on install, which was either
-  // accepted automatically or by the user.
-  [Ci.nsISearchService.CHANGE_REASON_ADDON_INSTALL, "addon-install"],
-  // An add-on was uninstalled, which caused the engine to be uninstalled.
-  [Ci.nsISearchService.CHANGE_REASON_ADDON_UNINSTALL, "addon-uninstall"],
-  // A configuration update caused a change of default.
-  [Ci.nsISearchService.CHANGE_REASON_CONFIG, "config"],
-  // A locale update caused a change of default.
-  [Ci.nsISearchService.CHANGE_REASON_LOCALE, "locale"],
-  // A region update caused a change of default.
-  [Ci.nsISearchService.CHANGE_REASON_REGION, "region"],
-  // Turning on/off an experiment caused a change of default.
-  [Ci.nsISearchService.CHANGE_REASON_EXPERIMENT, "experiment"],
-  // An enterprise policy caused a change of default.
-  [Ci.nsISearchService.CHANGE_REASON_ENTERPRISE, "enterprise"],
-  // The UI Tour caused a change of default.
-  [Ci.nsISearchService.CHANGE_REASON_UITOUR, "uitour"],
-  // The engine updated.
-  [Ci.nsISearchService.CHANGE_REASON_ENGINE_UPDATE, "engine-update"],
-  // When the private default UI is enabled (e.g. via toggling the preference
-  // when an experiment is run).
-  [
-    Ci.nsISearchService.CHANGE_REASON_USER_PRIVATE_PREF_ENABLED,
-    "user_private_pref_enabled",
-  ],
-]);
-
-/**
- * The ParseSubmissionResult contains getter methods that return attributes
- * about the parsed submission url.
- *
- * @implements {nsISearchParseSubmissionResult}
- */
-class ParseSubmissionResult {
-  constructor(engine, terms, termsParameterName) {
-    this.#engine = engine;
-    this.#terms = terms;
-    this.#termsParameterName = termsParameterName;
-  }
-
-  get engine() {
-    return this.#engine;
-  }
-
-  get terms() {
-    return this.#terms;
-  }
-
-  get termsParameterName() {
-    return this.#termsParameterName;
-  }
-
-  /**
-   * The search engine associated with the URL passed in to
-   * nsISearchEngine::parseSubmissionURL, or null if the URL does not represent
-   * a search submission.
-   *
-   * @type {nsISearchEngine|null}
-   */
-  #engine;
-
-  /**
-   * String containing the sought terms. This can be an empty string in case no
-   * terms were specified or the URL does not represent a search submission.
-   *
-   * @type {string}
-   */
-  #terms;
-
-  /**
-   * The name of the query parameter used by `engine` for queries. E.g. "q".
-   *
-   * @type {string}
-   */
-  #termsParameterName;
-
-  QueryInterface = ChromeUtils.generateQI(["nsISearchParseSubmissionResult"]);
-}
-
-const gEmptyParseSubmissionResult = Object.freeze(
-  new ParseSubmissionResult(null, "", "")
-);
 
 /**
  * The search service handles loading and maintaining of search engines. It will
  * also work out the default lists for each locale/region.
- *
- * @implements {nsISearchService}
  */
-export class SearchService {
+export const SearchService = new (class SearchService {
   constructor() {
-    // this._engines is prefixed with _ rather than # because it is called from
-    // a test.
-    this._engines = new Map();
     this._settings = new lazy.SearchSettings(this);
-
-    this.#defineLazyPreferenceGetters();
   }
 
-  classID = Components.ID("{7319788a-fe93-4db3-9f39-818cf08f4256}");
+  /**
+   * A reason that is used in the change of default search engine event telemetry.
+   * These are mutally exclusive.
+   */
+  CHANGE_REASON = Object.freeze({
+    // The cause of the change is unknown.
+    UNKNOWN: "unknown",
+    // The user changed the default search engine via the options in the
+    // preferences UI.
+    USER: "user",
+    // The change resulted from the user toggling the "Use this search engine in
+    // Private Windows" option in the preferences UI.
+    USER_PRIVATE_SPLIT: "user_private_split",
+    // The user changed the default via keys (cmd/ctrl-up/down) in the separate
+    // search bar.
+    USER_SEARCHBAR: "user_searchbar",
+    // The user changed the default via context menu on the one-off buttons in the
+    // separate search bar.
+    USER_SEARCHBAR_CONTEXT: "user_searchbar_context",
+    // An add-on requested the change of default on install, which was either
+    // accepted automatically or by the user.
+    ADDON_INSTALL: "addon-install",
+    // An add-on was uninstalled, which caused the engine to be uninstalled.
+    ADDON_UNINSTALL: "addon-uninstall",
+    // A configuration update caused a change of default.
+    CONFIG: "config",
+    // A locale update caused a change of default.
+    LOCALE: "locale",
+    // A region update caused a change of default.
+    REGION: "region",
+    // Turning on/off an experiment caused a change of default.
+    EXPERIMENT: "experiment",
+    // An enterprise policy caused a change of default.
+    ENTERPRISE: "enterprise",
+    // The UI Tour caused a change of default.
+    UITOUR: "uitour",
+    // The engine updated.
+    ENGINE_UPDATE: "engine-update",
+    // When the private default UI is enabled (e.g. via toggling the preference
+    // when an experiment is run).
+    USER_PRIVATE_PREF_ENABLED: "user_private_pref_enabled",
+    // An update to the search engine ignore list caused a change of default.
+    ENGINE_IGNORE_LIST_UPDATED: "ignore-list",
+    // There was no default engine in the settings or it was hidden, so we found
+    // a new default engine.
+    NO_EXISTING_DEFAULT_ENGINE: "no-existing-default",
+  });
 
+  /**
+   * The currently active search engine.
+   * Unless the application doesn't ship any search engine, this should never
+   * be null. If the currently active engine is removed, this attribute will
+   * fallback first to the application default engine if it's not hidden, then to
+   * the first visible engine, and as a last resort it will unhide the app
+   * default engine.
+   */
   get defaultEngine() {
     this.#ensureInitialized();
     return this._getEngineDefault(false);
   }
 
-  set defaultEngine(newEngine) {
-    this.#ensureInitialized();
-    this.#setEngineDefault(false, newEngine);
-  }
-
+  /**
+   * The currently active search engine for private browsing mode.
+   *
+   * @see defaultEngine
+   */
   get defaultPrivateEngine() {
     this.#ensureInitialized();
     return this._getEngineDefault(this.#separatePrivateDefault);
   }
 
-  set defaultPrivateEngine(newEngine) {
-    this.#ensureInitialized();
-    if (!this._separatePrivateDefaultPrefValue) {
-      Services.prefs.setBoolPref(
-        lazy.SearchUtils.BROWSER_SEARCH_PREF + "separatePrivateDefault",
-        true
-      );
-    }
-    this.#setEngineDefault(this.#separatePrivateDefault, newEngine);
-  }
-
+  /**
+   * The currently active search engine.
+   * Unless the application doesn't ship any search engine, this should never
+   * be null. If the currently active engine is removed, this attribute will
+   * fallback first to the application default engine if it's not hidden, then to
+   * the first visible engine, and as a last resort it will unhide the app
+   * default engine.
+   */
   async getDefault() {
     await this.init();
     return this.defaultEngine;
   }
 
-  async setDefault(engine, changeSource) {
+  /**
+   * Sets the currently active search engine.
+   *
+   * @param {SearchEngine} engine
+   *   The engine to set the default to.
+   * @param {Values<typeof this.CHANGE_REASON>} changeReason
+   *   The reason the default engine is being changed, used for recording to
+   *   telemetry.
+   */
+  async setDefault(engine, changeReason) {
     await this.init();
-    this.#setEngineDefault(false, engine, changeSource);
+    this.#setEngineDefault(false, engine, changeReason);
   }
 
+  /**
+   * The currently active search engine for private browsing mode.
+   *
+   * @see defaultPrivateEngine
+   */
   async getDefaultPrivate() {
     await this.init();
     return this.defaultPrivateEngine;
   }
 
-  async setDefaultPrivate(engine, changeSource) {
+  /**
+   * Sets the currently active default private search engine.
+   *
+   * @param {SearchEngine} engine
+   *   The engine to set the default to.
+   * @param {Values<typeof this.CHANGE_REASON>} changeReason
+   *   The reason the default engine is being changed, used for recording to
+   *   telemetry.
+   */
+  async setDefaultPrivate(engine, changeReason) {
     await this.init();
-    if (!this._separatePrivateDefaultPrefValue) {
+    if (!this.#lazyPrefs.separatePrivateDefaultPrefValue) {
       Services.prefs.setBoolPref(
         lazy.SearchUtils.BROWSER_SEARCH_PREF + "separatePrivateDefault",
         true
       );
     }
-    this.#setEngineDefault(this.#separatePrivateDefault, engine, changeSource);
+    this.#setEngineDefault(this.#separatePrivateDefault, engine, changeReason);
   }
 
   /**
@@ -318,7 +286,7 @@ export class SearchService {
    * A promise that is resolved when initialization has finished. This does not
    * trigger initialization to begin.
    *
-   * @returns {Promise}
+   * @returns {Promise<void>}
    *   Resolved when initalization has successfully finished, and rejected if it
    *   has failed.
    */
@@ -326,20 +294,61 @@ export class SearchService {
     return this.#initDeferredPromise.promise;
   }
 
+  /**
+   * Gets a representation of the default engine in an anonymized JSON
+   * string suitable for recording in the Telemetry environment.
+   *
+   * @typedef {object} SearchEngineTelemetryInfo
+   * @property {string} name
+   *   The user given name of the search engine.
+   * @property {string} loadPath
+   *   The load path for the search engine.
+   * @property {string} [submissionURL]
+   *   The submission URL for the search engine, only reported for a select
+   *   list of domains. See `#getEngineInfo()` for more info.
+   *
+   * @typedef {object} EnginesTelemetryInfo
+   *   Contains anonymized info about the default engine(s).
+   * @property {string} defaultSearchEngine
+   *   The telemetry id of the default engine.
+   * @property {SearchEngineTelemetryInfo} defaultSearchEngineData
+   *   Information about the default engine.
+   * @property {string} [defaultPrivateSearchEngine]
+   *   Only returned if the preference for having a separate engine in private
+   *   mode is turned on.
+   *   The telemetry id of the default engine for private browsing mode.
+   * @property {SearchEngineTelemetryInfo} [defaultPrivateSearchEngineData]
+   *   Only returned if the preference for having a separate engine in private
+   *   mode is turned on.
+   *   Information about the default engine for private browsing mode.
+   *
+   * @returns {EnginesTelemetryInfo}
+   */
   getDefaultEngineInfo() {
-    let [telemetryId, defaultSearchEngineData] = this.#getEngineInfo(
-      this.defaultEngine
-    );
+    let engineInfo = this.#getEngineInfo(this.defaultEngine);
+    /** @type {EnginesTelemetryInfo} */
     const result = {
-      defaultSearchEngine: telemetryId,
-      defaultSearchEngineData,
+      defaultSearchEngine: engineInfo.telemetryId,
+      defaultSearchEngineData: {
+        loadPath: engineInfo.loadPath,
+        name: engineInfo.name,
+      },
     };
+    if (engineInfo.submissionURL) {
+      result.defaultSearchEngineData.submissionURL = engineInfo.submissionURL;
+    }
 
     if (this.#separatePrivateDefault) {
-      let [privateTelemetryId, defaultPrivateSearchEngineData] =
-        this.#getEngineInfo(this.defaultPrivateEngine);
-      result.defaultPrivateSearchEngine = privateTelemetryId;
-      result.defaultPrivateSearchEngineData = defaultPrivateSearchEngineData;
+      let privateEngineInfo = this.#getEngineInfo(this.defaultPrivateEngine);
+      result.defaultPrivateSearchEngine = privateEngineInfo.telemetryId;
+      result.defaultPrivateSearchEngineData = {
+        loadPath: privateEngineInfo.loadPath,
+        name: privateEngineInfo.name,
+      };
+      if (privateEngineInfo.submissionURL) {
+        result.defaultPrivateSearchEngineData.submissionURL =
+          privateEngineInfo.submissionURL;
+      }
     }
 
     return result;
@@ -353,7 +362,7 @@ export class SearchService {
    *
    * @param {string} engineName
    *   The name of the engine.
-   * @returns {SearchEngine}
+   * @returns {?SearchEngine}
    *   The associated engine if found, null otherwise.
    */
   getEngineByName(engineName) {
@@ -366,7 +375,7 @@ export class SearchService {
    *
    * @param {string} engineName
    *   The name of the engine.
-   * @returns {SearchEngine}
+   * @returns {?SearchEngine}
    *   The associated engine if found, null otherwise.
    */
   #getEngineByName(engineName) {
@@ -384,7 +393,7 @@ export class SearchService {
    *
    * @param {string} engineId
    *   The id of the engine.
-   * @returns {SearchEngine}
+   * @returns {?SearchEngine}
    *   The associated engine if found, null otherwise.
    */
   getEngineById(engineId) {
@@ -392,54 +401,97 @@ export class SearchService {
     return this._engines.get(engineId) || null;
   }
 
+  /**
+   * Returns the first search engine matching the provided alias
+   * (case-insensitive).
+   *
+   * @param {string} alias
+   *  The alias to look for.
+   * @returns {Promise<?SearchEngine>}
+   *  The first search engine matching the alias or null.
+   */
   async getEngineByAlias(alias) {
     await this.init();
-    for (var engine of this._engines.values()) {
-      if (engine && engine.aliases.includes(alias)) {
-        return engine;
+    alias = alias.toLocaleLowerCase();
+
+    for (let engine of this._engines.values()) {
+      for (let engineAlias of engine.aliases) {
+        if (engineAlias.toLocaleLowerCase() == alias) {
+          return engine;
+        }
       }
     }
     return null;
   }
 
+  /**
+   * Returns an array of all installed search engines.
+   * The array is sorted either to the user requirements or the default order.
+   *
+   * @returns {Promise<SearchEngine[]>}
+   */
   async getEngines() {
     await this.init();
     lazy.logConsole.debug("getEngines: getting all engines");
     return this.#sortedEngines;
   }
 
+  /**
+   * Returns an array of all installed search engines whose hidden attribute is
+   * false.
+   * The array is sorted either to the user requirements or the default order.
+   *
+   * @returns {Promise<SearchEngine[]>}
+   */
   async getVisibleEngines() {
     await this.init();
     lazy.logConsole.debug("getVisibleEngines: getting all visible engines");
     return this.#sortedVisibleEngines;
   }
 
+  /**
+   * Returns the current list of application provided engines.
+   */
   async getAppProvidedEngines() {
     await this.init();
 
     return lazy.SearchUtils.sortEnginesByDefaults({
-      engines: this.#sortedEngines.filter(e => e.isAppProvided),
+      engines: this.#sortedEngines.filter(
+        e => e instanceof lazy.AppProvidedConfigEngine
+      ),
       appDefaultEngine: this.appDefaultEngine,
       appPrivateDefaultEngine: this.appPrivateDefaultEngine,
     });
   }
 
-  async getEnginesByExtensionID(extensionID) {
-    await this.init();
-    return this.#getEnginesByExtensionID(extensionID);
-  }
-
+  /**
+   * Returns an engine definition if it's search url matches the host provided.
+   *
+   * @param {string} host
+   *   The host to search for.
+   */
   async findContextualSearchEngineByHost(host) {
     await this.init();
     let settings = await this._settings.get();
     let config =
       await this.#engineSelector.findContextualSearchEngineByHost(host);
     if (config) {
-      return new lazy.UserInstalledAppEngine({ config, settings });
+      return new lazy.UserInstalledConfigEngine({ config, settings });
     }
     return null;
   }
 
+  /**
+   * Returns whether the user should be given a prompt to install the
+   * engine they are currently using. A prompt is shown after the
+   * second time a user picks a contextual engine to search with. After
+   * the second time the prompt should not be shown again.
+   *
+   * @param {SearchEngine} engine
+   *   The engine to check.
+   * @returns {Promise<boolean>}
+   *   Whether or not to show the prompt.
+   */
   async shouldShowInstallPrompt(engine) {
     let identifer = engine._loadPath;
     let seenEngines =
@@ -467,10 +519,10 @@ export class SearchService {
   }
 
   /**
-   * This function calls #init to start initialization when it has not been
-   * started yet. Otherwise, it returns the pending promise.
+   * Starts initialisation if necessary, otherwise returns a promise which indicates
+   * the state of initialisation.
    *
-   * @returns {Promise}
+   * @returns {Promise<void>}
    *   Returns the pending Promise when #init has started but not yet finished.
    *   | Resolved | when initialization has successfully finished.
    *   | Rejected | when initialization has failed.
@@ -500,6 +552,11 @@ export class SearchService {
    * Test only - reset SearchService data. Ideally this should be replaced
    */
   reset() {
+    lazy.logConsole.debug("Resetting search service.");
+    if (this.#earlyObserversAdded) {
+      Services.obs.removeObserver(this, lazy.Region.REGION_TOPIC);
+      this.#earlyObserversAdded = false;
+    }
     this.#initializationStatus = "not initialized";
     this.#initDeferredPromise = Promise.withResolvers();
     this.#startupExtensions = new Set();
@@ -507,7 +564,7 @@ export class SearchService {
     this._cachedSortedEngines = null;
     this.#currentEngine = null;
     this.#currentPrivateEngine = null;
-    this._searchDefault = null;
+    this.#searchDefault = null;
     this.#searchPrivateDefault = null;
     this.#maybeReloadDebounce = false;
     this._settings._batchTask?.disarm();
@@ -517,9 +574,20 @@ export class SearchService {
     }
   }
 
-  // Test-only function to set SearchService initialization status
+  /**
+   * Test-only function to set SearchService initialization status.
+   *
+   * @param {string} status
+   */
   forceInitializationStatusForTests(status) {
     this.#initializationStatus = status;
+  }
+
+  /**
+   * Test-only function
+   */
+  forceCurrentEngineToBeNull() {
+    this.#currentEngine = null;
   }
 
   /**
@@ -538,27 +606,46 @@ export class SearchService {
     );
   }
 
+  /**
+   * Resets the default engine to its app default engine value.
+   */
   resetToAppDefaultEngine() {
     let appDefaultEngine = this.appDefaultEngine;
     appDefaultEngine.hidden = false;
-    this.defaultEngine = appDefaultEngine;
+    this.#setEngineDefault(false, appDefaultEngine, this.CHANGE_REASON.USER);
 
     let appPrivateDefaultEngine = this.appPrivateDefaultEngine;
     appPrivateDefaultEngine.hidden = false;
-    this.defaultPrivateEngine = appPrivateDefaultEngine;
+    this.#setEngineDefault(
+      true,
+      appPrivateDefaultEngine,
+      this.CHANGE_REASON.USER
+    );
   }
 
+  /**
+   * Allows the add-on manager to discover if a WebExtension based search engine
+   * may change the default to a config search engine.
+   * If that WebExtension is on the allow list, then it will override the
+   * built-in engine's urls and parameters.
+   *
+   *  @param {object} extension
+   *   The extension to load from.
+   *  @returns {Promise<{canChangeToConfigEngine: boolean, canInstallEngine: boolean}>}
+   *   canChangeToConfigEngine: indicates if the WebExtension engine may set the
+   *     already installed config search engine as default.
+   *   canInstallEngine: indicates if the WebExtension engine may be installed.
+   */
   async maybeSetAndOverrideDefault(extension) {
     let searchProvider =
       extension.manifest.chrome_settings_overrides.search_provider;
     let engine = this.getEngineByName(searchProvider.name);
-    if (!engine || !engine.isAppProvided || engine.hidden) {
-      // If the engine is not application provided, then we shouldn't simply
-      // set default to it.
-      // If the engine is application provided, but hidden, then we don't
+    if (!engine || !engine.isConfigEngine || engine.hidden) {
+      // We should only default to config engines.
+      // If the engine is a hidden config engine, then we don't
       // switch to it, nor do we try to install it.
       return {
-        canChangeToAppProvided: false,
+        canChangeToConfigEngine: false,
         canInstallEngine: !engine?.hidden,
       };
     }
@@ -570,7 +657,7 @@ export class SearchService {
       // Don't allow an extension to set the default if it is already the default.
       if (this.defaultEngine.name == searchProvider.name) {
         return {
-          canChangeToAppProvided: false,
+          canChangeToConfigEngine: false,
           canInstallEngine: false,
         };
       }
@@ -578,24 +665,24 @@ export class SearchService {
         !(await lazy.defaultOverrideAllowlist.canOverride(extension, engine.id))
       ) {
         lazy.logConsole.debug(
-          "Allowing default engine to be set to app-provided.",
+          "Allowing default engine to be set to config engine.",
           extension.id
         );
         // We don't allow overriding the engine in this case, but we can allow
         // the extension to change the default engine.
         return {
-          canChangeToAppProvided: true,
+          canChangeToConfigEngine: true,
           canInstallEngine: false,
         };
       }
       // We're ok to override.
       engine.overrideWithEngine({ extension });
       lazy.logConsole.debug(
-        "Allowing default engine to be set to app-provided and overridden.",
+        "Allowing default engine to be set to config engine and overridden.",
         extension.id
       );
       return {
-        canChangeToAppProvided: true,
+        canChangeToConfigEngine: true,
         canInstallEngine: false,
       };
     }
@@ -610,13 +697,13 @@ export class SearchService {
         extension.id
       );
       return {
-        canChangeToAppProvided: true,
+        canChangeToConfigEngine: true,
         canInstallEngine: false,
       };
     }
 
     return {
-      canChangeToAppProvided: false,
+      canChangeToConfigEngine: false,
       canInstallEngine: false,
     };
   }
@@ -641,6 +728,8 @@ export class SearchService {
    *
    * @param {FormInfo} formInfo
    *   General information about the search engine.
+   * @returns {Promise<UserSearchEngine>}
+   *   The generated search engine object.
    */
   async addUserEngine(formInfo) {
     await this.init();
@@ -648,8 +737,15 @@ export class SearchService {
     let newEngine = new lazy.UserSearchEngine({ formInfo });
     lazy.logConsole.debug(`Adding ${formInfo.name}`);
     this.#addEngineToStore(newEngine);
+    return newEngine;
   }
 
+  /**
+   * Installs an engine into the user's engine list.
+   *
+   * @param {SearchEngine} engine
+   *   An engine configuration definition.
+   */
   async addSearchEngine(engine) {
     await this.init();
     this.#addEngineToStore(engine);
@@ -702,26 +798,45 @@ export class SearchService {
     });
   }
 
-  async addOpenSearchEngine(engineURL, iconURL) {
+  /**
+   * Adds a new Open Search engine from the xml file at the supplied URI.
+   *
+   * @param {string} engineURL
+   *   The URL to the search engine's description file.
+   * @param {string} iconURL
+   *   A URL string to an icon file to be used as the search engine's icon. This
+   *   value may be overridden by an icon specified in the engine description
+   *   file.
+   * @param {OriginAttributesDictionary} [originAttributes]
+   *   The origin attributes to use to load this manifest.
+   * @throws {lazy.SearchEngineInstallError|TypeError|Error}
+   *   If the description file cannot be successfully loaded.
+   */
+  async addOpenSearchEngine(engineURL, iconURL, originAttributes) {
     lazy.logConsole.debug("addOpenSearchEngine: Adding", engineURL);
     await this.init();
-    let engine;
-    try {
-      let engineData = await lazy.loadAndParseOpenSearchEngine(
-        Services.io.newURI(engineURL)
-      );
-      engine = new lazy.OpenSearchEngine({ engineData, faviconURL: iconURL });
-    } catch (ex) {
-      throw Components.Exception(
-        "addEngine: Error adding engine:\n" + ex,
-        ex.result || Cr.NS_ERROR_FAILURE
-      );
-    }
+    let engineData = await lazy.loadAndParseOpenSearchEngine(
+      Services.io.newURI(engineURL),
+      null,
+      originAttributes
+    );
+    let engine = new lazy.OpenSearchEngine({
+      engineData,
+      faviconURL: iconURL,
+      originAttributes,
+    });
     this.#addEngineToStore(engine);
     this.#maybeStartOpenSearchUpdateTimer();
     return engine;
   }
 
+  /**
+   * This should be called when an extension is removed. It will remove any
+   * search engines that are associated with the extension.
+   *
+   * @param {string} id
+   *   The id of the extension.
+   */
   async removeWebExtensionEngine(id) {
     if (!this.isInitialized) {
       lazy.logConsole.debug(
@@ -734,39 +849,47 @@ export class SearchService {
 
     lazy.logConsole.debug("removeWebExtensionEngine:", id);
     for (let engine of this.#getEnginesByExtensionID(id)) {
-      await this.removeEngine(engine);
+      await this.removeEngine(engine, this.CHANGE_REASON.ADDON_UNINSTALL);
     }
   }
 
-  async removeEngine(engine) {
+  /**
+   * Removes the search engine. If the search engine is installed in a global
+   * location, this will just hide the engine. If the engine is in the user's
+   * profile directory, it will be removed from disk.
+   *
+   * @param {SearchEngine} engine
+   *   The engine to remove.
+   * @param {Values<typeof this.CHANGE_REASON>} changeReason
+   *   The reason for the engine being removed, used for telemetry if the engine
+   *   is currently a default engine.
+   */
+  async removeEngine(engine, changeReason) {
     await this.init();
     if (!engine) {
-      throw Components.Exception(
-        "no engine passed to removeEngine!",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+      throw new TypeError("no engine passed");
     }
 
     var engineToRemove = null;
     for (var e of this._engines.values()) {
-      if (engine.wrappedJSObject == e) {
+      if (engine == e) {
         engineToRemove = e;
       }
     }
 
     if (!engineToRemove) {
-      throw Components.Exception(
-        "removeEngine: Can't find engine to remove!",
-        Cr.NS_ERROR_FILE_NOT_FOUND
-      );
+      throw new Error("Unable to find engine to remove");
     }
 
-    engineToRemove.pendingRemoval = true;
+    this.#enginesPendingRemoval.add(engineToRemove);
 
     if (engineToRemove == this.defaultEngine) {
-      this.#findAndSetNewDefaultEngine({
-        privateMode: false,
-      });
+      this.#findAndSetNewDefaultEngine(
+        {
+          privateMode: false,
+        },
+        changeReason
+      );
     }
 
     // Bug 1575649 - We can't just check the default private engine here when
@@ -778,17 +901,22 @@ export class SearchService {
       this.#separatePrivateDefault &&
       engineToRemove == this.defaultPrivateEngine
     ) {
-      this.#findAndSetNewDefaultEngine({
-        privateMode: true,
-      });
+      this.#findAndSetNewDefaultEngine(
+        {
+          privateMode: true,
+        },
+        changeReason
+      );
     }
 
-    if (engineToRemove.inMemory) {
+    let userInstalled =
+      engineToRemove instanceof lazy.UserInstalledConfigEngine;
+    if (engineToRemove.inMemory && !userInstalled) {
       // Just hide it (the "hidden" setter will notify) and remove its alias to
       // avoid future conflicts with other engines.
       engineToRemove.hidden = true;
       engineToRemove.alias = null;
-      engineToRemove.pendingRemoval = false;
+      this.#enginesPendingRemoval.delete(engineToRemove);
     } else {
       // Remove the engine file from disk if we had a legacy file in the profile.
       if (engineToRemove._filePath) {
@@ -799,8 +927,17 @@ export class SearchService {
         }
         engineToRemove._filePath = null;
       }
-      this.#internalRemoveEngine(engineToRemove);
 
+      if (userInstalled) {
+        // If the engine is a user installed config engine,
+        // reset its seen counter so it can be added again.
+        let seenEngines =
+          this._settings.getMetaDataAttribute(ENGINES_SEEN_KEY) ?? {};
+        delete seenEngines[engineToRemove._loadPath];
+        this._settings.setMetaDataAttribute(ENGINES_SEEN_KEY, seenEngines);
+      }
+
+      this.#internalRemoveEngine(engineToRemove);
       // Since we removed an engine, we may need to update the preferences.
       if (!this.#dontSetUseSavedOrder) {
         this.#saveSortedEngineList();
@@ -812,38 +949,34 @@ export class SearchService {
     );
   }
 
+  /**
+   * Moves a visible search engine.
+   *
+   * @param {SearchEngine} engine
+   *   The engine to move.
+   * @param {number} newIndex
+   *   The engine's new index in the set of visible engines.
+   *
+   * @throws {Cr.NS_ERROR_INVALID_ARG}
+   *   If newIndex is out of bounds.
+   * @throws {Cr.NS_ERROR_FAILURE}
+   *   If the engine is hidden.
+   */
   async moveEngine(engine, newIndex) {
     await this.init();
     if (newIndex > this.#sortedEngines.length || newIndex < 0) {
-      throw Components.Exception(
-        "moveEngine: Index out of bounds!",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+      throw new RangeError("newIndex out of bounds");
     }
-    if (
-      !(engine instanceof Ci.nsISearchEngine) &&
-      !(engine instanceof lazy.SearchEngine)
-    ) {
-      throw Components.Exception(
-        "moveEngine: Invalid engine passed to moveEngine!",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+    if (!(engine instanceof lazy.SearchEngine)) {
+      throw new TypeError("engine is not a SearchEngine instance");
     }
     if (engine.hidden) {
-      throw Components.Exception(
-        "moveEngine: Can't move a hidden engine!",
-        Cr.NS_ERROR_FAILURE
-      );
+      throw new Error("Unable to move a hidden engine");
     }
-
-    engine = engine.wrappedJSObject;
 
     var currentIndex = this.#sortedEngines.indexOf(engine);
     if (currentIndex == -1) {
-      throw Components.Exception(
-        "moveEngine: Can't find engine to move!",
-        Cr.NS_ERROR_UNEXPECTED
-      );
+      throw new Error("Unable to find engine to move");
     }
 
     // Our callers only take into account non-hidden engines when calculating
@@ -859,10 +992,7 @@ export class SearchService {
     // newIndexEngine directly instead of newIndex.
     var newIndexEngine = this.#sortedVisibleEngines[newIndex];
     if (!newIndexEngine) {
-      throw Components.Exception(
-        "moveEngine: Can't find engine to replace!",
-        Cr.NS_ERROR_UNEXPECTED
-      );
+      throw new Error("Unable to find engine to replace");
     }
 
     for (var i = 0; i < this.#sortedEngines.length; ++i) {
@@ -891,6 +1021,9 @@ export class SearchService {
     this.#saveSortedEngineList();
   }
 
+  /**
+   * Un-hides all application provided engines.
+   */
   restoreDefaultEngines() {
     this.#ensureInitialized();
     for (let e of this._engines.values()) {
@@ -901,12 +1034,40 @@ export class SearchService {
     }
   }
 
+  /**
+   * @typedef {object} ParseSubmissionResult
+   * @property {?SearchEngine} engine
+   *   The search engine associated with the URL passed in to
+   *   ``parseSubmissionURL``, or null if the URL does not represent a search
+   *   submission.
+   * @property {string} terms
+   *   String containing the sought terms. This can be an empty string in case
+   *   no terms were specified or the URL does not represent a search submission.
+   * @property {string} termsParameterName
+   *   The name of the query parameter used by `engine` for queries. E.g. "q".
+   */
+
+  /**
+   * Determines if the provided URL represents results from a search engine, and
+   * provides details about the match.
+   *
+   * The lookup mechanism checks whether the domain name and path of the
+   * provided HTTP or HTTPS URL matches one of the known values for the visible
+   * search engines. The match does not depend on which of the schemes is used.
+   * The expected URI parameter for the search terms must exist in the query
+   * string, but other parameters are ignored.
+   *
+   * @param {string} url
+   *   String containing the URL to parse, for example
+   *   `https://www.google.com/search?q=terms`.
+   * @returns {ParseSubmissionResult}
+   */
   parseSubmissionURL(url) {
     if (!this.hasSuccessfullyInitialized) {
       // If search is not initialized or failed initializing, do nothing.
       // This allows us to use this function early in telemetry.
       // The only other consumer of this (places) uses it much later.
-      return gEmptyParseSubmissionResult;
+      return { engine: null, terms: "", termsParameterName: "" };
     }
 
     if (!this.#parseSubmissionMap) {
@@ -920,7 +1081,7 @@ export class SearchService {
 
       // Exclude any URL that is not HTTP or HTTPS from the beginning.
       if (!soughtUrl.schemeIs("http") && !soughtUrl.schemeIs("https")) {
-        return gEmptyParseSubmissionResult;
+        return { engine: null, terms: "", termsParameterName: "" };
       }
 
       // Reading these URL properties may fail and raise an exception.
@@ -928,13 +1089,13 @@ export class SearchService {
       soughtQuery = soughtUrl.query;
     } catch (ex) {
       // Errors while parsing the URL or accessing the properties are not fatal.
-      return gEmptyParseSubmissionResult;
+      return { engine: null, terms: "", termsParameterName: "" };
     }
 
     // Look up the domain and path in the map to identify the search engine.
     let mapEntry = this.#parseSubmissionMap.get(soughtKey);
     if (!mapEntry) {
-      return gEmptyParseSubmissionResult;
+      return { engine: null, terms: "", termsParameterName: "" };
     }
 
     // Extract the search terms from the parameter, for example "caff%C3%A8"
@@ -954,7 +1115,7 @@ export class SearchService {
       }
     }
     if (encodedTerms === null) {
-      return gEmptyParseSubmissionResult;
+      return { engine: null, terms: "", termsParameterName: "" };
     }
 
     // Decode the terms using the charset defined in the search engine.
@@ -966,18 +1127,21 @@ export class SearchService {
       );
     } catch (ex) {
       // Decoding errors will cause this match to be ignored.
-      return gEmptyParseSubmissionResult;
+      return { engine: null, terms: "", termsParameterName: "" };
     }
 
-    return new ParseSubmissionResult(
-      mapEntry.engine,
+    return {
+      engine: mapEntry.engine,
       terms,
-      mapEntry.termsParameterName
-    );
+      termsParameterName: mapEntry.termsParameterName,
+    };
   }
 
-  getAlternateDomains(domain) {
-    return lazy.SearchStaticData.getAlternateDomains(domain);
+  /**
+   * Whether to display the "Search in Private Window" result in the urlbar.
+   */
+  get separatePrivateDefaultUrlbarResultEnabled() {
+    return this.#lazyPrefs.separatePrivateDefaultUrlbarResultEnabled;
   }
 
   /**
@@ -997,9 +1161,12 @@ export class SearchService {
     }
   }
 
-  #currentEngine;
-  #currentPrivateEngine;
-  #queuedIdle;
+  /** @type {?SearchEngine} */
+  #currentEngine = null;
+  /** @type {?SearchEngine} */
+  #currentPrivateEngine = null;
+  /** @type {boolean} */
+  #queuedIdle = false;
 
   /**
    * A deferred promise that is resolved when initialization has finished.
@@ -1007,7 +1174,7 @@ export class SearchService {
    * Resolved when initalization has successfully finished, and rejected if it
    * has failed.
    *
-   * @type {PromiseWithResolvers}
+   * @type {PromiseWithResolvers<void>}
    */
   #initDeferredPromise = Promise.withResolvers();
 
@@ -1053,7 +1220,7 @@ export class SearchService {
    * Various search engines may be ignored if their submission urls contain a
    * string that is in the list. The list is controlled via remote settings.
    *
-   * @type {Array}
+   * @type {string[]}
    */
   #submissionURLIgnoreList = [];
 
@@ -1061,21 +1228,22 @@ export class SearchService {
    * Various search engines may be ignored if their load path is contained
    * in this list. The list is controlled via remote settings.
    *
-   * @type {Array}
+   * @type {string[]}
    */
   #loadPathIgnoreList = [];
 
   /**
    * A map of engine identifiers to `SearchEngine`.
+   * It is prefixed with _ rather than # because it is accessed in tests.
    *
-   * @type {Map<string, object>|null}
+   * @type {Map<string, SearchEngine>}
    */
-  _engines = null;
+  _engines = new Map();
 
   /**
-   * An array of engine short names sorted into display order.
+   * Cache for this.#sortedEngines.
    *
-   * @type {Array}
+   * @type {SearchEngine[]}
    */
   _cachedSortedEngines = null;
 
@@ -1088,18 +1256,15 @@ export class SearchService {
   #dontSetUseSavedOrder = false;
 
   /**
-   * An object containing the id of the AppProvidedSearchEngine for the default
+   * An object containing the id of the AppProvidedConfigEngine for the default
    * engine, as suggested by the configuration.
-   *
-   * This is prefixed with _ rather than # because it is
-   * called in a test.
    *
    * @type {object}
    */
-  _searchDefault = null;
+  #searchDefault = null;
 
   /**
-   * An object containing the id of the AppProvidedSearchEngine for the default
+   * An object containing the id of the AppProvidedConfigEngine for the default
    * engine for private browsing mode, as suggested by the configuration.
    *
    * @type {object}
@@ -1137,7 +1302,7 @@ export class SearchService {
    * Used in #parseSubmissionMap
    *
    * @typedef {object} submissionMapEntry
-   * @property {nsISearchEngine} engine
+   * @property {SearchEngine} engine
    *   The search engine.
    * @property {string} termsParameterName
    *   The search term parameter name.
@@ -1156,6 +1321,13 @@ export class SearchService {
   #parseSubmissionMap = null;
 
   /**
+   * Keep track of pre-init observers have been added.
+   *
+   * @type {boolean}
+   */
+  #earlyObserversAdded = false;
+
+  /**
    * Keep track of observers have been added.
    *
    * @type {boolean}
@@ -1169,6 +1341,18 @@ export class SearchService {
    */
   #openSearchUpdateTimerStarted = false;
 
+  /**
+   * Keeps track of engines that are about to be removed.
+   *
+   * @type {WeakSet<SearchEngine>}
+   */
+  #enginesPendingRemoval = new WeakSet();
+
+  /**
+   * An array of search engines sorted into display order.
+   *
+   * @type {SearchEngine[]}
+   */
   get #sortedEngines() {
     if (!this._cachedSortedEngines) {
       return this.#buildSortedEngineList();
@@ -1184,35 +1368,53 @@ export class SearchService {
    */
   get #separatePrivateDefault() {
     return (
-      this._separatePrivateDefaultPrefValue &&
-      this._separatePrivateDefaultEnabledPrefValue
+      this.#lazyPrefs.separatePrivateDefaultPrefValue &&
+      this.#lazyPrefs.separatePrivateDefaultEnabledPrefValue
     );
   }
 
+  /**
+   * Returns an array of addon search engines with a particular
+   * extension ID.
+   *
+   * @param {string} extensionID
+   * @returns {AddonSearchEngine[]}
+   */
   #getEnginesByExtensionID(extensionID) {
     lazy.logConsole.debug(
       "getEnginesByExtensionID: getting all engines for",
       extensionID
     );
-    var engines = this.#sortedEngines.filter(function (engine) {
-      return engine._extensionID == extensionID;
-    });
-    return engines;
+
+    /**
+     * @param {SearchEngine} engine
+     * @returns {engine is AddonSearchEngine}
+     */
+    function isAddonEngine(engine) {
+      return (
+        engine instanceof lazy.AddonSearchEngine &&
+        engine.extensionID == extensionID
+      );
+    }
+
+    return this.#sortedEngines.filter(isAddonEngine);
   }
 
   /**
-   * Returns the engine associated with the WebExtension details.
+   * Returns the engine associated with the WebExtension details,
+   * or null if no engine matched.
    *
    * @param {object} details
    *   Details of the WebExtension.
    * @param {string} details.id
    *   The WebExtension ID
-   * @returns {nsISearchEngine|null}
-   *   The found engine, or null if no engine matched.
    */
   #getEngineByWebExtensionDetails(details) {
     for (const engine of this._engines.values()) {
-      if (engine._extensionID == details.id) {
+      if (
+        engine instanceof lazy.AddonSearchEngine &&
+        engine.extensionID == details.id
+      ) {
         return engine;
       }
     }
@@ -1229,7 +1431,7 @@ export class SearchService {
    *   If true, returns the default engine for private browsing mode, otherwise
    *   the default engine for the normal mode. Note, this function does not
    *   check the "separatePrivateDefault" preference - that is up to the caller.
-   * @returns {nsISearchEngine|null}
+   * @returns {?SearchEngine}
    *   The appropriate search engine, or null if one could not be determined.
    */
   _getEngineDefault(privateMode) {
@@ -1252,7 +1454,7 @@ export class SearchService {
       engine &&
       this._settings.getVerifiedMetaDataAttribute(
         attributeName,
-        engine.isAppProvided
+        engine.isConfigEngine
       )
     ) {
       if (privateMode) {
@@ -1276,7 +1478,10 @@ export class SearchService {
       return currentEngine;
     }
     // No default in settings or it is hidden, so find the new default.
-    return this.#findAndSetNewDefaultEngine({ privateMode });
+    return this.#findAndSetNewDefaultEngine(
+      { privateMode },
+      this.CHANGE_REASON.NO_EXISTING_DEFAULT_ENGINE
+    );
   }
 
   /**
@@ -1302,49 +1507,28 @@ export class SearchService {
     throw err;
   }
 
-  /**
-   * Define lazy preference getters for separate private default engine in
-   * private browsing mode.
-   */
-  #defineLazyPreferenceGetters() {
-    XPCOMUtils.defineLazyPreferenceGetter(
-      this,
-      "_separatePrivateDefaultPrefValue",
-      lazy.SearchUtils.BROWSER_SEARCH_PREF + "separatePrivateDefault",
-      false,
-      this.#onSeparateDefaultPrefChanged.bind(this)
-    );
-
-    XPCOMUtils.defineLazyPreferenceGetter(
-      this,
-      "_separatePrivateDefaultEnabledPrefValue",
-      lazy.SearchUtils.BROWSER_SEARCH_PREF +
-        "separatePrivateDefault.ui.enabled",
-      false,
-      this.#onSeparateDefaultPrefChanged.bind(this)
-    );
-
-    XPCOMUtils.defineLazyPreferenceGetter(
-      this,
-      "separatePrivateDefaultUrlbarResultEnabled",
-      lazy.SearchUtils.BROWSER_SEARCH_PREF +
-        "separatePrivateDefault.urlbarResult.enabled",
-      false
+  #lazyPrefs = XPCOMUtils.declareLazy({
+    separatePrivateDefaultPrefValue: {
+      pref: "browser.search.separatePrivateDefault",
+      default: false,
+      onUpdate: this.#onSeparateDefaultPrefChanged.bind(this),
+    },
+    separatePrivateDefaultEnabledPrefValue: {
+      pref: "browser.search.separatePrivateDefault.ui.enabled",
+      default: false,
+      onUpdate: this.#onSeparateDefaultPrefChanged.bind(this),
+    },
+    separatePrivateDefaultUrlbarResultEnabled: {
+      pref: "browser.search.separatePrivateDefault.urlbarResult.enabled",
+      default: false,
       // No need to reload engines, as this only affects the Urlbar result list.
-    );
-
-    XPCOMUtils.defineLazyPreferenceGetter(
-      this,
-      "_experimentPrefValue",
-      lazy.SearchUtils.BROWSER_SEARCH_PREF + "experiment",
-      "",
-      () => {
-        Services.search.wrappedJSObject._maybeReloadEngines(
-          Ci.nsISearchService.CHANGE_REASON_EXPERIMENT
-        );
-      }
-    );
-  }
+    },
+    experimentPrefValue: {
+      pref: "browser.search.experiment",
+      default: "",
+      onUpdate: () => this.#maybeReloadEngines(this.CHANGE_REASON.EXPERIMENT),
+    },
+  });
 
   /**
    * This function adds observers, retrieves the search engine ignore list, and
@@ -1355,7 +1539,10 @@ export class SearchService {
   #doPreInitWork() {
     // We need to catch the region being updated during initialization so we
     // start listening straight away.
-    Services.obs.addObserver(this, lazy.Region.REGION_TOPIC);
+    if (!this.#earlyObserversAdded) {
+      Services.obs.addObserver(this, lazy.Region.REGION_TOPIC);
+      this.#earlyObserversAdded = true;
+    }
 
     this.#getIgnoreListAndSubscribe().catch(ex =>
       console.error(ex, "Search Service could not get the ignore list.")
@@ -1386,6 +1573,7 @@ export class SearchService {
     try {
       initSection = "Settings";
       this.#maybeThrowErrorInTest(initSection);
+      this.#maybeThrowErrorInTest("LoadSettingsAddonManager");
       const settings = await this._settings.get();
 
       initSection = "FetchEngines";
@@ -1394,7 +1582,6 @@ export class SearchService {
 
       initSection = "LoadEngines";
       this.#maybeThrowErrorInTest(initSection);
-      this.#maybeThrowErrorInTest("LoadSettingsAddonManager");
       await this.#loadEngines(settings, refinedConfig);
     } catch (ex) {
       if (ex.message.startsWith("Addon manager")) {
@@ -1428,24 +1615,25 @@ export class SearchService {
     if (Services.startup.shuttingDown) {
       Glean.searchService.startupTime.cancel(timerId);
 
-      let ex = Components.Exception(
-        "#init: abandoning init due to shutting down",
-        Cr.NS_ERROR_ABORT
-      );
-
+      let ex = new Error("Abandoning search service init due to shutting down");
       this.#initializationStatus = "failed";
       this.#initDeferredPromise.reject(ex);
       throw ex;
     }
 
     this.#initializationStatus = "success";
-    Glean.searchService.initializationStatus.success.add();
+    if (!this._settings.lastGetCorrupt) {
+      Glean.searchService.initializationStatus.success.add();
+    } else {
+      Glean.searchService.initializationStatus.settingsCorrupt.add();
+      this._showSearchSettingsResetNotificationBox(this.defaultEngine.name);
+    }
     this.#initDeferredPromise.resolve();
     this.#addObservers();
 
     Glean.searchService.startupTime.stopAndAccumulate(timerId);
 
-    this.#recordTelemetryData();
+    this.#recordDefaultEngineTelemetryData();
 
     Services.obs.notifyObservers(
       null,
@@ -1477,11 +1665,7 @@ export class SearchService {
         lazy.logConsole.debug("Removing delayed extension engines");
         for (let id of this.#startupRemovedExtensions) {
           for (let engine of this.#getEnginesByExtensionID(id)) {
-            // Only do this for non-application provided engines. We shouldn't
-            // ever get application provided engines removed here, but just in case.
-            if (!engine.isAppProvided) {
-              await this.removeEngine(engine);
-            }
+            await this.removeEngine(engine, this.CHANGE_REASON.ADDON_UNINSTALL);
           }
         }
         this.#startupRemovedExtensions.clear();
@@ -1545,7 +1729,10 @@ export class SearchService {
     let engineRemoved = false;
     for (let engine of this._engines.values()) {
       if (this.#engineMatchesIgnoreLists(engine)) {
-        await this.removeEngine(engine);
+        await this.removeEngine(
+          engine,
+          this.CHANGE_REASON.ENGINE_IGNORE_LIST_UPDATED
+        );
         engineRemoved = true;
       }
     }
@@ -1553,7 +1740,9 @@ export class SearchService {
     // reload the engines - it is possible the settings just had one engine in it,
     // and that is now empty, so we need to load from our main list.
     if (engineRemoved && !this._engines.size) {
-      this._maybeReloadEngines().catch(console.error);
+      this.#maybeReloadEngines(
+        this.CHANGE_REASON.ENGINE_IGNORE_LIST_UPDATED
+      ).catch(console.error);
     }
   }
 
@@ -1566,7 +1755,18 @@ export class SearchService {
    *   Returns true if the engine matches a ignorelists entry.
    */
   #engineMatchesIgnoreLists(engine) {
+    /** @type {(name: string, url: string, type: string) => void} */
+    let logIgnored = (name, url, type) => {
+      lazy.logConsole.warn("Search engine", name, `matches ${type}`, url);
+      Services.prefs.setCharPref(
+        lazy.SearchUtils.BROWSER_SEARCH_PREF + "lastEngineIgnored",
+        // Limit length of url to avoid storing too much in prefs.
+        `${Math.trunc(Date.now() / 1000)} Search engine '${name}' matches ${type} ignore list ${url.substring(0, 200)}`
+      );
+    };
+
     if (this.#loadPathIgnoreList.includes(engine._loadPath)) {
+      logIgnored(engine.name, engine._loadPath, "load path");
       return true;
     }
     let url = engine.searchURLWithNoTerms.spec.toLowerCase();
@@ -1575,6 +1775,7 @@ export class SearchService {
         url.includes(code.toLowerCase())
       )
     ) {
+      logIgnored(engine.name, url, "submission url");
       return true;
     }
     return false;
@@ -1591,7 +1792,7 @@ export class SearchService {
 
     this.#queuedIdle = true;
 
-    this.idleService.addIdleObserver(this, RECONFIG_IDLE_TIME_SEC);
+    lazy.idleService.addIdleObserver(this, RECONFIG_IDLE_TIME_SEC);
   }
 
   /**
@@ -1608,7 +1809,7 @@ export class SearchService {
     let defaultEngine = this._engines.get(
       privateMode && this.#searchPrivateDefault
         ? this.#searchPrivateDefault
-        : this._searchDefault
+        : this.#searchDefault
     );
 
     if (Services.policies?.status == Ci.nsIEnterprisePolicies.ACTIVE) {
@@ -1656,7 +1857,7 @@ export class SearchService {
    *
    * @param {object} settings
    *   An object representing the search engine settings.
-   * @param {RefinedConfig} refinedConfig
+   * @param {RefinedSearchConfig} refinedConfig
    *   The refined search configuration for this user.
    */
   async #loadEngines(settings, refinedConfig) {
@@ -1678,8 +1879,10 @@ export class SearchService {
     // `loadEnginesFromSettings` loads the engines and their settings together.
     // If loading the settings caused the default engine to change because of an
     // override, then we don't want to show the notification box.
-    let skipDefaultChangedNotification =
-      await this.#loadEnginesFromSettings(settings);
+    let skipDefaultChangedNotification = await this.#loadEnginesFromSettings(
+      settings,
+      refinedConfig.engines
+    );
 
     // If #loadEnginesFromSettings changed the default engine, then we don't
     // need to call #checkOpenSearchOverrides as we know that the overrides have
@@ -1810,7 +2013,7 @@ export class SearchService {
    * Loads engines as specified by the configuration. We only expect
    * configured engines here, user engines should not be listed.
    *
-   * @param {Array} engineConfigs
+   * @param {SearchEngineDefinition[]} engineConfigs
    *   An array of engines configurations based on the schema.
    * @param {object} [settings]
    *   The saved settings for the user.
@@ -1819,7 +2022,7 @@ export class SearchService {
     lazy.logConsole.debug("#loadEnginesFromConfig");
     for (let config of engineConfigs) {
       try {
-        let engine = new lazy.AppProvidedSearchEngine({ config, settings });
+        let engine = new lazy.AppProvidedConfigEngine({ config, settings });
         this.#addEngineToStore(engine);
       } catch (ex) {
         console.error(
@@ -1891,7 +2094,7 @@ export class SearchService {
     for (let engineSettings of settings.engines) {
       if (
         !this._engines.get(engineSettings.id) &&
-        engineSettings._isAppProvided &&
+        engineSettings._isConfigEngine &&
         engineSettings.id == savedDefaultEngineId &&
         engineSettings._metaData.overriddenByOpenSearch
       ) {
@@ -1908,7 +2111,7 @@ export class SearchService {
         this.#setEngineDefault(
           false,
           restoringEngine,
-          Ci.nsISearchService.CHANGE_REASON_CONFIG
+          this.CHANGE_REASON.CONFIG
         );
         delete engineSettings._metaData.overriddenByOpenSearch;
       }
@@ -1917,7 +2120,7 @@ export class SearchService {
     // overridden by an OpenSearch engine, and we need to re-apply the override.
     for (let engine of this._engines.values()) {
       if (
-        engine.isAppProvided &&
+        engine.isConfigEngine &&
         engine.getAttr("overriddenByOpenSearch") &&
         engine.id == savedDefaultEngineId
       ) {
@@ -1942,14 +2145,10 @@ export class SearchService {
    * Reloads engines asynchronously, but only when
    * the service has already been initialized.
    *
-   * This is prefixed with _ rather than # because it is
-   * called in test_reload_engines.js
-   *
-   * @param {number} changeReason
-   *   The reason reload engines is being called, one of
-   *   Ci.nsISearchService.CHANGE_REASON*
+   * @param {Values<typeof this.CHANGE_REASON>} changeReason
+   *   The reason reload engines is being called.
    */
-  async _maybeReloadEngines(changeReason) {
+  async #maybeReloadEngines(changeReason) {
     if (this.#maybeReloadDebounce) {
       lazy.logConsole.debug("We're already waiting to reload engines.");
       return;
@@ -1963,7 +2162,7 @@ export class SearchService {
           return;
         }
         this.#maybeReloadDebounce = false;
-        this._maybeReloadEngines(changeReason).catch(console.error);
+        this.#maybeReloadEngines(changeReason).catch(console.error);
       }, 10000);
       lazy.logConsole.debug(
         "Post-poning maybeReloadEngines() as we're currently initializing."
@@ -2008,9 +2207,8 @@ export class SearchService {
    *
    * @param {object} settings
    *   The user's current saved settings.
-   * @param {number} changeReason
-   *   The reason reload engines is being called, one of
-   *   Ci.nsISearchService.CHANGE_REASON*
+   * @param {Values<typeof this.CHANGE_REASON>} changeReason
+   *   The reason reload engines is being called.
    */
   async _reloadEngines(settings, changeReason) {
     // Capture the current engine state, in case we need to notify below.
@@ -2024,11 +2222,11 @@ export class SearchService {
 
     let refinedConfig = await this._fetchEngineSelectorEngines();
 
-    let configEngines = [...refinedConfig.engines];
+    let availableConfigEngines = [...refinedConfig.engines];
     let oldEngineList = [...this._engines.values()];
 
     for (let engine of oldEngineList) {
-      if (!engine.isAppProvided) {
+      if (!(engine instanceof lazy.ConfigSearchEngine)) {
         if (engine instanceof lazy.AddonSearchEngine) {
           // If this is an add-on search engine, check to see if it needs
           // an update.
@@ -2037,33 +2235,50 @@ export class SearchService {
         continue;
       }
 
-      let index = configEngines.findIndex(e => e.identifier == engine.id);
-      let configuration = configEngines?.[index];
+      let index = availableConfigEngines.findIndex(
+        e => e.identifier == engine.id
+      );
+      let configuration = availableConfigEngines[index];
 
-      if (!configuration && engine._metaData["user-installed"]) {
+      if (!configuration && engine.getAttr("user-installed")) {
         configuration =
           await this.#engineSelector.findContextualSearchEngineById(engine.id);
       }
 
       if (!configuration) {
-        engine.pendingRemoval = true;
+        this.#enginesPendingRemoval.add(engine);
         continue;
       } else {
         // This is an existing engine that we should update. (However
         // notification will happen only if the configuration for this engine
         // has changed).
-        await engine.update({ configuration });
+
+        // Check if a config engine should get converted.
+        let willBeAppProvided = index != -1;
+        if (
+          willBeAppProvided &&
+          engine instanceof lazy.UserInstalledConfigEngine
+        ) {
+          engine.upgrade();
+        } else if (
+          !willBeAppProvided &&
+          engine instanceof lazy.AppProvidedConfigEngine
+        ) {
+          engine.downgrade();
+        }
+
+        engine.update({ configuration });
       }
 
-      configEngines.splice(index, 1);
+      availableConfigEngines.splice(index, 1);
     }
 
     let existingDuplicateEngines = [];
 
     // Any remaining configuration engines are ones that we need to add.
-    for (let engine of configEngines) {
+    for (let engine of availableConfigEngines) {
       try {
-        let newAppEngine = new lazy.AppProvidedSearchEngine({
+        let newAppEngine = new lazy.AppProvidedConfigEngine({
           config: engine,
           settings,
         });
@@ -2099,10 +2314,10 @@ export class SearchService {
     // If the user's default is one of the private engines that is being removed,
     // reset the stored setting, so that we correctly detect the change in
     // in default.
-    if (prevCurrentEngine?.pendingRemoval) {
+    if (this.#enginesPendingRemoval.has(prevCurrentEngine)) {
       this._settings.setMetaDataAttribute("defaultEngineId", "");
     }
-    if (prevPrivateEngine?.pendingRemoval) {
+    if (this.#enginesPendingRemoval.has(prevPrivateEngine)) {
       this._settings.setMetaDataAttribute("privateDefaultEngineId", "");
     }
 
@@ -2113,10 +2328,12 @@ export class SearchService {
     for (let { duplicateEngine, newAppEngine } of existingDuplicateEngines) {
       if (prevCurrentEngine && prevCurrentEngine == duplicateEngine) {
         if (
-          await lazy.defaultOverrideAllowlist.canEngineOverride(
+          (duplicateEngine instanceof lazy.AddonSearchEngine ||
+            duplicateEngine instanceof lazy.OpenSearchEngine) &&
+          (await lazy.defaultOverrideAllowlist.canEngineOverride(
             duplicateEngine,
             newAppEngine?.id
-          )
+          ))
         ) {
           lazy.logConsole.log(
             "Applying override from",
@@ -2132,17 +2349,21 @@ export class SearchService {
             engine: duplicateEngine,
           });
 
-          this.defaultEngine = newAppEngine;
+          this.#setEngineDefault(
+            false,
+            newAppEngine,
+            this.CHANGE_REASON.CONFIG
+          );
           // We're removing the old engine and we've changed the default, but this
           // is intentional and effectively everything is the same for the user, so
           // don't notify.
           skipDefaultChangedNotification = true;
         }
       }
-      duplicateEngine.pendingRemoval = true;
+      this.#enginesPendingRemoval.add(duplicateEngine);
     }
 
-    if (prevCurrentEngine && prevCurrentEngine.pendingRemoval) {
+    if (this.#enginesPendingRemoval.has(prevCurrentEngine)) {
       skipDefaultChangedNotification ||=
         await this.#maybeRestoreEngineFromOverride(prevCurrentEngine);
     }
@@ -2174,7 +2395,7 @@ export class SearchService {
         prevMetaData &&
         settings.metaData &&
         !this.#didSettingsMetaDataUpdate(prevMetaData) &&
-        prevCurrentEngine?.pendingRemoval &&
+        this.#enginesPendingRemoval.has(prevCurrentEngine) &&
         Services.prefs.getBoolPref("browser.search.removeEngineInfobar.enabled")
       ) {
         this._showRemovalOfSearchEngineNotificationBox(
@@ -2292,19 +2513,19 @@ export class SearchService {
     this.#addEngineToStore(engine, true);
 
     // Now set it back to default.
-    this.defaultEngine = engine;
+    this.#setEngineDefault(false, engine, this.CHANGE_REASON.CONFIG);
     return true;
   }
 
   /**
    * Remove any engines that have been flagged for removal during reloadEngines.
    *
-   * @param {Map<string, object>|null} engines
+   * @param {Map<string, SearchEngine>} engines
    *   The list of engines to check.
    */
   async #maybeRemoveEnginesAfterReload(engines) {
     for (let engine of engines.values()) {
-      if (!engine.pendingRemoval) {
+      if (!this.#enginesPendingRemoval.has(engine)) {
         continue;
       }
 
@@ -2312,7 +2533,7 @@ export class SearchService {
       // engines etc, and we want to avoid adjusting the sort order unnecessarily.
       this.#internalRemoveEngine(engine);
 
-      if (engine instanceof lazy.AppProvidedSearchEngine) {
+      if (engine instanceof lazy.ConfigSearchEngine) {
         await engine.cleanup();
       }
 
@@ -2323,9 +2544,16 @@ export class SearchService {
     }
   }
 
+  /**
+   * Adds an engine to the store and notifies observers.
+   *
+   * @param {SearchEngine} engine
+   *   The search engine to add.
+   * @param {boolean} [skipDuplicateCheck]
+   *   True to override engines with the same name.
+   */
   #addEngineToStore(engine, skipDuplicateCheck = false) {
     if (this.#engineMatchesIgnoreLists(engine)) {
-      lazy.logConsole.debug("#addEngineToStore: Ignoring engine");
       return;
     }
 
@@ -2333,9 +2561,9 @@ export class SearchService {
 
     // See if there is an existing engine with the same name.
     if (!skipDuplicateCheck && this.#getEngineByName(engine.name)) {
-      throw Components.Exception(
-        `#addEngineToStore: An engine called ${engine.name} already exists!`,
-        Cr.NS_ERROR_FILE_ALREADY_EXISTS
+      throw new lazy.SearchEngineInstallError(
+        "duplicate-title",
+        `An engine called ${engine.name} already exists!`
       );
     }
 
@@ -2380,10 +2608,12 @@ export class SearchService {
    *
    * @param {object} [settings]
    *   The saved settings for the user.
+   * @param {SearchEngineDefinition[]} [engines]
+   *   The saved settings for the user.
    * @returns {Promise<boolean>}
    *   Returns true if the default engine was changed.
    */
-  async #loadEnginesFromSettings(settings) {
+  async #loadEnginesFromSettings(settings, engines) {
     if (!settings.engines) {
       return false;
     }
@@ -2396,13 +2626,15 @@ export class SearchService {
 
     let defaultEngineChanged = false;
     let skippedEngines = 0;
+    let appProvidedEngineIds = new Set(engines.map(e => e.identifier));
     for (let engineJSON of settings.engines) {
-      // We renamed isBuiltin to isAppProvided in bug 1631898,
-      // keep checking isBuiltin for older settings.
-      if (
-        (engineJSON._isAppProvided || engineJSON._isBuiltin) &&
-        !engineJSON._metaData?.["user-installed"]
-      ) {
+      let willBeUserInstalled =
+        !!engineJSON._metaData?.["user-installed"] &&
+        // A config engine with user-installed attribute still counts as
+        // app-provided if it's also app-provided.
+        // In that case, it's installed by #loadEnginesFromConfig.
+        !appProvidedEngineIds.has(engineJSON.id);
+      if (engineJSON._isConfigEngine && !willBeUserInstalled) {
         ++skippedEngines;
         continue;
       }
@@ -2441,7 +2673,10 @@ export class SearchService {
           let existingEngine = this.#getEngineByName(engineJSON._name);
           let extensionId = engineJSON.extensionID ?? engineJSON._extensionID;
 
-          if (existingEngine && existingEngine._extensionID == extensionId) {
+          if (
+            existingEngine instanceof lazy.AddonSearchEngine &&
+            existingEngine.extensionID == extensionId
+          ) {
             // We assume that this WebExtension was already loaded as part of
             // #loadStartupEngines, and therefore do not try to add it again.
             lazy.logConsole.log(
@@ -2454,15 +2689,12 @@ export class SearchService {
           engine = new lazy.AddonSearchEngine({
             json: engineJSON,
           });
-        } else if (
-          (engineJSON._isAppProvided || engineJSON._isBuiltin) &&
-          engineJSON._metaData?.["user-installed"]
-        ) {
+        } else if (engineJSON._isConfigEngine && willBeUserInstalled) {
           let config =
             await this.#engineSelector.findContextualSearchEngineById(
               engineJSON.id
             );
-          engine = new lazy.UserInstalledAppEngine({ config, settings });
+          engine = new lazy.UserInstalledConfigEngine({ config, settings });
         } else {
           engine = new lazy.OpenSearchEngine({
             json: engineJSON,
@@ -2519,7 +2751,7 @@ export class SearchService {
     // override the application provided engine.
     let existingEngine = this.#getEngineByName(engine.name);
     if (
-      existingEngine?.isAppProvided &&
+      existingEngine?.isConfigEngine &&
       (await lazy.defaultOverrideAllowlist.canEngineOverride(
         engine,
         existingEngine?.id
@@ -2535,7 +2767,7 @@ export class SearchService {
         // to a configuration change. It is possible that it was actually
         // due to a locale/region change, but that is harder to detect
         // here.
-        Ci.nsISearchService.CHANGE_REASON_CONFIG
+        this.CHANGE_REASON.CONFIG
       );
       return true;
     }
@@ -2549,7 +2781,7 @@ export class SearchService {
       locale: Services.locale.appLocaleAsBCP47,
       region: lazy.Region.home || "unknown",
       channel: lazy.SearchUtils.MODIFIED_APP_CHANNEL,
-      experiment: this._experimentPrefValue,
+      experiment: this.#lazyPrefs.experimentPrefValue,
       distroID: lazy.SearchUtils.distroID ?? "",
     };
 
@@ -2563,7 +2795,7 @@ export class SearchService {
   }
 
   #setDefaultFromSelector(refinedConfig) {
-    this._searchDefault = refinedConfig.appDefaultEngineId;
+    this.#searchDefault = refinedConfig.appDefaultEngineId;
     this.#searchPrivateDefault = refinedConfig.appPrivateDefaultEngineId;
   }
 
@@ -2654,7 +2886,7 @@ export class SearchService {
   /**
    * Get a sorted array of the visible engines.
    *
-   * @returns {Array<SearchEngine>}
+   * @returns {SearchEngine[]}
    */
   get #sortedVisibleEngines() {
     return this.#sortedEngines.filter(engine => !engine.hidden);
@@ -2672,8 +2904,7 @@ export class SearchService {
     const matchRegExp = /extensions\/(.*?)\.xpi!/i;
     for (let engine of this._engines.values()) {
       if (
-        !engine.isAppProvided &&
-        !engine._extensionID &&
+        engine instanceof lazy.OpenSearchEngine &&
         engine._loadPath.includes("[profile]/extensions/")
       ) {
         let match = engine._loadPath.match(matchRegExp);
@@ -2681,16 +2912,20 @@ export class SearchService {
           // There's a chance here that the WebExtension might not be
           // installed any longer, even though the engine is. We'll deal
           // with that in `checkWebExtensionEngines`.
-          let engines = await this.getEnginesByExtensionID(match[1]);
+          let engines = this.#getEnginesByExtensionID(match[1]);
           if (engines.length) {
             lazy.logConsole.debug(
               `Migrating ${engine.name} to WebExtension install`
             );
 
             if (this.defaultEngine == engine) {
-              this.defaultEngine = engines[0];
+              this.#setEngineDefault(
+                false,
+                engines[0],
+                this.CHANGE_REASON.CONFIG
+              );
             }
-            await this.removeEngine(engine);
+            await this.removeEngine(engine, this.CHANGE_REASON.ADDON_INSTALL);
           }
         }
       }
@@ -2819,17 +3054,18 @@ export class SearchService {
     );
 
     let shouldSetAsDefault = false;
-    let changeReason = Ci.nsISearchService.CHANGE_REASON_UNKNOWN;
+    /** @type {Values<typeof this.CHANGE_REASON>} */
+    let changeReason = this.CHANGE_REASON.UNKNOWN;
 
     for (let engine of this._engines.values()) {
       if (
-        !engine.extensionID &&
+        engine instanceof lazy.OpenSearchEngine &&
         engine._loadPath.startsWith(`jar:[profile]/extensions/${extension.id}`)
       ) {
         // This is a legacy extension engine that needs to be migrated to WebExtensions.
         lazy.logConsole.debug("Migrating existing engine");
         shouldSetAsDefault = shouldSetAsDefault || this.defaultEngine == engine;
-        await this.removeEngine(engine);
+        await this.removeEngine(engine, this.CHANGE_REASON.ADDON_INSTALL);
       }
     }
 
@@ -2874,7 +3110,7 @@ export class SearchService {
           // configuration change, and therefore we have re-added the add-on
           // search engine. It is possible that it was actually due to a
           // locale/region change, but that is harder to detect here.
-          changeReason = Ci.nsISearchService.CHANGE_REASON_CONFIG;
+          changeReason = this.CHANGE_REASON.CONFIG;
           newEngine.copyUserSettingsFrom(previouslyOverridden);
         }
       }
@@ -2893,7 +3129,7 @@ export class SearchService {
    *   An Extension object containing data about the extension.
    */
   async #upgradeExtensionEngine(extension) {
-    let extensionEngines = await this.getEnginesByExtensionID(extension.id);
+    let extensionEngines = this.#getEnginesByExtensionID(extension.id);
 
     for (let engine of extensionEngines) {
       let isDefault = engine == this.defaultEngine;
@@ -2924,15 +3160,18 @@ export class SearchService {
     return extensionEngines;
   }
 
+  /**
+   * Removes a search engine from _sortedEngines and _engines.
+   *
+   * @param {SearchEngine} engine
+   *   The search engine to remove.
+   */
   #internalRemoveEngine(engine) {
     // Remove the engine from _sortedEngines
     if (this._cachedSortedEngines) {
       var index = this._cachedSortedEngines.indexOf(engine);
       if (index == -1) {
-        throw Components.Exception(
-          "Can't find engine to remove in _sortedEngines!",
-          Cr.NS_ERROR_FAILURE
-        );
+        throw new Error("Unable to find engine to remove in the cache");
       }
       this._cachedSortedEngines.splice(index, 1);
     }
@@ -2946,8 +3185,7 @@ export class SearchService {
    * be used if there is not default set yet, or if the current default is
    * being removed.
    *
-   * This function will not consider engines that have a `pendingRemoval`
-   * property set to true.
+   * This function will not consider engines in #enginesPendingRemoval.
    *
    * The new default will be chosen from (in order):
    *
@@ -2963,28 +3201,36 @@ export class SearchService {
    *   If true, returns the default engine for private browsing mode, otherwise
    *   the default engine for the normal mode. Note, this function does not
    *   check the "separatePrivateDefault" preference - that is up to the caller.
-   * @returns {nsISearchEngine|null}
+   * @param {Values<typeof this.CHANGE_REASON>} changeReason
+   *   The reason for the change of default engine.
+   * @returns {?SearchEngine}
    *   The appropriate search engine, or null if one could not be determined.
    */
-  #findAndSetNewDefaultEngine({ privateMode }) {
+  #findAndSetNewDefaultEngine({ privateMode }, changeReason) {
     // First to the app default engine...
     let newDefault = privateMode
       ? this.appPrivateDefaultEngine
       : this.appDefaultEngine;
 
-    if (!newDefault || newDefault.hidden || newDefault.pendingRemoval) {
+    if (
+      !newDefault ||
+      newDefault.hidden ||
+      this.#enginesPendingRemoval.has(newDefault)
+    ) {
       let sortedEngines = this.#sortedVisibleEngines;
       let generalSearchEngines = sortedEngines.filter(
         e => e.isGeneralPurposeEngine
       );
 
       // then to the first visible general search engine that isn't excluded...
-      let firstVisible = generalSearchEngines.find(e => !e.pendingRemoval);
+      let firstVisible = generalSearchEngines.find(
+        e => !this.#enginesPendingRemoval.has(e)
+      );
       if (firstVisible) {
         newDefault = firstVisible;
       } else if (newDefault) {
         // then to the app default if it is not the one that is excluded...
-        if (!newDefault.pendingRemoval) {
+        if (!this.#enginesPendingRemoval.has(newDefault)) {
           newDefault.hidden = false;
         } else {
           newDefault = null;
@@ -3017,7 +3263,7 @@ export class SearchService {
     // to pick a new current engine. As soon as we return it, this new
     // current engine will become user-visible, so we should persist it.
     // by calling the setter.
-    this.#setEngineDefault(privateMode, newDefault);
+    this.#setEngineDefault(privateMode, newDefault, changeReason);
 
     return privateMode ? this.#currentPrivateEngine : this.#currentEngine;
   }
@@ -3029,36 +3275,24 @@ export class SearchService {
    *   If true, sets the default engine for private browsing mode, otherwise
    *   sets the default engine for the normal mode. Note, this function does not
    *   check the "separatePrivateDefault" preference - that is up to the caller.
-   * @param {nsISearchEngine} newEngine
-   *   The search engine to select
-   * @param {REASON_CHANGE_MAP} changeSource
-   *   The source of the change of engine.
+   * @param {SearchEngine} newEngine
+   *   The search engine to select.
+   * @param {Values<typeof this.CHANGE_REASON>} changeReason
+   *   The reason for the default search engine change.
    */
-  #setEngineDefault(privateMode, newEngine, changeSource) {
-    // Sometimes we get wrapped nsISearchEngine objects (external XPCOM callers),
-    // and sometimes we get raw Engine JS objects (callers in this file), so
-    // handle both.
-    if (
-      !(newEngine instanceof Ci.nsISearchEngine) &&
-      !(newEngine instanceof lazy.SearchEngine)
-    ) {
-      throw Components.Exception(
-        "Invalid argument passed to defaultEngine setter",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+  #setEngineDefault(privateMode, newEngine, changeReason) {
+    if (!(newEngine instanceof lazy.SearchEngine)) {
+      throw new TypeError("newEngine is not a SearchEngine instance");
     }
 
     const newCurrentEngine = this._engines.get(newEngine.id);
     if (!newCurrentEngine) {
-      throw Components.Exception(
-        "Can't find engine in store!",
-        Cr.NS_ERROR_UNEXPECTED
-      );
+      throw new Error("Unable to find the new engine in the engine store");
     }
 
-    if (!newCurrentEngine.isAppProvided) {
-      // If a non default engine is being set as the current engine, ensure
-      // its loadPath has a verification hash.
+    if (!newCurrentEngine.isConfigEngine) {
+      // If a non config engine is being set as the current engine,
+      // ensure its loadPath has a verification hash.
       if (!newCurrentEngine._loadPath) {
         newCurrentEngine._loadPath = "[other]unknown";
       }
@@ -3105,7 +3339,10 @@ export class SearchService {
     const appDefaultEngine = privateMode
       ? this.appPrivateDefaultEngine
       : this.appDefaultEngine;
-    if (newCurrentEngine == appDefaultEngine && !this._experimentPrefValue) {
+    if (
+      newCurrentEngine == appDefaultEngine &&
+      !this.#lazyPrefs.experimentPrefValue
+    ) {
       newId = "";
     }
 
@@ -3121,9 +3358,9 @@ export class SearchService {
         privateMode,
         currentEngine,
         newCurrentEngine,
-        changeSource
+        changeReason
       );
-      this.#recordTelemetryData();
+      this.#recordDefaultEngineTelemetryData();
     }
 
     lazy.SearchUtils.notifyAction(
@@ -3157,8 +3394,8 @@ export class SearchService {
     }
 
     let eventReason = prefName.endsWith("separatePrivateDefault.ui.enabled")
-      ? Ci.nsISearchService.CHANGE_REASON_USER_PRIVATE_PREF_ENABLED
-      : Ci.nsISearchService.CHANGE_REASON_USER_PRIVATE_SPLIT;
+      ? this.CHANGE_REASON.USER_PRIVATE_PREF_ENABLED
+      : this.CHANGE_REASON.USER_PRIVATE_SPLIT;
     if (!previousValue && currentValue) {
       this.#recordDefaultChangedEvent(
         true,
@@ -3175,31 +3412,55 @@ export class SearchService {
       );
     }
     // Update the telemetry data.
-    this.#recordTelemetryData();
+    this.#recordDefaultEngineTelemetryData();
   }
 
+  /**
+   * Gets summary information for an engine to report to telemetry.
+   *
+   * @param {SearchEngine} engine
+   */
   #getEngineInfo(engine) {
     if (!engine) {
       // The defaultEngine getter will throw if there's no engine at all,
       // which shouldn't happen unless an add-on or a test deleted all of them.
       // Our preferences UI doesn't let users do that.
-      console.error("getDefaultEngineInfo: No default engine");
-      return ["NONE", { name: "NONE" }];
+      lazy.logConsole.error("getEngineInfo: No default engine");
+      return {
+        providerId: "NONE",
+        partnerCode: "NONE",
+        overriddenByThirdParty: false,
+        telemetryId: "NONE",
+        loadPath: "NONE",
+        name: "NONE",
+        submissionURL: "NONE",
+      };
     }
 
-    const engineData = {
-      loadPath: engine._loadPath,
+    // When an engine is overridden by a third party, then we report the
+    // override and skip reporting the partner code, since we don't have
+    // a requirement to report the partner code in that case.
+    let isOverridden = !!engine.overriddenById;
+
+    let engineInfo = {
+      providerId: engine.isConfigEngine ? engine.id : "other",
+      partnerCode: isOverridden ? "" : engine.partnerCode,
+      overriddenByThirdParty: isOverridden,
+      telemetryId: engine.telemetryId,
+      loadPath: engine.loadPath,
       name: engine.name ? engine.name : "",
+      /** @type {string?} */
+      submissionURL: undefined,
     };
 
-    // For privacy, we only collect the submission URL for default engines...
-    let sendSubmissionURL = engine.isAppProvided;
+    // For privacy, we only collect the submission URL for config engines...
+    let sendSubmissionURL = engine.isConfigEngine;
 
     if (!sendSubmissionURL) {
-      // ... or engines that are the same domain as a default engine.
+      // ... or engines that are the same domain as a config engine.
       let engineHost = engine.searchUrlDomain;
       for (let innerEngine of this._engines.values()) {
-        if (!innerEngine.isAppProvided) {
+        if (!innerEngine.isConfigEngine) {
           continue;
         }
 
@@ -3227,10 +3488,10 @@ export class SearchService {
         .mutate()
         .setUserPass("") // Avoid reporting a username or password.
         .finalize();
-      engineData.submissionURL = uri.spec;
+      engineInfo.submissionURL = uri.spec;
     }
 
-    return [engine.telemetryId, engineData];
+    return engineInfo;
   }
 
   /**
@@ -3246,41 +3507,33 @@ export class SearchService {
    *   The previously default search engine.
    * @param {SearchEngine} [newEngine]
    *   The new default search engine.
-   * @param {number} changeSource
-   *   The source of the change of default.
+   * @param {Values<typeof this.CHANGE_REASON>} changeReason
+   *   The reason for the default search engine change
    */
   #recordDefaultChangedEvent(
     isPrivate,
     previousEngine,
     newEngine,
-    changeSource = Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+    changeReason = this.CHANGE_REASON.UNKNOWN
   ) {
-    let telemetryId;
     let engineInfo;
     // If we are toggling the separate private browsing settings, we might not
     // have an engine to record.
     if (newEngine) {
-      [telemetryId, engineInfo] = this.#getEngineInfo(newEngine);
-    } else {
-      telemetryId = "";
-      engineInfo = {
-        name: "",
-        loadPath: "",
-        submissionURL: "",
-      };
+      engineInfo = this.#getEngineInfo(newEngine);
     }
 
-    let submissionURL = engineInfo.submissionURL ?? "";
+    let submissionURL = engineInfo?.submissionURL ?? "";
     let extraArgs = {
       // In docshell tests, the previous engine does not exist, so we allow
       // for the previousEngine to be undefined.
       previous_engine_id: previousEngine?.telemetryId ?? "",
-      new_engine_id: telemetryId,
-      new_display_name: engineInfo.name,
-      new_load_path: engineInfo.loadPath,
+      new_engine_id: engineInfo?.telemetryId ?? "",
+      new_display_name: engineInfo?.name ?? "",
+      new_load_path: engineInfo?.loadPath ?? "",
       // Glean has a limit of 100 characters.
       new_submission_url: submissionURL.slice(0, 100),
-      change_source: REASON_CHANGE_MAP.get(changeSource) ?? "unknown",
+      change_reason: changeReason,
     };
     if (isPrivate) {
       Glean.searchEnginePrivate.changed.record(extraArgs);
@@ -3293,35 +3546,40 @@ export class SearchService {
    * Records the user's current default engine (normal and private) data to
    * telemetry.
    */
-  #recordTelemetryData() {
-    let info = this.getDefaultEngineInfo();
+  #recordDefaultEngineTelemetryData() {
+    let engineInfo = this.#getEngineInfo(this.defaultEngine);
 
-    Glean.searchEngineDefault.engineId.set(info.defaultSearchEngine);
-    Glean.searchEngineDefault.displayName.set(
-      info.defaultSearchEngineData.name
+    Glean.searchEngineDefault.providerId.set(engineInfo.providerId);
+    Glean.searchEngineDefault.partnerCode.set(engineInfo.partnerCode);
+    Glean.searchEngineDefault.overriddenByThirdParty.set(
+      engineInfo.overriddenByThirdParty
     );
-    Glean.searchEngineDefault.loadPath.set(
-      info.defaultSearchEngineData.loadPath
-    );
+    Glean.searchEngineDefault.engineId.set(engineInfo.telemetryId);
+    Glean.searchEngineDefault.displayName.set(engineInfo.name);
+    Glean.searchEngineDefault.loadPath.set(engineInfo.loadPath);
     Glean.searchEngineDefault.submissionUrl.set(
-      info.defaultSearchEngineData.submissionURL ?? "blank:"
+      engineInfo.submissionURL ?? "blank:"
     );
 
-    Glean.searchEnginePrivate.engineId.set(
-      info.defaultPrivateSearchEngine ?? ""
-    );
+    if (this.#separatePrivateDefault) {
+      let privateEngineInfo = this.#getEngineInfo(this.defaultPrivateEngine);
 
-    if (info.defaultPrivateSearchEngineData) {
-      Glean.searchEnginePrivate.displayName.set(
-        info.defaultPrivateSearchEngineData.name
+      Glean.searchEnginePrivate.providerId.set(privateEngineInfo.providerId);
+      Glean.searchEnginePrivate.partnerCode.set(privateEngineInfo.partnerCode);
+      Glean.searchEnginePrivate.overriddenByThirdParty.set(
+        privateEngineInfo.overriddenByThirdParty
       );
-      Glean.searchEnginePrivate.loadPath.set(
-        info.defaultPrivateSearchEngineData.loadPath
-      );
+      Glean.searchEnginePrivate.engineId.set(privateEngineInfo.telemetryId);
+      Glean.searchEnginePrivate.displayName.set(privateEngineInfo.name);
+      Glean.searchEnginePrivate.loadPath.set(privateEngineInfo.loadPath);
       Glean.searchEnginePrivate.submissionUrl.set(
-        info.defaultPrivateSearchEngineData.submissionURL ?? "blank:"
+        privateEngineInfo.submissionURL ?? "blank:"
       );
     } else {
+      Glean.searchEnginePrivate.providerId.set("");
+      Glean.searchEnginePrivate.partnerCode.set("");
+      Glean.searchEnginePrivate.overriddenByThirdParty.set(false);
+      Glean.searchEnginePrivate.engineId.set("");
       Glean.searchEnginePrivate.displayName.set("");
       Glean.searchEnginePrivate.loadPath.set("");
       Glean.searchEnginePrivate.submissionUrl.set("blank:");
@@ -3453,42 +3711,38 @@ export class SearchService {
     );
   }
 
-  // This is prefixed with _ rather than # because it is
-  // called in a test.
-  _removeObservers() {
+  #removeObservers() {
     if (this.ignoreListListener) {
       lazy.IgnoreLists.unsubscribe(this.ignoreListListener);
       delete this.ignoreListListener;
     }
     if (this.#queuedIdle) {
-      this.idleService.removeIdleObserver(this, RECONFIG_IDLE_TIME_SEC);
+      lazy.idleService.removeIdleObserver(this, RECONFIG_IDLE_TIME_SEC);
       this.#queuedIdle = false;
     }
 
     this._settings.removeObservers();
 
+    Services.obs.removeObserver(this, lazy.Region.REGION_TOPIC);
     Services.obs.removeObserver(this, lazy.SearchUtils.TOPIC_ENGINE_MODIFIED);
     Services.obs.removeObserver(this, QUIT_APPLICATION_TOPIC);
     Services.obs.removeObserver(this, TOPIC_LOCALES_CHANGE);
-    Services.obs.removeObserver(this, lazy.Region.REGION_TOPIC);
+    this.#observersAdded = false;
+    this.#earlyObserversAdded = false;
   }
 
-  QueryInterface = ChromeUtils.generateQI([
-    "nsISearchService",
-    "nsIObserver",
-    "nsITimerCallback",
-  ]);
+  QueryInterface = ChromeUtils.generateQI(["nsIObserver", "nsITimerCallback"]);
 
   // nsIObserver
-  observe(engine, topic, verb) {
+  observe(subject, topic, verb) {
     switch (topic) {
-      case lazy.SearchUtils.TOPIC_ENGINE_MODIFIED:
+      case lazy.SearchUtils.TOPIC_ENGINE_MODIFIED: {
         switch (verb) {
           case lazy.SearchUtils.MODIFIED_TYPE.ADDED:
             this.#parseSubmissionMap = null;
             break;
-          case lazy.SearchUtils.MODIFIED_TYPE.CHANGED:
-            engine = engine.wrappedJSObject;
+          case lazy.SearchUtils.MODIFIED_TYPE.CHANGED: {
+            let engine = /** @type {SearchEngine} */ (subject.wrappedJSObject);
             if (
               engine == this.defaultEngine ||
               engine == this.defaultPrivateEngine
@@ -3497,32 +3751,33 @@ export class SearchService {
                 engine != this.defaultEngine,
                 engine,
                 engine,
-                Ci.nsISearchService.CHANGE_REASON_ENGINE_UPDATE
+                this.CHANGE_REASON.ENGINE_UPDATE
               );
             }
             this.#parseSubmissionMap = null;
             break;
+          }
           case lazy.SearchUtils.MODIFIED_TYPE.REMOVED:
             // Invalidate the map used to parse URLs to search engines.
             this.#parseSubmissionMap = null;
             break;
         }
         break;
-
+      }
       case "idle": {
-        this.idleService.removeIdleObserver(this, RECONFIG_IDLE_TIME_SEC);
+        lazy.idleService.removeIdleObserver(this, RECONFIG_IDLE_TIME_SEC);
         this.#queuedIdle = false;
         lazy.logConsole.debug(
           "Reloading engines after idle due to configuration change"
         );
-        this._maybeReloadEngines(
-          Ci.nsISearchService.CHANGE_REASON_CONFIG
-        ).catch(console.error);
+        this.#maybeReloadEngines(this.CHANGE_REASON.CONFIG).catch(
+          console.error
+        );
         break;
       }
 
       case QUIT_APPLICATION_TOPIC:
-        this._removeObservers();
+        this.#removeObservers();
         break;
 
       case TOPIC_LOCALES_CHANGE:
@@ -3538,17 +3793,17 @@ export class SearchService {
         // down at the same time (see _reInit for more info).
         Services.tm.dispatchToMainThread(() => {
           if (!Services.startup.shuttingDown) {
-            this._maybeReloadEngines(
-              Ci.nsISearchService.CHANGE_REASON_LOCALE
-            ).catch(console.error);
+            this.#maybeReloadEngines(this.CHANGE_REASON.LOCALE).catch(
+              console.error
+            );
           }
         });
         break;
       case lazy.Region.REGION_TOPIC:
         lazy.logConsole.debug("Region updated:", lazy.Region.home);
-        this._maybeReloadEngines(
-          Ci.nsISearchService.CHANGE_REASON_REGION
-        ).catch(console.error);
+        this.#maybeReloadEngines(this.CHANGE_REASON.REGION).catch(
+          console.error
+        );
         break;
     }
   }
@@ -3598,6 +3853,21 @@ export class SearchService {
   }
 
   /**
+   * Infobar informing the user that the search settings had to be reset
+   * and what their new default engine is.
+   *
+   * @param {string} newEngine
+   *   The name of the new default search engine.
+   */
+  _showSearchSettingsResetNotificationBox(newEngine) {
+    lazy.BrowserUtils.callModulesFromCategory(
+      { categoryName: "search-service-notification" },
+      "search-settings-reset",
+      newEngine
+    );
+  }
+
+  /**
    * Maybe starts the timer for OpenSearch engine updates. This will be set
    * only if updates are enabled and there are OpenSearch engines installed
    * which have updates.
@@ -3628,21 +3898,14 @@ export class SearchService {
       this.#openSearchUpdateTimerStarted = true;
     }
   }
-} // end SearchService class
-
-XPCOMUtils.defineLazyServiceGetter(
-  SearchService.prototype,
-  "idleService",
-  "@mozilla.org/widget/useridleservice;1",
-  "nsIUserIdleService"
-);
+})(); // end SearchService class
 
 /**
  * Handles getting and checking extensions against the allow list.
  */
 class SearchDefaultOverrideAllowlistHandler {
   constructor() {
-    this._remoteConfig = lazy.RemoteSettings(
+    this.#remoteConfig = lazy.RemoteSettings(
       lazy.SearchUtils.SETTINGS_ALLOWLIST_KEY
     );
   }
@@ -3661,7 +3924,7 @@ class SearchDefaultOverrideAllowlistHandler {
    *   instance.
    */
   async canOverride(extension, appProvidedEngineId) {
-    const overrideTable = await this._getAllowlist();
+    const overrideTable = await this.#getAllowlist();
 
     let entry = overrideTable.find(e => e.thirdPartyId == extension.id);
     if (!entry) {
@@ -3696,12 +3959,12 @@ class SearchDefaultOverrideAllowlistHandler {
    *   app provided instance.
    */
   async canEngineOverride(engine, appProvidedEngineId) {
-    const overrideEntries = await this._getAllowlist();
+    const overrideEntries = await this.#getAllowlist();
 
     let entry;
 
     if (engine instanceof lazy.AddonSearchEngine) {
-      entry = overrideEntries.find(e => e.thirdPartyId == engine._extensionID);
+      entry = overrideEntries.find(e => e.thirdPartyId == engine.extensionID);
     } else if (engine instanceof lazy.OpenSearchEngine) {
       entry = overrideEntries.find(
         e =>
@@ -3736,10 +3999,10 @@ class SearchDefaultOverrideAllowlistHandler {
    *   An array of objects in the database, or an empty array if none
    *   could be obtained.
    */
-  async _getAllowlist() {
+  async #getAllowlist() {
     let result = [];
     try {
-      result = await this._remoteConfig.get();
+      result = await this.#remoteConfig.get();
     } catch (ex) {
       // Don't throw an error just log it, just continue with no data, and hopefully
       // a sync will fix things later on.
@@ -3748,4 +4011,6 @@ class SearchDefaultOverrideAllowlistHandler {
     lazy.logConsole.debug("Allow list is:", result);
     return result;
   }
+
+  #remoteConfig;
 }

@@ -6,6 +6,7 @@ https://creativecommons.org/publicdomain/zero/1.0/ */
 add_task(async function test_recover_storeID() {
   startProfileService();
   Services.prefs.setCharPref("toolkit.profiles.storeID", "foobar");
+  Services.prefs.setBoolPref("browser.profiles.created", true);
 
   // The database needs to exist already
   let groupsPath = PathUtils.join(
@@ -15,7 +16,8 @@ add_task(async function test_recover_storeID() {
 
   await IOUtils.makeDirectory(groupsPath);
   let dbFile = PathUtils.join(groupsPath, "foobar.sqlite");
-  let db = await Sqlite.openConnection({
+  // eslint-disable-next-line mozilla/valid-lazy
+  let db = await lazy.Sqlite.openConnection({
     path: dbFile,
     openNotExclusive: true,
   });
@@ -49,6 +51,9 @@ add_task(async function test_recover_storeID() {
   await db.close();
 
   const SelectableProfileService = getSelectableProfileService();
+  const ProfilesDatastoreService = getProfilesDatastoreService();
+
+  await ProfilesDatastoreService.init();
   await SelectableProfileService.init();
   Assert.ok(SelectableProfileService.initialized, "Did initialize the service");
 

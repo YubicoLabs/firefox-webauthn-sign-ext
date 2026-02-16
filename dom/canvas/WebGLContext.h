@@ -8,32 +8,29 @@
 
 #include <bitset>
 #include <memory>
-#include <stdarg.h>
 
 #include "Colorspaces.h"
 #include "GLContextTypes.h"
 #include "GLDefs.h"
 #include "GLScreenBuffer.h"
+#include "ScopedGLHelpers.h"
+#include "SurfaceTypes.h"
+#include "TexUnpackBlob.h"
 #include "js/ScalarType.h"  // js::Scalar::Type
-#include "mozilla/Attributes.h"
 #include "mozilla/Atomics.h"
-#include "mozilla/CheckedInt.h"
-#include "mozilla/dom/ipc/IdType.h"
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/HTMLCanvasElement.h"
-#include "mozilla/dom/Nullable.h"
-#include "mozilla/dom/TypedArray.h"
 #include "mozilla/EnumeratedArray.h"
-#include "mozilla/gfx/2D.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPrefs_webgl.h"
 #include "mozilla/WeakPtr.h"
+#include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/HTMLCanvasElement.h"
+#include "mozilla/dom/Nullable.h"
+#include "mozilla/dom/TypedArray.h"
+#include "mozilla/dom/ipc/IdType.h"
+#include "mozilla/gfx/2D.h"
 #include "nsICanvasRenderingContextInternal.h"
 #include "nsTArray.h"
-#include "SurfaceTypes.h"
-#include "ScopedGLHelpers.h"
-#include "TexUnpackBlob.h"
 
 // Local
 #include "CacheInvalidator.h"
@@ -44,10 +41,10 @@
 #include "WebGLTypes.h"
 
 // Generated
-#include "mozilla/dom/WebGLRenderingContextBinding.h"
-#include "mozilla/dom/WebGL2RenderingContextBinding.h"
-
 #include <list>
+
+#include "mozilla/dom/WebGL2RenderingContextBinding.h"
+#include "mozilla/dom/WebGLRenderingContextBinding.h"
 
 class nsIDocShell;
 
@@ -78,6 +75,7 @@ class WebGLSync;
 class WebGLTexture;
 class WebGLTransformFeedback;
 class WebGLVertexArray;
+class WebGL2Context;
 
 namespace dom {
 class Document;
@@ -304,7 +302,6 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   const uint32_t mMaxAcceptableFBStatusInvals =
       StaticPrefs::webgl_perf_max_acceptable_fb_status_invals();
   bool mWarnOnce_DepthTexCompareFilterable = true;
-  mutable bool mRemapImplReadType_HalfFloatOes = false;
 
   mutable std::optional<bool> mIsSupportedCache_DrawBuffers;
   mutable std::optional<bool> mIsSupportedCache_FragDepth;
@@ -546,6 +543,12 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   Maybe<uvec2> SnapshotInto(GLuint srcFb, const gfx::IntSize& size,
                             const Range<uint8_t>& dest,
                             const Maybe<size_t> destStride = Nothing());
+  already_AddRefed<gfx::SourceSurface> GetBackBufferSnapshot(
+      const bool requireAlphaPremult);
+  std::shared_ptr<gl::SharedSurface> GetBackBufferSnapshotSharedSurface(
+      layers::TextureType texType, bool bgra = false, bool yFlip = false,
+      bool requireAlphaPremult = false);
+  void RecycleSnapshotSharedSurface(std::shared_ptr<gl::SharedSurface>);
   gl::SwapChain* GetSwapChain(WebGLFramebuffer*, const bool webvr);
   Maybe<layers::SurfaceDescriptor> GetFrontBuffer(WebGLFramebuffer*,
                                                   const bool webvr);
@@ -655,9 +658,6 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   Maybe<double> GetRenderbufferParameter(const WebGLRenderbuffer&,
                                          GLenum pname) const;
   webgl::LinkResult GetLinkResult(const WebGLProgram&) const;
-
-  Maybe<webgl::ShaderPrecisionFormat> GetShaderPrecisionFormat(
-      GLenum shadertype, GLenum precisiontype) const;
 
   webgl::GetUniformData GetUniform(const WebGLProgram&, uint32_t loc) const;
 
@@ -933,7 +933,6 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   WebGLVertexAttrib0Status WhatDoesVertexAttrib0Need() const;
   bool DoFakeVertexAttrib0(uint64_t fakeVertexCount,
                            WebGLVertexAttrib0Status whatDoesAttrib0Need);
-  void UndoFakeVertexAttrib0();
 
   bool mResetLayer = true;
   bool mOptionsFrozen = false;
@@ -1023,6 +1022,8 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   // WebGL 2 specifics (implemented in WebGL2Context.cpp)
  public:
   virtual bool IsWebGL2() const { return false; }
+
+  virtual WebGL2Context* AsWebGL2() { return nullptr; }
 
   struct FailureReason {
     nsCString key;  // For reporting.
@@ -1224,8 +1225,8 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   CacheInvalidator mGenericVertexAttribTypeInvalidator;
 
   GLuint mFakeVertexAttrib0BufferObject = 0;
-  intptr_t mFakeVertexAttrib0BufferObjectSize = 0;
-  bool mFakeVertexAttrib0DataDefined = false;
+  intptr_t mFakeVertexAttrib0BufferAllocSize = 0;
+  intptr_t mFakeVertexAttrib0BufferInitializedSize = 0;
   alignas(alignof(float)) uint8_t
       mGenericVertexAttrib0Data[sizeof(float) * 4] = {};
   alignas(alignof(float)) uint8_t
@@ -1304,6 +1305,7 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
 
   gl::SwapChain mSwapChain;
   gl::SwapChain mWebVRSwapChain;
+  gl::SwapChain mSnapshotSwapChain;
 
   RefPtr<layers::RemoteTextureOwnerClient> mRemoteTextureOwner;
 
@@ -1339,7 +1341,8 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   void BlitBackbufferToCurDriverFB(
       WebGLFramebuffer* const srcAsWebglFb = nullptr,
       const gl::MozFramebuffer* const srcAsMozFb = nullptr,
-      bool srcIsBGRA = false) const;
+      bool srcIsBGRA = false, bool yFlip = false,
+      Maybe<gfxAlphaType> convertAlpha = {}) const;
 
   struct GetDefaultFBForReadDesc {
     bool endOfFrame = false;
@@ -1362,7 +1365,9 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
 
   template <typename... Args>
   void GeneratePerfWarning(const char* const fmt, const Args&... args) const {
-    GenerateError(webgl::kErrorPerfWarning, fmt, args...);
+    if (ShouldGeneratePerfWarnings()) {
+      GenerateError(webgl::kErrorPerfWarning, fmt, args...);
+    }
   }
 
  public:
@@ -1378,7 +1383,6 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   friend class ScopedResolveTexturesForDraw;
   friend class webgl::TexUnpackBlob;
   friend class webgl::TexUnpackBytes;
-  friend class webgl::TexUnpackImage;
   friend class webgl::TexUnpackSurface;
   friend struct webgl::UniformInfo;
   friend class WebGLTexture;

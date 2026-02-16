@@ -25,10 +25,155 @@ const DISABLE_SHIM3_PREF = "extensions.webcompat.disabled_shims.MochitestShim3";
 const DISABLE_SHIM4_PREF = "extensions.webcompat.disabled_shims.MochitestShim4";
 const GLOBAL_PREF = "extensions.webcompat.enable_shims";
 const TRACKING_PREF = "privacy.trackingprotection.enabled";
+const SEC_DELAY_PREF = "security.notification_enable_delay";
+const SMARTBLOCK_EMBEDS_ENABLED_PREF =
+  "extensions.webcompat.smartblockEmbeds.enabled";
 
 const { UrlClassifierTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/UrlClassifierTestUtils.sys.mjs"
 );
+
+const WebCompatExtension = new (class WebCompatExtension {
+  constructor() {
+    const { extension } = WebExtensionPolicy.getByID("webcompat@mozilla.org");
+    this.extension = extension;
+  }
+
+  async started() {
+    await this.extension.promiseBackgroundStarted();
+  }
+
+  // Note that the `extensions.background.idle.timeout` pref needs to be set to a
+  // a high value if using the following APIs, to avoid intermittent failures due
+  // to the background being stopped for being idle.
+  async #run(command, ...args) {
+    return await SpecialPowers.spawn(
+      this.extension.backgroundContext.xulBrowser,
+      args,
+      command
+    );
+  }
+
+  async resetInterventionsAndShimsToDefaults() {
+    return this.#run(async function () {
+      await content.wrappedJSObject._downgradeForTesting();
+    }).catch(_ => {});
+  }
+
+  async availableInterventions() {
+    return this.#run(async function () {
+      const available =
+        content.wrappedJSObject.interventions.getAvailableInterventions();
+      // structured cloning won't work, so get the interesting bits for tests.
+      return JSON.parse(JSON.stringify(available));
+    });
+  }
+
+  async availableShims() {
+    return this.#run(async function () {
+      // structured cloning won't work, so get the interesting bits for tests.
+      const available = [];
+      for (let shim of content.wrappedJSObject.shims.shims.values()) {
+        const final = {};
+        for (let [name, value] of Object.entries(shim)) {
+          if (name !== "manager" && !name.startsWith("_")) {
+            final[name] = value;
+          }
+        }
+        final.enabled = shim.enabled;
+        available.push(final);
+      }
+      return JSON.parse(JSON.stringify(available));
+    });
+  }
+
+  async promiseUpdateReceived(_version) {
+    return this.#run(async function (version) {
+      await new Promise(updated => {
+        const updateCheck = content.setInterval(() => {
+          if (content.wrappedJSObject.latestReceivedUpdate == version) {
+            content.clearInterval(updateCheck);
+            updated();
+          }
+        }, 100);
+      });
+    }, _version);
+  }
+
+  async interventionsSettled() {
+    return this.#run(async function () {
+      await content.wrappedJSObject.interventions.allSettled();
+    });
+  }
+
+  async overrideFirefoxVersion(_ver) {
+    this.#run(async function (ver) {
+      content.wrappedJSObject.interventions.appVersionOverride = ver
+        ? parseFloat(ver)
+        : undefined;
+    }, _ver);
+  }
+
+  async getInterventionById(_id) {
+    return this.#run(function (id) {
+      return content.wrappedJSObject.interventions.getInterventionsByIds(
+        Cu.cloneInto([id], content)
+      )[0];
+    }, _id);
+  }
+
+  getCheckableGlobalPrefs() {
+    return this.#run(async function () {
+      return content.wrappedJSObject.browser.aboutConfigPrefs.getCheckableGlobalPrefs();
+    });
+  }
+
+  async updateShims(_shims) {
+    return this.#run(async function (shims) {
+      await content.wrappedJSObject.shims.ready();
+      await content.wrappedJSObject.shims._updateShims(
+        Cu.cloneInto(shims, content)
+      );
+    }, _shims);
+  }
+
+  async shimsReady() {
+    return this.#run(async function () {
+      await content.wrappedJSObject.shims.ready();
+    });
+  }
+
+  async getRegisteredContentScriptsFor(_id) {
+    return this.#run(async function (id) {
+      const scripts =
+        await content.wrappedJSObject.browser.scripting.getRegisteredContentScripts();
+      return scripts.filter(script =>
+        script.id.startsWith(`webcompat intervention for ${id}`)
+      );
+    }, _id);
+  }
+
+  async disableInterventions(_ids) {
+    return this.#run(async function (ids) {
+      return await content.wrappedJSObject.interventions.disableInterventions(
+        Cu.cloneInto(ids, content)
+      );
+    }, _ids);
+  }
+
+  async updateInterventions(_config) {
+    return this.#run(async function (config) {
+      return await content.wrappedJSObject.interventions.updateInterventions(
+        Cu.cloneInto(config, content)
+      );
+    }, _config);
+  }
+})();
+
+registerCleanupFunction(async () => {
+  await WebCompatExtension.overrideFirefoxVersion(undefined);
+  await WebCompatExtension.resetInterventionsAndShimsToDefaults();
+});
 
 async function testShimRuns(
   testPage,
@@ -36,6 +181,8 @@ async function testShimRuns(
   trackersAllowed = true,
   expectOptIn = true
 ) {
+  await WebCompatExtension.shimsReady();
+
   const tab = await BrowserTestUtils.openNewForegroundTab({
     gBrowser,
     opening: testPage,
@@ -105,6 +252,8 @@ async function testShimDoesNotRun(
   trackersAllowed = false,
   testPage = SHIMMABLE_TEST_PAGE
 ) {
+  await WebCompatExtension.shimsReady();
+
   const tab = await BrowserTestUtils.openNewForegroundTab({
     gBrowser,
     opening: testPage,
@@ -138,4 +287,220 @@ async function testShimDoesNotRun(
   );
 
   await BrowserTestUtils.removeTab(tab);
+}
+
+function panelId() {
+  return Services.prefs.getBoolPref("browser.urlbar.trustPanel.featureGate")
+    ? "trustpanel-popup"
+    : "protections-popup";
+}
+
+async function closeProtectionsPanel(win = window) {
+  let protectionsPopup = win.document.getElementById(panelId());
+  if (!protectionsPopup) {
+    return;
+  }
+  let popuphiddenPromise = BrowserTestUtils.waitForEvent(
+    protectionsPopup,
+    "popuphidden"
+  );
+
+  PanelMultiView.hidePopup(protectionsPopup);
+  await popuphiddenPromise;
+}
+
+async function openProtectionsPanel(win = window) {
+  let popupShownPromise = BrowserTestUtils.waitForEvent(
+    win,
+    "popupshown",
+    true,
+    e => e.target.id == panelId()
+  );
+
+  if (Services.prefs.getBoolPref("browser.urlbar.trustPanel.featureGate")) {
+    win.gTrustPanelHandler.showPopup();
+  } else {
+    win.gProtectionsHandler.showProtectionsPopup();
+  }
+
+  await popupShownPromise;
+}
+
+async function loadSmartblockPageOnTab(tab) {
+  let smartblockScriptFinished = BrowserTestUtils.waitForContentEvent(
+    tab.linkedBrowser,
+    "smartblockEmbedScriptFinished",
+    false,
+    null,
+    true
+  );
+
+  BrowserTestUtils.startLoadingURIString(
+    tab.linkedBrowser,
+    TEST_PAGE_WITH_SMARTBLOCK_COMPATIBLE_EMBED
+  );
+
+  return smartblockScriptFinished;
+}
+
+async function clickOnPagePlaceholder(tab) {
+  // Setup promise for listening for protections panel open
+  let popupShownPromise = BrowserTestUtils.waitForEvent(
+    window,
+    "popupshown",
+    true,
+    e => e.target.id == panelId()
+  );
+
+  await SpecialPowers.spawn(tab.linkedBrowser, [], async () => {
+    // Check that the "embed" was replaced with a placeholder
+    let placeholder = content.document.querySelector(
+      ".shimmed-embedded-content"
+    );
+    ok(placeholder, "Embed is replaced with a placeholder");
+
+    // Get the button element from the placeholder
+    let shadowRoot = placeholder.openOrClosedShadowRoot;
+    ok(shadowRoot, "Shadow root exists");
+
+    // Check that all elements are present
+    let placeholderButton = shadowRoot.querySelector(
+      "#smartblock-placeholder-button"
+    );
+    ok(placeholderButton, "Placeholder button exists");
+
+    let placeholderTitle = shadowRoot.querySelector(
+      "#smartblock-placeholder-title"
+    );
+    ok(placeholderTitle, "Placeholder title exists");
+
+    let placeholderLabel = shadowRoot.querySelector(
+      "#smartblock-placeholder-desc"
+    );
+    ok(placeholderLabel, "Placeholder description exists");
+
+    let placeholderImage = shadowRoot.querySelector(
+      "#smartblock-placeholder-image"
+    );
+    ok(placeholderImage, "Placeholder image exists");
+
+    // Click button to open protections panel
+    await EventUtils.synthesizeMouseAtCenter(placeholderButton, {}, content);
+  });
+
+  // If this await finished, then protections panel is open
+  return popupShownPromise;
+}
+
+async function generateTestShims() {
+  await WebCompatExtension.updateShims([
+    {
+      id: "MochitestShim",
+      platform: "all",
+      branch: ["all:ignoredOtherPlatform"],
+      name: "Test shim for Mochitests",
+      bug: "mochitest",
+      file: "mochitest-shim-1.js",
+      matches: [
+        "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test.js",
+      ],
+      needsShimHelpers: ["getOptions", "optIn"],
+      options: {
+        simpleOption: true,
+        complexOption: { a: 1, b: "test" },
+        branchValue: { value: true, branches: [] },
+        platformValue: { value: true, platform: "neverUsed" },
+      },
+      unblocksOnOptIn: ["*://trackertest.org/*"],
+    },
+    {
+      disabled: true,
+      id: "MochitestShim2",
+      platform: "all",
+      name: "Test shim for Mochitests (disabled by default)",
+      bug: "mochitest",
+      file: "mochitest-shim-2.js",
+      matches: [
+        "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_2.js",
+      ],
+      needsShimHelpers: ["getOptions", "optIn"],
+      options: {
+        simpleOption: true,
+        complexOption: { a: 1, b: "test" },
+        branchValue: { value: true, branches: [] },
+        platformValue: { value: true, platform: "neverUsed" },
+      },
+      unblocksOnOptIn: ["*://trackertest.org/*"],
+    },
+    {
+      id: "MochitestShim3",
+      platform: "all",
+      name: "Test shim for Mochitests (host)",
+      bug: "mochitest",
+      file: "mochitest-shim-3.js",
+      notHosts: ["example.com"],
+      matches: [
+        "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_3.js",
+      ],
+    },
+    {
+      id: "MochitestShim4",
+      platform: "all",
+      name: "Test shim for Mochitests (notHost)",
+      bug: "mochitest",
+      file: "mochitest-shim-3.js",
+      hosts: ["example.net"],
+      matches: [
+        "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_3.js",
+      ],
+    },
+    {
+      id: "MochitestShim5",
+      platform: "all",
+      name: "Test shim for Mochitests (branch)",
+      bug: "mochitest",
+      file: "mochitest-shim-3.js",
+      branches: ["never matches"],
+      matches: [
+        "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_3.js",
+      ],
+    },
+    {
+      id: "MochitestShim6",
+      platform: "never matches",
+      name: "Test shim for Mochitests (platform)",
+      bug: "mochitest",
+      file: "mochitest-shim-3.js",
+      matches: [
+        "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_3.js",
+      ],
+    },
+    {
+      id: "EmbedTestShim",
+      platform: "desktop",
+      name: "Test shim for smartblock embed unblocking",
+      bug: "1892175",
+      runFirst: "embed-test-shim.js",
+      // Blank stub file just so we run the script above when the matched script
+      // files get blocked.
+      file: "empty-script.js",
+      matches: [
+        "https://itisatracker.org/browser/browser/extensions/webcompat/tests/browser/embed_test.js",
+      ],
+      // Use instagram logo as an example
+      logos: ["instagram.svg"],
+      needsShimHelpers: [
+        "embedClicked",
+        "smartblockEmbedReplaced",
+        "smartblockGetFluentString",
+        "shouldShowEmbedContentInPlaceholders",
+      ],
+      isSmartblockEmbedShim: true,
+      onlyIfBlockedByETP: true,
+      unblocksOnOptIn: ["*://itisatracker.org/*"],
+    },
+  ]);
+  registerCleanupFunction(async () => {
+    await WebCompatExtension.resetInterventionsAndShimsToDefaults();
+  });
 }

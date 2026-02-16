@@ -42,6 +42,8 @@ async def test_partition_context(
             domain=cookie_domain,
             name=cookie_name,
             value=NetworkStringValue(cookie_value),
+            same_site="none",
+            secure=True,
         ),
         partition=new_tab_partition,
     )
@@ -62,7 +64,7 @@ async def test_partition_context(
                     "name": cookie_name,
                     "path": "/",
                     "sameSite": "none",
-                    "secure": False,
+                    "secure": True,
                     "size": 6,
                     "value": {"type": "string", "value": cookie_value},
                 }
@@ -88,11 +90,12 @@ async def test_partition_context(
 
 @pytest.mark.parametrize("domain", ["", "alt"], ids=["same_origin", "cross_origin"])
 async def test_partition_context_iframe(
-    bidi_session, new_tab, inline, domain_value, domain, set_cookie
+    bidi_session, new_tab, inline, domain_value, domain, set_cookie, iframe
 ):
-    iframe_url = inline("<div id='in-iframe'>foo</div>", domain=domain)
+    iframe_html = "<div id='in-iframe'>foo</div>"
+    iframe_url = inline(iframe_html, domain=domain)
     source_origin_for_iframe = get_origin_from_url(iframe_url)
-    page_url = inline(f"<iframe src='{iframe_url}'></iframe>")
+    page_url = inline(iframe(iframe_html, domain=domain))
     source_origin_for_page = get_origin_from_url(page_url)
     await bidi_session.browsing_context.navigate(
         context=new_tab["context"], url=page_url, wait="complete"
@@ -109,6 +112,8 @@ async def test_partition_context_iframe(
             domain=domain_value(domain),
             name=cookie_name,
             value=NetworkStringValue(cookie_value),
+            same_site="none",
+            secure=True,
         ),
         partition=iframe_partition,
     )
@@ -123,7 +128,7 @@ async def test_partition_context_iframe(
             "name": cookie_name,
             "path": "/",
             "sameSite": "none",
-            "secure": False,
+            "secure": True,
             "size": 6,
             "value": {"type": "string", "value": cookie_value},
         }

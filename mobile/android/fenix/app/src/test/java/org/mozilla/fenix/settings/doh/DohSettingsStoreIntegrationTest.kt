@@ -4,10 +4,8 @@
 
 package org.mozilla.fenix.settings.doh
 
-import DohSettingsMiddleware
 import androidx.navigation.NavController
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import mozilla.components.support.test.libstate.ext.waitUntilIdle
 import mozilla.components.support.test.mock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -395,7 +393,5 @@ class DohSettingsStoreIntegrationTest {
     ) = DohSettingsStore(
         initialState = initialState,
         middleware = listOf(this),
-    ).also {
-        it.waitUntilIdle()
-    }
+    )
 }

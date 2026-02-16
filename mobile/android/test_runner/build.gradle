@@ -2,17 +2,17 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
-buildDir "${topobjdir}/gradle/build/mobile/android/test_runner"
-
 apply plugin: 'com.android.application'
 
 android {
-    buildToolsVersion project.ext.buildToolsVersion
-    compileSdkVersion project.ext.compileSdkVersion
+    buildToolsVersion = project.ext.buildToolsVersion
+    compileSdk {
+        version = release(project.ext.compileSdkMajorVersion) { minorApiLevel = project.ext.compileSdkMinorVersion }
+    }
 
     defaultConfig {
-        targetSdkVersion project.ext.targetSdkVersion
-        minSdkVersion project.ext.minSdkVersion
+        targetSdk project.ext.targetSdkVersion
+        minSdk project.ext.minSdkVersion
         manifestPlaceholders = project.ext.manifestPlaceholders
 
         applicationId "org.mozilla.geckoview.test_runner"
@@ -22,7 +22,7 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
@@ -33,19 +33,19 @@ android {
     //  - https://issuetracker.google.com/issues/36911326
     //  - https://stackoverflow.com/questions/9206117/how-to-workaround-autoomitting-fiiles-folders-starting-with-underscore-in
     aaptOptions {
-        ignoreAssetsPattern  '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         noCompress 'ja'
     }
 
-    namespace 'org.mozilla.geckoview.test_runner'
+    namespace = 'org.mozilla.geckoview.test_runner'
 }
 
 dependencies {
+    implementation project(path: ':geckoview')
+
     implementation libs.androidx.annotation
     implementation libs.androidx.appcompat
-    implementation libs.androidx.preferences
-
-    implementation project(path: ':geckoview')
     implementation libs.androidx.constraintlayout
+    implementation libs.androidx.preferences
     implementation libs.google.material
 }

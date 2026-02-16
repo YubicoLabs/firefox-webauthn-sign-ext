@@ -7,33 +7,19 @@
 #include "nsIObserver.idl"
 
 interface imgIRequest;
+interface imgIContainer;
 interface nsICancelable;
 interface nsIPrincipal;
 interface nsIURI;
 
 %{C++
 #define ALERT_NOTIFICATION_CONTRACTID "@mozilla.org/alert-notification;1"
+
+#include "nsString.h"
+static constexpr nsLiteralString kAlertActionDisable = u"snooze"_ns;
+static constexpr nsLiteralString kAlertActionSettings = u"settings"_ns;
 %}
 
-[scriptable, uuid(a71a637d-de1d-47c6-a8d2-c60b2596f471)]
-interface nsIAlertNotificationImageListener : nsISupports
-{
-  /**
-   * Called when the image finishes loading.
-   *
-   * @param aUserData An opaque parameter passed to |loadImage|.
-   * @param aRequest  The image request.
-   */
-  void onImageReady(in nsISupports aUserData, in imgIRequest aRequest);
-
-  /**
-   * Called if the alert doesn't have an image, or if the image request times
-   * out or fails.
-   *
-   * @param aUserData An opaque parameter passed to |loadImage|.
-   */
-  void onImageMissing(in nsISupports aUserData);
-};
 
 [scriptable, uuid(a054c2c9-2787-4686-859c-45609d790056)]
 interface nsIAlertAction : nsISupports
@@ -102,6 +88,12 @@ interface nsIAlertNotification : nsISupports
             [optional] in Array<uint32_t> aVibrate);
 
   /**
+   * Initializes an alert notification with another instance.
+   * Can be useful in JS as it can provide a dictionary object.
+   */
+  void initWithObject(in nsIAlertNotification aAlertNotification);
+
+  /**
    * The unique ID of the notification, based on the profile path and the caller
    * given name.
    *
@@ -121,6 +113,11 @@ interface nsIAlertNotification : nsISupports
    * that time, the alert will show without an image.
    */
   readonly attribute AString imageURL;
+
+  /**
+   * The actual image container to use for the alert. This should be what imageURL returns.
+   */
+  attribute imgIContainer image;
 
   /** The title for the alert. */
   readonly attribute AString title;
@@ -220,6 +217,12 @@ interface nsIAlertNotification : nsISupports
   readonly attribute AString source;
 
   /**
+   * The origin of the originating page, or an empty string if the alert is not
+   * actionable. This corresponds to `nsIPrincipal.origin`.
+   */
+  readonly attribute ACString origin;
+
+  /**
    * On Windows, chrome-privileged notifications -- i.e., those with a
    * non-actionable principal -- can have `opaqueRelaunchData`.  This data will
    * be provided to the application at relaunch and can trigger specific
@@ -228,22 +231,6 @@ interface nsIAlertNotification : nsISupports
    * On non-Windows, this field is ignored.
    */
   attribute AString opaqueRelaunchData;
-
-  /**
-   * Loads the image associated with this alert.
-   *
-   * @param aTimeout  The number of milliseconds to wait before cancelling the
-   *                  image request. If zero, there is no timeout.
-   * @param aListener An |nsIAlertNotificationImageListener| implementation,
-   *                  notified when the image loads. The listener is kept alive
-   *                  until the request completes.
-   * @param aUserData An opaque parameter passed to the listener's methods.
-   *                  Not used by the libnotify backend, but the OS X backend
-   *                  passes the pending notification.
-   */
-  nsICancelable loadImage(in unsigned long aTimeout,
-                          in nsIAlertNotificationImageListener aListener,
-                          [optional] in nsISupports aUserData);
 
   /**
    * Retrieves the action object by the action name or null if not.
@@ -256,12 +243,11 @@ interface nsIAlertNotification : nsISupports
 [scriptable, uuid(f7a36392-d98b-4141-a7d7-4e46642684e3)]
 interface nsIAlertsService : nsISupports
 {
-  void showAlert(in nsIAlertNotification aAlert,
-                 [optional] in nsIObserver aAlertListener);
   /**
    * Initializes and shows an |nsIAlertNotification| with the given parameters.
    *
-   * @param aAlertListener Used for callbacks. May be null if the caller
+   * @param aAlert The alert notification to show.
+   * @param aAlertListener Used for callbacks. May be omitted if the caller
    *                       doesn't care about callbacks.
    * @see nsIAlertNotification for descriptions of all other parameters.
    * @throws NS_ERROR_NOT_AVAILABLE If the notification cannot be displayed.
@@ -274,26 +260,15 @@ interface nsIAlertsService : nsISupports
    *             "alertsettingscallback" when alert settings should be opened
    *             "alertclickcallback" when the text is clicked
    *             "alertshow" when the alert is shown
-   *   data    - the value of the cookie parameter passed to showAlertNotification.
+   *   data    - the value of the cookie attribute of the alert parameter.
    *
    * @note Depending on current circumstances (if the user's in a fullscreen
    *       application, for instance), the alert might not be displayed at all.
    *       In that case, if an alert listener is passed in it will receive the
    *       "alertfinished" notification immediately.
    */
-  void showAlertNotification(in AString aImageURL,
-                             in AString aTitle,
-                             in AString aText,
-                             [optional] in boolean aTextClickable,
-                             [optional] in AString aCookie,
-                             [optional] in nsIObserver aAlertListener,
-                             [optional] in AString aName,
-                             [optional] in AString aDir,
-                             [optional] in AString aLang,
-                             [optional] in AString aData,
-                             [optional] in nsIPrincipal aPrincipal,
-                             [optional] in boolean aInPrivateBrowsing,
-                             [optional] in boolean aRequireInteraction);
+  void showAlert(in nsIAlertNotification aAlert,
+                 [optional] in nsIObserver aAlertListener);
 
   /**
    * Close alerts created by the service.
@@ -308,6 +283,20 @@ interface nsIAlertsService : nsISupports
    */
   void closeAlert([optional] in AString aName, [optional] in boolean aContextClosed);
 
+  /**
+   * Returns identifiers of notifications that exist in OS notification center.
+   */
+  Array<AString> getHistory();
+
+  /**
+   * Clean up all resources used to listen to alerts.
+   */
+  void teardown();
+
+  /**
+   * Close all alerts opened for Private Browsing Mode.
+   */
+  void pbmTeardown();
 };
 
 [scriptable, uuid(c5d63e3a-259d-45a8-b964-8377967cb4d2)]
@@ -330,32 +319,4 @@ interface nsIAlertsDoNotDisturb : nsISupports
    * API.
    */
   attribute boolean suppressForScreenSharing;
-};
-
-[scriptable, uuid(fc6d7f0a-0cf6-4268-8c71-ab640842b9b1)]
-interface nsIAlertsIconData : nsISupports
-{
-  /**
-   * Shows an alert with an icon. Web notifications use the favicon of the
-   * page that created the alert. If the favicon is not in the Places database,
-   * |aIconSize| will be zero.
-  */
-  void showAlertWithIconData(in nsIAlertNotification aAlert,
-                             in nsIObserver aAlertListener,
-                             in uint32_t aIconSize,
-                             [const, array, size_is(aIconSize)] in uint8_t
-                                                                aIconData);
-};
-
-[scriptable, uuid(f3c82915-bf60-41ea-91ce-6c46b22e381a)]
-interface nsIAlertsIconURI : nsISupports
-{
-  /**
-   * Shows an alert with an icon URI. Web notifications use |cached-favicon:|
-   * URIs to reference favicons from Places. If the page doesn't have a
-   * favicon, |aIconURI| will be |null|.
-   */
-  void showAlertWithIconURI(in nsIAlertNotification aAlert,
-                            [optional] in nsIObserver aAlertListener,
-                            [optional] in nsIURI aIconURI);
 };

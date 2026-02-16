@@ -10,6 +10,7 @@
 #include "mozilla/ipc/SharedMemoryHandle.h"
 #include "mozilla/ipc/SharedMemoryMapping.h"
 #include "nsContentUtils.h"
+#include "nsEscape.h"
 #include "nsIChannel.h"
 #include "nsIFile.h"
 #include "nsIFileURL.h"
@@ -25,14 +26,16 @@
 
 using namespace mozilla;
 
-void DefaultDelete<const HyphDic>::operator()(const HyphDic* aHyph) const {
+namespace std {
+void default_delete<const HyphDic>::operator()(const HyphDic* aHyph) const {
   mapped_hyph_free_dictionary(const_cast<HyphDic*>(aHyph));
 }
 
-void DefaultDelete<const CompiledData>::operator()(
+void default_delete<const CompiledData>::operator()(
     const CompiledData* aData) const {
   mapped_hyph_free_compiled_data(const_cast<CompiledData*>(aData));
 }
+}  // namespace std
 
 static const uint8_t* GetItemPtrFromJarURI(nsIJARURI* aJAR, uint32_t* aLength) {
   // Try to get the jarfile's nsZipArchive, find the relevant item, and return
@@ -109,8 +112,7 @@ static ipc::ReadOnlySharedMemoryHandle CopyToShmem(const CompiledData* aData) {
   }
 
   memcpy(buffer, mapped_hyph_compiled_data_ptr(aData), size);
-  auto [_, readOnlyHandle] = std::move(map).Freeze();
-  return std::move(readOnlyHandle);
+  return std::move(map).Freeze();
 }
 
 static ipc::ReadOnlySharedMemoryHandle LoadFromURI(nsIURI* aURI,
@@ -161,13 +163,7 @@ static ipc::ReadOnlySharedMemoryHandle LoadFromURI(nsIURI* aURI,
       return nullptr;
     }
 
-    auto [_, readOnlyHandle] = std::move(map).Freeze();
-
-    if (!readOnlyHandle) {
-      return nullptr;
-    }
-
-    return std::move(readOnlyHandle);
+    return std::move(map).Freeze();
   }
 
   // Read from the URI into a temporary buffer, compile it, then copy the
@@ -266,7 +262,7 @@ nsHyphenator::nsHyphenator(nsIURI* aURI, bool aHyphenateCapitalized)
   // We get file:// URIs when running an unpackaged build; they could also
   // occur if we support adding hyphenation dictionaries by putting files in
   // a directory of the profile, for example.
-  if (net::SchemeIsFile(aURI)) {
+  if (aURI->SchemeIs("file")) {
     // Ask the Rust lib to mmap the file. In this case our mDictSize field
     // remains zero; mDict is not a pointer to the raw data but an opaque
     // reference to a Rust object, and can only be freed by passing it to
@@ -281,6 +277,9 @@ nsHyphenator::nsHyphenator(nsIURI* aURI, bool aHyphenateCapitalized)
       path.Cut(0, 1);
     }
 #endif
+    // In case of %-escaped spaces or other "special" chars in the path,
+    // we need the unescaped version to pass to mapped_hyph_load_dictionary.
+    NS_UnescapeURL(path);
     if (precompiled) {
       // If the file is compiled, we can just map it directly.
       UniquePtr<const HyphDic> dic(mapped_hyph_load_dictionary(path.get()));
@@ -317,7 +316,7 @@ nsHyphenator::nsHyphenator(nsIURI* aURI, bool aHyphenateCapitalized)
 
 bool nsHyphenator::IsValid() {
   return mDict.match(
-      [](Span<const uint8_t>& span) { return span.data() != nullptr; },
+      [](Span<const uint8_t>& span) { return !span.IsEmpty(); },
       [](ipc::ReadOnlySharedMemoryHandle& shm) { return shm.IsValid(); },
       [](ipc::ReadOnlySharedMemoryMapping& shm) { return shm.IsValid(); },
       [](UniquePtr<const HyphDic>& hyph) { return hyph != nullptr; });

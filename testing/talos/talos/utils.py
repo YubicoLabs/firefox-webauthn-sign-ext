@@ -3,6 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 """Utility functions for Talos"""
+
 import os
 import platform
 import re
@@ -22,7 +23,7 @@ except ModuleNotFoundError:
 here = os.path.dirname(os.path.realpath(__file__))
 
 
-class Timer(object):
+class Timer:
     def __init__(self):
         self._start_time = 0
         self.start()
@@ -90,13 +91,14 @@ def tokenize(string, start, end):
         return [], -1
     assert len(_start), "Could not find start token: '%s'" % start
     assert len(_end), "Could not find end token: '%s'" % end
-    assert len(_start) == len(
-        _end
-    ), "Unmatched number of tokens found: '%s' (%d) vs '%s' (%d)" % (
-        start,
-        len(_start),
-        end,
-        len(_end),
+    assert len(_start) == len(_end), (
+        "Unmatched number of tokens found: '%s' (%d) vs '%s' (%d)"
+        % (
+            start,
+            len(_start),
+            end,
+            len(_end),
+        )
     )
     for i in range(len(_start)):
         assert _end[i] > _start[i], "End token '%s' occurs before start token '%s'" % (

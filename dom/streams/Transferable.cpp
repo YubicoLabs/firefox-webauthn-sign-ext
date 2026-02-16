@@ -11,21 +11,20 @@
 #include "js/TypeDecls.h"
 #include "js/Value.h"
 #include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/ErrorResult.h"
+#include "mozilla/dom/DOMException.h"
 #include "mozilla/dom/DOMExceptionBinding.h"
+#include "mozilla/dom/MessageChannel.h"
+#include "mozilla/dom/MessageEvent.h"
+#include "mozilla/dom/MessagePort.h"
+#include "mozilla/dom/Promise-inl.h"
+#include "mozilla/dom/Promise.h"
+#include "mozilla/dom/ReadableStream.h"
+#include "mozilla/dom/TransformStream.h"
+#include "mozilla/dom/WritableStream.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsIDOMEventListener.h"
 #include "nsIGlobalObject.h"
-#include "mozilla/ErrorResult.h"
-#include "mozilla/ResultVariant.h"
-#include "mozilla/dom/DOMException.h"
-#include "mozilla/dom/MessageEvent.h"
-#include "mozilla/dom/MessageChannel.h"
-#include "mozilla/dom/MessagePort.h"
-#include "mozilla/dom/Promise.h"
-#include "mozilla/dom/Promise-inl.h"
-#include "mozilla/dom/ReadableStream.h"
-#include "mozilla/dom/WritableStream.h"
-#include "mozilla/dom/TransformStream.h"
 #include "nsISupportsImpl.h"
 
 namespace mozilla::dom {
@@ -287,6 +286,7 @@ static bool PackAndPostMessageHandlingError(
   PackAndPostMessage(aCx, aPort, aType, aValue, rv);
 
   // Step 2: If result is an abrupt completion,
+  rv.WouldReportJSException();
   if (rv.Failed()) {
     // Step 2.2: Perform ! CrossRealmTransformSendError(port, result.[[Value]]).
     MOZ_ALWAYS_TRUE(ToJSValue(aCx, std::move(rv), aError));
@@ -697,16 +697,16 @@ class CrossRealmReadableUnderlyingSourceAlgorithms final
   explicit CrossRealmReadableUnderlyingSourceAlgorithms(MessagePort* aPort)
       : mPort(aPort) {}
 
-  void StartCallback(JSContext* aCx, ReadableStreamController& aController,
+  void StartCallback(JSContext* aCx, ReadableStreamControllerBase& aController,
                      JS::MutableHandle<JS::Value> aRetVal,
                      ErrorResult& aRv) override {
     // Step 6. Let startAlgorithm be an algorithm that returns undefined.
     aRetVal.setUndefined();
   }
 
-  already_AddRefed<Promise> PullCallback(JSContext* aCx,
-                                         ReadableStreamController& aController,
-                                         ErrorResult& aRv) override {
+  already_AddRefed<Promise> PullCallback(
+      JSContext* aCx, ReadableStreamControllerBase& aController,
+      ErrorResult& aRv) override {
     // Step 7: Let pullAlgorithm be the following steps:
 
     // Step 7.1: Perform ! PackAndPostMessage(port, "pull", undefined).

@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ice_codeword.h"
 #include "stun.h"
 
-static char *nr_ice_cand_pair_states[]={"UNKNOWN","FROZEN","WAITING","IN_PROGRESS","FAILED","SUCCEEDED","CANCELLED"};
+static const char *nr_ice_cand_pair_states[]={"UNKNOWN","FROZEN","WAITING","IN_PROGRESS","FAILED","SUCCEEDED","CANCELLED"};
 
 static void nr_ice_candidate_pair_restart_stun_role_change_cb(NR_SOCKET s, int how, void *cb_arg);
 static void nr_ice_candidate_pair_compute_codeword(nr_ice_cand_pair *pair,
@@ -70,8 +70,9 @@ int nr_ice_candidate_pair_create(nr_ice_peer_ctx *pctx, nr_ice_candidate *lcand,
     UINT4 RTO;
     nr_ice_candidate tmpcand;
     UINT8 t_priority;
+    int flags = 0;
 
-    if(!(pair=RCALLOC(sizeof(nr_ice_cand_pair))))
+    if(!(pair=R_NEW(nr_ice_cand_pair)))
       ABORT(R_NO_MEMORY);
 
     pair->pctx=pctx;
@@ -129,10 +130,18 @@ int nr_ice_candidate_pair_create(nr_ice_peer_ctx *pctx, nr_ice_candidate *lcand,
       ABORT(r);
     t_priority = tmpcand.priority;
 
+    flags = NR_STUN_TRANSPORT_ADDR_CHECK_WILDCARD;
+    if (!(pctx->ctx->flags & NR_ICE_CTX_FLAGS_ALLOW_LOOPBACK)) {
+      flags |= NR_STUN_TRANSPORT_ADDR_CHECK_LOOPBACK;
+    }
+    if (!(pctx->ctx->flags & NR_ICE_CTX_FLAGS_ALLOW_LINK_LOCAL)) {
+      flags |= NR_STUN_TRANSPORT_ADDR_CHECK_LINK_LOCAL;
+    }
+
     /* Our sending context */
-    if(r=nr_stun_client_ctx_create(pair->as_string,
-      lcand->osock,
-      &rcand->addr,RTO,&pair->stun_client))
+    if (r = nr_stun_client_ctx_create(pair->as_string, lcand->osock,
+                                      &rcand->addr, RTO, flags,
+                                      &pair->stun_client))
       ABORT(r);
     if(!(pair->stun_client->params.ice_binding_request.username=r_strdup(rcand->stream->l2r_user)))
       ABORT(R_NO_MEMORY);
@@ -200,7 +209,7 @@ int nr_ice_candidate_pair_unfreeze(nr_ice_peer_ctx *pctx, nr_ice_cand_pair *pair
 static void nr_ice_candidate_pair_stun_cb(NR_SOCKET s, int how, void *cb_arg)
   {
     int r,_status;
-    nr_ice_cand_pair *pair=cb_arg;
+    nr_ice_cand_pair *pair=(nr_ice_cand_pair*)cb_arg;
     nr_ice_cand_pair *actual_pair=0;
     nr_ice_candidate *cand=0;
     nr_stun_message *sres;
@@ -234,7 +243,7 @@ static void nr_ice_candidate_pair_stun_cb(NR_SOCKET s, int how, void *cb_arg)
 
           return;
         }
-        /* Fall through */
+        [[fallthrough]];
       case NR_STUN_CLIENT_STATE_TIMED_OUT:
         nr_ice_candidate_pair_set_state(pair->pctx,pair,NR_ICE_PAIR_STATE_FAILED);
         break;
@@ -253,6 +262,14 @@ static void nr_ice_candidate_pair_stun_cb(NR_SOCKET s, int how, void *cb_arg)
           r_log(LOG_ICE,LOG_WARNING,"ICE-PEER(%s)/CAND-PAIR(%s): Local address mismatch %s != %s",pair->pctx->label,pair->codeword,request_src->as_string,response_dst.as_string);
           nr_ice_candidate_pair_set_state(pair->pctx,pair,NR_ICE_PAIR_STATE_FAILED);
           break;
+        }
+
+        // Update the rtt related fields
+        if (pair->stun_client->rtt_valid) {
+          nr_ice_candidate_pair_update_rtt(pair, pair->stun_client->rtt_ms);
+          // clear rtt_ms so we can't double process it.
+          pair->stun_client->rtt_valid = 0;
+          pair->stun_client->rtt_ms = 0;
         }
 
         if(strlen(pair->stun_client->results.ice_binding_response.mapped_addr.as_string)==0){
@@ -454,14 +471,11 @@ static int nr_ice_candidate_copy_for_triggered_check(nr_ice_cand_pair *pair)
     return(_status);
 }
 
-int nr_ice_candidate_pair_do_triggered_check(nr_ice_peer_ctx *pctx, nr_ice_cand_pair *pair)
+int nr_ice_candidate_pair_do_triggered_check(nr_ice_peer_ctx *pctx, nr_ice_cand_pair *pair, int force)
   {
     int r,_status;
 
-    if(pair->state==NR_ICE_PAIR_STATE_CANCELLED) {
-      r_log(LOG_ICE,LOG_DEBUG,"ICE-PEER(%s)/CAND_PAIR(%s): Ignoring matching but canceled pair",pctx->label,pair->codeword);
-      return(0);
-    } else if(pair->state==NR_ICE_PAIR_STATE_SUCCEEDED) {
+    if(pair->state==NR_ICE_PAIR_STATE_SUCCEEDED) {
       r_log(LOG_ICE,LOG_DEBUG,"ICE-PEER(%s)/CAND_PAIR(%s): No new trigger check for succeeded pair",pctx->label,pair->codeword);
       return(0);
     } else if (pair->local->stream->obsolete) {
@@ -472,8 +486,11 @@ int nr_ice_candidate_pair_do_triggered_check(nr_ice_peer_ctx *pctx, nr_ice_cand_
       return (0);
     }
 
-    /* Do not run this logic more than once on a given pair */
-    if(!pair->triggered){
+    /* Do not run this logic more than once on a given pair (|force| is set
+     * when the check we received has USE-CANDIDATE for this pair for the first
+     * time, and this pair is a higher priority than anything that has been
+     * nominated so far) */
+    if(!pair->triggered || force){
       r_log(LOG_ICE,LOG_INFO,"ICE-PEER(%s)/CAND-PAIR(%s): triggered check on %s",pctx->label,pair->codeword,pair->as_string);
 
       pair->triggered=1;
@@ -483,15 +500,18 @@ int nr_ice_candidate_pair_do_triggered_check(nr_ice_peer_ctx *pctx, nr_ice_cand_
           /* OK, there was a pair, it's just invalid: According to Section
            * 7.2.1.4, we need to resurrect it */
           r_log(LOG_ICE,LOG_INFO,"ICE-PEER(%s)/CAND-PAIR(%s): received STUN check on failed pair, resurrecting: %s",pctx->label,pair->codeword,pair->as_string);
-          /* fall through */
+          [[fallthrough]];
         case NR_ICE_PAIR_STATE_FROZEN:
           nr_ice_candidate_pair_set_state(pctx,pair,NR_ICE_PAIR_STATE_WAITING);
-          /* fall through even further */
+          [[fallthrough]];
         case NR_ICE_PAIR_STATE_WAITING:
           /* Append it additionally to the trigger check queue */
           r_log(LOG_ICE,LOG_INFO,"ICE-PEER(%s)/CAND-PAIR(%s): Inserting pair to trigger check queue: %s",pctx->label,pair->codeword,pair->as_string);
           nr_ice_candidate_pair_trigger_check_append(&pair->remote->stream->trigger_check_queue,pair);
           break;
+        case NR_ICE_PAIR_STATE_CANCELLED:
+          r_log(LOG_ICE,LOG_INFO,"ICE-PEER(%s)/CAND-PAIR(%s): received STUN check on cancelled pair, resurrecting: %s",pctx->label,pair->codeword,pair->as_string);
+          [[fallthrough]];
         case NR_ICE_PAIR_STATE_IN_PROGRESS:
           /* Instead of trying to maintain two stun contexts on the same pair,
            * and handling heterogenous responses and error conditions, we instead
@@ -534,37 +554,6 @@ void nr_ice_candidate_pair_cancel(nr_ice_peer_ctx *pctx,nr_ice_cand_pair *pair, 
       nr_ice_candidate_pair_set_state(pctx,pair,NR_ICE_PAIR_STATE_CANCELLED);
     }
   }
-
-int nr_ice_candidate_pair_select(nr_ice_cand_pair *pair)
-  {
-    int r,_status;
-
-    if(!pair){
-      r_log(LOG_ICE,LOG_ERR,"ICE-PAIR: No pair chosen");
-      ABORT(R_BAD_ARGS);
-    }
-
-    if(pair->state!=NR_ICE_PAIR_STATE_SUCCEEDED){
-      r_log(LOG_ICE,LOG_ERR,"ICE-PEER(%s)/CAND-PAIR(%s): tried to install non-succeeded pair, ignoring: %s",pair->pctx->label,pair->codeword,pair->as_string);
-    }
-    else{
-      /* Ok, they chose one */
-      /* 1. Send a new request with nominated. Do it as a scheduled
-            event to avoid reentrancy issues. Only do this if it hasn't
-            happened already (though this shouldn't happen.)
-      */
-      if(!pair->restart_nominated_cb_timer)
-        NR_ASYNC_TIMER_SET(0,nr_ice_candidate_pair_restart_stun_nominated_cb,pair,&pair->restart_nominated_cb_timer);
-
-      /* 2. Tell ourselves this pair is ready */
-      if(r=nr_ice_component_nominated_pair(pair->remote->component, pair))
-        ABORT(r);
-    }
-
-    _status=0;
-  abort:
-    return(_status);
- }
 
 void nr_ice_candidate_pair_set_state(nr_ice_peer_ctx *pctx, nr_ice_cand_pair *pair, int state)
   {
@@ -638,7 +627,7 @@ void nr_ice_candidate_pair_insert(nr_ice_cand_pair_head *head,nr_ice_cand_pair *
 
 void nr_ice_candidate_pair_restart_stun_nominated_cb(NR_SOCKET s, int how, void *cb_arg)
   {
-    nr_ice_cand_pair *pair=cb_arg;
+    nr_ice_cand_pair *pair=(nr_ice_cand_pair*)cb_arg;
     int r,_status;
 
     pair->restart_nominated_cb_timer=0;
@@ -666,7 +655,7 @@ void nr_ice_candidate_pair_restart_stun_nominated_cb(NR_SOCKET s, int how, void 
 
 static void nr_ice_candidate_pair_restart_stun_role_change_cb(NR_SOCKET s, int how, void *cb_arg)
  {
-    nr_ice_cand_pair *pair=cb_arg;
+    nr_ice_cand_pair *pair=(nr_ice_cand_pair*)cb_arg;
 
     pair->restart_role_change_cb_timer=0;
 
@@ -687,6 +676,17 @@ void nr_ice_candidate_pair_role_change(nr_ice_cand_pair *pair)
       if(!pair->restart_role_change_cb_timer)
         NR_ASYNC_TIMER_SET(0,nr_ice_candidate_pair_restart_stun_role_change_cb,pair,&pair->restart_role_change_cb_timer);
     }
+  }
+
+void nr_ice_candidate_pair_update_rtt(nr_ice_cand_pair *pair, UINT8 rtt_ms)
+  {
+    assert(pair);
+
+    pair->responses_recvd++;
+    pair->current_rtt_ms = rtt_ms;
+    pair->total_rtt_ms += rtt_ms;
+    r_log(LOG_ICE,LOG_DEBUG,"ICE-PEER(%s)/CAND-PAIR(%s): responses_recvd %llu, current_rtt_ms %llu ms, total_rtt_ms %llu ms",
+          pair->pctx->label,pair->codeword,pair->responses_recvd,pair->current_rtt_ms,pair->total_rtt_ms);
   }
 
 static void nr_ice_candidate_pair_compute_codeword(nr_ice_cand_pair *pair,

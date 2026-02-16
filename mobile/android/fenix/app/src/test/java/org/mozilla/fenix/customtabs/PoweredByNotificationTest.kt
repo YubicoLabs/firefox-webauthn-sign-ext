@@ -13,9 +13,9 @@ import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
+import org.robolectric.RobolectricTestRunner
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class PoweredByNotificationTest {
 
     @Test
@@ -50,7 +50,7 @@ class PoweredByNotificationTest {
 
     @Test
     fun `unregister receiver on pause`() {
-        val feature = PoweredByNotification(testContext, mockk(), "session-id", mockk())
+        val feature = PoweredByNotification(testContext, BrowserStore(), "session-id", mockk())
         feature.onPause(mockk())
     }
 }

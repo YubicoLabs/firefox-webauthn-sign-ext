@@ -23,13 +23,18 @@
 #include "api/units/data_size.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
+#include "modules/congestion_controller/rtp/congestion_controller_feedback_stats.h"
 #include "modules/rtp_rtcp/source/ntp_time_util.h"
 #include "modules/rtp_rtcp/source/rtcp_packet.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/congestion_control_feedback.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/containers/flat_map.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 
 namespace webrtc {
+
+constexpr DataRate kMaxFeedbackRate = DataRate::KilobitsPerSec(500);
 
 CongestionControlFeedbackGenerator::CongestionControlFeedbackGenerator(
     const Environment& env,
@@ -39,7 +44,7 @@ CongestionControlFeedbackGenerator::CongestionControlFeedbackGenerator(
       min_time_between_feedback_("min_send_delta", TimeDelta::Millis(25)),
       max_time_to_wait_for_packet_with_marker_("max_wait_for_marker",
                                                TimeDelta::Millis(25)),
-      max_time_between_feedback_("max_send_delta", TimeDelta::Millis(250)) {
+      max_time_between_feedback_("max_send_delta", TimeDelta::Millis(500)) {
   ParseFieldTrial(
       {&min_time_between_feedback_, &max_time_to_wait_for_packet_with_marker_,
        &max_time_between_feedback_},
@@ -51,12 +56,14 @@ void CongestionControlFeedbackGenerator::OnReceivedPacket(
   RTC_DCHECK_RUN_ON(&sequence_checker_);
 
   marker_bit_seen_ |= packet.Marker();
+  Timestamp now = env_.clock().CurrentTime();
   if (!first_arrival_time_since_feedback_) {
-    first_arrival_time_since_feedback_ = packet.arrival_time();
+    first_arrival_time_since_feedback_ = now;
   }
-  feedback_trackers_[packet.Ssrc()].ReceivedPacket(packet);
-  if (NextFeedbackTime() < packet.arrival_time()) {
-    SendFeedback(env_.clock().CurrentTime());
+  auto it = feedback_trackers_.try_emplace(packet.Ssrc(), packet.Ssrc()).first;
+  it->second.ReceivedPacket(packet);
+  if (NextFeedbackTime() < now) {
+    SendFeedback(now);
   }
 }
 
@@ -82,14 +89,8 @@ TimeDelta CongestionControlFeedbackGenerator::Process(Timestamp now) {
   return NextFeedbackTime() - now;
 }
 
-void CongestionControlFeedbackGenerator::OnSendBandwidthEstimateChanged(
-    DataRate estimate) {
-  RTC_DCHECK_RUN_ON(&sequence_checker_);
-  // Feedback reports should max occupy 5% of total bandwidth.
-  max_feedback_rate_ = estimate * 0.05;
-}
-
 void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
+  RTC_DCHECK_GE(now, next_possible_feedback_send_time_);
   uint32_t compact_ntp =
       CompactNtp(env_.clock().ConvertTimestampToNtpTime(now));
   std::vector<rtcp::CongestionControlFeedback::PacketInfo> rtcp_packet_info;
@@ -112,17 +113,30 @@ void CongestionControlFeedbackGenerator::CalculateNextPossibleSendTime(
     DataSize feedback_size,
     Timestamp now) {
   TimeDelta time_since_last_sent = now - last_feedback_sent_time_;
-  DataSize debt_payed = time_since_last_sent * max_feedback_rate_;
+  DataSize debt_payed = time_since_last_sent * kMaxFeedbackRate;
   send_rate_debt_ = debt_payed > send_rate_debt_ ? DataSize::Zero()
                                                  : send_rate_debt_ - debt_payed;
   send_rate_debt_ += feedback_size;
   last_feedback_sent_time_ = now;
   next_possible_feedback_send_time_ =
-      now + std::clamp(max_feedback_rate_.IsZero()
-                           ? TimeDelta::PlusInfinity()
-                           : send_rate_debt_ / max_feedback_rate_,
+      now + std::clamp(send_rate_debt_ / kMaxFeedbackRate,
                        min_time_between_feedback_.Get(),
                        max_time_between_feedback_.Get());
+}
+
+flat_map<uint32_t, SentCongestionControllerFeedbackStats>
+CongestionControlFeedbackGenerator::GetStatsPerSsrc() const {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  flat_map<uint32_t, SentCongestionControllerFeedbackStats> result;
+  result.reserve(feedback_trackers_.size());
+  for (const auto& [ssrc, tracker] : feedback_trackers_) {
+    // feedback_trackers_ are sorted by the SSRC, so when adding to the
+    // flat_map, expect it uses the same sorting and thus new elements would
+    // always be at the end.
+    result.insert_or_assign(
+        /*hint=*/result.end(), /*key=*/ssrc, tracker.GetStats());
+  }
+  return result;
 }
 
 }  // namespace webrtc

@@ -97,8 +97,8 @@ async function test_ntp_theme(theme, isBrightText) {
         "New tab page should have lwt-newtab attribute"
       );
       ok(
-        doc.documentElement.hasAttribute("lwtheme"),
-        "New tab page should have lwtheme attribute"
+        !doc.documentElement.hasAttribute("lwtheme"),
+        "New tab page should not have lwtheme attribute"
       );
       is(
         doc.documentElement.hasAttribute("lwt-newtab-brighttext"),
@@ -188,7 +188,7 @@ async function waitForDarkMode(value) {
   });
 }
 
-add_task(async function test_support_ntp_colors() {
+async function do_test_support_ntp_colors() {
   await SpecialPowers.pushPrefEnv({
     set: [
       // BrowserTestUtils.withNewTab waits for about:newtab to load
@@ -253,4 +253,26 @@ add_task(async function test_support_ntp_colors() {
       );
     });
   }
+}
+
+add_task(async function test_support_ntp_colors() {
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      // Running these tests with the previous shortcuts style.
+      ["browser.newtabpage.activity-stream.newtabShortcuts.refresh", false],
+    ],
+  });
+  await do_test_support_ntp_colors();
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function test_support_ntp_colors_shortcuts_pref_flipped() {
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      // Running these tests with the new shortcuts style.
+      ["browser.newtabpage.activity-stream.newtabShortcuts.refresh", true],
+    ],
+  });
+  await do_test_support_ntp_colors();
+  await SpecialPowers.popPrefEnv();
 });

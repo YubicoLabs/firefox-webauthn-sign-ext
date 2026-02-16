@@ -3,15 +3,14 @@
  */
 
 /* eslint "mozilla/no-aArgs": 1 */
-/* eslint "no-unused-vars": [2, {"argsIgnorePattern": "^_", "varsIgnorePattern": "^(Cc|Ci|Cr|Cu|EXPORTED_SYMBOLS)$"}] */
 /* eslint "semi": [2, "always"] */
-/* eslint "valid-jsdoc": [2, {requireReturn: false}] */
 
 const CERTDB_CONTRACTID = "@mozilla.org/security/x509certdb;1";
 
 import {
   AddonManager,
   AddonManagerPrivate,
+  AMTelemetry,
 } from "resource://gre/modules/AddonManager.sys.mjs";
 import { AsyncShutdown } from "resource://gre/modules/AsyncShutdown.sys.mjs";
 import { FileUtils } from "resource://gre/modules/FileUtils.sys.mjs";
@@ -38,7 +37,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
 XPCOMUtils.defineLazyServiceGetters(lazy, {
   aomStartup: [
     "@mozilla.org/addons/addon-manager-startup;1",
-    "amIAddonManagerStartup",
+    Ci.amIAddonManagerStartup,
   ],
 });
 
@@ -107,7 +106,7 @@ class MockBarrier {
 export var MockAsyncShutdown = {
   profileBeforeChange: new MockBarrier("profileBeforeChange"),
   profileChangeTeardown: new MockBarrier("profileChangeTeardown"),
-  quitApplicationGranted: new MockBarrier("quitApplicationGranted"),
+  appShutdownConfirmed: new MockBarrier("appShutdownConfirmed"),
   // We can use the real Barrier
   Barrier: AsyncShutdown.Barrier,
 };
@@ -809,7 +808,7 @@ export var AddonTestUtils = {
   /**
    * Starts up the add-on manager as if it was started by the application.
    *
-   * @param {Object} params
+   * @param {object} params
    *        The new params are in an object and new code should use that.
    * @param {boolean} params.earlyStartup
    *        Notifies early startup phase. default is true
@@ -864,6 +863,10 @@ export var AddonTestUtils = {
         }
       };
 
+    // Make sure AMTelemetry.onStartup to be called as it would happen
+    // on a real application startup.
+    AddonManager.addManagerListener(AMTelemetry);
+
     this.addonIntegrationService = Cc[
       "@mozilla.org/addons/integration;1"
     ].getService(Ci.nsIObserver);
@@ -913,10 +916,11 @@ export var AddonTestUtils = {
     Services.obs.notifyObservers(null, "test-load-xpi-database");
 
     // Note: the code here used to trigger observer notifications such as
-    // "quit-application-granted". That was removed because of unwanted side
-    // effects in other components. The MockAsyncShutdown triggers here are very
-    // specific and only affect the AddonManager/XPIProvider internals.
-    await MockAsyncShutdown.quitApplicationGranted.trigger();
+    // "quit-application-granted". That was changed in bug 1845352 because of
+    // unwanted side effects in other components. The MockAsyncShutdown
+    // triggers here are very specific and only affect the AddonManager/
+    // XPIProvider internals.
+    await MockAsyncShutdown.appShutdownConfirmed.trigger();
 
     // If XPIDatabase.asyncLoadDB() has been called before, then _dbPromise is
     // a promise, potentially still pending. Wait for it to settle before
@@ -963,6 +967,10 @@ export var AddonTestUtils = {
 
     lazy.ExtensionTestCommon.resetStartupPromises();
 
+    // Uninitialize AMTelemetry to ensure that it can be properly re-initialized
+    // as a side-effect of AddonTestUtils.promiseStartupManager.
+    await AMTelemetry.uninit();
+
     if (shutdownError) {
       throw shutdownError;
     }
@@ -975,7 +983,7 @@ export var AddonTestUtils = {
    * simulate an application upgrade (or downgrade) where the version
    * is changed to newVersion when re-started.
    *
-   * @param {Object} params
+   * @param {object} params
    *        The new params are in an object and new code should use that.
    *        See promiseStartupManager for param details.
    */
@@ -1022,7 +1030,7 @@ export var AddonTestUtils = {
    *
    * @param {string|nsIFile} zipFile
    *        The zip file to write to.
-   * @param {Object} files
+   * @param {object} files
    *        An object containing filenames and the data to write to the
    *        corresponding paths in the zip file.
    * @param {integer} [flags = 0]
@@ -1095,6 +1103,8 @@ export var AddonTestUtils = {
         await IOUtils.writeJSON(leafPath, data);
       } else if (typeof data == "string") {
         await IOUtils.writeUTF8(leafPath, data);
+      } else if (ChromeUtils.getClassName(data) === "ArrayBuffer") {
+        await IOUtils.write(leafPath, new Uint8Array(data));
       }
     }
 
@@ -1143,7 +1153,7 @@ export var AddonTestUtils = {
    * Creates an XPI file for some WebExtension data in the temporary directory and
    * returns the nsIFile for it. The file will be deleted when the test completes.
    *
-   * @param {Object} data
+   * @param {object} data
    *        The object holding data about the add-on, as expected by
    *        |ExtensionTestCommon.generateXPI|.
    * @return {nsIFile} A file pointing to the created XPI file
@@ -1158,7 +1168,7 @@ export var AddonTestUtils = {
    * Creates an XPI with the given files and installs it.
    *
    * @param {object} files
-   *        A files object as would be passed to {@see #createTempXPI}.
+   *        A files object as would be passed to {@link createTempXPIFile()}.
    * @returns {Promise}
    *        A promise which resolves when the add-on is installed.
    */
@@ -1477,7 +1487,7 @@ export var AddonTestUtils = {
    * @param {boolean} [ignoreIncompatible = false]
    *        Optional parameter to ignore add-ons that are incompatible
    *        with the application
-   * @param {Object} [installTelemetryInfo = undefined]
+   * @param {object} [installTelemetryInfo = undefined]
    *        Optional parameter to set the install telemetry info for the
    *        installed addon
    * @returns {Promise}
@@ -1536,8 +1546,8 @@ export var AddonTestUtils = {
 
   /**
    * @property {number} updateReason
-   *        The default update reason for {@see promiseFindAddonUpdates}
-   *        calls. May be overwritten by tests which primarily check for
+   *        The default update reason for {@link promiseFindAddonUpdates()} calls.
+   *        May be overwritten by tests which primarily check for
    *        updates with a particular reason.
    */
   updateReason: AddonManager.UPDATE_WHEN_PERIODIC_UPDATE,
@@ -1747,7 +1757,7 @@ export var AddonTestUtils = {
    *
    * @param {AddonWrapper|AddonInstall} addonOrInstall
    *        The addon or addonInstall object to check.
-   * @param {Object} expectedInstallInfo
+   * @param {object} expectedInstallInfo
    *        The expected installTelemetryInfo properties
    *        (every property can be a primitive value or a regular expression).
    * @param {string} [msg]
@@ -1895,7 +1905,7 @@ export var AddonTestUtils = {
   /**
    * Retrive any AMTelemetry event collected and clears _all_ telemetry events.
    *
-   * @returns {Array<Object>}
+   * @returns {Array<object>}
    *          The array of the collected telemetry data.
    */
   getAMTelemetryEvents() {

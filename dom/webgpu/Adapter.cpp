@@ -3,23 +3,82 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/WebGPUBinding.h"
 #include "Adapter.h"
 
 #include <algorithm>
+
 #include "Device.h"
 #include "Instance.h"
 #include "SupportedFeatures.h"
 #include "SupportedLimits.h"
 #include "ipc/WebGPUChild.h"
+#include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/Promise.h"
+#include "mozilla/dom/WebGPUBinding.h"
 #include "mozilla/webgpu/ffi/wgpu.h"
 
 namespace mozilla::webgpu {
 
 GPU_IMPL_CYCLE_COLLECTION(AdapterInfo, mParent)
 GPU_IMPL_JS_WRAP(AdapterInfo)
+
+uint32_t AdapterInfo::SubgroupMinSize() const {
+  // From the spec. at
+  // <https://www.w3.org/TR/2025/CRD-webgpu-20250319/#dom-gpuadapterinfo-subgroupminsize>:
+  //
+  // > If `["subgroups"](https://www.w3.org/TR/webgpu/#subgroups)` is supported,
+  // > set `subgroupMinSize` to the smallest supported subgroup size. Otherwise,
+  // > set this value to 4.
+  // >
+  // > Note: To preserve privacy, the user agent may choose to not support some
+  // > features or provide values for the property which do not distinguish
+  // > different devices, but are still usable (e.g. use the default value of
+  // > 4 for all devices).
+
+  if (GetParentObject()->ShouldResistFingerprinting(
+          RFPTarget::WebGPUSubgroupSizes)) {
+    return 4;
+  }
+
+  // TODO: When we support `subgroups`, use the supported amount instead:
+  // <https://bugzilla.mozilla.org/show_bug.cgi?id=1955417>
+  return 4;
+}
+
+uint32_t AdapterInfo::SubgroupMaxSize() const {
+  // From the spec. at
+  // <https://www.w3.org/TR/2025/CRD-webgpu-20250319/#dom-gpuadapterinfo-subgroupmaxsize>:
+  //
+  // > If `["subgroups"](https://www.w3.org/TR/webgpu/#subgroups)` is supported,
+  // > set `subgroupMaxSize` to the largest supported subgroup size. Otherwise,
+  // > set this value to 128.
+  // >
+  // > Note: To preserve privacy, the user agent may choose to not support some
+  // > features or provide values for the property which do not distinguish
+  // > different devices, but are still usable (e.g. use the default value of
+  // > 128 for all devices).
+
+  if (GetParentObject()->ShouldResistFingerprinting(
+          RFPTarget::WebGPUSubgroupSizes)) {
+    return 128;
+  }
+
+  // TODO: When we support `subgroups`, use the supported amount instead:
+  // <https://bugzilla.mozilla.org/show_bug.cgi?id=1955417>
+  return 128;
+}
+
+bool AdapterInfo::IsFallbackAdapter() const {
+  if (GetParentObject()->ShouldResistFingerprinting(
+          RFPTarget::WebGPUIsFallbackAdapter)) {
+    // Always report hardware support for WebGPU.
+    // This behaviour matches with media capabilities API.
+    return false;
+  }
+
+  return mAboutSupportInfo->device_type ==
+         ffi::WGPUDeviceType::WGPUDeviceType_Cpu;
+}
 
 void AdapterInfo::GetWgpuName(nsString& s) const {
   s = mAboutSupportInfo->name;
@@ -87,7 +146,7 @@ void AdapterInfo::GetWgpuBackend(nsString& s) const {
 
 // -
 
-GPU_IMPL_CYCLE_COLLECTION(Adapter, mParent, mBridge, mFeatures, mLimits, mInfo)
+GPU_IMPL_CYCLE_COLLECTION(Adapter, mParent, mFeatures, mLimits, mInfo)
 GPU_IMPL_JS_WRAP(Adapter)
 
 enum class FeatureImplementationStatusTag {
@@ -135,11 +194,18 @@ struct FeatureImplementationStatus {
       case dom::GPUFeatureName::Texture_compression_bc:
         return implemented(WGPUWEBGPU_FEATURE_TEXTURE_COMPRESSION_BC);
 
+      case dom::GPUFeatureName::Texture_compression_bc_sliced_3d:
+        return implemented(WGPUWEBGPU_FEATURE_TEXTURE_COMPRESSION_BC_SLICED_3D);
+
       case dom::GPUFeatureName::Texture_compression_etc2:
         return implemented(WGPUWEBGPU_FEATURE_TEXTURE_COMPRESSION_ETC2);
 
       case dom::GPUFeatureName::Texture_compression_astc:
         return implemented(WGPUWEBGPU_FEATURE_TEXTURE_COMPRESSION_ASTC);
+
+      case dom::GPUFeatureName::Texture_compression_astc_sliced_3d:
+        return implemented(
+            WGPUWEBGPU_FEATURE_TEXTURE_COMPRESSION_ASTC_SLICED_3D);
 
       case dom::GPUFeatureName::Timestamp_query:
         return implemented(WGPUWEBGPU_FEATURE_TIMESTAMP_QUERY);
@@ -148,9 +214,7 @@ struct FeatureImplementationStatus {
         return implemented(WGPUWEBGPU_FEATURE_INDIRECT_FIRST_INSTANCE);
 
       case dom::GPUFeatureName::Shader_f16:
-        // return implemented(WGPUWEBGPU_FEATURE_SHADER_F16);
-        return unimplemented(
-            "https://bugzilla.mozilla.org/show_bug.cgi?id=1891593");
+        return implemented(WGPUWEBGPU_FEATURE_SHADER_F16);
 
       case dom::GPUFeatureName::Rg11b10ufloat_renderable:
         return implemented(WGPUWEBGPU_FEATURE_RG11B10UFLOAT_RENDERABLE);
@@ -173,6 +237,23 @@ struct FeatureImplementationStatus {
         // return implemented(WGPUWEBGPU_FEATURE_DUAL_SOURCE_BLENDING);
         return unimplemented(
             "https://bugzilla.mozilla.org/show_bug.cgi?id=1924328");
+
+      case dom::GPUFeatureName::Subgroups:
+        // return implemented(WGPUWEBGPU_FEATURE_SUBGROUPS);
+        return unimplemented(
+            "https://bugzilla.mozilla.org/show_bug.cgi?id=1955417");
+
+      case dom::GPUFeatureName::Primitive_index:
+        // return implemented(WGPUWEBGPU_FEATURE_PRIMITIVE_INDEX);
+        return unimplemented(
+            "https://bugzilla.mozilla.org/show_bug.cgi?id=1989116");
+
+      case dom::GPUFeatureName::Core_features_and_limits:
+        // NOTE: `0` means that no bits are set in calling code, but this is on
+        // purpose. We currently _always_ return this feature elsewhere. If this
+        // actually corresponds to a value in the future, remove the
+        // unconditional setting of this feature!
+        return implemented(0);
     }
     MOZ_CRASH("Bad GPUFeatureName.");
   }
@@ -217,11 +298,10 @@ double GetLimitDefault(Limit aLimit) {
   MOZ_CRASH("Bad Limit");
 }
 
-Adapter::Adapter(Instance* const aParent, WebGPUChild* const aBridge,
+Adapter::Adapter(Instance* const aParent, WebGPUChild* const aChild,
                  const std::shared_ptr<ffi::WGPUAdapterInformation>& aInfo)
-    : ChildOf(aParent),
-      mBridge(aBridge),
-      mId(aInfo->id),
+    : ObjectBase(aChild, aInfo->id, ffi::wgpu_client_drop_adapter),
+      ChildOf(aParent),
       mFeatures(new SupportedFeatures(this)),
       mLimits(new SupportedLimits(this, aInfo->limits)),
       mInfo(new AdapterInfo(this, aInfo)),
@@ -274,6 +354,18 @@ Adapter::Adapter(Instance* const aParent, WebGPUChild* const aBridge,
       // feature.
     }
   }
+  // TODO: Once we implement compat mode (see
+  // <https://bugzilla.mozilla.org/show_bug.cgi?id=1905951>), do not report this
+  // unconditionally.
+  //
+  // Meanwhile, the current spec. proposal's `Initialization` section (see
+  // <https://github.com/gpuweb/gpuweb/blob/main/proposals/compatibility-mode.md#initialization>)
+  // says:
+  //
+  // > Core-defaulting adapters *always* support the
+  // > `"core-features-and-limits"` feature. It is *automatically enabled* on
+  // > devices created from such adapters.
+  mFeatures->Add(dom::GPUFeatureName::Core_features_and_limits, ignoredRv);
 
   // We clamp limits to defaults when requestDevice is called, but
   // we return the actual limits when only requestAdapter is called.
@@ -285,32 +377,14 @@ Adapter::Adapter(Instance* const aParent, WebGPUChild* const aBridge,
   }
 }
 
-Adapter::~Adapter() { Cleanup(); }
-
-void Adapter::Cleanup() {
-  if (mValid && mBridge && mBridge->CanSend()) {
-    mValid = false;
-    mBridge->SendAdapterDrop(mId);
-  }
-}
+Adapter::~Adapter() = default;
 
 const RefPtr<SupportedFeatures>& Adapter::Features() const { return mFeatures; }
 const RefPtr<SupportedLimits>& Adapter::Limits() const { return mLimits; }
 const RefPtr<AdapterInfo>& Adapter::Info() const { return mInfo; }
 
-bool Adapter::IsFallbackAdapter() const {
-  if (GetParentObject()->ShouldResistFingerprinting(
-          RFPTarget::WebGPUIsFallbackAdapter)) {
-    // Always report hardware support for WebGPU.
-    // This behaviour matches with media capabilities API.
-    return false;
-  }
-
-  return mInfoInner->device_type == ffi::WGPUDeviceType::WGPUDeviceType_Cpu;
-}
-
-bool Adapter::SupportExternalTextureInSwapChain() const {
-  return mInfoInner->support_use_external_texture_in_swap_chain;
+bool Adapter::SupportSharedTextureInSwapChain() const {
+  return mInfoInner->support_use_shared_texture_in_swap_chain;
 }
 
 static std::string_view ToJsKey(const Limit limit) {
@@ -426,6 +500,11 @@ already_AddRefed<dom::Promise> Adapter::RequestDevice(
   if (NS_WARN_IF(aRv.Failed())) {
     return nullptr;
   }
+  RefPtr<dom::Promise> lost_promise =
+      dom::Promise::Create(GetParentObject(), aRv);
+  if (NS_WARN_IF(aRv.Failed())) {
+    return nullptr;
+  }
 
   ffi::WGPULimits deviceLimits = *mLimits->mFfi;
   for (const auto limit : MakeInclusiveEnumeratedRange(Limit::_LAST)) {
@@ -435,12 +514,6 @@ already_AddRefed<dom::Promise> Adapter::RequestDevice(
   // -
 
   [&]() {  // So that we can `return;` instead of `return promise.forget();`.
-    if (!mBridge->CanSend()) {
-      promise->MaybeRejectWithInvalidStateError(
-          "WebGPUChild cannot send, must recreate Adapter");
-      return;
-    }
-
     // -
     // Validate Features
 
@@ -456,7 +529,7 @@ already_AddRefed<dom::Promise> Adapter::RequestDevice(
           (void)featureStr;
           nsPrintfCString msg(
               "`GPUAdapter.requestDevice`: '%s' was requested in "
-              "`requiredFeatures`, but it is not supported by Firefox."
+              "`requiredFeatures`, but it is not supported by Firefox. "
               "Follow <%s> for updates.",
               featureStr.get(), status.value.unimplemented.bugzillaUrlAscii);
           promise->MaybeRejectWithTypeError(msg);
@@ -553,40 +626,36 @@ already_AddRefed<dom::Promise> Adapter::RequestDevice(
 
     // -
 
+    RefPtr<SupportedFeatures> features = new SupportedFeatures(this);
+    for (const auto& feature : aDesc.mRequiredFeatures) {
+      features->Add(feature, aRv);
+    }
+    // TODO: Once we implement compat mode (see
+    // <https://bugzilla.mozilla.org/show_bug.cgi?id=1905951>), do not report
+    // this unconditionally.
+    //
+    // Meanwhile, the current spec. proposal's `Initialization` section (see
+    // <https://github.com/gpuweb/gpuweb/blob/main/proposals/compatibility-mode.md#initialization>)
+    // says:
+    //
+    // > Core-defaulting adapters *always* support the
+    // > `"core-features-and-limits"` feature. It is *automatically enabled* on
+    // > devices created from such adapters.
+    features->Add(dom::GPUFeatureName::Core_features_and_limits, aRv);
+
+    RefPtr<SupportedLimits> limits = new SupportedLimits(this, deviceLimits);
+
     ffi::WGPUFfiDeviceDescriptor ffiDesc = {};
     ffiDesc.required_features = featureBits;
     ffiDesc.required_limits = deviceLimits;
-    auto request = mBridge->AdapterRequestDevice(mId, ffiDesc);
-    if (!request) {
-      promise->MaybeRejectWithNotSupportedError(
-          "Unable to instantiate a Device");
-      return;
-    }
-    RefPtr<Device> device = new Device(
-        this, request->mDeviceId, request->mQueueId, ffiDesc.required_limits);
-    for (const auto& feature : aDesc.mRequiredFeatures) {
-      device->mFeatures->Add(feature, aRv);
-    }
 
-    request->mPromise->Then(
-        GetCurrentSerialEventTarget(), __func__,
-        [promise, device](bool aSuccess) {
-          if (aSuccess) {
-            promise->MaybeResolve(device);
-          } else {
-            device->CleanupUnregisteredInParent();
-            promise->MaybeRejectWithInvalidStateError(
-                "Unable to fulfill requested features and limits");
-          }
-        },
-        [promise, device](const ipc::ResponseRejectReason& aReason) {
-          // We can't be sure how far along the WebGPUParent got in handling
-          // our AdapterRequestDevice message, but we can't communicate with it,
-          // so clear up our client state for this Device without trying to
-          // communicate with the parent about it.
-          device->CleanupUnregisteredInParent();
-          promise->MaybeRejectWithNotSupportedError("IPC error");
-        });
+    ffi::WGPUDeviceQueueId ids =
+        ffi::wgpu_client_request_device(GetClient(), GetId(), &ffiDesc);
+
+    GetChild()->EnqueueRequestDevicePromise(PendingRequestDevicePromise{
+        promise, ids.device, ids.queue, aDesc.mLabel, this, std::move(features),
+        std::move(limits), mInfo, std::move(lost_promise)});
+
   }();
 
   return promise.forget();

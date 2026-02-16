@@ -10,13 +10,14 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/Base64.h"
 #include "mozilla/Likely.h"
-#include "mozilla/Unused.h"
 
 #include "XPCWrapper.h"
 #include "jsfriendapi.h"
 #include "js/AllocationLogging.h"  // JS::SetLogCtorDtorFunctions
 #include "js/CompileOptions.h"     // JS::ReadOnlyCompileOptions
-#include "js/Object.h"             // JS::GetClass
+#include "js/Initialization.h"
+#include "js/Object.h"  // JS::GetClass
+#include "js/Prefs.h"
 #include "js/ProfilingStack.h"
 #include "GeckoProfiler.h"
 #include "mozJSModuleLoader.h"
@@ -36,6 +37,7 @@
 #include "mozilla/glean/bindings/Glean.h"
 #include "mozilla/glean/bindings/GleanPings.h"
 #include "mozilla/ScriptPreloader.h"
+#include "mozilla/StaticPrefs_javascript.h"
 
 #include "nsDOMMutationObserver.h"
 #include "nsICycleCollectorListener.h"
@@ -56,6 +58,10 @@
 #  include "mozilla/WinHeaderOnlyUtils.h"
 #else
 #  include <sys/mman.h>
+#endif
+
+#ifdef XP_IOS
+#  include <CoreFoundation/CoreFoundation.h>
 #endif
 
 using namespace mozilla;
@@ -79,7 +85,44 @@ const char XPC_SCRIPT_ERROR_CONTRACTID[] = "@mozilla.org/scripterror;1";
 
 /***************************************************************************/
 
-nsXPConnect::nsXPConnect() {
+#ifdef XP_IOS
+// Check if iOS LockdownMode is enabled, which blocks the JIT everywhere.
+static bool IsLockdownModeEnabled() {
+  CFPropertyListRef prefValue = CFPreferencesCopyValue(
+      CFSTR("LDMGlobalEnabled"), kCFPreferencesAnyApplication,
+      kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+  bool enabled = prefValue == kCFBooleanTrue;
+  if (prefValue) CFRelease(prefValue);
+  return enabled;
+}
+#endif
+
+static void InitJSEngine() {
+#if defined(ENABLE_WASM_SIMD) && \
+    (defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86))
+  // Update static engine preferences, such as AVX, before
+  // `JS_InitWithFailureDiagnostic` is called.
+  JS::SetAVXEnabled(mozilla::StaticPrefs::javascript_options_wasm_simd_avx());
+#endif
+
+  if (XRE_IsParentProcess() &&
+      mozilla::StaticPrefs::javascript_options_main_process_disable_jit()) {
+    JS::DisableJitBackend();
+  }
+#ifdef XP_IOS
+  else if (IsLockdownModeEnabled()) {
+    JS::DisableJitBackend();
+  }
+#endif
+
+  // Set all JS::Prefs.
+  SET_JS_PREFS_FROM_BROWSER_PREFS;
+
+  const char* jsInitFailureReason = JS_InitWithFailureDiagnostic();
+  if (jsInitFailureReason) {
+    MOZ_CRASH_UNSAFE(jsInitFailureReason);
+  }
+
 #ifdef MOZ_GECKO_PROFILER
   JS::SetProfilingThreadCallbacks(profiler_register_thread,
                                   profiler_unregister_thread);
@@ -89,6 +132,10 @@ nsXPConnect::nsXPConnect() {
 // static
 void nsXPConnect::InitJSContext() {
   MOZ_ASSERT(!gSelf->mContext);
+
+  // Initialize the JS engine for this process before creating the first
+  // JSContext.
+  InitJSEngine();
 
   XPCJSContext* xpccx = XPCJSContext::NewXPCJSContext();
   if (!xpccx) {
@@ -100,7 +147,7 @@ void nsXPConnect::InitJSContext() {
   mozJSModuleLoader::InitStatics();
 
   // Initialize the script preloader cache.
-  Unused << mozilla::ScriptPreloader::GetSingleton();
+  (void)mozilla::ScriptPreloader::GetSingleton();
 
   nsJSContext::EnsureStatics();
 }
@@ -140,6 +187,9 @@ nsXPConnect::~nsXPConnect() {
   XPC_LOG_FINISH();
 
   delete mContext;
+
+  // Shut down the JS engine.
+  JS_ShutDown();
 
   MOZ_ASSERT(gSelf == this);
   gSelf = nullptr;
@@ -254,7 +304,7 @@ void xpc::ErrorReport::Init(JSContext* aCx, mozilla::dom::Exception* aException,
   }
   mSourceId = aException->SourceId(aCx);
   mLineNumber = aException->LineNumber(aCx);
-  mColumn = aException->ColumnNumber();
+  mColumn = aException->ColumnNumber(aCx);
 }
 
 static LazyLogModule gJSDiagnostics("JSDiagnostics");
@@ -393,7 +443,7 @@ void xpc_TryUnmarkWrappedGrayObject(nsISupports* aWrappedJS) {
   // QIing to nsIXPConnectWrappedJSUnmarkGray may have side effects!
   nsCOMPtr<nsIXPConnectWrappedJSUnmarkGray> wjsug =
       do_QueryInterface(aWrappedJS);
-  Unused << wjsug;
+  (void)wjsug;
   MOZ_ASSERT(!wjsug,
              "One should never be able to QI to "
              "nsIXPConnectWrappedJSUnmarkGray successfully!");
@@ -481,7 +531,9 @@ JSObject* CreateGlobalObject(JSContext* cx, const JSClass* clasp,
 void InitGlobalObjectOptions(JS::RealmOptions& aOptions,
                              bool aIsSystemPrincipal, bool aSecureContext,
                              bool aForceUTC, bool aAlwaysUseFdlibm,
-                             bool aLocaleEnUS) {
+                             bool aLocaleEnUS,
+                             const nsACString& aLanguageOverride,
+                             const nsAString& aTimezoneOverride) {
   if (aIsSystemPrincipal) {
     // Make toSource functions [ChromeOnly]
     aOptions.creationOptions().setToSourceEnabled(true);
@@ -495,11 +547,20 @@ void InitGlobalObjectOptions(JS::RealmOptions& aOptions,
     aOptions.creationOptions().setSecureContext(aSecureContext);
   }
 
-  aOptions.creationOptions().setForceUTC(aForceUTC);
+  if (aForceUTC) {
+    nsCString timeZone = nsRFPService::GetSpoofedJSTimeZone();
+    aOptions.behaviors().setTimeZoneOverride(timeZone.get());
+  } else if (!aTimezoneOverride.IsEmpty()) {
+    aOptions.behaviors().setTimeZoneOverride(
+        NS_ConvertUTF16toUTF8(aTimezoneOverride).get());
+  }
   aOptions.creationOptions().setAlwaysUseFdlibm(aAlwaysUseFdlibm);
   if (aLocaleEnUS) {
     nsCString locale = nsRFPService::GetSpoofedJSLocale();
-    aOptions.creationOptions().setLocaleCopyZ(locale.get());
+    aOptions.behaviors().setLocaleOverride(locale.get());
+  } else if (!aLanguageOverride.IsEmpty()) {
+    aOptions.behaviors().setLocaleOverride(
+        PromiseFlatCString(aLanguageOverride).get());
   }
 }
 
@@ -555,7 +616,9 @@ nsresult InitClassesWithNewWrappedGlobal(JSContext* aJSContext,
   InitGlobalObjectOptions(aOptions, /* aSystemPrincipal */ true,
                           /* aSecureContext */ true,
                           /* aForceUTC */ false, /* aAlwaysUseFdlibm */ false,
-                          /* aLocaleEnUS */ false);
+                          /* aLocaleEnUS */ false,
+                          /* aLanguageOverride */ ""_ns,
+                          /* aTimezoneOverride */ u""_ns);
 
   // Call into XPCWrappedNative to make a new global object, scope, and global
   // prototype.

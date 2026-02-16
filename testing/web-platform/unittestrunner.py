@@ -12,22 +12,23 @@ import sys
 here = os.path.abspath(os.path.dirname(__file__))
 
 local_requirements = {
-    b"mozinfo": "testing/mozbase/mozinfo",
-    b"mozlog": "testing/mozbase/mozlog",
-    b"mozdebug": "testing/mozbase/mozdebug",
     b"marionette_driver": "testing/marionette/client/",
-    b"mozprofile": "testing/mozbase/mozprofile",
-    b"mozprocess": "testing/mozbase/mozprocess",
     b"mozcrash": "testing/mozbase/mozcrash",
-    b"mozrunner": "testing/mozbase/mozrunner",
+    b"mozdebug": "testing/mozbase/mozdebug",
+    b"mozinfo": "testing/mozbase/mozinfo",
     b"mozleak": "testing/mozbase/mozleak",
+    b"mozlog": "testing/mozbase/mozlog",
+    b"mozprocess": "testing/mozbase/mozprocess",
+    b"mozprofile": "testing/mozbase/mozprofile",
+    b"mozrunner": "testing/mozbase/mozrunner",
+    b"mozshellutil": "testing/mozbase/mozshellutil",
     b"mozversion": "testing/mozbase/mozversion",
 }
 
 requirements_re = re.compile(rb"(%s)[^\w]" % b"|".join(local_requirements.keys()))
 
 
-class ReplaceRequirements(object):
+class ReplaceRequirements:
     def __init__(self, top_src_path, tox_path):
         self.top_src_path = top_src_path
         self.tox_path = tox_path

@@ -185,7 +185,16 @@ mozilla::ipc::IPCResult DocAccessibleParent::ProcessShowEvent(
     return IPC_OK();
   }
 
-  PlatformShowHideEvent(root, rootParent, true, aFromUser);
+  {
+    // Scope for PerfStats
+    AUTO_PROFILER_MARKER_TEXT("a11y::PlatformShowHideEvent", A11Y, {}, ""_ns);
+    PerfStats::AutoMetricRecording<
+        PerfStats::Metric::A11Y_PlatformShowHideEvent>
+        autoRecording;
+    // WITHIN THIS SCOPE, DO NOT ADD CODE ABOVE THIS BLOCK:
+    // THIS CODE IS MEASURING TIMINGS.
+    PlatformShowHideEvent(root, rootParent, true, aFromUser);
+  }
 
   if (nsCOMPtr<nsIObserverService> obsService =
           services::GetObserverService()) {
@@ -212,7 +221,11 @@ RemoteAccessible* DocAccessibleParent::CreateAcc(
   RemoteAccessible* newProxy;
   if ((newProxy = GetAccessible(aAccData.ID()))) {
     // This is a move. Reuse the Accessible; don't destroy it.
-    MOZ_ASSERT(!newProxy->RemoteParent());
+    if (newProxy->RemoteParent()) {
+      MOZ_ASSERT_UNREACHABLE(
+          "Attempt to move RemoteAccessible which still has a parent!");
+      return nullptr;
+    }
     return newProxy;
   }
 
@@ -299,6 +312,11 @@ void DocAccessibleParent::ShutdownOrPrepareForMove(RemoteAccessible* aAcc) {
 
 mozilla::ipc::IPCResult DocAccessibleParent::ProcessHideEvent(
     const uint64_t& aRootID, const bool& aFromUser) {
+  AUTO_PROFILER_MARKER_TEXT("DocAccessibleParent::ProcessHideEvent", A11Y, {},
+                            ""_ns);
+  PerfStats::AutoMetricRecording<PerfStats::Metric::A11Y_ProcessHideEvent>
+      autoRecording;
+  // DO NOT ADD CODE ABOVE THIS BLOCK: THIS CODE IS MEASURING TIMINGS.
   ACQUIRE_ANDROID_LOCK
 
   MOZ_ASSERT(CheckDocTree());
@@ -322,7 +340,16 @@ mozilla::ipc::IPCResult DocAccessibleParent::ProcessHideEvent(
   }
 
   RemoteAccessible* parent = root->RemoteParent();
-  PlatformShowHideEvent(root, parent, false, aFromUser);
+  {
+    // Scope for PerfStats
+    AUTO_PROFILER_MARKER_TEXT("a11y::PlatformShowHideEvent", A11Y, {}, ""_ns);
+    PerfStats::AutoMetricRecording<
+        PerfStats::Metric::A11Y_PlatformShowHideEvent>
+        autoRecording;
+    // WITHIN THIS SCOPE, DO NOT ADD CODE ABOVE THIS BLOCK:
+    // THIS CODE IS MEASURING TIMINGS.
+    PlatformShowHideEvent(root, parent, false, aFromUser);
+  }
 
   RefPtr<xpcAccHideEvent> event = nullptr;
   if (nsCoreUtils::AccEventObserversExist()) {
@@ -449,7 +476,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvCaretMoveEvent(
     const uint64_t& aID, const LayoutDeviceIntRect& aCaretRect,
     const int32_t& aOffset, const bool& aIsSelectionCollapsed,
     const bool& aIsAtEndOfLine, const int32_t& aGranularity,
-    const bool& aFromUser) {
+    const bool& aFromUser, const bool& aSuppressEvent) {
   ACQUIRE_ANDROID_LOCK
   if (mShutdown) {
     return IPC_OK();
@@ -464,6 +491,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvCaretMoveEvent(
   mCaretId = aID;
   mCaretOffset = aOffset;
   mIsCaretAtEndOfLine = aIsAtEndOfLine;
+  mCaretRect = aCaretRect;
   if (aIsSelectionCollapsed) {
     // We don't fire selection events for collapsed selections, but we need to
     // ensure we don't have a stale cached selection; e.g. when selecting
@@ -472,8 +500,13 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvCaretMoveEvent(
     mTextSelections.AppendElement(TextRangeData(aID, aID, aOffset, aOffset));
   }
 
+  if (aSuppressEvent) {
+    // We're just updating the cached caret, not notifying clients.
+    return IPC_OK();
+  }
+
   PlatformCaretMoveEvent(proxy, aOffset, aIsSelectionCollapsed, aGranularity,
-                         aCaretRect, aFromUser);
+                         aFromUser);
 
   if (!nsCoreUtils::AccEventObserversExist()) {
     return IPC_OK();
@@ -576,7 +609,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvMutationEvents(
 
 mozilla::ipc::IPCResult DocAccessibleParent::RecvRequestAckMutationEvents() {
   if (!mShutdown) {
-    Unused << SendAckMutationEvents();
+    (void)SendAckMutationEvents();
   }
   return IPC_OK();
 }
@@ -728,7 +761,6 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvAccessiblesWillMove(
   return IPC_OK();
 }
 
-#if !defined(XP_WIN)
 mozilla::ipc::IPCResult DocAccessibleParent::RecvAnnouncementEvent(
     const uint64_t& aID, const nsAString& aAnnouncement,
     const uint16_t& aPriority) {
@@ -743,9 +775,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvAnnouncementEvent(
     return IPC_OK();
   }
 
-#  if defined(ANDROID)
   PlatformAnnouncementEvent(target, aAnnouncement, aPriority);
-#  endif
 
   if (!nsCoreUtils::AccEventObserversExist()) {
     return IPC_OK();
@@ -760,7 +790,6 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvAnnouncementEvent(
 
   return IPC_OK();
 }
-#endif  // !defined(XP_WIN)
 
 mozilla::ipc::IPCResult DocAccessibleParent::RecvTextSelectionChangeEvent(
     const uint64_t& aID, nsTArray<TextRangeData>&& aSelection) {
@@ -812,7 +841,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvRoleChangedEvent(
     return IPC_FAIL(this, "Invalid role map entry index");
   }
 
-  mRole = aRole;
+  mNativeRole = aRole;
   mRoleMapEntryIndex = aRoleMapEntryIndex;
 
 #ifdef MOZ_WIDGET_COCOA
@@ -1135,7 +1164,8 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvFocusEvent(
 #endif
 
   mFocus = aID;
-  PlatformFocusEvent(proxy, aCaretRect);
+  mCaretRect = aCaretRect;
+  PlatformFocusEvent(proxy);
 
   if (!nsCoreUtils::AccEventObserversExist()) {
     return IPC_OK();
@@ -1152,6 +1182,17 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvFocusEvent(
   return IPC_OK();
 }
 
+LayoutDeviceIntRect DocAccessibleParent::GetCachedCaretRect() {
+  LayoutDeviceIntRect caretRect = mCaretRect;
+  if (!caretRect.IsEmpty()) {
+    // Reapply doc offset to the caret rect.
+    LayoutDeviceIntRect docRect = Bounds();
+    caretRect.MoveBy(docRect.X(), docRect.Y());
+  }
+
+  return caretRect;
+}
+
 void DocAccessibleParent::SelectionRanges(nsTArray<TextRange>* aRanges) const {
   aRanges->SetCapacity(mTextSelections.Length());
   for (const auto& data : mTextSelections) {
@@ -1165,14 +1206,18 @@ void DocAccessibleParent::SelectionRanges(nsTArray<TextRange>* aRanges) const {
     if (!startAcc || !endAcc) {
       continue;
     }
-    uint32_t startCount = startAcc->CharacterCount();
-    if (startCount == 0 ||
-        data.StartOffset() > static_cast<int32_t>(startCount)) {
-      continue;
+    // Offset 0 is always valid, even if the container is empty.
+    if (data.StartOffset() > 0) {
+      uint32_t startCount = startAcc->CharacterCount();
+      if (data.StartOffset() > static_cast<int32_t>(startCount)) {
+        continue;
+      }
     }
-    uint32_t endCount = endAcc->CharacterCount();
-    if (endCount == 0 || data.EndOffset() > static_cast<int32_t>(endCount)) {
-      continue;
+    if (data.EndOffset() > 0) {
+      uint32_t endCount = endAcc->CharacterCount();
+      if (data.EndOffset() > static_cast<int32_t>(endCount)) {
+        continue;
+      }
     }
     aRanges->AppendElement(TextRange(const_cast<DocAccessibleParent*>(this),
                                      startAcc, data.StartOffset(), endAcc,

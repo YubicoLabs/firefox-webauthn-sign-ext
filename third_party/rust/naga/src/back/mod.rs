@@ -1,9 +1,15 @@
 /*!
 Backend functions that export shader [`Module`](super::Module)s into binary and text formats.
 */
-#![allow(dead_code)] // can be dead if none of the enabled backends need it
+#![cfg_attr(
+    not(any(dot_out, glsl_out, hlsl_out, msl_out, spv_out, wgsl_out)),
+    allow(
+        dead_code,
+        reason = "shared helpers can be dead if none of the enabled backends need it"
+    )
+)]
 
-use crate::proc::ExpressionKindTracker;
+use alloc::string::String;
 
 #[cfg(dot_out)]
 pub mod dot;
@@ -35,16 +41,43 @@ pub type NeedBakeExpressions = crate::FastHashSet<crate::Handle<crate::Expressio
 /// A type for displaying expression handles as baking identifiers.
 ///
 /// Given an [`Expression`] [`Handle`] `h`, `Baked(h)` implements
-/// [`std::fmt::Display`], showing the handle's index prefixed by
+/// [`core::fmt::Display`], showing the handle's index prefixed by
 /// `_e`.
 ///
 /// [`Expression`]: crate::Expression
 /// [`Handle`]: crate::Handle
+#[cfg_attr(
+    not(any(glsl_out, hlsl_out, msl_out, wgsl_out)),
+    allow(
+        dead_code,
+        reason = "shared helpers can be dead if none of the enabled backends need it"
+    )
+)]
 struct Baked(crate::Handle<crate::Expression>);
 
-impl std::fmt::Display for Baked {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Baked {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.write_prefixed(f, "_e")
+    }
+}
+
+bitflags::bitflags! {
+    /// How far through a ray query are we
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    #[cfg_attr(
+        not(any(hlsl_out, spv_out)),
+        allow(
+            dead_code,
+            reason = "shared helpers can be dead if none of the enabled backends need it"
+        )
+    )]
+    pub(super) struct RayQueryPoint: u32 {
+        /// Ray query has been successfully initialized.
+        const INITIALIZED = 1 << 0;
+        /// Proceed has been called on ray query.
+        const PROCEED = 1 << 1;
+        /// Proceed has returned false (have finished traversal).
+        const FINISHED_TRAVERSAL = 1 << 2;
     }
 }
 
@@ -62,14 +95,41 @@ pub type PipelineConstants = hashbrown::HashMap<String, f64>;
 pub struct Level(pub usize);
 
 impl Level {
-    const fn next(&self) -> Self {
+    pub const fn next(&self) -> Self {
         Level(self.0 + 1)
     }
 }
 
-impl std::fmt::Display for Level {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl core::fmt::Display for Level {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         (0..self.0).try_for_each(|_| formatter.write_str(INDENT))
+    }
+}
+
+/// Locate the entry point(s) to write.
+///
+/// If `entry_point` is given, and the specified entry point exists, returns a
+/// length-1 `Range` containing the index of that entry point.  If no
+/// `entry_point` is given, returns the complete range of entry point indices.
+/// If `entry_point` is given but does not exist, returns an error.
+#[cfg(any(hlsl_out, msl_out))]
+fn get_entry_points(
+    module: &crate::ir::Module,
+    entry_point: Option<&(crate::ir::ShaderStage, String)>,
+) -> Result<core::ops::Range<usize>, (crate::ir::ShaderStage, String)> {
+    use alloc::borrow::ToOwned;
+
+    if let Some(&(stage, ref name)) = entry_point {
+        let Some(ep_index) = module
+            .entry_points
+            .iter()
+            .position(|ep| ep.stage == stage && ep.name == *name)
+        else {
+            return Err((stage, name.to_owned()));
+        };
+        Ok(ep_index..ep_index + 1)
+    } else {
+        Ok(0..module.entry_points.len())
     }
 }
 
@@ -99,11 +159,11 @@ pub enum FunctionType {
 }
 
 impl FunctionType {
-    /// Returns true if the function is an entry point for a compute shader.
-    pub fn is_compute_entry_point(&self, module: &crate::Module) -> bool {
+    /// Returns true if the function is an entry point for a compute-like shader.
+    pub fn is_compute_like_entry_point(&self, module: &crate::Module) -> bool {
         match *self {
             FunctionType::EntryPoint(index) => {
-                module.entry_points[index as usize].stage == crate::ShaderStage::Compute
+                module.entry_points[index as usize].stage.compute_like()
             }
             FunctionType::Function(_) => false,
         }
@@ -120,8 +180,6 @@ pub struct FunctionCtx<'a> {
     pub expressions: &'a crate::Arena<crate::Expression>,
     /// Map of expressions that have associated variable names
     pub named_expressions: &'a crate::NamedExpressions,
-    /// For constness checks
-    pub expr_kind_tracker: ExpressionKindTracker,
 }
 
 impl FunctionCtx<'_> {
@@ -154,6 +212,35 @@ impl FunctionCtx<'_> {
             FunctionType::Function(handle) => crate::proc::NameKey::FunctionArgument(handle, arg),
             FunctionType::EntryPoint(ep_index) => {
                 crate::proc::NameKey::EntryPointArgument(ep_index, arg)
+            }
+        }
+    }
+
+    /// Helper method that generates a [`NameKey`](crate::proc::NameKey) for an external texture
+    /// function argument.
+    ///
+    /// # Panics
+    /// - If the function arguments are less or equal to `arg`
+    /// - If `self.ty` is not `FunctionType::Function`.
+    pub const fn external_texture_argument_key(
+        &self,
+        arg: u32,
+        external_texture_key: crate::proc::ExternalTextureNameKey,
+    ) -> crate::proc::NameKey {
+        match self.ty {
+            FunctionType::Function(handle) => {
+                crate::proc::NameKey::ExternalTextureFunctionArgument(
+                    handle,
+                    arg,
+                    external_texture_key,
+                )
+            }
+            // This is a const function, which _sometimes_ gets called,
+            // so this lint is _sometimes_ triggered, depending on feature set.
+            #[expect(clippy::allow_attributes)]
+            #[allow(clippy::panic)]
+            FunctionType::EntryPoint(_) => {
+                panic!("External textures cannot be used as arguments to entry points")
             }
         }
     }
@@ -248,22 +335,11 @@ pub const fn binary_operation_str(op: crate::BinaryOperator) -> &'static str {
     }
 }
 
-/// Helper function that returns the string corresponding to the [`VectorSize`](crate::VectorSize)
-const fn vector_size_str(size: crate::VectorSize) -> &'static str {
-    match size {
-        crate::VectorSize::Bi => "2",
-        crate::VectorSize::Tri => "3",
-        crate::VectorSize::Quad => "4",
-    }
-}
-
 impl crate::TypeInner {
-    /// Returns true if this is a handle to a type rather than the type directly.
+    /// Returns true if a variable of this type is a handle.
     pub const fn is_handle(&self) -> bool {
         match *self {
-            crate::TypeInner::Image { .. }
-            | crate::TypeInner::Sampler { .. }
-            | crate::TypeInner::AccelerationStructure => true,
+            Self::Image { .. } | Self::Sampler { .. } | Self::AccelerationStructure { .. } => true,
             _ => false,
         }
     }

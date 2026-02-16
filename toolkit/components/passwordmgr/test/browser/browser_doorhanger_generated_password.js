@@ -16,7 +16,7 @@ const usernameInputSelector = "#form-basic-username";
 requestLongerTimeout(2);
 
 async function task_setup() {
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   LoginTestUtils.resetGeneratedPasswordsCache();
   await cleanupPasswordNotifications();
   await LoginTestUtils.remoteSettings.setupImprovedPasswordRules();
@@ -283,6 +283,7 @@ async function submitForm(browser) {
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
     set: [
+      ["test.wait300msAfterTabSwitch", true],
       ["signon.generation.available", true],
       ["signon.generation.enabled", true],
     ],

@@ -6,11 +6,11 @@
 
 /* constants used throughout the Layout module */
 
-#ifndef LayoutConstants_h___
-#define LayoutConstants_h___
+#ifndef LayoutConstants_h_
+#define LayoutConstants_h_
 
-#include "mozilla/EnumSet.h"
 #include "Units.h"
+#include "mozilla/EnumSet.h"
 
 /**
  * Constant used to indicate an unconstrained size.
@@ -105,4 +105,4 @@ using ContentRelevancy = EnumSet<ContentRelevancyReason, uint8_t>;
 
 }  // namespace mozilla
 
-#endif  // LayoutConstants_h___
+#endif  // LayoutConstants_h_

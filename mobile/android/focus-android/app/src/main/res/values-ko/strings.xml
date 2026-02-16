@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">방문 기록 삭제됨</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">탭의 탐색 기록이 삭제되었습니다.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">%1$s 검색</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">공유…</string>
@@ -52,7 +62,7 @@
   <string name="menu_settings">설정</string>
   <string name="menu_about">정보</string>
   <string name="menu_help">도움말</string>
-  <string name="menu_rights">사용자 권리</string>
+  <string name="menu_terms_of_use">이용 약관</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -143,19 +153,12 @@
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Focus Nightly에서 검색</string>
   <!--
-    Content of about focus. Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
-    Argument 2 is the url for the learn-more link.
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
   -->
-  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote">&lt;p&gt;%1$s를 여러 기능으로 사용할 수 있습니다.&lt;/p&gt;
-&lt;p&gt;개인 정보 보호 브라우저로 사용:
-  &lt;ul&gt;
-    &lt;li&gt;앱에서 바로 검색과 브라우징 하기&lt;/li&gt;
-    &lt;li&gt;추적기 차단(설정을 변경해서 허용할 수 있음)&lt;/li&gt;
-    &lt;li&gt;쿠키나 검색어, 브라우징 기록을 삭제&lt;/li&gt;
-  &lt;/ul&gt;
-&lt;/p&gt;
-&lt;p&gt;%1$s는 Mozilla의 제품입니다. Mozilla의 사명은 건강하고 개방적인 인터넷을 조성하는 것입니다.&lt;br/&gt;
-&lt;a href="%2$s"&gt;더 알아보기&lt;/a&gt;&lt;/p&gt;</string>
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s를 여러 기능으로 사용할 수 있습니다.</p>\n<p>개인 정보 보호 브라우저로 사용:\n<ul>\n<li>앱에서 바로 검색과 브라우징 하기</li>\n<li>추적기 차단(설정을 변경해서 허용할 수 있음)</li>\n<li>쿠키나 검색어, 브라우징 기록을 삭제</li>\n</ul> </p>\n<p>%1$s는 Mozilla의 제품입니다. Mozilla의 사명은 건강하고 개방적인 인터넷을 조성하는 것입니다.<br/>\n<a href=\"%2$s\">더 알아보기</a></p>]]></string>
+  <!-- A link to SUMO at the bottom of About Focus screen. -->
+  <string name="about_screen_learn_more">더 알아보기</string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">개인정보 보호 및 보안</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -207,14 +210,14 @@
   <string name="preference_switch_autocomplete_topsites">자주 가는 사이트</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">%s 자동 완성 기능을 활성화해서 450개가 넘는 자주 찾는 URL을 주소창에서 사용해 보세요.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">내가 추가한 사이트</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">%s 자동 완성 기능을 활성화해서 자주 찾는 URL을 사용해 보세요.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -289,8 +292,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">바로가기를 추가했거나 웹사이트가 이미 %s에서 열려 있는 경우 지문을 사용하여 잠금을 해제합니다.</string>
   <!--
@@ -338,9 +341,9 @@
   <string name="preference_libraries_we_use">사용한 라이브러리</string>
   <!-- Link to Focus Crash reports list. -->
   <string name="preference_crashes">충돌</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s | OSS 라이브러리</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">%1$s에 대한 정보</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">설치된 검색 엔진 모음</string>
@@ -364,7 +367,7 @@
   <string name="search_add_manually_name_hint">검색 엔진 이름</string>
   <string name="search_add_manually_string">사용할 검색 문구</string>
   <string name="search_add_manually_save">저장</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">예: example.com/search/?q=%s</string>
   <string name="search_add_confirmation">새 검색 엔진이 추가되었습니다.</string>
   <string name="search_add_error_empty_name">검색 엔진 이름을 입력하세요</string>
@@ -436,19 +439,19 @@
   <string name="external_app_prompt_title">다른 앱으로 링크 열기</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">%2$s로 링크를 열면 %1$s를 떠나게 됩니다.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">링크를 열 수 있는 앱 찾기</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">이 링크를 열 수 있는 앱이 설치돼있지 않습니다. %1$s를 종료하고 %2$s를 열어 이 링크를 열 수 있는 앱을 찾을 수 있습니다.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">개인 정보 보호 브라우징을 종료할까요?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s 다운로드됨</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">열기</string>
@@ -458,13 +461,35 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">%1$s에 오신 것을 환영합니다</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
   <string name="onboarding_first_screen_subtitle">빠르고. 사생활 보호되고. 방해 없는.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_terms_of_use_link as text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_text_2" tools:ignore="UnusedResources">계속하면 %1$s에 동의하게 됩니다.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use link'
+
+    Text for the link used in onboarding_first_screen_terms_of_use_text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_link_2" tools:ignore="BrandUsage">Firefox 이용 약관</string>
+  <!--
+    New Onboarding flow first screen 'privacy notice' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_privacy_notice_link as text
+  -->
+  <string name="onboarding_first_screen_privacy_notice_text_2" tools:ignore="BrandUsage">Firefox는 여러분의 개인 정보를 중요하게 생각합니다. %1$s에서 더 알아보세요.</string>
+  <!-- Text for the link used in onboarding_first_screen_privacy_notice_text -->
+  <string name="onboarding_first_screen_privacy_notice_link_2">개인 정보 보호 정책</string>
   <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">시작하기</string>
+  <string name="onboarding_first_screen_button_agree_and_continue_2">계속</string>
+  <!-- In the first screen of new onboarding flow, additional accessibility description for content that contain urls. -->
+  <string name="a11y_link_available">링크 사용 가능</string>
   <!--
     Onboarding second screen: Title
 
@@ -542,36 +567,6 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">Firefox 다운로드</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">%1$s는 Mozilla와 다른 공헌자들이 만들고 배포하는 무료 오픈 소스 소프트웨어 입니다.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s는 &lt;a href="%2$s"&gt;Mozilla 공개 라이선스&lt;/a&gt; 및 기타 다른 오픈 소스 라이선스 이용 약관에 따라 제공됩니다.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">귀하는 Mozilla와 Firefox, %1$s 명칭이나 로고를 포함한 Mozilla 재단 및 다른 서비스 제공자 소유의 지적재산권으로 보호받는 권리나 라이선스가 부여되는 것이 아님을 인지하셔야 합니다. 추가적인 정보는 &lt;a href="%2$s"&gt;다음&lt;/a&gt;을 참고하시기 바랍니다.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">%1$s의 소스 코드는 기타 다양한 무료 및 오픈 소스 &lt;a href="%2$s"&gt;라이선스&lt;/a&gt; 계약에 따라 제공됩니다.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s는 Disconnect, Inc에서 제공하는 차단목록에서 &lt;a href="%2$s"&gt;GNU General Public License v3&lt;/a&gt;를 바탕으로 자체적으로 별도로 관리하는 차단목록을 사용합니다. 자세한 내용은 &lt;a href="%3$s"&gt;다음&lt;/a&gt;에서 확인할 수 있습니다.</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">사용자명</string>
   <string name="gv_prompt_password_hint">비밀번호</string>
@@ -593,13 +588,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">페이지내 검색</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">%2$d 중 %1$d</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -646,13 +643,13 @@
   <string name="cookie_banner_exception_panel_switch_state_off">이 사이트에서 꺼짐</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">이 사이트에서 켜짐</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">%1$s에서 쿠키 배너 줄이기를 켜시겠습니까?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">%1$s에서 쿠키 배너 줄이기를 끄시겠습니까?</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">%1$s가 이 사이트의 쿠키를 지우고 페이지를 새로고침할 것입니다. 모든 쿠키를 삭제하면 로그아웃되거나 장바구니 등이 비워질 수 있습니다.</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">%1$s는 쿠키 요청을 자동으로 거부할 수 있습니다.</string>
   <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_description_site_is_not_supported">이 사이트는 현재 Cookie Banner Reduction이 지원되지 않습니다. 저희 팀이 이 웹사이트를 검토하고 향후 지원을 추가하도록 요청하시겠습니까?</string>
@@ -679,11 +676,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Android 설정으로 이동</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. &lt;b&gt;권한&lt;/b&gt;을 탭</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. <b>권한</b>을 탭]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">설정으로 이동</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. &lt;b&gt;%1$s&lt;/b&gt;를 켜기로 전환</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. <b>%1$s</b>를 켜기로 전환]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">카메라</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -710,20 +707,6 @@
   <string name="preference_block_autoplay_audio_only_summary">추천</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">오디오 및 비디오 차단</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">연구</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Firefox가 때때로 연구를 설치하고 실행할 수 있습니다.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">자세히 알아보기</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">변경 사항을 적용하기 위해 애플리케이션이 종료됩니다</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">삭제</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">활성화</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">완료</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">USB/Wi-Fi 원격 디버깅</string>
   <!-- Text Button for show biometric prompt -->
@@ -770,28 +753,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">사이트가 잘 작동하지 않나요?\n 추적 방지를 꺼보세요</string>
+  <string name="tip_disable_tracking_protection">사이트가 잘 작동하지 않나요?\n추적 방지를 꺼보세요</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">자주 사용하는 사이트를 탭 한번으로 여세요%1$s 메뉴 &gt; 홈 화면에 추가</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">모든 링크를 %1$s에서 엽니다\n %1$s를 기본 브라우저로 설정</string>
+  <string name="tip_set_default_browser">모든 링크를 %1$s에서 엽니다\n%1$s를 기본 브라우저로 설정</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">자주 사용하는 사이트 URL을 자동 완성합니다\n 주소창에서 URL을 길게 눌러 보세요</string>
+  <string name="tip_autocomplete_url">자주 사용하는 사이트 URL을 자동 완성합니다\n주소창에서 URL을 길게 눌러 보세요</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">링크를 새 탭에서 엽니다\n 페이지의 링크를 길게 눌러 보세요</string>
+  <string name="tip_open_in_new_tab">링크를 새 탭에서 엽니다\n페이지의 링크를 길게 눌러 보세요</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">시작 화면에서 도움말 끄기</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -832,29 +815,29 @@
   <string name="crash_report_send_crash_label">Mozilla에 충돌 보고서 보내기</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">%s 이후에 차단된 추적기</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">콘텐츠</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">광고</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">소셜</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">분석</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">향상된 추적 방지 기능</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">이 사이트에서 보호 꺼짐</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">이 사이트에서 보호 켜짐</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">연결이 안전함</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">연결이 안전하지 않음</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">차단할 추적기 및 스크립트</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">뒤로 가기</string>
   <!--
     Top Sites
@@ -872,7 +855,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">%1$s 기록을 지울 때 저장 및 공유된 이미지는 &lt;b&gt;삭제되지 않습니다&lt;/b&gt;.</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[%1$s 기록을 지울 때 저장 및 공유된 이미지는 <b>삭제되지 않습니다</b>.]]></string>
   <!--
     Theme Preferences
 
@@ -890,25 +873,16 @@
   <!-- The title of the error page for websites that do not support HTTPS when HTTPS-Only is turned on -->
   <string name="errorpage_httpsonly_title2">이 사이트는 HTTPS를 지원하지 않습니다.</string>
   <!--
-    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s will get replaced with the name of the app (e.g. "Firefox Focus").
-    Contains a button that will redirect the user to Privacy & Security Screen
+    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"),
+    %2$s is a URL to a support article. Contains a button that will redirect the user to Privacy & Security Screen.
   -->
-  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote">%1$s는 보안 강화를 위해 가능할 때마다 HTTPS 연결을 사용하려고 합니다.
-     &lt;a href="%2$s"&gt;자세히 알아보기&lt;/a&gt; &lt;br/&gt;&lt;br/&gt;
-     설정 &gt; 개인 정보 보호 &amp;amp; 보안 &gt; 보안에서 이 설정을 바꿀 수 있습니다.</string>
+  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[%1$s는 보안 강화를 위해 가능할 때마다 HTTPS 연결을 사용하려고 합니다. <a href=\"%2$s\">자세히 알아보기</a> <br/><br/> 설정 > 개인 정보 보호 &amp; 보안 > 보안에서 이 설정을 바꿀 수 있습니다.]]></string>
   <!-- The document title and heading of the error page shown when a website has an invalid or expired SSL certificate. -->
   <string name="mozac_browser_errorpages_security_bad_cert_title">안전하지 않은 연결</string>
   <!-- The error message shown when a website has an invalid or expired SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_message">
-    이는 서버 구성에 문제가 있거나 서버를 사칭하려는 누군가일 수 있습니다. &lt;br/&gt;&lt;br/&gt;
-    과거에 이 서버에 성공적으로 연결했다면 일시적인 오류일 수 있습니다.
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_message"><![CDATA[이는 서버 구성에 문제가 있거나 서버를 사칭하려는 누군가일 수 있습니다. <br/><br/> 과거에 이 서버에 성공적으로 연결했다면 일시적인 오류일 수 있습니다.]]></string>
   <!-- The advanced certificate information shown when a website has an invalid SSL certificate. The %1$s will be replaced by the app name and %2$s will be replaced by website URL. It's only shown when a website has an invalid SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_techInfo">
-        &lt;label&gt;누군가가 사이트를 사칭하려고 할 수 있으며 계속 진행하는 것은 위험할 수 있습니다.&lt;/label&gt;
-        &lt;br&gt;&lt;br&gt;
-        &lt;label&gt;%1$s는 인증서 발급자를 알 수 없거나 인증서가 자체 서명되었거나 서버가 올바른 중간 인증서를 전송하지 않기 때문에 &lt;b&gt;%2$s&lt;/b&gt;를 신뢰하지 않습니다.&lt;/label&gt;
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_techInfo"><![CDATA[<label>누군가가 사이트를 사칭하려고 할 수 있으며 계속 진행하는 것은 위험할 수 있습니다.</label> <br><br>\n<label>%1$s는 인증서 발급자를 알 수 없거나 인증서가 자체 서명되었거나 서버가 올바른 중간 인증서를 전송하지 않기 때문에 <b>%2$s</b>를 신뢰하지 않습니다.</label>]]></string>
   <!--
     Sessions List
 
@@ -971,13 +945,13 @@
 
     Message shown to explain how to exit fullscreen mode when gesture navigation is enabled.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_gesture_short">종료하려면, 위에서 드래그하고 뒤로 제스처를 사용하세요</string>
   <!--
     Message shown to explain how to exit fullscreen mode when using back button navigation.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_back_button_short">종료하려면, 위에서 드래그하고 뒤로를 누르세요</string>
 </resources>

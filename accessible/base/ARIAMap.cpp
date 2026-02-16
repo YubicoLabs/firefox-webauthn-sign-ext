@@ -14,9 +14,11 @@
 #include "States.h"
 
 #include "nsAttrName.h"
+#include "nsGenericHTMLElement.h"
 #include "nsWhitespaceTokenizer.h"
 
 #include "mozilla/BinarySearch.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
 
 #include "nsUnicharUtils.h"
@@ -177,7 +179,7 @@ static const nsRoleMapEntry sWAIRoleMaps[] = {
     eOpenCloseAction,
     eNoLiveAttr,
     eCombobox,
-    states::COLLAPSED | states::HASPOPUP,
+    states::EXPANDABLE | states::HASPOPUP,
     eARIAAutoComplete,
     eARIAReadonly,
     eARIAOrientation
@@ -847,7 +849,7 @@ static const nsRoleMapEntry sWAIRoleMaps[] = {
     states::LINKED
   },
   { // list
-    nsGkAtoms::list_,
+    nsGkAtoms::list,
     roles::LIST,
     kUseMapRole,
     eNoValue,
@@ -881,7 +883,7 @@ static const nsRoleMapEntry sWAIRoleMaps[] = {
     states::READONLY
   },
   { // log
-    nsGkAtoms::log_,
+    nsGkAtoms::log,
     roles::NOTHING,
     kUseNativeRole,
     eNoValue,
@@ -1017,7 +1019,7 @@ static const nsRoleMapEntry sWAIRoleMaps[] = {
     kNoReqStates
   },
   { // note
-    nsGkAtoms::note_,
+    nsGkAtoms::note,
     roles::NOTE,
     kUseMapRole,
     eNoValue,
@@ -1170,7 +1172,7 @@ static const nsRoleMapEntry sWAIRoleMaps[] = {
     eARIAReadonlyOrEditable
   },
   { // separator
-    nsGkAtoms::separator_,
+    nsGkAtoms::separator,
     roles::SEPARATOR,
     kUseMapRole,
     eHasValueMinMaxIfFocusable,
@@ -1445,6 +1447,7 @@ struct AttrCharacteristics {
 
 static const AttrCharacteristics gWAIUnivAttrMap[] = {
     // clang-format off
+  {nsGkAtoms::aria_actions,           ATTR_BYPASSOBJ                 | ATTR_GLOBAL | ATTR_REFLECT_ELEMENTS },
   {nsGkAtoms::aria_activedescendant,  ATTR_BYPASSOBJ                               },
   {nsGkAtoms::aria_atomic,   ATTR_BYPASSOBJ_IF_FALSE | ATTR_VALTOKEN | ATTR_GLOBAL },
   {nsGkAtoms::aria_busy,                               ATTR_VALTOKEN | ATTR_GLOBAL },
@@ -1480,7 +1483,7 @@ static const AttrCharacteristics gWAIUnivAttrMap[] = {
   {nsGkAtoms::aria_owns,              ATTR_BYPASSOBJ                 | ATTR_GLOBAL | ATTR_REFLECT_ELEMENTS },
   {nsGkAtoms::aria_orientation,                        ATTR_VALTOKEN               },
   {nsGkAtoms::aria_posinset,          ATTR_BYPASSOBJ                               }, /* handled via groupPosition */
-  {nsGkAtoms::aria_pressed,           ATTR_BYPASSOBJ | ATTR_VALTOKEN               },
+  {nsGkAtoms::aria_pressed,                            ATTR_VALTOKEN               },
   {nsGkAtoms::aria_readonly,          ATTR_BYPASSOBJ | ATTR_VALTOKEN               },
   {nsGkAtoms::aria_relevant,          ATTR_GLOBAL                                  },
   {nsGkAtoms::aria_required,          ATTR_BYPASSOBJ | ATTR_VALTOKEN               },
@@ -1501,15 +1504,14 @@ const nsRoleMapEntry* aria::GetRoleMap(dom::Element* aEl) {
 }
 
 uint8_t aria::GetFirstValidRoleMapIndexExcluding(
-    dom::Element* aEl, std::initializer_list<nsStaticAtom*> aRolesToSkip) {
-  nsAutoString roles;
-  if (!aEl || !nsAccUtils::GetARIAAttr(aEl, nsGkAtoms::role, roles) ||
-      roles.IsEmpty()) {
+    const nsString& aRoleAttrValue,
+    std::initializer_list<nsStaticAtom*> aRolesToSkip) {
+  if (aRoleAttrValue.IsEmpty()) {
     // We treat role="" as if the role attribute is absent (per aria spec:8.1.1)
     return NO_ROLE_MAP_ENTRY_INDEX;
   }
 
-  nsWhitespaceTokenizer tokenizer(roles);
+  nsWhitespaceTokenizer tokenizer(aRoleAttrValue);
   while (tokenizer.hasMoreTokens()) {
     // Do a binary search through table for the next role in role list
     const nsDependentSubstring role = tokenizer.nextToken();
@@ -1517,7 +1519,8 @@ uint8_t aria::GetFirstValidRoleMapIndexExcluding(
     // Skip any roles that we aren't interested in.
     bool shouldSkip = false;
     for (nsStaticAtom* atomRole : aRolesToSkip) {
-      if (role.Equals(atomRole->GetUTF16String())) {
+      if (role.Equals(atomRole->GetUTF16String(),
+                      nsCaseInsensitiveStringComparator)) {
         shouldSkip = true;
         break;
       }
@@ -1543,8 +1546,13 @@ uint8_t aria::GetFirstValidRoleMapIndexExcluding(
 }
 
 uint8_t aria::GetRoleMapIndex(dom::Element* aEl) {
+  nsAutoString roles;
+  if (!aEl || !nsAccUtils::GetARIAAttr(aEl, nsGkAtoms::role, roles)) {
+    return NO_ROLE_MAP_ENTRY_INDEX;
+  }
+
   // Get the rolemap index of the first valid role, excluding nothing.
-  return GetFirstValidRoleMapIndexExcluding(aEl, {});
+  return GetFirstValidRoleMapIndexExcluding(roles, {});
 }
 
 const nsRoleMapEntry* aria::GetRoleMapFromIndex(uint8_t aRoleMapIndex) {
@@ -1602,11 +1610,43 @@ uint8_t aria::AttrCharacteristicsFor(nsAtom* aAtom) {
   return 0;
 }
 
-bool aria::HasDefinedARIAHidden(nsIContent* aContent) {
+bool aria::IsValidARIAHidden(nsIContent* aContent) {
   return aContent && aContent->IsElement() &&
          nsAccUtils::ARIAAttrValueIs(aContent->AsElement(),
                                      nsGkAtoms::aria_hidden, nsGkAtoms::_true,
-                                     eCaseMatters);
+                                     eCaseMatters) &&
+         !ShouldIgnoreARIAHidden(aContent);
+}
+
+bool aria::IsValidARIAHidden(DocAccessible* aDocAcc) {
+  nsCOMPtr<nsIContent> docContent = aDocAcc->GetContent();
+  // First, check if our Doc Accessible has aria-hidden set on its content
+  bool isValid = IsValidARIAHidden(docContent);
+
+  // If our Doc Accessible was created using an element other than the
+  // root element, we need to verify the validity of any aria-hidden on
+  // the root element as well.
+  auto* rootElement = aDocAcc->DocumentNode()->GetRootElement();
+  if (docContent != rootElement) {
+    isValid |= IsValidARIAHidden(rootElement);
+  }
+
+  return isValid;
+}
+
+bool aria::ShouldIgnoreARIAHidden(nsIContent* aContent) {
+  if (!aContent) {
+    return false;
+  }
+
+  dom::Document* doc = aContent->OwnerDoc();
+  bool isValidElementType = (aContent == doc->GetDocumentElement());
+
+  if (auto docBody = doc->GetBody()) {
+    isValidElementType |= (aContent == docBody->AsContent());
+  }
+
+  return isValidElementType && doc->IsTopLevelContentDocument();
 }
 
 const nsRoleMapEntry* aria::GetRoleMap(const nsStaticAtom* aAriaRole) {

@@ -197,47 +197,9 @@ function MapGroupBy(items, callbackfn) {
   return map;
 }
 
-#ifdef NIGHTLY_BUILD
 /**
  * Upsert proposal
- * 
- * Map.prototype.getOrInsert ( key, value )
  *
- * https://tc39.es/proposal-upsert/
- */
-function MapGetOrInsert(key, value) {
-  // Step 1.  Let M be the this value.
-  var M = this;
-
-  // Step 2.  Perform ? RequireInternalSlot(M, [[MapData]]).
-  if (!IsObject(M) || (M = GuardToMapObject(M)) === null) {
-    return callFunction(
-      CallMapMethodIfWrapped,
-      this,
-      key,
-      value,
-      "MapGetOrInsert"
-    );
-  }
-
-  // Step 3.  Set key to CanonicalizeKeyedCollectionKey(key).
-  // Step 4.  For each Record { [[Key]], [[Value]] } p of M.[[MapData]], do
-  // Step 4.a.  If p.[[Key]] is not empty and SameValue(p.[[Key]], key) is true, return p.[[Value]].
-  if (callFunction(std_Map_has, M, key)) {
-    return callFunction(std_Map_get, M, key);
-  }
-
-  // Step 5.  Let p be the Record { [[Key]]: key, [[Value]]: value }.
-  // Step 6.  Append p to M.[[MapData]].
-  callFunction(std_Map_set, M, key, value);
-
-  // Step 7.  Return value.
-  return value;
-}
-
-/**
- * Upsert proposal
- * 
  * Map.prototype.getOrInsertComputed ( key, callbackfn )
  *
  * https://tc39.es/proposal-upsert/
@@ -263,6 +225,10 @@ function MapGetOrInsertComputed(key, callbackfn) {
   }
 
   // Step 4.  Set key to CanonicalizeKeyedCollectionKey(key).
+  // key === 0 is true for both -0 and +0
+  if (key === 0) {
+    key = 0;
+  }
   // Step 5.  For each Record { [[Key]], [[Value]] } p of M.[[MapData]], do
   // Step 5.a.  If p.[[Key]] is not empty and SameValue(p.[[Key]], key) is true, return p.[[Value]].
   if (callFunction(std_Map_has, M, key)) {
@@ -282,4 +248,3 @@ function MapGetOrInsertComputed(key, callbackfn) {
   // Step 7.a.ii, 10. Return value.
   return value;
 }
-#endif  // #ifdef NIGHTLY_BUILD

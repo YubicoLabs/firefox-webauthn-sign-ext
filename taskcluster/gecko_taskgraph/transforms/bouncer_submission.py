@@ -5,7 +5,6 @@
 Add from parameters.yml into bouncer submission tasks.
 """
 
-
 import copy
 import logging
 
@@ -21,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 
 FTP_PLATFORMS_PER_BOUNCER_PLATFORM = {
-    "linux": "linux-i686",
     "linux64": "linux-x86_64",
     "linux64-aarch64": "linux-aarch64",
     "osx": "mac",
@@ -31,8 +29,10 @@ FTP_PLATFORMS_PER_BOUNCER_PLATFORM = {
 }
 
 # :lang is interpolated by bouncer at runtime
-CANDIDATES_PATH_TEMPLATE = "/{ftp_product}/candidates/{version}-candidates/build{build_number}/\
+CANDIDATES_PATH_TEMPLATE = (
+    "/{ftp_product}/candidates/{version}-candidates/build{build_number}/\
 {update_folder}{ftp_platform}/:lang/{file}"
+)
 RELEASES_PATH_TEMPLATE = "/{ftp_product}/releases/{version}/\
 {update_folder}{ftp_platform}/:lang/{file}"
 
@@ -55,7 +55,6 @@ CONFIG_PER_BOUNCER_PRODUCT = {
     "installer": {
         "path_template": RELEASES_PATH_TEMPLATE,
         "file_names": {
-            "linux": "{product}-{version}.tar.xz",
             "linux64": "{product}-{version}.tar.xz",
             "linux64-aarch64": "{product}-{version}.tar.xz",
             "osx": "{pretty_product}%20{version}.dmg",
@@ -134,19 +133,19 @@ def make_task_worker(config, jobs):
             job,
             "worker-type",
             item_name=job["name"],
-            **{"release-level": release_level(config.params["project"])}
+            **{"release-level": release_level(config.params)},
         )
         resolve_keyed_by(
             job,
             "scopes",
             item_name=job["name"],
-            **{"release-level": release_level(config.params["project"])}
+            **{"release-level": release_level(config.params)},
         )
         resolve_keyed_by(
             job,
             "bouncer-products",
             item_name=job["name"],
-            **{"release-type": config.params["release_type"]}
+            **{"release-type": config.params["release_type"]},
         )
 
         # No need to filter out ja-JP-mac, we need to upload both; but we do
@@ -169,9 +168,7 @@ def make_task_worker(config, jobs):
         else:
             logger.warning(
                 'No bouncer entries defined in bouncer submission task for "{}". \
-Job deleted.'.format(
-                    job["name"]
-                )
+Job deleted.'.format(job["name"])
             )
 
 
@@ -191,9 +188,7 @@ def craft_bouncer_entries(config, job):
     else:
         logger.warning(
             'No partials defined! Bouncer submission task won\'t send any \
-partial-related entry for "{}"'.format(
-                job["name"]
-            )
+partial-related entry for "{}"'.format(job["name"])
         )
         bouncer_products = [
             bouncer_product
@@ -313,9 +308,7 @@ def craft_bouncer_product_name(
         )
     )
 
-    return "{product}-{version}{postfix}".format(
-        product=product.capitalize(), version=current_version, postfix=postfix
-    )
+    return f"{product.capitalize()}-{current_version}{postfix}"
 
 
 def craft_ssl_only(bouncer_product, project):

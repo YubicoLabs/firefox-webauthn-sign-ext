@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef HttpConnectionMgrShell_h__
-#define HttpConnectionMgrShell_h__
+#ifndef HttpConnectionMgrShell_h_
+#define HttpConnectionMgrShell_h_
 
 #include "nsISupports.h"
 
@@ -33,7 +33,7 @@ class ClassOfService;
 
 class HttpConnectionMgrShell : public nsISupports {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(HTTPCONNECTIONMGRSHELL_IID)
+  NS_INLINE_DECL_STATIC_IID(HTTPCONNECTIONMGRSHELL_IID)
 
   enum nsParamName : uint32_t {
     MAX_URGENT_START_Q,
@@ -166,9 +166,6 @@ class HttpConnectionMgrShell : public nsISupports {
   virtual HttpConnectionMgrParent* AsHttpConnectionMgrParent() = 0;
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(HttpConnectionMgrShell,
-                              HTTPCONNECTIONMGRSHELL_IID)
-
 #define NS_DECL_HTTPCONNECTIONMGRSHELL                                         \
   virtual nsresult Init(                                                       \
       uint16_t maxUrgentExcessiveConns, uint16_t maxConnections,               \
@@ -218,4 +215,4 @@ NS_DEFINE_STATIC_IID_ACCESSOR(HttpConnectionMgrShell,
 
 }  // namespace mozilla::net
 
-#endif  // HttpConnectionMgrShell_h__
+#endif  // HttpConnectionMgrShell_h_

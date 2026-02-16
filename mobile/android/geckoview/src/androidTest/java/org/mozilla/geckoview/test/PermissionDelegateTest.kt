@@ -2,6 +2,8 @@
  * Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
+@file:Suppress("ktlint:standard:no-wildcard-imports")
+
 package org.mozilla.geckoview.test
 
 import android.Manifest
@@ -9,16 +11,20 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.MediumTest
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
-import org.hamcrest.Matchers.* // ktlint-disable no-wildcard-imports
+import org.hamcrest.Matchers.*
 import org.json.JSONArray
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.fail
-import org.junit.Assume.assumeThat
 import org.junit.Ignore
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
@@ -30,6 +36,7 @@ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.MediaSource
 import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.StorageController.ClearFlags
 import org.mozilla.geckoview.test.TrackingPermissionService.TrackingPermissionInstance
+import org.mozilla.geckoview.test.rule.GeckoSessionTestRule
 import org.mozilla.geckoview.test.rule.GeckoSessionTestRule.AssertCalled
 import org.mozilla.geckoview.test.rule.GeckoSessionTestRule.ClosedSessionAtStart
 import org.mozilla.geckoview.test.rule.GeckoSessionTestRule.RejectedPromiseException
@@ -41,24 +48,24 @@ class PermissionDelegateTest : BaseSessionTest() {
         get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     private fun hasPermission(permission: String): Boolean {
-        if (Build.VERSION.SDK_INT < 23) {
-            return true
-        }
         return PackageManager.PERMISSION_GRANTED ==
-            InstrumentationRegistry.getInstrumentation().targetContext.checkSelfPermission(permission)
+            InstrumentationRegistry.getInstrumentation().targetContext.checkSelfPermission(
+                permission,
+            )
     }
 
-    private fun isEmulator(): Boolean {
-        return "generic" == Build.DEVICE || Build.DEVICE.startsWith("generic_")
-    }
+    private fun isEmulator(): Boolean =
+        "generic" == Build.DEVICE || Build.DEVICE.startsWith("generic_")
 
     private val storageController
         get() = sessionRule.runtime.storageController
 
-    @Test fun media() {
-        // TODO: needs bug 1700243
-        assumeThat(sessionRule.env.isIsolatedProcess, equalTo(false))
+    private val activityRule = ActivityScenarioRule(GeckoViewTestActivity::class.java)
 
+    @get:Rule
+    override val rules: RuleChain = RuleChain.outerRule(activityRule).around(sessionRule)
+
+    @Test fun media() {
         assertInAutomationThat(
             "Should have camera permission",
             hasPermission(Manifest.permission.CAMERA),
@@ -74,9 +81,10 @@ class PermissionDelegateTest : BaseSessionTest() {
         mainSession.loadTestPath(HELLO_HTML_PATH)
         mainSession.waitForPageStop()
 
-        val devices = mainSession.evaluateJS(
-            "window.navigator.mediaDevices.enumerateDevices()",
-        ) as JSONArray
+        val devices =
+            mainSession.evaluateJS(
+                "window.navigator.mediaDevices.enumerateDevices()",
+            ) as JSONArray
 
         var hasVideo = false
         var hasAudio = false
@@ -100,42 +108,46 @@ class PermissionDelegateTest : BaseSessionTest() {
             equalTo(true),
         )
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onMediaPermissionRequest(
-                session: GeckoSession,
-                uri: String,
-                video: Array<out MediaSource>?,
-                audio: Array<out MediaSource>?,
-                callback: MediaCallback,
-            ) {
-                assertThat("URI should match", uri, endsWith(HELLO_HTML_PATH))
-                assertThat("Video source should be valid", video, not(emptyArray()))
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onMediaPermissionRequest(
+                    session: GeckoSession,
+                    uri: String,
+                    video: Array<out MediaSource>?,
+                    audio: Array<out MediaSource>?,
+                    callback: MediaCallback,
+                ) {
+                    assertThat("URI should match", uri, endsWith(HELLO_HTML_PATH))
+                    assertThat("Video source should be valid", video, not(emptyArray()))
 
-                if (isEmulator()) {
-                    callback.grant(video!![0], null)
-                } else {
-                    assertThat("Audio source should be valid", audio, not(emptyArray()))
-                    callback.grant(video!![0], audio!![0])
+                    if (isEmulator()) {
+                        callback.grant(video!![0], null)
+                    } else {
+                        assertThat("Audio source should be valid", audio, not(emptyArray()))
+                        callback.grant(video!![0], audio!![0])
+                    }
                 }
-            }
-        })
+            },
+        )
 
         // Start a video stream, with audio if on a real device.
-        val code = if (isEmulator()) {
-            """this.stream = window.navigator.mediaDevices.getUserMedia({
+        val code =
+            if (isEmulator()) {
+                """this.stream = window.navigator.mediaDevices.getUserMedia({
                            video: { width: 320, height: 240, frameRate: 10 },
                        });"""
-        } else {
-            """this.stream = window.navigator.mediaDevices.getUserMedia({
+            } else {
+                """this.stream = window.navigator.mediaDevices.getUserMedia({
                            video: { width: 320, height: 240, frameRate: 10 },
                            audio: true
                        });"""
-        }
+            }
 
         // Stop the stream and check active flag and id
-        val isActive = mainSession.waitForJS(
-            """$code
+        val isActive =
+            mainSession.waitForJS(
+                """$code
                    this.stream.then(stream => {
                      if (!stream.active || stream.id == '') {
                        return false;
@@ -144,24 +156,26 @@ class PermissionDelegateTest : BaseSessionTest() {
                      stream.getTracks().forEach(track => track.stop());
                      return true;
                    })
-            """.trimMargin(),
-        ) as Boolean
+                """.trimMargin(),
+            ) as Boolean
 
         assertThat("Stream should be active and id should not be empty.", isActive, equalTo(true))
 
         // Now test rejecting the request.
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onMediaPermissionRequest(
-                session: GeckoSession,
-                uri: String,
-                video: Array<out MediaSource>?,
-                audio: Array<out MediaSource>?,
-                callback: MediaCallback,
-            ) {
-                callback.reject()
-            }
-        })
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onMediaPermissionRequest(
+                    session: GeckoSession,
+                    uri: String,
+                    video: Array<out MediaSource>?,
+                    audio: Array<out MediaSource>?,
+                    callback: MediaCallback,
+                ) {
+                    callback.reject()
+                }
+            },
+        )
 
         try {
             if (isEmulator()) {
@@ -192,6 +206,12 @@ class PermissionDelegateTest : BaseSessionTest() {
             equalTo(true),
         )
 
+        // Other tests set that activity is inactive, but geolocation requests requires activity is active.
+        // So we have to set active at start.
+        activityRule.scenario?.onActivity { activity ->
+            activity.onWindowFocusChanged(true)
+        }
+
         val url = createTestUrl(HELLO_HTML_PATH)
         mainSession.loadUri(url)
         mainSession.waitForPageStop()
@@ -200,69 +220,71 @@ class PermissionDelegateTest : BaseSessionTest() {
         sessionRule.setPrefsUntilTestEnd(mapOf("geo.provider.testing" to false))
         var context = InstrumentationRegistry.getInstrumentation().targetContext
         var locManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        var locProvider = sessionRule.MockLocationProvider(
-            locManager,
-            "permissionsLocationProvider",
-            1.1111,
-            2.2222,
-            false,
-        )
+        var locProvider =
+            sessionRule.MockLocationProvider(
+                locManager,
+                "permissionsLocationProvider",
+                1.1111,
+                2.2222,
+                false,
+            )
         locProvider.postLocation()
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            // Ensure the content permission is asked first, before the Android permission.
-            @AssertCalled(count = 1, order = [1])
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                assertThat("URI should match", perm.uri, endsWith(url))
-                assertThat(
-                    "Type should match",
-                    perm.permission,
-                    equalTo(PermissionDelegate.PERMISSION_GEOLOCATION),
-                )
-                return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
-            }
-
-            @AssertCalled(count = 1, order = [2])
-            override fun onAndroidPermissionsRequest(
-                session: GeckoSession,
-                permissions: Array<out String>?,
-                callback: PermissionDelegate.Callback,
-            ) {
-                assertThat(
-                    "Permissions list should include ACCESS_FINE_LOCATION",
-                    listOf(*permissions!!),
-                    hasItems(Manifest.permission.ACCESS_FINE_LOCATION),
-                )
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    checkCoarseLocation(permissions)
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                // Ensure the content permission is asked first, before the Android permission.
+                @AssertCalled(count = 1, order = [1])
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> {
+                    assertThat("URI should match", perm.uri, endsWith(url))
+                    assertThat(
+                        "Type should match",
+                        perm.permission,
+                        equalTo(PermissionDelegate.PERMISSION_GEOLOCATION),
+                    )
+                    return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
                 }
-                callback.grant()
-            }
 
-            @SdkSuppress(minSdkVersion = Build.VERSION_CODES.S)
-            fun checkCoarseLocation(
-                permissions: Array<out String>?,
-            ) {
-                assertThat(
-                    "Permissions list should include ACCESS_COARSE_LOCATION on Android S and above",
-                    listOf(*permissions!!),
-                    hasItems(Manifest.permission.ACCESS_COARSE_LOCATION),
-                )
-            }
-        })
+                @AssertCalled(count = 1, order = [2])
+                override fun onAndroidPermissionsRequest(
+                    session: GeckoSession,
+                    permissions: Array<out String>?,
+                    callback: PermissionDelegate.Callback,
+                ) {
+                    assertThat(
+                        "Permissions list should include ACCESS_FINE_LOCATION",
+                        listOf(*permissions!!),
+                        hasItems(Manifest.permission.ACCESS_FINE_LOCATION),
+                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        checkCoarseLocation(permissions)
+                    }
+                    callback.grant()
+                }
+
+                @SdkSuppress(minSdkVersion = Build.VERSION_CODES.S)
+                fun checkCoarseLocation(permissions: Array<out String>?) {
+                    assertThat(
+                        "Permissions list should include ACCESS_COARSE_LOCATION on Android S and above",
+                        listOf(*permissions!!),
+                        hasItems(Manifest.permission.ACCESS_COARSE_LOCATION),
+                    )
+                }
+            },
+        )
 
         try {
-            val hasPosition = mainSession.waitForJS(
-                """new Promise((resolve, reject) =>
+            val hasPosition =
+                mainSession.waitForJS(
+                    """new Promise((resolve, reject) =>
                     window.navigator.geolocation.getCurrentPosition(
                         position => resolve(
                             position.coords.latitude !== undefined &&
                             position.coords.longitude !== undefined),
                         error => reject(error.code)))""",
-            ) as Boolean
+                ) as Boolean
 
             assertThat("Request should succeed", hasPosition, equalTo(true))
         } catch (ex: RejectedPromiseException) {
@@ -279,7 +301,8 @@ class PermissionDelegateTest : BaseSessionTest() {
         var permFound = false
         for (perm in perms) {
             if (perm.permission == PermissionDelegate.PERMISSION_GEOLOCATION &&
-                url.startsWith(perm.uri) && perm.value == ContentPermission.VALUE_ALLOW
+                url.startsWith(perm.uri) &&
+                perm.value == ContentPermission.VALUE_ALLOW
             ) {
                 permFound = true
             }
@@ -287,20 +310,27 @@ class PermissionDelegateTest : BaseSessionTest() {
 
         assertThat("Geolocation permission should be set to allow", permFound, equalTo(true))
 
-        mainSession.delegateDuringNextWait(object : NavigationDelegate {
-            @AssertCalled(count = 1)
-            override fun onLocationChange(session: GeckoSession, url: String?, perms: MutableList<ContentPermission>, hasUserGesture: Boolean) {
-                var permFound2 = false
-                for (perm in perms) {
-                    if (perm.permission == PermissionDelegate.PERMISSION_GEOLOCATION &&
-                        perm.value == ContentPermission.VALUE_ALLOW
-                    ) {
-                        permFound2 = true
+        mainSession.delegateDuringNextWait(
+            object : NavigationDelegate {
+                @AssertCalled(count = 1)
+                override fun onLocationChange(
+                    session: GeckoSession,
+                    url: String?,
+                    perms: MutableList<ContentPermission>,
+                    hasUserGesture: Boolean,
+                ) {
+                    var permFound2 = false
+                    for (perm in perms) {
+                        if (perm.permission == PermissionDelegate.PERMISSION_GEOLOCATION &&
+                            perm.value == ContentPermission.VALUE_ALLOW
+                        ) {
+                            permFound2 = true
+                        }
                     }
+                    assertThat("Geolocation permission must be present on refresh", permFound2, equalTo(true))
                 }
-                assertThat("Geolocation permission must be present on refresh", permFound2, equalTo(true))
-            }
-        })
+            },
+        )
         mainSession.reload()
         mainSession.waitForPageStop()
         locProvider.removeMockLocationProvider()
@@ -311,30 +341,31 @@ class PermissionDelegateTest : BaseSessionTest() {
         mainSession.loadUri(url)
         mainSession.waitForPageStop()
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                return GeckoResult.fromValue(ContentPermission.VALUE_DENY)
-            }
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> = GeckoResult.fromValue(ContentPermission.VALUE_DENY)
 
-            @AssertCalled(count = 0)
-            override fun onAndroidPermissionsRequest(
-                session: GeckoSession,
-                permissions: Array<out String>?,
-                callback: PermissionDelegate.Callback,
-            ) {
-            }
-        })
+                @AssertCalled(count = 0)
+                override fun onAndroidPermissionsRequest(
+                    session: GeckoSession,
+                    permissions: Array<out String>?,
+                    callback: PermissionDelegate.Callback,
+                ) {
+                }
+            },
+        )
 
-        val errorCode = mainSession.waitForJS(
-            """new Promise((resolve, reject) =>
+        val errorCode =
+            mainSession.waitForJS(
+                """new Promise((resolve, reject) =>
                 window.navigator.geolocation.getCurrentPosition(reject,
                   error => resolve(error.code)
                 ))""",
-        )
+            )
 
         // Error code 1 means permission denied.
         assertThat("Request should fail", errorCode as Double, equalTo(1.0))
@@ -345,7 +376,8 @@ class PermissionDelegateTest : BaseSessionTest() {
         var permFound = false
         for (perm in perms) {
             if (perm.permission == PermissionDelegate.PERMISSION_GEOLOCATION &&
-                url.startsWith(perm.uri) && perm.value == ContentPermission.VALUE_DENY
+                url.startsWith(perm.uri) &&
+                perm.value == ContentPermission.VALUE_DENY
             ) {
                 permFound = true
             }
@@ -353,20 +385,27 @@ class PermissionDelegateTest : BaseSessionTest() {
 
         assertThat("Geolocation permission should be set to allow", permFound, equalTo(true))
 
-        mainSession.delegateDuringNextWait(object : NavigationDelegate {
-            @AssertCalled(count = 1)
-            override fun onLocationChange(session: GeckoSession, url: String?, perms: MutableList<ContentPermission>, hasUserGesture: Boolean) {
-                var permFound2 = false
-                for (perm in perms) {
-                    if (perm.permission == PermissionDelegate.PERMISSION_GEOLOCATION &&
-                        perm.value == ContentPermission.VALUE_DENY
-                    ) {
-                        permFound2 = true
+        mainSession.delegateDuringNextWait(
+            object : NavigationDelegate {
+                @AssertCalled(count = 1)
+                override fun onLocationChange(
+                    session: GeckoSession,
+                    url: String?,
+                    perms: MutableList<ContentPermission>,
+                    hasUserGesture: Boolean,
+                ) {
+                    var permFound2 = false
+                    for (perm in perms) {
+                        if (perm.permission == PermissionDelegate.PERMISSION_GEOLOCATION &&
+                            perm.value == ContentPermission.VALUE_DENY
+                        ) {
+                            permFound2 = true
+                        }
                     }
+                    assertThat("Geolocation permission must be present on refresh", permFound2, equalTo(true))
                 }
-                assertThat("Geolocation permission must be present on refresh", permFound2, equalTo(true))
-            }
-        })
+            },
+        )
         mainSession.reload()
         mainSession.waitForPageStop()
     }
@@ -398,7 +437,10 @@ class PermissionDelegateTest : BaseSessionTest() {
         trackingProtection(privateBrowsing = true, permanent = true)
     }
 
-    private fun trackingProtection(privateBrowsing: Boolean, permanent: Boolean) {
+    private fun trackingProtection(
+        privateBrowsing: Boolean,
+        permanent: Boolean,
+    ) {
         // Make sure we start with a clean slate
         storageController.clearDataFromHost(TEST_HOST, ClearFlags.PERMISSIONS)
 
@@ -409,11 +451,12 @@ class PermissionDelegateTest : BaseSessionTest() {
             equalTo(true),
         )
 
-        val runtime0 = TrackingPermissionInstance.start(
-            targetContext,
-            temporaryProfile.get(),
-            privateBrowsing,
-        )
+        val runtime0 =
+            TrackingPermissionInstance.start(
+                targetContext,
+                temporaryProfile.get(),
+                privateBrowsing,
+            )
 
         sessionRule.waitForResult(runtime0.loadTestPath(TRACKERS_PATH))
         var permission = sessionRule.waitForResult(runtime0.trackingPermission)
@@ -444,11 +487,12 @@ class PermissionDelegateTest : BaseSessionTest() {
         sessionRule.waitForResult(runtime0.quit())
 
         // Restart the runtime and verifies that the value is still stored
-        val runtime1 = TrackingPermissionInstance.start(
-            targetContext,
-            temporaryProfile.get(),
-            privateBrowsing,
-        )
+        val runtime1 =
+            TrackingPermissionInstance.start(
+                targetContext,
+                temporaryProfile.get(),
+                privateBrowsing,
+            )
 
         sessionRule.waitForResult(runtime1.loadTestPath(TRACKERS_PATH))
 
@@ -469,28 +513,30 @@ class PermissionDelegateTest : BaseSessionTest() {
 
     private fun assertTrackingProtectionPermission(value: Int?) {
         var found = false
-        mainSession.waitUntilCalled(object : NavigationDelegate {
-            @AssertCalled
-            override fun onLocationChange(
-                session: GeckoSession,
-                url: String?,
-                perms: MutableList<ContentPermission>,
-                hasUserGesture: Boolean,
-            ) {
-                for (perm in perms) {
-                    if (perm.permission == PermissionDelegate.PERMISSION_TRACKING) {
-                        if (value != null) {
-                            assertThat(
-                                "Value should match",
-                                perm.value,
-                                equalTo(value),
-                            )
+        mainSession.waitUntilCalled(
+            object : NavigationDelegate {
+                @AssertCalled
+                override fun onLocationChange(
+                    session: GeckoSession,
+                    url: String?,
+                    perms: MutableList<ContentPermission>,
+                    hasUserGesture: Boolean,
+                ) {
+                    for (perm in perms) {
+                        if (perm.permission == PermissionDelegate.PERMISSION_TRACKING) {
+                            if (value != null) {
+                                assertThat(
+                                    "Value should match",
+                                    perm.value,
+                                    equalTo(value),
+                                )
+                            }
+                            found = true
                         }
-                        found = true
                     }
                 }
-            }
-        })
+            },
+        )
 
         assertThat(
             "Permission should have been found if expected",
@@ -501,6 +547,7 @@ class PermissionDelegateTest : BaseSessionTest() {
 
     // Tests that all pages have a PERMISSION_TRACKING permission,
     // except for pages that belong to Gecko like about:blank or about:config.
+    @Ignore("https://bugzilla.mozilla.org/show_bug.cgi?id=1988041")
     @Test fun trackingProtectionPermissionOnAllPages() {
         val settings = sessionRule.runtime.settings
         val aboutConfigEnabled = settings.aboutConfigEnabled
@@ -525,21 +572,23 @@ class PermissionDelegateTest : BaseSessionTest() {
         mainSession.loadUri(url)
         mainSession.waitForPageStop()
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                assertThat("URI should match", perm.uri, endsWith(url))
-                assertThat(
-                    "Type should match",
-                    perm.permission,
-                    equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
-                )
-                return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
-            }
-        })
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> {
+                    assertThat("URI should match", perm.uri, endsWith(url))
+                    assertThat(
+                        "Type should match",
+                        perm.permission,
+                        equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
+                    )
+                    return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
+                }
+            },
+        )
 
         val result = mainSession.waitForJS("Notification.requestPermission()")
 
@@ -555,7 +604,8 @@ class PermissionDelegateTest : BaseSessionTest() {
         var permFound = false
         for (perm in perms) {
             if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                url.startsWith(perm.uri) && perm.value == ContentPermission.VALUE_ALLOW
+                url.startsWith(perm.uri) &&
+                perm.value == ContentPermission.VALUE_ALLOW
             ) {
                 permFound = true
             }
@@ -563,20 +613,27 @@ class PermissionDelegateTest : BaseSessionTest() {
 
         assertThat("Notification permission should be set to allow", permFound, equalTo(true))
 
-        mainSession.delegateDuringNextWait(object : NavigationDelegate {
-            @AssertCalled(count = 1)
-            override fun onLocationChange(session: GeckoSession, url: String?, perms: MutableList<ContentPermission>, hasUserGesture: Boolean) {
-                var permFound2 = false
-                for (perm in perms) {
-                    if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                        perm.value == ContentPermission.VALUE_ALLOW
-                    ) {
-                        permFound2 = true
+        mainSession.delegateDuringNextWait(
+            object : NavigationDelegate {
+                @AssertCalled(count = 1)
+                override fun onLocationChange(
+                    session: GeckoSession,
+                    url: String?,
+                    perms: MutableList<ContentPermission>,
+                    hasUserGesture: Boolean,
+                ) {
+                    var permFound2 = false
+                    for (perm in perms) {
+                        if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
+                            perm.value == ContentPermission.VALUE_ALLOW
+                        ) {
+                            permFound2 = true
+                        }
                     }
+                    assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
                 }
-                assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
-            }
-        })
+            },
+        )
         mainSession.reload()
         mainSession.waitForPageStop()
 
@@ -596,15 +653,15 @@ class PermissionDelegateTest : BaseSessionTest() {
         mainSession.loadUri(url)
         mainSession.waitForPageStop()
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                return GeckoResult.fromValue(ContentPermission.VALUE_DENY)
-            }
-        })
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> = GeckoResult.fromValue(ContentPermission.VALUE_DENY)
+            },
+        )
 
         val result = mainSession.waitForJS("Notification.requestPermission()")
 
@@ -620,7 +677,8 @@ class PermissionDelegateTest : BaseSessionTest() {
         var permFound = false
         for (perm in perms) {
             if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                url.startsWith(perm.uri) && perm.value == ContentPermission.VALUE_DENY
+                url.startsWith(perm.uri) &&
+                perm.value == ContentPermission.VALUE_DENY
             ) {
                 permFound = true
             }
@@ -628,29 +686,33 @@ class PermissionDelegateTest : BaseSessionTest() {
 
         assertThat("Notification permission should be set to allow", permFound, equalTo(true))
 
-        mainSession.delegateDuringNextWait(object : NavigationDelegate {
-            @AssertCalled(count = 1)
-            override fun onLocationChange(session: GeckoSession, url: String?, perms: MutableList<ContentPermission>, hasUserGesture: Boolean) {
-                var permFound2 = false
-                for (perm in perms) {
-                    if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                        perm.value == ContentPermission.VALUE_DENY
-                    ) {
-                        permFound2 = true
+        mainSession.delegateDuringNextWait(
+            object : NavigationDelegate {
+                @AssertCalled(count = 1)
+                override fun onLocationChange(
+                    session: GeckoSession,
+                    url: String?,
+                    perms: MutableList<ContentPermission>,
+                    hasUserGesture: Boolean,
+                ) {
+                    var permFound2 = false
+                    for (perm in perms) {
+                        if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
+                            perm.value == ContentPermission.VALUE_DENY
+                        ) {
+                            permFound2 = true
+                        }
                     }
+                    assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
                 }
-                assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
-            }
-        })
+            },
+        )
         mainSession.reload()
         mainSession.waitForPageStop()
     }
 
     @Test
     fun autoplayReject() {
-        // Bug 1810736
-        assumeThat(sessionRule.env.isIsolatedProcess, equalTo(false))
-
         // The profile used in automation sets this to false, so we need to hack it back to true here.
         sessionRule.setPrefsUntilTestEnd(
             mapOf(
@@ -660,14 +722,26 @@ class PermissionDelegateTest : BaseSessionTest() {
 
         mainSession.loadTestPath(AUTOPLAY_PATH)
 
-        mainSession.waitUntilCalled(object : PermissionDelegate {
-            @AssertCalled(count = 2)
-            override fun onContentPermissionRequest(session: GeckoSession, perm: ContentPermission): GeckoResult<Int> {
-                val expectedType = if (sessionRule.currentCall.counter == 1) PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE else PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE
-                assertThat("Type should match", perm.permission, equalTo(expectedType))
-                return GeckoResult.fromValue(ContentPermission.VALUE_DENY)
-            }
-        })
+        mainSession.waitUntilCalled(
+            object : PermissionDelegate {
+                @AssertCalled(count = 2)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> {
+                    val expectedType =
+                        if (sessionRule.currentCall.counter ==
+                            1
+                        ) {
+                            PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE
+                        } else {
+                            PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE
+                        }
+                    assertThat("Type should match", perm.permission, equalTo(expectedType))
+                    return GeckoResult.fromValue(ContentPermission.VALUE_DENY)
+                }
+            },
+        )
     }
 
     @Test
@@ -677,22 +751,24 @@ class PermissionDelegateTest : BaseSessionTest() {
         mainSession.loadUri(url)
         mainSession.waitForPageStop()
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                assertThat("URI should match", perm.uri, endsWith(url))
-                assertThat(
-                    "Type should match",
-                    perm.permission,
-                    equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
-                )
-                assertThat("Context ID should match", perm.contextId, equalTo(mainSession.settings.contextId))
-                return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
-            }
-        })
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> {
+                    assertThat("URI should match", perm.uri, endsWith(url))
+                    assertThat(
+                        "Type should match",
+                        perm.permission,
+                        equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
+                    )
+                    assertThat("Context ID should match", perm.contextId, equalTo(mainSession.settings.contextId))
+                    return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
+                }
+            },
+        )
 
         val result = mainSession.waitForJS("Notification.requestPermission()")
 
@@ -708,7 +784,8 @@ class PermissionDelegateTest : BaseSessionTest() {
         var permFound = false
         for (perm in perms) {
             if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                url.startsWith(perm.uri) && perm.value == ContentPermission.VALUE_ALLOW
+                url.startsWith(perm.uri) &&
+                perm.value == ContentPermission.VALUE_ALLOW
             ) {
                 permFound = true
             }
@@ -716,52 +793,63 @@ class PermissionDelegateTest : BaseSessionTest() {
 
         assertThat("Notification permission should be set to allow", permFound, equalTo(true))
 
-        mainSession.delegateDuringNextWait(object : NavigationDelegate {
-            @AssertCalled(count = 1)
-            override fun onLocationChange(session: GeckoSession, url: String?, perms: MutableList<ContentPermission>, hasUserGesture: Boolean) {
-                var permFound2 = false
-                for (perm in perms) {
-                    if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                        perm.value == ContentPermission.VALUE_ALLOW
-                    ) {
-                        permFound2 = true
+        mainSession.delegateDuringNextWait(
+            object : NavigationDelegate {
+                @AssertCalled(count = 1)
+                override fun onLocationChange(
+                    session: GeckoSession,
+                    url: String?,
+                    perms: MutableList<ContentPermission>,
+                    hasUserGesture: Boolean,
+                ) {
+                    var permFound2 = false
+                    for (perm in perms) {
+                        if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
+                            perm.value == ContentPermission.VALUE_ALLOW
+                        ) {
+                            permFound2 = true
+                        }
                     }
+                    assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
                 }
-                assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
-            }
-        })
+            },
+        )
         mainSession.reload()
         mainSession.waitForPageStop()
 
-        val session2 = sessionRule.createOpenSession(
-            GeckoSessionSettings.Builder()
-                .contextId("foo")
-                .build(),
-        )
+        val session2 =
+            sessionRule.createOpenSession(
+                GeckoSessionSettings
+                    .Builder()
+                    .contextId("foo")
+                    .build(),
+            )
 
         session2.loadUri(url)
         session2.waitForPageStop()
 
-        session2.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                assertThat("URI should match", perm.uri, endsWith(url))
-                assertThat(
-                    "Type should match",
-                    perm.permission,
-                    equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
-                )
-                assertThat(
-                    "Context ID should match",
-                    perm.contextId,
-                    equalTo(session2.settings.contextId),
-                )
-                return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
-            }
-        })
+        session2.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> {
+                    assertThat("URI should match", perm.uri, endsWith(url))
+                    assertThat(
+                        "Type should match",
+                        perm.permission,
+                        equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
+                    )
+                    assertThat(
+                        "Context ID should match",
+                        perm.contextId,
+                        equalTo(session2.settings.contextId),
+                    )
+                    return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
+                }
+            },
+        )
 
         val result2 = session2.waitForJS("Notification.requestPermission()")
 
@@ -777,7 +865,8 @@ class PermissionDelegateTest : BaseSessionTest() {
         permFound = false
         for (perm in perms2) {
             if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                url.startsWith(perm.uri) && perm.value == ContentPermission.VALUE_ALLOW
+                url.startsWith(perm.uri) &&
+                perm.value == ContentPermission.VALUE_ALLOW
             ) {
                 permFound = true
             }
@@ -785,21 +874,28 @@ class PermissionDelegateTest : BaseSessionTest() {
 
         assertThat("Notification permission should be set to allow", permFound, equalTo(true))
 
-        session2.delegateDuringNextWait(object : NavigationDelegate {
-            @AssertCalled(count = 1)
-            override fun onLocationChange(session: GeckoSession, url: String?, perms: MutableList<ContentPermission>, hasUserGesture: Boolean) {
-                var permFound2 = false
-                for (perm in perms) {
-                    if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                        perm.value == ContentPermission.VALUE_ALLOW &&
-                        perm.contextId == session2.settings.contextId
-                    ) {
-                        permFound2 = true
+        session2.delegateDuringNextWait(
+            object : NavigationDelegate {
+                @AssertCalled(count = 1)
+                override fun onLocationChange(
+                    session: GeckoSession,
+                    url: String?,
+                    perms: MutableList<ContentPermission>,
+                    hasUserGesture: Boolean,
+                ) {
+                    var permFound2 = false
+                    for (perm in perms) {
+                        if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
+                            perm.value == ContentPermission.VALUE_ALLOW &&
+                            perm.contextId == session2.settings.contextId
+                        ) {
+                            permFound2 = true
+                        }
                     }
+                    assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
                 }
-                assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
-            }
-        })
+            },
+        )
         session2.reload()
         session2.waitForPageStop()
     }
@@ -810,21 +906,23 @@ class PermissionDelegateTest : BaseSessionTest() {
         mainSession.loadUri(url)
         mainSession.waitForPageStop()
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                assertThat("URI should match", perm.uri, endsWith(url))
-                assertThat(
-                    "Type should match",
-                    perm.permission,
-                    equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
-                )
-                return GeckoResult.fromValue(ContentPermission.VALUE_DENY)
-            }
-        })
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> {
+                    assertThat("URI should match", perm.uri, endsWith(url))
+                    assertThat(
+                        "Type should match",
+                        perm.permission,
+                        equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
+                    )
+                    return GeckoResult.fromValue(ContentPermission.VALUE_DENY)
+                }
+            },
+        )
         mainSession.waitForJS("Notification.requestPermission()")
 
         val perms = sessionRule.waitForResult(storageController.getPermissions(url))
@@ -834,7 +932,8 @@ class PermissionDelegateTest : BaseSessionTest() {
         var notificationPerm: ContentPermission? = null
         for (perm in perms) {
             if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                url.startsWith(perm.uri) && perm.value == ContentPermission.VALUE_DENY
+                url.startsWith(perm.uri) &&
+                perm.value == ContentPermission.VALUE_DENY
             ) {
                 notificationPerm = perm
                 permFound = true
@@ -848,20 +947,27 @@ class PermissionDelegateTest : BaseSessionTest() {
             ContentPermission.VALUE_ALLOW,
         )
 
-        mainSession.delegateDuringNextWait(object : NavigationDelegate {
-            @AssertCalled(count = 1)
-            override fun onLocationChange(session: GeckoSession, url: String?, perms: MutableList<ContentPermission>, hasUserGesture: Boolean) {
-                var permFound2 = false
-                for (perm in perms) {
-                    if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                        perm.value == ContentPermission.VALUE_ALLOW
-                    ) {
-                        permFound2 = true
+        mainSession.delegateDuringNextWait(
+            object : NavigationDelegate {
+                @AssertCalled(count = 1)
+                override fun onLocationChange(
+                    session: GeckoSession,
+                    url: String?,
+                    perms: MutableList<ContentPermission>,
+                    hasUserGesture: Boolean,
+                ) {
+                    var permFound2 = false
+                    for (perm in perms) {
+                        if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
+                            perm.value == ContentPermission.VALUE_ALLOW
+                        ) {
+                            permFound2 = true
+                        }
                     }
+                    assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
                 }
-                assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
-            }
-        })
+            },
+        )
         mainSession.reload()
         mainSession.waitForPageStop()
 
@@ -880,21 +986,23 @@ class PermissionDelegateTest : BaseSessionTest() {
         mainSession.loadUri(url)
         mainSession.waitForPageStop()
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                assertThat("URI should match", perm.uri, endsWith(url))
-                assertThat(
-                    "Type should match",
-                    perm.permission,
-                    equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
-                )
-                return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
-            }
-        })
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> {
+                    assertThat("URI should match", perm.uri, endsWith(url))
+                    assertThat(
+                        "Type should match",
+                        perm.permission,
+                        equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
+                    )
+                    return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
+                }
+            },
+        )
 
         val result = mainSession.waitForJS("Notification.requestPermission()")
 
@@ -911,7 +1019,8 @@ class PermissionDelegateTest : BaseSessionTest() {
         var notificationPerm: ContentPermission? = null
         for (perm in perms) {
             if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                url.startsWith(perm.uri) && perm.value == ContentPermission.VALUE_ALLOW
+                url.startsWith(perm.uri) &&
+                perm.value == ContentPermission.VALUE_ALLOW
             ) {
                 notificationPerm = perm
                 permFound = true
@@ -925,20 +1034,27 @@ class PermissionDelegateTest : BaseSessionTest() {
             ContentPermission.VALUE_DENY,
         )
 
-        mainSession.delegateDuringNextWait(object : NavigationDelegate {
-            @AssertCalled(count = 1)
-            override fun onLocationChange(session: GeckoSession, url: String?, perms: MutableList<ContentPermission>, hasUserGesture: Boolean) {
-                var permFound2 = false
-                for (perm in perms) {
-                    if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                        perm.value == ContentPermission.VALUE_DENY
-                    ) {
-                        permFound2 = true
+        mainSession.delegateDuringNextWait(
+            object : NavigationDelegate {
+                @AssertCalled(count = 1)
+                override fun onLocationChange(
+                    session: GeckoSession,
+                    url: String?,
+                    perms: MutableList<ContentPermission>,
+                    hasUserGesture: Boolean,
+                ) {
+                    var permFound2 = false
+                    for (perm in perms) {
+                        if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
+                            perm.value == ContentPermission.VALUE_DENY
+                        ) {
+                            permFound2 = true
+                        }
                     }
+                    assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
                 }
-                assertThat("Notification permission must be present on refresh", permFound2, equalTo(true))
-            }
-        })
+            },
+        )
         mainSession.reload()
         mainSession.waitForPageStop()
 
@@ -957,21 +1073,23 @@ class PermissionDelegateTest : BaseSessionTest() {
         mainSession.loadUri(url)
         mainSession.waitForPageStop()
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                assertThat("URI should match", perm.uri, endsWith(url))
-                assertThat(
-                    "Type should match",
-                    perm.permission,
-                    equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
-                )
-                return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
-            }
-        })
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> {
+                    assertThat("URI should match", perm.uri, endsWith(url))
+                    assertThat(
+                        "Type should match",
+                        perm.permission,
+                        equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
+                    )
+                    return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
+                }
+            },
+        )
 
         val result = mainSession.waitForJS("Notification.requestPermission()")
 
@@ -988,7 +1106,8 @@ class PermissionDelegateTest : BaseSessionTest() {
         var notificationPerm: ContentPermission? = null
         for (perm in perms) {
             if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                url.startsWith(perm.uri) && perm.value == ContentPermission.VALUE_ALLOW
+                url.startsWith(perm.uri) &&
+                perm.value == ContentPermission.VALUE_ALLOW
             ) {
                 notificationPerm = perm
                 permFound = true
@@ -1002,15 +1121,15 @@ class PermissionDelegateTest : BaseSessionTest() {
             ContentPermission.VALUE_PROMPT,
         )
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                return GeckoResult.fromValue(ContentPermission.VALUE_PROMPT)
-            }
-        })
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> = GeckoResult.fromValue(ContentPermission.VALUE_PROMPT)
+            },
+        )
 
         val result2 = mainSession.waitForJS("Notification.requestPermission()")
 
@@ -1027,21 +1146,23 @@ class PermissionDelegateTest : BaseSessionTest() {
         mainSession.loadUri(url)
         mainSession.waitForPageStop()
 
-        mainSession.delegateDuringNextWait(object : PermissionDelegate {
-            @AssertCalled(count = 1)
-            override fun onContentPermissionRequest(
-                session: GeckoSession,
-                perm: ContentPermission,
-            ): GeckoResult<Int> {
-                assertThat("URI should match", perm.uri, endsWith(url))
-                assertThat(
-                    "Type should match",
-                    perm.permission,
-                    equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
-                )
-                return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
-            }
-        })
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                @AssertCalled(count = 1)
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int> {
+                    assertThat("URI should match", perm.uri, endsWith(url))
+                    assertThat(
+                        "Type should match",
+                        perm.permission,
+                        equalTo(PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION),
+                    )
+                    return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW)
+                }
+            },
+        )
 
         val result = mainSession.waitForJS("Notification.requestPermission()")
 
@@ -1058,7 +1179,8 @@ class PermissionDelegateTest : BaseSessionTest() {
         var notificationPerm: ContentPermission? = null
         for (perm in perms) {
             if (perm.permission == PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION &&
-                url.startsWith(perm.uri) && perm.value == ContentPermission.VALUE_ALLOW
+                url.startsWith(perm.uri) &&
+                perm.value == ContentPermission.VALUE_ALLOW
             ) {
                 notificationPerm = perm
                 permFound = true
@@ -1073,11 +1195,108 @@ class PermissionDelegateTest : BaseSessionTest() {
         val importedPerm = ContentPermission.fromJson(jsonPerm!!)
         assertThat("JSON import should not be null", importedPerm, notNullValue())
 
-        assertThat("URIs should match", importedPerm?.uri, equalTo(notificationPerm?.uri))
-        assertThat("Types should match", importedPerm?.permission, equalTo(notificationPerm?.permission))
-        assertThat("Values should match", importedPerm?.value, equalTo(notificationPerm?.value))
-        assertThat("Context IDs should match", importedPerm?.contextId, equalTo(notificationPerm?.contextId))
-        assertThat("Private mode should match", importedPerm?.privateMode, equalTo(notificationPerm?.privateMode))
+        assertThat("URIs should match", importedPerm?.uri, equalTo(notificationPerm.uri))
+        assertThat("Types should match", importedPerm?.permission, equalTo(notificationPerm.permission))
+        assertThat("Values should match", importedPerm?.value, equalTo(notificationPerm.value))
+        assertThat("Context IDs should match", importedPerm?.contextId, equalTo(notificationPerm.contextId))
+        assertThat("Private mode should match", importedPerm?.privateMode, equalTo(notificationPerm.privateMode))
+    }
+
+    @Test
+    fun localDeviceAccessPermission() {
+        sessionRule.setPrefsUntilTestEnd(
+            mapOf(
+                "network.lna.blocking" to true,
+                "network.lna.enabled" to true,
+                "network.lna.block_trackers" to true,
+            ),
+        )
+
+        // enable LNA checks for local network to localhost checks
+        sessionRule.setPrefsUntilTestEnd(mapOf("network.lna.local-network-to-localhost.skip-checks" to false))
+
+        mainSession.loadUri("https://example.com/")
+        mainSession.waitForPageStop()
+
+        var requestedPermission: Int? = null
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int?>? {
+                    requestedPermission = perm.permission
+                    return super.onContentPermissionRequest(session, perm)
+                }
+            },
+        )
+
+        // when we try to access a localhost address that's actually reachable
+        // in this case - GeckoSessionTestRule.TEST_ENDPOINT
+        try {
+            sessionRule.waitForJS(
+                mainSession,
+                """
+                fetch("${GeckoSessionTestRule.TEST_ENDPOINT}")
+                """.trimIndent(),
+            )
+        } catch (_: RejectedPromiseException) {
+        }
+
+        // verify that we receive the local device access permission
+        assertEquals(
+            "Expected requested permission to be " +
+                "PermissionDelegate.PERMISSION_LOCAL_DEVICE_ACCESS",
+            PermissionDelegate.PERMISSION_LOCAL_DEVICE_ACCESS,
+            requestedPermission,
+        )
+    }
+
+    @Test
+    fun localDeviceAccessPermissionNotFiredIfPrefIsFalse() {
+        sessionRule.setPrefsUntilTestEnd(
+            mapOf(
+                "network.lna.blocking" to false,
+                "network.lna.enabled" to false,
+                "network.lna.block_trackers" to false,
+            ),
+        )
+
+        mainSession.loadUri("https://example.com/")
+        mainSession.waitForPageStop()
+
+        var requestedPermission: Int? = null
+        mainSession.delegateDuringNextWait(
+            object : PermissionDelegate {
+                override fun onContentPermissionRequest(
+                    session: GeckoSession,
+                    perm: ContentPermission,
+                ): GeckoResult<Int?>? {
+                    requestedPermission = perm.permission
+                    return super.onContentPermissionRequest(session, perm)
+                }
+            },
+        )
+
+        // when we try to access a localhost address that's actually reachable
+        // in this case - GeckoSessionTestRule.TEST_ENDPOINT
+        try {
+            sessionRule.waitForJS(
+                mainSession,
+                """
+                fetch("${GeckoSessionTestRule.TEST_ENDPOINT}")
+                """.trimIndent(),
+            )
+        } catch (_: RejectedPromiseException) {
+        }
+
+        // verify that any requested permission (if any) is not local device access
+        assertNotEquals(
+            "Expected requested permission to not be " +
+                "PermissionDelegate.PERMISSION_LOCAL_DEVICE_ACCESS",
+            PermissionDelegate.PERMISSION_LOCAL_DEVICE_ACCESS,
+            requestedPermission,
+        )
     }
 
     // @Test fun persistentStorage() {

@@ -15,12 +15,14 @@
 #include <stdint.h>
 #include <type_traits>
 
-#include "jsexn.h"
 #include "jsfriendapi.h"
 #include "jspubtd.h"
 #include "jstypes.h"
 #include "NamespaceImports.h"
 
+#ifdef JS_HAS_INTL_API
+#  include "builtin/intl/GlobalIntlData.h"
+#endif
 #include "gc/AllocKind.h"
 #include "js/CallArgs.h"
 #include "js/Class.h"
@@ -30,6 +32,7 @@
 #include "js/TypeDecls.h"
 #include "js/Value.h"
 #include "vm/ArrayObject.h"
+#include "vm/ErrorObject.h"
 #include "vm/JSAtomState.h"
 #include "vm/JSContext.h"
 #include "vm/JSFunction.h"
@@ -60,16 +63,13 @@ class PropertyIteratorObject;
 class RegExpStatics;
 class SetObject;
 
-namespace gc {
-class FinalizationRegistryGlobalData;
-}  // namespace gc
-
 // Fixed slot capacities for PlainObjects. The global has a cached Shape for
 // PlainObject with default prototype for each of these values.
 enum class PlainObjectSlotsKind {
   Slots0,
   Slots2,
   Slots4,
+  Slots6,
   Slots8,
   Slots12,
   Slots16,
@@ -85,6 +85,8 @@ static PlainObjectSlotsKind PlainObjectSlotsKindFromAllocKind(
       return PlainObjectSlotsKind::Slots2;
     case gc::AllocKind::OBJECT4:
       return PlainObjectSlotsKind::Slots4;
+    case gc::AllocKind::OBJECT6:
+      return PlainObjectSlotsKind::Slots6;
     case gc::AllocKind::OBJECT8:
       return PlainObjectSlotsKind::Slots8;
     case gc::AllocKind::OBJECT12:
@@ -199,8 +201,16 @@ class GlobalObjectData {
   // Shape for BoundFunctionObject with %Function.prototype% as proto.
   GCPtr<SharedShape*> boundFunctionShapeWithDefaultProto;
 
+  // Shape for RegExpObject with %RegExp.prototype% as proto.
+  GCPtr<SharedShape*> regExpShapeWithDefaultProto;
+
   // Global state for regular expressions.
   RegExpRealm regExpRealm;
+
+#ifdef JS_HAS_INTL_API
+  // Cache Intl formatters.
+  intl::GlobalIntlData globalIntlData;
+#endif
 
   GCPtr<ArgumentsObject*> mappedArgumentsTemplate;
   GCPtr<ArgumentsObject*> unmappedArgumentsTemplate;
@@ -210,13 +220,10 @@ class GlobalObjectData {
   GCPtr<SetObject*> setObjectTemplate;
 
   GCPtr<PlainObject*> iterResultTemplate;
-  GCPtr<PlainObject*> iterResultWithoutPrototypeTemplate;
 
   // Lazily initialized script source object to use for scripts cloned from the
   // self-hosting stencil.
   GCPtr<ScriptSourceObject*> selfHostingScriptSource;
-
-  UniquePtr<gc::FinalizationRegistryGlobalData> finalizationRegistryData;
 
   // The number of times that one of the following has occurred:
   // 1. A property of this GlobalObject is deleted.
@@ -262,8 +269,10 @@ class GlobalObject : public NativeObject {
                 "GlobalObjectData should be stored in a fixed slot for "
                 "performance reasons");
 
+ public:
   using ProtoKind = GlobalObjectData::ProtoKind;
 
+ private:
   GlobalObjectData* maybeData() {
     Value v = getReservedSlot(GLOBAL_DATA_SLOT);
     return static_cast<GlobalObjectData*>(v.toPrivate());
@@ -278,10 +287,11 @@ class GlobalObject : public NativeObject {
 
   void initBuiltinProto(ProtoKind kind, JSObject* proto) {
     MOZ_ASSERT(proto);
-    // Catch double-initialization; however if this is too much of a burden due
-    // to OOM handling it could be removed.
-    MOZ_ASSERT(!hasBuiltinProto(kind));
-    data().builtinProtos[kind].init(proto);
+    // Use set, as it's possible to construct oomTest test
+    // cases where the proto is already initialized.
+    //
+    // See Bugs 1969353 and 1928852.
+    data().builtinProtos[kind].set(proto);
   }
 
   void setBuiltinProto(ProtoKind kind, JSObject* proto) {
@@ -291,9 +301,6 @@ class GlobalObject : public NativeObject {
 
   bool hasBuiltinProto(ProtoKind kind) const {
     return bool(data().builtinProtos[kind]);
-  }
-  JSObject* maybeBuiltinProto(ProtoKind kind) const {
-    return data().builtinProtos[kind];
   }
   JSObject& getBuiltinProto(ProtoKind kind) const {
     MOZ_ASSERT(hasBuiltinProto(kind));
@@ -382,10 +389,22 @@ class GlobalObject : public NativeObject {
     return data().builtinConstructors[protoKey].constructor;
   }
 
+  template <typename T>
+  T* maybeGetConstructor(JSProtoKey protoKey) const {
+    JSObject* ctor = maybeGetConstructor(protoKey);
+    return ctor ? &ctor->as<T>() : nullptr;
+  }
+
   JSObject* maybeGetPrototype(JSProtoKey protoKey) const {
     MOZ_ASSERT(JSProto_Null < protoKey);
     MOZ_ASSERT(protoKey < JSProto_LIMIT);
     return data().builtinConstructors[protoKey].prototype;
+  }
+
+  template <typename T>
+  T* maybeGetPrototype(JSProtoKey protoKey) const {
+    JSObject* proto = maybeGetPrototype(protoKey);
+    return proto ? &proto->as<T>() : nullptr;
   }
 
   static bool maybeResolveGlobalThis(JSContext* cx,
@@ -727,6 +746,10 @@ class GlobalObject : public NativeObject {
                                            Handle<GlobalObject*> global);
 
  public:
+  JSObject* maybeBuiltinProto(ProtoKind kind) const {
+    return data().builtinProtos[kind];
+  }
+
   NativeObject* maybeGetIteratorPrototype() {
     if (!hasPrototype(JSProto_Iterator)) {
       return nullptr;
@@ -970,6 +993,10 @@ class GlobalObject : public NativeObject {
 
   RegExpRealm& regExpRealm() { return data().regExpRealm; }
 
+#ifdef JS_HAS_INTL_API
+  intl::GlobalIntlData& globalIntlData() { return data().globalIntlData; }
+#endif
+
   // Infallibly test whether the given value is the eval function for this
   // global.
   bool valueIsEval(const Value& val);
@@ -984,13 +1011,9 @@ class GlobalObject : public NativeObject {
   static const size_t IterResultObjectValueSlot = 0;
   static const size_t IterResultObjectDoneSlot = 1;
   static js::PlainObject* getOrCreateIterResultTemplateObject(JSContext* cx);
-  static js::PlainObject* getOrCreateIterResultWithoutPrototypeTemplateObject(
-      JSContext* cx);
 
  private:
-  enum class WithObjectPrototype { No, Yes };
-  static js::PlainObject* createIterResultTemplateObject(
-      JSContext* cx, WithObjectPrototype withProto);
+  static js::PlainObject* createIterResultTemplateObject(JSContext* cx);
 
  public:
   static ScriptSourceObject* getOrCreateSelfHostingScriptSourceObject(
@@ -1097,16 +1120,18 @@ class GlobalObject : public NativeObject {
     data().boundFunctionShapeWithDefaultProto = shape;
   }
 
+  SharedShape* maybeRegExpShapeWithDefaultProto() const {
+    return data().regExpShapeWithDefaultProto;
+  }
+  void setRegExpShapeWithDefaultProto(SharedShape* shape) {
+    data().regExpShapeWithDefaultProto = shape;
+  }
+
   static PropertyIteratorObject* getOrCreateEmptyIterator(JSContext* cx);
 
   // Returns an object that represents the realm, used by embedder.
   static JSObject* getOrCreateRealmKeyObject(JSContext* cx,
                                              Handle<GlobalObject*> global);
-
-  gc::FinalizationRegistryGlobalData* getOrCreateFinalizationRegistryData();
-  gc::FinalizationRegistryGlobalData* maybeFinalizationRegistryData() const {
-    return data().finalizationRegistryData.get();
-  }
 
   static size_t offsetOfGlobalDataSlot() {
     return getFixedSlotOffset(GLOBAL_DATA_SLOT);
@@ -1167,6 +1192,24 @@ JSObject* GenericCreatePrototype(JSContext* cx, JSProtoKey key) {
       InheritanceProtoKeyForStandardClass(key) == JSProto_Object,
       "subclasses (of anything but Object) can't use GenericCreatePrototype");
   return GlobalObject::createBlankPrototype(cx, cx->global(), &T::protoClass_);
+}
+
+// Which object(s) should be marked as having a RealmFuse property in
+// GenericFinishInit.
+enum class WhichHasRealmFuseProperty {
+  Proto,
+  ProtoAndCtor,
+};
+
+template <WhichHasRealmFuseProperty FuseProperty>
+inline bool GenericFinishInit(JSContext* cx, HandleObject ctor,
+                              HandleObject proto) {
+  if constexpr (FuseProperty == WhichHasRealmFuseProperty::ProtoAndCtor) {
+    if (!JSObject::setHasRealmFuseProperty(cx, ctor)) {
+      return false;
+    }
+  }
+  return JSObject::setHasRealmFuseProperty(cx, proto);
 }
 
 inline JSProtoKey StandardProtoKeyOrNull(const JSObject* obj) {

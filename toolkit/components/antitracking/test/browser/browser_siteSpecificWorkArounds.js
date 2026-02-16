@@ -35,7 +35,11 @@ AntiTracking.runTest(
       );
     });
   },
-  [["urlclassifier.trackingAnnotationSkipURLs", "TRACKING.EXAMPLE.ORG"]],
+  [
+    ["urlclassifier.trackingAnnotationSkipURLs", "*://tracking.example.org/*"],
+    ["privacy.trackingprotection.allow_list.baseline.enabled", true],
+    ["privacy.trackingprotection.allow_list.convenience.enabled", true],
+  ],
   false, // run the window.open() test
   false, // run the user interaction test
   Ci.nsIWebProgressListener.STATE_COOKIES_BLOCKED_TRACKER, // expect blocking notifications
@@ -82,8 +86,10 @@ AntiTracking.runTest(
   [
     [
       "urlclassifier.trackingAnnotationSkipURLs",
-      "foobar.example,*.example.org,baz.example",
+      "*://foobar.example/*,*://*.example.org/*,*://baz.example/*",
     ],
+    ["privacy.trackingprotection.allow_list.baseline.enabled", true],
+    ["privacy.trackingprotection.allow_list.convenience.enabled", true],
   ],
   false, // run the window.open() test
   false, // run the user interaction test
@@ -113,7 +119,14 @@ AntiTracking.runTest(
       );
     });
   },
-  [["urlclassifier.trackingAnnotationSkipURLs", "*.tracking.example.org"]],
+  [
+    [
+      "urlclassifier.trackingAnnotationSkipURLs",
+      "*://*.foo.tracking.example.org/*",
+    ],
+    ["privacy.trackingprotection.allow_list.baseline.enabled", true],
+    ["privacy.trackingprotection.allow_list.convenience.enabled", true],
+  ],
   false, // run the window.open() test
   false, // run the user interaction test
   Ci.nsIWebProgressListener.STATE_COOKIES_BLOCKED_TRACKER, // expect blocking notifications
@@ -143,8 +156,10 @@ AntiTracking.runTest(
     });
   },
   [
-    ["urlclassifier.trackingAnnotationSkipURLs", "TRACKING.EXAMPLE.ORG"],
+    ["urlclassifier.trackingAnnotationSkipURLs", "*://tracking.example.org/*"],
     ["privacy.antitracking.enableWebcompat", false],
+    ["privacy.trackingprotection.allow_list.baseline.enabled", true],
+    ["privacy.trackingprotection.allow_list.convenience.enabled", true],
   ],
   false, // run the window.open() test
   false, // run the user interaction test

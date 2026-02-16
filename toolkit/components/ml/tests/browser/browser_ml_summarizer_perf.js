@@ -50,7 +50,7 @@ for (const model of [distilBartModel, qwenModel]) {
 
 const perfMetadata = {
   owner: "GenAI Team",
-  name: "ML Summarizer Model",
+  name: "browser_ml_summarizer_perf.js",
   description: "Template test for latency for Summarizer model",
   options: {
     default: {
@@ -87,11 +87,11 @@ const perfMetadata = {
   },
 };
 
-requestLongerTimeout(120);
+requestLongerTimeout(60);
 
 // To run locally
 // pip install huggingface-hub
-// huggingface-cli download {model_id} --local-dir MOZ_FETCHES_DIR/onnx-models/{model_id}/{revision}
+// huggingface-cli download {model_id} --local-dir MOZ_ML_LOCAL_DIR/onnx-models/{model_id}/{revision}
 
 // Update your test in
 // Then run:  ./mach lint -l perfdocs --fix .

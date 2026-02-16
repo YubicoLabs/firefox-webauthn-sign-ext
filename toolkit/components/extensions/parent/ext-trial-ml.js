@@ -4,14 +4,11 @@
 
 "use strict";
 
-var { ExtensionCommon } = ChromeUtils.importESModule(
-  "resource://gre/modules/ExtensionCommon.sys.mjs"
-);
-
 ChromeUtils.defineESModuleGetters(this, {
   createEngine: "chrome://global/content/ml/EngineProcess.sys.mjs",
   PipelineOptions: "chrome://global/content/ml/EngineProcess.sys.mjs",
   ModelHub: "chrome://global/content/ml/ModelHub.sys.mjs",
+  addonIdToEngineId: "chrome://global/content/ml/Utils.sys.mjs",
 });
 
 const PREF_EXTENSIONS_ML_ENABLED = "extensions.ml.enabled";
@@ -35,7 +32,7 @@ function ensureInferenceEnabled() {
     return;
   }
   throw new ExtensionError(
-    `Trial ML is only available when "${PREF_EXTENSIONS_ML_ENABLED}" and ${PREF_BROWSER_ML_ENABLE}" preferences are set to true.`
+    `Trial ML API is disabled. This API is only available when "${PREF_EXTENSIONS_ML_ENABLED}" and ${PREF_BROWSER_ML_ENABLE}" preferences are set to true.`
   );
 }
 
@@ -52,6 +49,7 @@ const SUPPORTED_TASKS = [
   "text2text-generation",
   "text-generation",
   "text-to-speech",
+  "text-to-audio",
   "zero-shot-classification",
   "image-to-text",
   "image-classification",
@@ -90,15 +88,10 @@ class TrialML extends ExtensionAPI {
   }
 
   /**
-   * Converts an extension id to a pipeline id
+   * Converts an extension id to a pipeline id by prefixing it.
    */
   static getPipelineId(extensionId) {
-    // makeWidgetId() replaces all illegal characters with "_"
-    // so an id like {XXX-XXX-XXX} becomes _XXX_XXX_XXX_
-    // which is then converted to ML-ENGINE-XXX-XXX-XXX
-    return `ML-ENGINE-${ExtensionCommon.makeWidgetId(extensionId)
-      .replace(/^_|_$/g, "")
-      .replace(/_/g, "-")}`;
+    return addonIdToEngineId(extensionId);
   }
 
   /**
@@ -135,7 +128,10 @@ class TrialML extends ExtensionAPI {
    * Called on extension uninstall
    */
   static async onUninstall(extensionId) {
-    await modelHub.deleteFilesByEngine(TrialML.getPipelineId(extensionId));
+    await modelHub.deleteFilesByEngine({
+      engineId: TrialML.getPipelineId(extensionId),
+      deletedBy: "webextensions-uninstall",
+    });
     return true;
   }
 
@@ -146,8 +142,6 @@ class TrialML extends ExtensionAPI {
    * @returns {object} API for creating and running ML pipelines, and listening for progress events.
    */
   getAPI(context) {
-    ensureInferenceEnabled();
-
     return {
       trial: {
         ml: {
@@ -159,6 +153,8 @@ class TrialML extends ExtensionAPI {
            * @returns {Promise} The result of the pipeline creation.
            */
           createEngine: async request => {
+            ensureInferenceEnabled();
+
             if (!SUPPORTED_TASKS.includes(request.taskName)) {
               throw new ExtensionError(`Unsupported task ${request.taskName}`);
             }
@@ -180,6 +176,8 @@ class TrialML extends ExtensionAPI {
            * @returns {Promise} The result of the pipeline run.
            */
           runEngine: async request => {
+            ensureInferenceEnabled();
+
             if (this.#engine?.engineStatus === "closed") {
               // Engine closed for inactivity, re-create it with saved options.
               try {
@@ -189,18 +187,19 @@ class TrialML extends ExtensionAPI {
                 throw new ExtensionError(error.message);
               }
             }
-            const runOptions = {
-              args: request.args,
-              options: request.options || {},
-            };
-            return this.#runEngine(runOptions);
+            return this.#runEngine(request);
           },
 
           /**
            * Deletes all the models downloaded for this extension.
            */
           deleteCachedModels: async () => {
-            await modelHub.deleteFilesByEngine(this.#pipelineId);
+            ensureInferenceEnabled();
+
+            await modelHub.deleteFilesByEngine({
+              engineId: this.#pipelineId,
+              deletedBy: "webextensions-api",
+            });
             return true;
           },
 
@@ -214,6 +213,10 @@ class TrialML extends ExtensionAPI {
             name: "trial.ml.onProgress",
             register: fire => {
               const callback = (_evtName, progressData) => {
+                // NOTE: as long as these events are only informational, we don't
+                // need to gate the event callback with the `ensureInferenceEnabled()`
+                // check, the events would only be sent for work that did technically
+                // start before the API was globally disabled.
                 fire.async(progressData);
               };
               this.extension.on(ENGINE_EVENT, callback);

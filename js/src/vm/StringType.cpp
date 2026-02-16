@@ -9,7 +9,6 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/Latin1.h"
-#include "mozilla/MathAlgorithms.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/PodOperations.h"
 #include "mozilla/RangedPtr.h"
@@ -19,13 +18,12 @@
 #include "mozilla/Vector.h"
 
 #include <algorithm>    // std::{all_of,copy_n,enable_if,is_const,move}
-#include <iterator>     // std::size
 #include <type_traits>  // std::is_same, std::is_unsigned
 
 #include "jsfriendapi.h"
-#include "jsnum.h"
 
 #include "builtin/Boolean.h"
+#include "builtin/Number.h"
 #include "gc/AllocKind.h"
 #include "gc/MaybeRooted.h"
 #include "gc/Nursery.h"
@@ -62,6 +60,19 @@ using JS::AutoCheckCannotGC;
 using JS::AutoStableStringChars;
 
 using UniqueLatin1Chars = UniquePtr<Latin1Char[], JS::FreePolicy>;
+
+#ifdef DEBUG
+void JSString::assertTypeUnchanged(uint32_t newFlags) const {
+  // Don't allow accidentally changing the string type when updating flags. Call
+  // changeStringType instead.
+  uint32_t oldFlags = flags();
+  uint32_t typeMask = TYPE_FLAGS_MASK;
+  if (isAtom()) {
+    typeMask &= ~(ATOM_IS_PERMANENT_BIT | ATOM_IS_INDEX_BIT);
+  }
+  MOZ_ASSERT((newFlags & typeMask) == (oldFlags & typeMask));
+}
+#endif  // DEBUG
 
 size_t JSString::sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) {
   // JSRope: do nothing, we'll count all children chars when we hit the leaf
@@ -590,10 +601,17 @@ JSExtensibleString& JSLinearString::makeExtensible(size_t capacity) {
   MOZ_ASSERT(!isAtom());
   MOZ_ASSERT(!isExternal());
   MOZ_ASSERT(capacity >= length());
-  js::RemoveCellMemory(this, allocSize(), js::MemoryUse::StringContents);
-  setLengthAndFlags(length(), flags() | EXTENSIBLE_FLAGS);
+  size_t oldSize = allocSize();
+  js::RemoveCellMemory(this, oldSize, js::MemoryUse::StringContents);
+  changeStringType(length(), flags() | EXTENSIBLE_FLAGS);
   d.s.u3.capacity = capacity;
-  js::AddCellMemory(this, allocSize(), js::MemoryUse::StringContents);
+  size_t newSize = allocSize();
+  js::AddCellMemory(this, newSize, js::MemoryUse::StringContents);
+  MOZ_ASSERT(newSize >= oldSize);
+  if (!isTenured() && newSize > oldSize) {
+    auto& nursery = runtimeFromMainThread()->gc.nursery();
+    nursery.addMallocedBufferBytes(newSize - oldSize);
+  }
   return asExtensible();
 }
 
@@ -1002,7 +1020,7 @@ JSLinearString* JSRope::flatten(JSContext* maybecx) {
 }
 
 JSLinearString* JSRope::flattenInternal() {
-  if (zone()->needsIncrementalBarrier()) {
+  if (zone()->needsMarkingBarrier()) {
     return flattenInternal<WithIncrementalBarrier>();
   }
 
@@ -1182,9 +1200,11 @@ finish_node: {
   bool finishNode = str->flags() & FLATTEN_FINISH_NODE;
   MOZ_ASSERT(visitRight != finishNode);
 
-  // This also clears the flags related to flattening.
-  str->setLengthAndFlags(str->length(),
-                         StringFlagsForCharType<CharT>(INIT_DEPENDENT_FLAGS));
+  // Change rope into a dependent string. This also clears the flags related to
+  // flattening.
+  uint32_t flags = INIT_DEPENDENT_FLAGS;
+  flags |= str->flags() & PRESERVE_ROPE_BITS_ON_REPLACE;
+  str->changeStringType(str->length(), StringFlagsForCharType<CharT>(flags));
   str->d.s.u3.base =
       reinterpret_cast<JSLinearString*>(root); /* will be true on exit */
   newRootFlags |= DEPENDED_ON_BIT;
@@ -1214,12 +1234,14 @@ finish_root:
   MOZ_ASSERT(str == root);
   MOZ_ASSERT(pos == wholeChars + wholeLength);
 
+  // Change root into an extensible string.
   uint32_t flags = StringFlagsForCharType<CharT>(EXTENSIBLE_FLAGS);
+  flags |= root->flags() & PRESERVE_ROPE_BITS_ON_REPLACE;
   if (hasStringBuffer) {
     flags |= HAS_STRING_BUFFER_BIT;
     wholeChars[wholeLength] = '\0';
   }
-  root->setLengthAndFlags(wholeLength, flags);
+  root->changeStringType(wholeLength, flags);
   root->setNonInlineChars(wholeChars, hasStringBuffer);
   root->d.s.u3.capacity = wholeCapacity;
   AddCellMemory(root, wholeCapacity * sizeof(CharT), MemoryUse::StringContents);
@@ -1237,18 +1259,10 @@ finish_root:
     // dependent.
     newRootFlags |= DEPENDED_ON_BIT;
 
+    // Change leftmost string into a dependent string.
     uint32_t flags = INIT_DEPENDENT_FLAGS;
-    if (left.inStringToAtomCache()) {
-      flags |= IN_STRING_TO_ATOM_CACHE;
-    }
-    // If left was depended on, we need to make sure we preserve that. Even
-    // though the string that depended on left's buffer will now depend on
-    // root's buffer, if left is the only edge to root, replacing left with an
-    // atom ref would break that edge and allow root's buffer to be freed.
-    if (left.isDependedOn()) {
-      flags |= DEPENDED_ON_BIT;
-    }
-    left.setLengthAndFlags(left.length(), StringFlagsForCharType<CharT>(flags));
+    flags |= left.flags() & PRESERVE_LINEAR_NONATOM_BITS_ON_REPLACE;
+    left.changeStringType(left.length(), StringFlagsForCharType<CharT>(flags));
     left.d.s.u3.base = &root->asLinear();
     if (left.isTenured() && !root->isTenured()) {
       // leftmost child -> root is a tenured -> nursery edge. Put the leftmost
@@ -1260,7 +1274,7 @@ finish_root:
     }
   }
 
-  root->setHeaderFlagBit(newRootFlags);
+  root->setFlagBit(newRootFlags);
 
   return &root->asLinear();
 }
@@ -1368,6 +1382,21 @@ template JSString* js::ConcatStrings<CanGC>(JSContext* cx, HandleString left,
 template JSString* js::ConcatStrings<NoGC>(JSContext* cx, JSString* const& left,
                                            JSString* const& right,
                                            gc::Heap heap);
+
+bool JSLinearString::hasCharsInCollectedNurseryRegion() const {
+  if (isPermanentAtom()) {
+    // Nursery::inCollectedRegion(void*) should only be called on the nursery's
+    // main thread to avoid races. Permanent atoms can be shared with worker
+    // threads but atoms are never allocated in the nursery.
+    MOZ_ASSERT(isTenured());
+    return false;
+  }
+  auto& nursery = runtimeFromMainThread()->gc.nursery();
+  if (isInline()) {
+    return nursery.inCollectedRegion(this);
+  }
+  return nursery.inCollectedRegion(nonInlineCharsRaw());
+}
 
 #if defined(DEBUG) || defined(JS_JITSPEW) || defined(JS_CACHEIR_SPEW)
 void JSDependentString::dumpOwnRepresentationFields(
@@ -1532,6 +1561,32 @@ int32_t js::CompareStrings(const JSLinearString* str1,
   return CompareStringsImpl(str1, str2);
 }
 
+int32_t js::CompareStrings(const JSOffThreadAtom* str1,
+                           const JSOffThreadAtom* str2) {
+  MOZ_ASSERT(str1);
+  MOZ_ASSERT(str2);
+
+  if (str1 == str2) {
+    return 0;
+  }
+
+  size_t len1 = str1->length();
+  size_t len2 = str2->length();
+
+  AutoCheckCannotGC nogc;
+  if (str1->hasLatin1Chars()) {
+    const Latin1Char* chars1 = str1->latin1Chars(nogc);
+    return str2->hasLatin1Chars()
+               ? CompareChars(chars1, len1, str2->latin1Chars(nogc), len2)
+               : CompareChars(chars1, len1, str2->twoByteChars(nogc), len2);
+  }
+
+  const char16_t* chars1 = str1->twoByteChars(nogc);
+  return str2->hasLatin1Chars()
+             ? CompareChars(chars1, len1, str2->latin1Chars(nogc), len2)
+             : CompareChars(chars1, len1, str2->twoByteChars(nogc), len2);
+}
+
 bool js::StringIsAscii(const JSLinearString* str) {
   JS::AutoCheckCannotGC nogc;
   if (str->hasLatin1Chars()) {
@@ -1645,6 +1700,17 @@ uint32_t JSAtom::getIndexSlow() const {
                           : AtomCharsToIndex(twoByteChars(nogc), len);
 }
 
+uint32_t JSOffThreadAtom::getIndexSlow() const {
+  MOZ_ASSERT(isIndex());
+  MOZ_ASSERT(!hasIndexValue());
+
+  size_t len = length();
+
+  AutoCheckCannotGC nogc;
+  return hasLatin1Chars() ? AtomCharsToIndex(latin1Chars(nogc), len)
+                          : AtomCharsToIndex(twoByteChars(nogc), len);
+}
+
 // Ensure that the incoming s.chars pointer is stable, as in, it cannot be
 // changed even across a GC. That requires that the string that owns the chars
 // not be collected or deduplicated.
@@ -1659,7 +1725,7 @@ void AutoStableStringChars::holdStableChars(JSLinearString* s) {
 }
 
 bool AutoStableStringChars::init(JSContext* cx, JSString* s) {
-  Rooted<JSLinearString*> linearString(cx, s->ensureLinear(cx));
+  JSLinearString* linearString = s->ensureLinear(cx);
   if (!linearString) {
     return false;
   }
@@ -1691,7 +1757,7 @@ bool AutoStableStringChars::init(JSContext* cx, JSString* s) {
 }
 
 bool AutoStableStringChars::initTwoByte(JSContext* cx, JSString* s) {
-  Rooted<JSLinearString*> linearString(cx, s->ensureLinear(cx));
+  JSLinearString* linearString = s->ensureLinear(cx);
   if (!linearString) {
     return false;
   }
@@ -1726,8 +1792,7 @@ T* AutoStableStringChars::allocOwnChars(JSContext* cx, size_t count) {
               sizeof(char16_t) * JSFatInlineString::MAX_LENGTH_TWO_BYTE,
       "InlineCapacity too small to hold fat inline strings");
 
-  static_assert((JSString::MAX_LENGTH &
-                 mozilla::tl::MulOverflowMask<sizeof(T)>::value) == 0,
+  static_assert(JSString::MAX_LENGTH * sizeof(T) >= JSString::MAX_LENGTH,
                 "Size calculation can overflow");
   MOZ_ASSERT(count <= JSString::MAX_LENGTH);
   size_t size = sizeof(T) * count;
@@ -1742,7 +1807,7 @@ T* AutoStableStringChars::allocOwnChars(JSContext* cx, size_t count) {
 }
 
 bool AutoStableStringChars::copyAndInflateLatin1Chars(
-    JSContext* cx, Handle<JSLinearString*> linearString) {
+    JSContext* cx, JSLinearString* linearString) {
   MOZ_ASSERT(state_ == Uninitialized);
   MOZ_ASSERT(s_ == nullptr);
 
@@ -1763,8 +1828,8 @@ bool AutoStableStringChars::copyAndInflateLatin1Chars(
   return true;
 }
 
-bool AutoStableStringChars::copyLatin1Chars(
-    JSContext* cx, Handle<JSLinearString*> linearString) {
+bool AutoStableStringChars::copyLatin1Chars(JSContext* cx,
+                                            JSLinearString* linearString) {
   MOZ_ASSERT(state_ == Uninitialized);
   MOZ_ASSERT(s_ == nullptr);
 
@@ -1781,8 +1846,8 @@ bool AutoStableStringChars::copyLatin1Chars(
   return true;
 }
 
-bool AutoStableStringChars::copyTwoByteChars(
-    JSContext* cx, Handle<JSLinearString*> linearString) {
+bool AutoStableStringChars::copyTwoByteChars(JSContext* cx,
+                                             JSLinearString* linearString) {
   MOZ_ASSERT(state_ == Uninitialized);
   MOZ_ASSERT(s_ == nullptr);
 
@@ -1845,9 +1910,10 @@ void JSExternalString::dumpOwnRepresentationFields(
 }
 #endif /* defined(DEBUG) || defined(JS_JITSPEW) || defined(JS_CACHEIR_SPEW) */
 
-JSLinearString* js::NewDependentString(JSContext* cx, JSString* baseArg,
-                                       size_t start, size_t length,
-                                       gc::Heap heap) {
+template <JS::ContractBaseChain contract>
+static JSLinearString* NewDependentStringHelper(JSContext* cx,
+                                                JSString* baseArg, size_t start,
+                                                size_t length, gc::Heap heap) {
   if (length == 0) {
     return cx->emptyString();
   }
@@ -1891,7 +1957,27 @@ JSLinearString* js::NewDependentString(JSContext* cx, JSString* baseArg,
     return NewInlineString<Latin1Char>(cx, rootedBase, start, length, heap);
   }
 
-  return JSDependentString::new_(cx, base, start, length, heap);
+  return JSDependentString::newImpl_<contract>(cx, base, start, length, heap);
+}
+
+JSLinearString* js::NewDependentString(JSContext* cx, JSString* baseArg,
+                                       size_t start, size_t length,
+                                       gc::Heap heap) {
+  return NewDependentStringHelper<JS::ContractBaseChain::Contract>(
+      cx, baseArg, start, length, heap);
+}
+
+JSLinearString* js::NewDependentStringForTesting(JSContext* cx,
+                                                 JSString* baseArg,
+                                                 size_t start, size_t length,
+                                                 JS::ContractBaseChain contract,
+                                                 gc::Heap heap) {
+  if (contract == JS::ContractBaseChain::Contract) {
+    return NewDependentStringHelper<JS::ContractBaseChain::Contract>(
+        cx, baseArg, start, length, heap);
+  }
+  return NewDependentStringHelper<JS::ContractBaseChain::AllowLong>(
+      cx, baseArg, start, length, heap);
 }
 
 static constexpr bool CanStoreCharsAsLatin1(const JS::Latin1Char* s,
@@ -2831,14 +2917,17 @@ bool JSString::tryReplaceWithAtomRef(JSAtom* atom) {
     PreWriteBarrier(d.s.u3.base);
   }
 
+  // Change string into an atom ref.
   uint32_t flags = INIT_ATOM_REF_FLAGS;
+  flags |= this->flags() & (isRope() ? PRESERVE_ROPE_BITS_ON_REPLACE
+                                     : PRESERVE_LINEAR_NONATOM_BITS_ON_REPLACE);
   d.s.u3.atom = atom;
   if (atom->hasLatin1Chars()) {
     flags |= LATIN1_CHARS_BIT;
-    setLengthAndFlags(length(), flags);
+    changeStringType(length(), flags);
     setNonInlineChars(atom->chars<Latin1Char>(nogc), atom->hasStringBuffer());
   } else {
-    setLengthAndFlags(length(), flags);
+    changeStringType(length(), flags);
     setNonInlineChars(atom->chars<char16_t>(nogc), atom->hasStringBuffer());
   }
   // Redundant, but just a reminder that this needs to be true or else we need

@@ -70,9 +70,9 @@ def _remote_settings_changed(self, event, other_conn):
         # we can't use ctx.log in this layer
         print("Ignored remote settings upstream")
         return True
-    new_settings = dict(
-        [(key, cs.new_value) for (key, cs) in event.changed_settings.items()]
-    )
+    new_settings = dict([
+        (key, cs.new_value) for (key, cs) in event.changed_settings.items()
+    ])
     self.connections[other_conn].safe_update_settings(new_settings)
     return True
 
@@ -175,7 +175,7 @@ class AlternateServerPlayback:
                         _PROTO.update(recording_info["http_protocol"])
                     else:
                         ctx.log.warn(
-                            "Replaying file {} has no http_protocol info.".format(proto)
+                            f"Replaying file {proto} has no http_protocol info."
                         )
         except Exception as e:
             ctx.log.error("Could not load recording file! Stopping playback process!")
@@ -268,9 +268,7 @@ class AlternateServerPlayback:
                 else:
                     # returns 404 rather than dropping the whole HTTP/2 connection
                     ctx.log.warn(
-                        "server_playback: killed non-replay request {}".format(
-                            f.request.url
-                        )
+                        f"server_playback: killed non-replay request {f.request.url}"
                     )
                     f.response = http.HTTPResponse.make(
                         404, b"", {"content-type": "text/plain"}
@@ -281,13 +279,11 @@ class AlternateServerPlayback:
                 if ctx.options.upload_dir:
                     parsed_url = urlparse(unquote(f.request.url))
                     self.netlocs[parsed_url.netloc][f.response.status_code] += 1
-                    self.calls.append(
-                        {
-                            "time": str(time.time()),
-                            "url": f.request.url,
-                            "response_status": f.response.status_code,
-                        }
-                    )
+                    self.calls.append({
+                        "time": str(time.time()),
+                        "url": f.request.url,
+                        "response_status": f.response.status_code,
+                    })
             except Exception as e:
                 ctx.log.error("Could not generate response! Stopping playback process!")
                 ctx.log.info(e)

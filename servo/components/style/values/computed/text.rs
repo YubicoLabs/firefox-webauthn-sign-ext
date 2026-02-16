@@ -4,24 +4,25 @@
 
 //! Computed types for text properties.
 
-#[cfg(feature = "servo")]
-use crate::properties::StyleBuilder;
-use crate::values::computed::length::LengthPercentage;
-use crate::values::generics::NumberOrAuto;
+use crate::derives::*;
+use crate::values::computed::length::{Length, LengthPercentage};
 use crate::values::generics::text::{
-    GenericHyphenateLimitChars, GenericInitialLetter, GenericTextDecorationLength, GenericTextIndent,
+    GenericHyphenateLimitChars, GenericInitialLetter, GenericTextDecorationInset,
+    GenericTextDecorationLength, GenericTextIndent,
 };
+use crate::values::generics::NumberOrAuto;
 use crate::values::specified::text as specified;
 use crate::values::specified::text::{TextEmphasisFillMode, TextEmphasisShapeKeyword};
 use crate::values::{CSSFloat, CSSInteger};
 use crate::Zero;
 use std::fmt::{self, Write};
-use style_traits::{CssWriter, ToCss};
+use style_traits::{CssString, CssWriter, ToCss, ToTyped, TypedValue};
 
 pub use crate::values::specified::text::{
     HyphenateCharacter, LineBreak, MozControlCharacterVisibility, OverflowWrap, RubyPosition,
-    TextAlignLast, TextDecorationLine, TextDecorationSkipInk, TextEmphasisPosition, TextJustify,
-    TextOverflow, TextTransform, TextUnderlinePosition, WordBreak,
+    TextAlignLast, TextAutospace, TextBoxEdge, TextBoxTrim, TextDecorationLine,
+    TextDecorationSkipInk, TextEmphasisPosition, TextJustify, TextOverflow, TextTransform,
+    TextUnderlinePosition, WordBreak,
 };
 
 /// A computed value for the `initial-letter` property.
@@ -29,6 +30,9 @@ pub type InitialLetter = GenericInitialLetter<CSSFloat, CSSInteger>;
 
 /// Implements type for `text-decoration-thickness` property.
 pub type TextDecorationLength = GenericTextDecorationLength<LengthPercentage>;
+
+/// Implements type for `text-decoration-inset` property.
+pub type TextDecorationInset = GenericTextDecorationInset<Length>;
 
 /// The computed value of `text-align`.
 pub type TextAlign = specified::TextAlignKeyword;
@@ -93,6 +97,23 @@ impl ToCss for LetterSpacing {
     }
 }
 
+impl ToTyped for LetterSpacing {
+    // XXX The specification does not currently define how this property should
+    // be reified into Typed OM. The current behavior follows existing WPT
+    // coverage (letter-spacing.html). We may file a spec issue once more data
+    // is collected to update the Property-specific Rules section to align with
+    // observed test expectations.
+    fn to_typed(&self) -> Option<TypedValue> {
+        if self.0.is_zero() {
+            return Some(TypedValue::Keyword(CssString::from("normal")));
+        }
+        // XXX According to the test, should return TypedValue::Numeric with
+        // unit "px" or "percent" once that variant is available. Tracked in
+        // bug 1990419.
+        None
+    }
+}
+
 /// A computed value for the `word-spacing` property.
 pub type WordSpacing = LengthPercentage;
 
@@ -104,51 +125,8 @@ impl WordSpacing {
     }
 }
 
-/// A struct that represents the _used_ value of the text-decoration property.
-///
-/// FIXME(emilio): This is done at style resolution time, though probably should
-/// be done at layout time, otherwise we need to account for display: contents
-/// and similar stuff when we implement it.
-///
-/// FIXME(emilio): Also, should be just a bitfield instead of three bytes.
-#[derive(Clone, Copy, Debug, Default, MallocSizeOf, PartialEq, ToResolvedValue)]
-pub struct TextDecorationsInEffect {
-    /// Whether an underline is in effect.
-    pub underline: bool,
-    /// Whether an overline decoration is in effect.
-    pub overline: bool,
-    /// Whether a line-through style is in effect.
-    pub line_through: bool,
-}
-
-impl TextDecorationsInEffect {
-    /// Computes the text-decorations in effect for a given style.
-    #[cfg(feature = "servo")]
-    pub fn from_style(style: &StyleBuilder) -> Self {
-        // Start with no declarations if this is an atomic inline-level box;
-        // otherwise, start with the declarations in effect and add in the text
-        // decorations that this block specifies.
-        let mut result = if style.get_box().clone_display().is_atomic_inline_level() {
-            Self::default()
-        } else {
-            style
-                .get_parent_inherited_text()
-                .text_decorations_in_effect
-                .clone()
-        };
-
-        let line = style.get_text().clone_text_decoration_line();
-
-        result.underline |= line.contains(TextDecorationLine::UNDERLINE);
-        result.overline |= line.contains(TextDecorationLine::OVERLINE);
-        result.line_through |= line.contains(TextDecorationLine::LINE_THROUGH);
-
-        result
-    }
-}
-
 /// Computed value for the text-emphasis-style property
-#[derive(Clone, Debug, MallocSizeOf, PartialEq, ToCss, ToResolvedValue)]
+#[derive(Clone, Debug, MallocSizeOf, PartialEq, ToCss, ToResolvedValue, ToTyped)]
 #[allow(missing_docs)]
 #[repr(C, u8)]
 pub enum TextEmphasisStyle {

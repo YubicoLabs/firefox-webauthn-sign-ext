@@ -3,10 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "MediaElementEventRunners.h"
+
 #include <stdint.h>
 
 #include "MediaProfilerMarkers.h"
 #include "mozilla/Casting.h"
+#include "mozilla/FlowMarkers.h"
 #include "mozilla/ProfilerState.h"
 #include "mozilla/dom/HTMLMediaElement.h"
 #include "mozilla/dom/HTMLVideoElement.h"
@@ -18,7 +20,7 @@ extern mozilla::LazyLogModule gMediaElementEventsLog;
 
 namespace mozilla::dom {
 
-nsMediaEventRunner::nsMediaEventRunner(const nsAString& aName,
+nsMediaEventRunner::nsMediaEventRunner(const char* aName,
                                        HTMLMediaElement* aElement,
                                        const nsAString& aEventName)
     : mElement(aElement),
@@ -30,11 +32,11 @@ bool nsMediaEventRunner::IsCancelled() const {
   return !mElement || mElement->GetCurrentLoadID() != mLoadID;
 }
 
-nsresult nsMediaEventRunner::DispatchEvent(const nsAString& aName) {
+nsresult nsMediaEventRunner::FireEvent(const nsAString& aName) {
   nsresult rv = NS_OK;
   if (mElement) {
     ReportProfilerMarker();
-    rv = mElement->DispatchEvent(aName);
+    rv = RefPtr { mElement } -> FireEvent(aName);
   }
   return rv;
 }
@@ -48,41 +50,42 @@ void nsMediaEventRunner::ReportProfilerMarker() {
     RefPtr<TimeRanges> buffered = mElement->Buffered();
     if (buffered && buffered->Length() > 0) {
       for (size_t i = 0; i < buffered->Length(); ++i) {
-        profiler_add_marker(nsPrintfCString("%p:progress", mElement.get()),
-                            geckoprofiler::category::MEDIA_PLAYBACK, {},
-                            BufferedUpdateMarker{},
+        profiler_add_marker("progress", geckoprofiler::category::MEDIA_PLAYBACK,
+                            {}, BufferedUpdateMarker{},
                             AssertedCast<uint64_t>(buffered->Start(i) * 1000),
                             AssertedCast<uint64_t>(buffered->End(i) * 1000),
-                            GetElementDurationMs());
+                            GetElementDurationMs(),
+                            Flow::FromPointer(mElement.get()));
       }
     }
   } else if (mEventName.EqualsLiteral("resize")) {
     MOZ_ASSERT(mElement->HasVideo());
     auto mediaInfo = mElement->GetMediaInfo();
-    profiler_add_marker(nsPrintfCString("%p:resize", mElement.get()),
-                        geckoprofiler::category::MEDIA_PLAYBACK, {},
+    profiler_add_marker("resize", geckoprofiler::category::MEDIA_PLAYBACK, {},
                         VideoResizeMarker{}, mediaInfo.mVideo.mDisplay.width,
-                        mediaInfo.mVideo.mDisplay.height);
+                        mediaInfo.mVideo.mDisplay.height,
+                        Flow::FromPointer(mElement.get()));
   } else if (mEventName.EqualsLiteral("loadedmetadata")) {
     nsString src;
     mElement->GetCurrentSrc(src);
     auto mediaInfo = mElement->GetMediaInfo();
     profiler_add_marker(
-        nsPrintfCString("%p:loadedmetadata", mElement.get()),
-        geckoprofiler::category::MEDIA_PLAYBACK, {}, MetadataMarker{}, src,
+        "loadedmetadata", geckoprofiler::category::MEDIA_PLAYBACK, {},
+        MetadataMarker{}, src,
         mediaInfo.HasAudio() ? mediaInfo.mAudio.mMimeType : "none"_ns,
-        mediaInfo.HasVideo() ? mediaInfo.mVideo.mMimeType : "none"_ns);
+        mediaInfo.HasVideo() ? mediaInfo.mVideo.mMimeType : "none"_ns,
+        Flow::FromPointer(mElement.get()));
   } else if (mEventName.EqualsLiteral("error")) {
     auto* error = mElement->GetError();
     nsString message;
     error->GetMessage(message);
-    profiler_add_marker(nsPrintfCString("%p:error", mElement.get()),
-                        geckoprofiler::category::MEDIA_PLAYBACK, {},
-                        ErrorMarker{}, message);
+    profiler_add_marker("error", geckoprofiler::category::MEDIA_PLAYBACK, {},
+                        ErrorMarker{}, message,
+                        Flow::FromPointer(mElement.get()));
   } else {
-    nsPrintfCString markerName{"%p:", mElement.get()};
-    markerName += NS_ConvertUTF16toUTF8(mEventName);
-    PROFILER_MARKER_UNTYPED(markerName, MEDIA_PLAYBACK);
+    auto eventName = NS_ConvertUTF16toUTF8(mEventName);
+    PROFILER_MARKER(eventName, MEDIA_PLAYBACK, {}, FlowMarker,
+                    Flow::FromPointer(mElement.get()));
   }
 }
 
@@ -112,14 +115,14 @@ NS_INTERFACE_MAP_END
 
 NS_IMETHODIMP nsAsyncEventRunner::Run() {
   // Silently cancel if our load has been cancelled or element has been CCed.
-  return IsCancelled() ? NS_OK : DispatchEvent(mEventName);
+  return IsCancelled() ? NS_OK : FireEvent(mEventName);
 }
 
 nsResolveOrRejectPendingPlayPromisesRunner::
     nsResolveOrRejectPendingPlayPromisesRunner(
         HTMLMediaElement* aElement, nsTArray<RefPtr<PlayPromise>>&& aPromises,
         nsresult aError)
-    : nsMediaEventRunner(u"nsResolveOrRejectPendingPlayPromisesRunner"_ns,
+    : nsMediaEventRunner("nsResolveOrRejectPendingPlayPromisesRunner",
                          aElement),
       mPromises(std::move(aPromises)),
       mError(aError) {
@@ -145,7 +148,7 @@ NS_IMETHODIMP nsResolveOrRejectPendingPlayPromisesRunner::Run() {
 
 NS_IMETHODIMP nsNotifyAboutPlayingRunner::Run() {
   if (!IsCancelled()) {
-    DispatchEvent(u"playing"_ns);
+    FireEvent(u"playing"_ns);
   }
   return nsResolveOrRejectPendingPlayPromisesRunner::Run();
 }
@@ -168,9 +171,9 @@ NS_IMETHODIMP nsSourceErrorEventRunner::Run() {
   LOG_EVENT(LogLevel::Debug,
             ("%p Dispatching simple event source error", mElement.get()));
   if (profiler_is_collecting_markers()) {
-    profiler_add_marker(nsPrintfCString("%p:sourceerror", mElement.get()),
-                        geckoprofiler::category::MEDIA_PLAYBACK, {},
-                        ErrorMarker{}, mErrorDetails);
+    profiler_add_marker("sourceerror", geckoprofiler::category::MEDIA_PLAYBACK,
+                        {}, ErrorMarker{}, mErrorDetails,
+                        Flow::FromPointer(mElement.get()));
   }
   return nsContentUtils::DispatchTrustedEvent(mElement->OwnerDoc(), mSource,
                                               u"error"_ns, CanBubble::eNo,
@@ -192,7 +195,7 @@ NS_IMETHODIMP nsTimeupdateRunner::Run() {
   // of time then we end up spending all time handling just timeupdate events.
   // The spec is vague in this situation, so we choose to update time after we
   // dispatch the event in order to solve that issue.
-  nsresult rv = DispatchEvent(mEventName);
+  nsresult rv = FireEvent(mEventName);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     LOG_EVENT(LogLevel::Debug,
               ("%p Failed to dispatch 'timeupdate'", mElement.get()));
@@ -220,12 +223,12 @@ void nsTimeupdateRunner::ReportProfilerMarker() {
     return;
   }
   auto* videoElement = mElement->AsHTMLVideoElement();
-  profiler_add_marker(nsPrintfCString("%p:timeupdate", mElement.get()),
-                      geckoprofiler::category::MEDIA_PLAYBACK, {},
+  profiler_add_marker("timeupdate", geckoprofiler::category::MEDIA_PLAYBACK, {},
                       TimeUpdateMarker{},
                       AssertedCast<uint64_t>(mElement->CurrentTime() * 1000),
                       GetElementDurationMs(),
-                      videoElement ? videoElement->MozPaintedFrames() : 0);
+                      videoElement ? videoElement->MozPaintedFrames() : 0,
+                      Flow::FromPointer(mElement.get()));
 }
 
 #undef LOG_EVENT

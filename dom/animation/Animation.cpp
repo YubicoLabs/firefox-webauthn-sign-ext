@@ -6,30 +6,30 @@
 
 #include "Animation.h"
 
-#include "mozilla/Likely.h"
-#include "nsIFrame.h"
 #include "AnimationUtils.h"
+#include "ScrollTimelineAnimationTracker.h"
 #include "mozAutoDocUpdate.h"
+#include "mozilla/AnimationEventDispatcher.h"
+#include "mozilla/AnimationTarget.h"
+#include "mozilla/AutoRestore.h"
+#include "mozilla/CycleCollectedJSContext.h"
+#include "mozilla/DeclarationBlock.h"
+#include "mozilla/Likely.h"
+#include "mozilla/Maybe.h"  // For Maybe
+#include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/dom/AnimationBinding.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/DocumentInlines.h"
 #include "mozilla/dom/DocumentTimeline.h"
 #include "mozilla/dom/MutationObservers.h"
 #include "mozilla/dom/Promise.h"
-#include "mozilla/AnimationEventDispatcher.h"
-#include "mozilla/AnimationTarget.h"
-#include "mozilla/AutoRestore.h"
-#include "mozilla/CycleCollectedJSContext.h"
-#include "mozilla/DeclarationBlock.h"
-#include "mozilla/Maybe.h"  // For Maybe
-#include "mozilla/StaticPrefs_dom.h"
 #include "nsAnimationManager.h"  // For CSSAnimation
 #include "nsComputedDOMStyle.h"
-#include "nsDOMMutationObserver.h"    // For nsAutoAnimationMutationBatch
 #include "nsDOMCSSAttrDeclaration.h"  // For nsDOMCSSAttributeDeclaration
+#include "nsDOMMutationObserver.h"    // For nsAutoAnimationMutationBatch
+#include "nsIFrame.h"
 #include "nsThreadUtils.h"  // For nsRunnableMethod and nsRevocableEventPtr
 #include "nsTransitionManager.h"  // For CSSTransition
-#include "ScrollTimelineAnimationTracker.h"
 
 namespace mozilla::dom {
 
@@ -299,7 +299,7 @@ void Animation::SetTimelineNoUpdate(AnimationTimeline* aTimeline) {
 
     ApplyPendingPlaybackRate();
     Nullable<TimeDuration> seekTime;
-    if (mPlaybackRate >= 0.0) {
+    if (PlaybackRateInternal() >= 0.0) {
       seekTime.SetValue(TimeDuration());
     } else {
       seekTime.SetValue(TimeDuration(EffectEnd()));
@@ -378,7 +378,7 @@ void Animation::SetStartTime(const Nullable<TimeDuration>& aNewStartTime) {
   mResetCurrentTimeOnResume = false;
 
   if (!aNewStartTime.IsNull()) {
-    if (mPlaybackRate != 0.0) {
+    if (PlaybackRateInternal() != 0.0) {
       mHoldTime.SetNull();
     }
   } else {
@@ -411,8 +411,8 @@ Nullable<TimeDuration> Animation::GetCurrentTimeForHoldTime(
   if (mTimeline && !mStartTime.IsNull()) {
     Nullable<TimeDuration> timelineTime = mTimeline->GetCurrentTimeAsDuration();
     if (!timelineTime.IsNull()) {
-      result = CurrentTimeFromTimelineTime(timelineTime.Value(),
-                                           mStartTime.Value(), mPlaybackRate);
+      result = CurrentTimeFromTimelineTime(
+          timelineTime.Value(), mStartTime.Value(), PlaybackRateInternal());
     }
   }
   return result;
@@ -456,6 +456,38 @@ void Animation::SetCurrentTimeNoUpdate(const TimeDuration& aSeekTime) {
   }
 
   UpdateTiming(SeekFlag::DidSeek, SyncNotifyFlag::Async);
+}
+
+// https://drafts.csswg.org/web-animations-2/#the-overall-progress-of-an-animation
+Nullable<double> Animation::GetOverallProgress() const {
+  Nullable<double> result;
+  if (!mEffect) {
+    return result;
+  }
+  const Nullable<TimeDuration> currentTime = GetCurrentTimeAsDuration();
+  if (currentTime.IsNull()) {
+    return result;
+  }
+
+  const StickyTimeDuration endTime = EffectEnd();
+  if (endTime.IsZero()) {
+    if (currentTime.Value() < TimeDuration(0)) {
+      result.SetValue(0.0);
+    } else {
+      result.SetValue(1.0);
+    }
+    return result;
+  }
+
+  if (endTime == StickyTimeDuration::Forever()) {
+    result.SetValue(0.0);
+    return result;
+  }
+
+  auto overallProgress =
+      std::min(std::max(currentTime.Value() / endTime, 0.0), 1.0);
+  result.SetValue(overallProgress);
+  return result;
 }
 
 // https://drafts.csswg.org/web-animations/#set-the-playback-rate
@@ -685,7 +717,7 @@ void Animation::Finish(ErrorResult& aRv) {
 
   // Seek to the end
   TimeDuration limit =
-      mPlaybackRate > 0 ? TimeDuration(EffectEnd()) : TimeDuration(0);
+      PlaybackRateInternal() > 0 ? TimeDuration(EffectEnd()) : TimeDuration(0);
   bool didChange = GetCurrentTimeAsDuration() != Nullable<TimeDuration>(limit);
   SilentlySetCurrentTime(limit);
 
@@ -698,8 +730,9 @@ void Animation::Finish(ErrorResult& aRv) {
   // a substate of the running state).
   if (mStartTime.IsNull() && mTimeline &&
       !mTimeline->GetCurrentTimeAsDuration().IsNull()) {
-    mStartTime = StartTimeFromTimelineTime(
-        mTimeline->GetCurrentTimeAsDuration().Value(), limit, mPlaybackRate);
+    mStartTime =
+        StartTimeFromTimelineTime(mTimeline->GetCurrentTimeAsDuration().Value(),
+                                  limit, PlaybackRateInternal());
     didChange = true;
   }
 
@@ -741,7 +774,7 @@ void Animation::Reverse(ErrorResult& aRv) {
         "Can't reverse an animation associated with an inactive timeline");
   }
 
-  double effectivePlaybackRate = CurrentOrPendingPlaybackRate();
+  double effectivePlaybackRate = mPendingPlaybackRate.valueOr(mPlaybackRate);
 
   if (effectivePlaybackRate == 0.0) {
     return;
@@ -838,7 +871,10 @@ void Animation::CommitStyles(ErrorResult& aRv) {
   UniquePtr<StyleAnimationValueMap> animationValues(
       Servo_AnimationValueMap_Create());
   if (!presContext->EffectCompositor()->ComposeServoAnimationRuleForEffect(
-          *keyframeEffect, CascadeLevel(), animationValues.get())) {
+          *keyframeEffect, CascadeLevel(), animationValues.get(),
+          StaticPrefs::dom_animations_commit_styles_endpoint_inclusive()
+              ? EndpointBehavior::Inclusive
+              : EndpointBehavior::Exclusive)) {
     NS_WARNING("Failed to compose animation style to commit");
     return;
   }
@@ -870,7 +906,7 @@ void Animation::CommitStyles(ErrorResult& aRv) {
   // Set the animated styles
   bool changed = false;
   const AnimatedPropertyIDSet& properties = keyframeEffect->GetPropertySet();
-  for (const AnimatedPropertyID& property : properties) {
+  for (const CSSPropertyId& property : properties) {
     RefPtr<StyleAnimationValue> computedValue =
         Servo_AnimationValueMap_GetValue(animationValues.get(), &property)
             .Consume();
@@ -977,6 +1013,14 @@ bool Animation::TryTriggerNow() {
   return true;
 }
 
+double Animation::CurrentOrPendingPlaybackRate() const {
+  if (mPendingPlaybackRate.isSome()) {
+    return *mPendingPlaybackRate * AnimationsPlayBackRateMultiplier();
+  }
+
+  return PlaybackRateInternal();
+}
+
 TimeStamp Animation::AnimationTimeToTimeStamp(
     const StickyTimeDuration& aTime) const {
   // Initializes to null. Return the same object every time to benefit from
@@ -999,7 +1043,7 @@ TimeStamp Animation::AnimationTimeToTimeStamp(
   }
 
   // Check the time is convertible to a timestamp
-  if (aTime == TimeDuration::Forever() || mPlaybackRate == 0.0 ||
+  if (aTime == TimeDuration::Forever() || PlaybackRateInternal() == 0.0 ||
       mStartTime.IsNull()) {
     return result;
   }
@@ -1007,7 +1051,8 @@ TimeStamp Animation::AnimationTimeToTimeStamp(
   // Invert the standard relation:
   //   current time = (timeline time - start time) * playback rate
   TimeDuration timelineTime =
-      TimeDuration(aTime).MultDouble(1.0 / mPlaybackRate) + mStartTime.Value();
+      TimeDuration(aTime).MultDouble(1.0 / PlaybackRateInternal()) +
+      mStartTime.Value();
 
   result = mTimeline->ToTimeStamp(timelineTime);
   return result;
@@ -1026,13 +1071,15 @@ void Animation::SilentlySetCurrentTime(const TimeDuration& aSeekTime) {
   // CSSNumberish time values.
   // https://drafts.csswg.org/web-animations-2/#silently-set-the-current-time
 
+  // Check the time is convertible to a timestamp
   if (!mHoldTime.IsNull() || mStartTime.IsNull() || !mTimeline ||
-      mTimeline->GetCurrentTimeAsDuration().IsNull() || mPlaybackRate == 0.0) {
+      mTimeline->GetCurrentTimeAsDuration().IsNull() ||
+      PlaybackRateInternal() == 0.0) {
     mHoldTime.SetValue(aSeekTime);
   } else {
     mStartTime =
         StartTimeFromTimelineTime(mTimeline->GetCurrentTimeAsDuration().Value(),
-                                  aSeekTime, mPlaybackRate);
+                                  aSeekTime, PlaybackRateInternal());
   }
 
   if (!mTimeline || mTimeline->GetCurrentTimeAsDuration().IsNull()) {
@@ -1192,12 +1239,13 @@ void Animation::Remove() {
   QueuePlaybackEvent(nsGkAtoms::onremove, GetTimelineCurrentTimeAsTimeStamp());
 }
 
-bool Animation::HasLowerCompositeOrderThan(
+int32_t Animation::CompareCompositeOrder(
     const Maybe<EventContext>& aContext, const Animation& aOther,
-    const Maybe<EventContext>& aOtherContext) const {
+    const Maybe<EventContext>& aOtherContext,
+    nsContentUtils::NodeIndexCache& aCache) const {
   // 0. Object-equality case
   if (&aOther == this) {
-    return false;
+    return 0;
   }
 
   // 1. CSS Transitions sort lowest
@@ -1215,8 +1263,8 @@ bool Animation::HasLowerCompositeOrderThan(
     const auto* const otherTransition =
         asCSSTransitionForSorting(aOther, aOtherContext);
     if (thisTransition && otherTransition) {
-      return thisTransition->HasLowerCompositeOrderThan(
-          aContext, *otherTransition, aOtherContext);
+      return thisTransition->CompareCompositeOrder(aContext, *otherTransition,
+                                                   aOtherContext, aCache);
     }
     if (thisTransition || otherTransition) {
       // Cancelled transitions no longer have an owning element. To be strictly
@@ -1230,7 +1278,7 @@ bool Animation::HasLowerCompositeOrderThan(
       // (which is our only hard requirement until specs say otherwise).
       // Furthermore, we only reach here when we have events with equal
       // timestamps so this is an edge case we can probably ignore for now.
-      return thisTransition;
+      return thisTransition ? -1 : 1;
     }
   }
 
@@ -1244,10 +1292,10 @@ bool Animation::HasLowerCompositeOrderThan(
     auto thisAnimation = asCSSAnimationForSorting(*this);
     auto otherAnimation = asCSSAnimationForSorting(aOther);
     if (thisAnimation && otherAnimation) {
-      return thisAnimation->HasLowerCompositeOrderThan(*otherAnimation);
+      return thisAnimation->CompareCompositeOrder(*otherAnimation, aCache);
     }
     if (thisAnimation || otherAnimation) {
-      return thisAnimation;
+      return thisAnimation ? -1 : 1;
     }
   }
 
@@ -1260,7 +1308,7 @@ bool Animation::HasLowerCompositeOrderThan(
 
   // 3. Finally, generic animations sort by their position in the global
   // animation array.
-  return mAnimationIndex < aOther.mAnimationIndex;
+  return mAnimationIndex > aOther.mAnimationIndex ? 1 : -1;
 }
 
 void Animation::WillComposeStyle() {
@@ -1276,7 +1324,8 @@ void Animation::WillComposeStyle() {
 
 void Animation::ComposeStyle(
     StyleAnimationValueMap& aComposeResult,
-    const InvertibleAnimatedPropertyIDSet& aPropertiesToSkip) {
+    const InvertibleAnimatedPropertyIDSet& aPropertiesToSkip,
+    EndpointBehavior aEndpointBehavior) {
   if (!mEffect) {
     return;
   }
@@ -1324,13 +1373,14 @@ void Animation::ComposeStyle(
       }
       if (!timeToUse.IsNull()) {
         mHoldTime = CurrentTimeFromTimelineTime(
-            timeToUse.Value(), mStartTime.Value(), mPlaybackRate);
+            timeToUse.Value(), mStartTime.Value(), PlaybackRateInternal());
       }
     }
 
     KeyframeEffect* keyframeEffect = mEffect->AsKeyframeEffect();
     if (keyframeEffect) {
-      keyframeEffect->ComposeStyle(aComposeResult, aPropertiesToSkip);
+      keyframeEffect->ComposeStyle(aComposeResult, aPropertiesToSkip,
+                                   aEndpointBehavior);
     }
   }
 
@@ -1376,7 +1426,7 @@ static TimeStamp EnsurePaintIsScheduled(Document& aDoc) {
   if (!rd->IsInRefresh()) {
     return {};
   }
-  return rd->MostRecentRefresh(/* aEnsureTimerStarted = */ false);
+  return rd->MostRecentRefresh();
 }
 
 // https://drafts.csswg.org/web-animations/#play-an-animation
@@ -1498,7 +1548,7 @@ void Animation::Pause(ErrorResult& aRv) {
   Nullable<TimeDuration> seekTime;
   // If we are transitioning from idle, fill in the current time
   if (GetCurrentTimeAsDuration().IsNull()) {
-    if (mPlaybackRate >= 0.0) {
+    if (PlaybackRateInternal() >= 0.0) {
       seekTime.SetValue(TimeDuration(0));
     } else {
       if (EffectEnd() == TimeDuration::Forever()) {
@@ -1563,19 +1613,19 @@ void Animation::ResumeAt(const TimeDuration& aReadyTime) {
     // The hold time is set, so we don't need any special handling to preserve
     // the current time.
     ApplyPendingPlaybackRate();
-    mStartTime =
-        StartTimeFromTimelineTime(aReadyTime, mHoldTime.Value(), mPlaybackRate);
-    if (mPlaybackRate != 0) {
+    mStartTime = StartTimeFromTimelineTime(aReadyTime, mHoldTime.Value(),
+                                           PlaybackRateInternal());
+    if (PlaybackRateInternal() != 0) {
       mHoldTime.SetNull();
     }
   } else if (!mStartTime.IsNull() && mPendingPlaybackRate) {
     // Apply any pending playback rate, preserving the current time.
     TimeDuration currentTimeToMatch = CurrentTimeFromTimelineTime(
-        aReadyTime, mStartTime.Value(), mPlaybackRate);
+        aReadyTime, mStartTime.Value(), PlaybackRateInternal());
     ApplyPendingPlaybackRate();
     mStartTime = StartTimeFromTimelineTime(aReadyTime, currentTimeToMatch,
-                                           mPlaybackRate);
-    if (mPlaybackRate == 0) {
+                                           PlaybackRateInternal());
+    if (PlaybackRateInternal() == 0) {
       mHoldTime.SetValue(currentTimeToMatch);
     }
   }
@@ -1601,7 +1651,7 @@ void Animation::PauseAt(const TimeDuration& aReadyTime) {
 
   if (!mStartTime.IsNull() && mHoldTime.IsNull()) {
     mHoldTime = CurrentTimeFromTimelineTime(aReadyTime, mStartTime.Value(),
-                                            mPlaybackRate);
+                                            PlaybackRateInternal());
   }
   ApplyPendingPlaybackRate();
   mStartTime.SetNull();
@@ -1636,7 +1686,8 @@ void Animation::UpdateFinishedState(SeekFlag aSeekFlag,
 
   if (!unconstrainedCurrentTime.IsNull() && !mStartTime.IsNull() &&
       mPendingState == PendingState::NotPending) {
-    if (mPlaybackRate > 0.0 && unconstrainedCurrentTime.Value() >= effectEnd) {
+    if (PlaybackRateInternal() > 0.0 &&
+        unconstrainedCurrentTime.Value() >= effectEnd) {
       if (aSeekFlag == SeekFlag::DidSeek) {
         mHoldTime = unconstrainedCurrentTime;
       } else if (!mPreviousCurrentTime.IsNull()) {
@@ -1644,7 +1695,7 @@ void Animation::UpdateFinishedState(SeekFlag aSeekFlag,
       } else {
         mHoldTime.SetValue(effectEnd);
       }
-    } else if (mPlaybackRate < 0.0 &&
+    } else if (PlaybackRateInternal() < 0.0 &&
                unconstrainedCurrentTime.Value() <= TimeDuration()) {
       if (aSeekFlag == SeekFlag::DidSeek) {
         mHoldTime = unconstrainedCurrentTime;
@@ -1654,12 +1705,12 @@ void Animation::UpdateFinishedState(SeekFlag aSeekFlag,
       } else {
         mHoldTime.SetValue(0);
       }
-    } else if (mPlaybackRate != 0.0 && mTimeline &&
+    } else if (PlaybackRateInternal() != 0.0 && mTimeline &&
                !mTimeline->GetCurrentTimeAsDuration().IsNull()) {
       if (aSeekFlag == SeekFlag::DidSeek && !mHoldTime.IsNull()) {
         mStartTime = StartTimeFromTimelineTime(
             mTimeline->GetCurrentTimeAsDuration().Value(), mHoldTime.Value(),
-            mPlaybackRate);
+            PlaybackRateInternal());
       }
       mHoldTime.SetNull();
     }
@@ -1691,7 +1742,8 @@ void Animation::UpdateEffect(PostRestyleMode aPostRestyle) {
 void Animation::FlushUnanimatedStyle() const {
   if (Document* doc = GetRenderedDocument()) {
     doc->FlushPendingNotifications(
-        ChangesToFlush(FlushType::Style, false /* flush animations */));
+        ChangesToFlush(FlushType::Style, /* aFlushAnimations = */ false,
+                       /* aUpdateRelevancy = */ false));
   }
 }
 
@@ -1999,6 +2051,17 @@ StickyTimeDuration Animation::IntervalEndTime(
   return std::max(std::min(effectEnd - mEffect->NormalizedTiming().Delay(),
                            aActiveDuration),
                   zeroDuration);
+}
+
+double Animation::AnimationsPlayBackRateMultiplier() const {
+  if (mEffect && mEffect->AsKeyframeEffect()) {
+    return mEffect->AsKeyframeEffect()->AnimationsPlayBackRateMultiplier();
+  }
+  return 1.0;
+}
+
+double Animation::PlaybackRateInternal() const {
+  return mPlaybackRate * AnimationsPlayBackRateMultiplier();
 }
 
 }  // namespace mozilla::dom

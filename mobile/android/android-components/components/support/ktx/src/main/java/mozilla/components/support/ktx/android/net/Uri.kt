@@ -11,6 +11,7 @@ import android.os.Build
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import androidx.annotation.VisibleForTesting
+import androidx.core.net.toUri
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.ktx.kotlin.sanitizeFileName
 import java.io.File
@@ -146,14 +147,17 @@ fun Uri.toFileUri(context: Context, dirToCopy: String = "/temps"): Uri {
     }
 
     val temporalFile = File(cacheUploadDirectory, getFileName(contentResolver))
+    @Suppress("TooGenericExceptionCaught")
     try {
         contentResolver.openInputStream(this)!!.use { inStream ->
             copyFile(temporalFile, inStream)
         }
     } catch (e: IOException) {
         Logger("Uri.kt").warn("Could not convert uri to file uri", e)
+    } catch (e: RuntimeException) {
+        Logger("Uri.kt").warn("Could not access file from uri", e)
     }
-    return Uri.parse("file:///${Uri.encode(temporalFile.absolutePath)}")
+    return "file:///${Uri.encode(temporalFile.absolutePath)}".toUri()
 }
 
 @VisibleForTesting
@@ -204,10 +208,13 @@ fun Uri.isReadable(contentResolver: ContentResolver): Boolean {
         val isReadable = contentResolver.query(this, projection, null, null, null)?.use {
             true
         } ?: false
-        Logger.debug("Read permission was ${if (!isReadable) "not" else ""}granted on this URI")
+        Logger.debug("Read permission was ${if (!isReadable) "not" else ""} granted on this URI")
         return isReadable
     } catch (e: SecurityException) {
         Logger.debug("Read permission was not granted on this URI", e)
+        return false
+    } catch (e: IllegalStateException) {
+        Logger.debug("Unable to query URI (IllegalStateException)", e)
         return false
     }
 }

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {homedir} from 'os';
-import {join} from 'path';
+import {homedir} from 'node:os';
+import {join} from 'node:path';
 
 import {cosmiconfigSync} from 'cosmiconfig';
 import type {
@@ -119,7 +119,7 @@ export const getConfiguration = (): Configuration => {
   const result = cosmiconfigSync('puppeteer', {
     searchStrategy: 'global',
   }).search();
-  const configuration: Configuration = result ? result.config : {};
+  const configuration: Configuration = result ? {...result.config} : {};
 
   configuration.logLevel = getLogLevel(
     process.env['PUPPETEER_LOGLEVEL'] ?? configuration.logLevel,

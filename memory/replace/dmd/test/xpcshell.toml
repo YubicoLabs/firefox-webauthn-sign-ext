@@ -1,4 +1,7 @@
 [DEFAULT]
+run-if = [
+  "os != 'android'",
+]
 support-files = [
   "basic-scan-32-expected.txt",
   "basic-scan-64-expected.txt",
@@ -32,4 +35,3 @@ support-files = [
 
 ["test_dmd.js"]
 dmd = true
-skip-if = ["!(os=='linux' || os=='mac' || (os=='win' && !pgo))"]

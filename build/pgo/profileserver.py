@@ -5,14 +5,13 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import glob
-import json
 import os
 import subprocess
 import sys
 
 import mozcrash
 from mozbuild.base import BinaryNotFoundException, MozbuildObject
-from mozfile import TemporaryDirectory
+from mozfile import TemporaryDirectory, json
 from mozhttpd import MozHttpd
 from mozprofile import FirefoxProfile, Preferences
 from mozprofile.permissions import ServerLocations
@@ -71,7 +70,7 @@ if __name__ == "__main__":
         try:
             binary = build.get_binary_path(where="staged-package")
         except BinaryNotFoundException as e:
-            print("{}\n\n{}\n".format(e, e.help()))
+            print(f"{e}\n\n{e.help()}\n")
             sys.exit(1)
     binary = os.path.normpath(os.path.abspath(binary))
 
@@ -104,7 +103,7 @@ if __name__ == "__main__":
     with TemporaryDirectory() as profilePath:
         # TODO: refactor this into mozprofile
         profile_data_dir = os.path.join(build.topsrcdir, "testing", "profiles")
-        with open(os.path.join(profile_data_dir, "profiles.json"), "r") as fh:
+        with open(os.path.join(profile_data_dir, "profiles.json")) as fh:
             base_profiles = json.load(fh)["profileserver"]
 
         prefpaths = [
@@ -215,7 +214,7 @@ if __name__ == "__main__":
                 with open(log) as f:
                     for line in f.readlines():
                         if "LLVM Profile Error" in line:
-                            print("Error [{}]: '{}'".format(log, line.strip()))
+                            print(f"Error [{log}]: '{line.strip()}'")
                             should_err = True
 
             if should_err:

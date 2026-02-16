@@ -35,7 +35,9 @@ data class WebCompatInfoDto(
      * WebCompat anti-tracking data associated with the current tab.
      *
      * @property blockList The blocklist string.
+     * @property blockedOrigins The list of URLs currently blocked by ETP.
      * @property btpHasPurgedSite Whether the current tab has recently been purged by Bounce Tracking Protection.
+     * @property etpCategory The current ETP category.
      * @property hasMixedActiveContentBlocked Whether the current tab has mixed active content blocked.
      * @property hasMixedDisplayContentBlocked Whether the current tab has mixed display content blocked.
      * @property hasTrackingContentBlocked Whether the current tab has tracking content blocked.
@@ -44,7 +46,9 @@ data class WebCompatInfoDto(
     @Serializable
     data class WebCompatAntiTrackingDto(
         val blockList: String,
+        val blockedOrigins: List<String>,
         val btpHasPurgedSite: Boolean,
+        val etpCategory: String,
         val hasMixedActiveContentBlocked: Boolean,
         val hasMixedDisplayContentBlocked: Boolean,
         val hasTrackingContentBlocked: Boolean,
@@ -54,6 +58,7 @@ data class WebCompatInfoDto(
     /**
      * WebCompat browser data.
      *
+     * @property addons The addon data.
      * @property app The app data.
      * @property graphics The graphics data.
      * @property locales The locales data.
@@ -62,12 +67,28 @@ data class WebCompatInfoDto(
      */
     @Serializable
     data class WebCompatBrowserDto(
+        val addons: List<AddonDto>,
         val app: AppDto? = null,
         val graphics: GraphicsDto? = null,
         val locales: List<String>,
         val platform: PlatformDto,
         val prefs: PrefsDto,
     ) {
+        /**
+         * WebCompat addon data.
+         *
+         * @property id The addon's id.
+         * @property name The addon's name.
+         * @property temporary Boolean, whether the add-on is temporarily installed.
+         * @property version The addon's version.
+         */
+        @Serializable
+        data class AddonDto(
+            val id: String,
+            val name: String,
+            val temporary: Boolean,
+            val version: String,
+        )
 
         /**
          * WebCompat app data.

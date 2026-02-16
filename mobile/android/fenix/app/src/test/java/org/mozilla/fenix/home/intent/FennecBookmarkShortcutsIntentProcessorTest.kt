@@ -5,7 +5,7 @@
 package org.mozilla.fenix.home.intent
 
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import io.mockk.Called
 import io.mockk.every
 import io.mockk.mockk
@@ -20,10 +20,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
 import org.mozilla.fenix.home.intent.FennecBookmarkShortcutsIntentProcessor.Companion.ACTION_FENNEC_HOMESCREEN_SHORTCUT
+import org.robolectric.RobolectricTestRunner
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class FennecBookmarkShortcutsIntentProcessorTest {
     private val addNewTabUseCase = mockk<TabsUseCases.AddNewTabUseCase>(relaxed = true)
 
@@ -31,7 +31,7 @@ class FennecBookmarkShortcutsIntentProcessorTest {
     fun `do not process blank Intents`() = runTest {
         val processor = FennecBookmarkShortcutsIntentProcessor(addNewTabUseCase)
         val fennecShortcutsIntent = Intent(ACTION_FENNEC_HOMESCREEN_SHORTCUT)
-        fennecShortcutsIntent.data = Uri.parse("http://mozilla.org")
+        fennecShortcutsIntent.data = "http://mozilla.org".toUri()
 
         val wasEmptyIntentProcessed = processor.process(Intent())
 
@@ -47,7 +47,7 @@ class FennecBookmarkShortcutsIntentProcessorTest {
         val processor = FennecBookmarkShortcutsIntentProcessor(addNewTabUseCase)
         val fennecShortcutsIntent = Intent(ACTION_FENNEC_HOMESCREEN_SHORTCUT)
         val testUrl = "http://mozilla.org"
-        fennecShortcutsIntent.data = Uri.parse(testUrl)
+        fennecShortcutsIntent.data = testUrl.toUri()
 
         every {
             addNewTabUseCase(

@@ -15,7 +15,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "mozilla/Alignment.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/MaybeStorageBase.h"
@@ -35,9 +34,7 @@ namespace mozilla {
 
 struct Nothing {};
 
-inline constexpr bool operator==(const Nothing&, const Nothing&) {
-  return true;
-}
+constexpr bool operator==(const Nothing&, const Nothing&) { return true; }
 
 template <class T>
 class Maybe;
@@ -149,7 +146,7 @@ class Maybe_CopyMove_Enabler;
   }
 
 template <typename T>
-class Maybe_CopyMove_Enabler<T, true, true, true> {
+class MOZ_TRIVIAL_ABI Maybe_CopyMove_Enabler<T, true, true, true> {
  public:
   Maybe_CopyMove_Enabler() = default;
 
@@ -168,7 +165,7 @@ class Maybe_CopyMove_Enabler<T, true, true, true> {
 };
 
 template <typename T>
-class Maybe_CopyMove_Enabler<T, true, false, true> {
+class MOZ_TRIVIAL_ABI Maybe_CopyMove_Enabler<T, true, false, true> {
  public:
   Maybe_CopyMove_Enabler() = default;
 
@@ -276,10 +273,16 @@ struct MaybeStorage<T, false> : MaybeStorageBase<T> {
   }
 };
 
+#ifdef __GNUC__
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wunused-value"
+#endif
 template <typename T>
 struct MaybeStorage<T, true> : MaybeStorageBase<T> {
  protected:
   char mIsSome = false;  // not bool -- guarantees minimal space consumption
+  // Make the padding explicit to help compiler optimization.
+  char padding[alignof(MaybeStorageBase<T>) - sizeof(char)] = {};
 
   constexpr MaybeStorage() = default;
   constexpr explicit MaybeStorage(const T& aVal)
@@ -292,6 +295,9 @@ struct MaybeStorage<T, true> : MaybeStorageBase<T> {
       : MaybeStorageBase<T>{std::in_place, std::forward<Args>(aArgs)...},
         mIsSome{true} {}
 };
+#ifdef __GNUC__
+#  pragma GCC diagnostic pop
+#endif
 
 template <typename T>
 struct IsMaybeImpl : std::false_type {};
@@ -304,8 +310,7 @@ using IsMaybe = IsMaybeImpl<std::decay_t<T>>;
 
 }  // namespace detail
 
-template <typename T, typename U = typename std::remove_cv<
-                          typename std::remove_reference<T>::type>::type>
+template <typename T, typename U = std::remove_cv_t<std::remove_reference_t<T>>>
 constexpr Maybe<U> Some(T&& aValue);
 
 /*
@@ -360,7 +365,7 @@ constexpr Maybe<U> Some(T&& aValue);
  *     functions |Some()| and |Nothing()|.
  */
 template <class T>
-class MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS Maybe
+class MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS MOZ_GSL_OWNER Maybe
     : private detail::MaybeStorage<T>,
       public detail::Maybe_CopyMove_Enabler<T> {
   template <typename, bool, bool, bool>
@@ -575,23 +580,24 @@ class MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS Maybe
   constexpr const T* operator->() const;
 
   /* Returns the contents of this Maybe<T> by ref. Unsafe unless |isSome()|. */
-  constexpr T& ref() &;
-  constexpr const T& ref() const&;
-  constexpr T&& ref() &&;
-  constexpr const T&& ref() const&&;
+  constexpr T& ref() & MOZ_LIFETIME_BOUND;
+  constexpr const T& ref() const& MOZ_LIFETIME_BOUND;
+  constexpr T&& ref() && MOZ_LIFETIME_BOUND;
+  constexpr const T&& ref() const&& MOZ_LIFETIME_BOUND;
 
   /*
    * Returns the contents of this Maybe<T> by ref. If |isNothing()|, returns
    * the default value provided.
    */
-  constexpr T& refOr(T& aDefault) {
+  constexpr T& refOr(T& aDefault MOZ_LIFETIME_BOUND) MOZ_LIFETIME_BOUND {
     if (isSome()) {
       return ref();
     }
     return aDefault;
   }
 
-  constexpr const T& refOr(const T& aDefault) const {
+  constexpr const T& refOr(const T& aDefault MOZ_LIFETIME_BOUND) const
+      MOZ_LIFETIME_BOUND {
     if (isSome()) {
       return ref();
     }
@@ -618,10 +624,10 @@ class MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS Maybe
     return aFunc();
   }
 
-  constexpr T& operator*() &;
-  constexpr const T& operator*() const&;
-  constexpr T&& operator*() &&;
-  constexpr const T&& operator*() const&&;
+  constexpr T& operator*() & MOZ_LIFETIME_BOUND;
+  constexpr const T& operator*() const& MOZ_LIFETIME_BOUND;
+  constexpr T&& operator*() && MOZ_LIFETIME_BOUND;
+  constexpr const T&& operator*() const&& MOZ_LIFETIME_BOUND;
 
   /* If |isSome()|, runs the provided function or functor on the contents of
    * this Maybe. */
@@ -796,6 +802,55 @@ class MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS Maybe
     }
     return std::invoke(std::forward<Func>(aFunc));
   }
+
+  /* begin() and end() implementation */
+ private:
+  template <typename U>
+  struct Iterator {
+    using iterator_type = Iterator<U>;
+    using value_type = U;
+    using difference_type = std::ptrdiff_t;
+    using reference = value_type&;
+    using pointer = value_type*;
+    using iterator_category = std::forward_iterator_tag;
+
+    constexpr Iterator() = default;
+    constexpr explicit Iterator(pointer aValue) : mValue(aValue) {}
+
+    constexpr reference operator*() const { return *mValue; };
+
+    constexpr pointer operator->() const { return mValue; }
+
+    constexpr iterator_type& operator++() {
+      mValue = nullptr;
+      return *this;
+    }
+
+    constexpr iterator_type operator++(int) {
+      iterator_type it{mValue};
+      mValue = nullptr;
+      return it;
+    }
+
+    constexpr auto operator<=>(const Iterator&) const = default;
+
+   private:
+    pointer mValue;
+  };
+
+ public:
+  using iterator = Iterator<T>;
+  using const_iterator = Iterator<const T>;
+
+  constexpr iterator begin() { return iterator{ptrOr(nullptr)}; }
+  constexpr const_iterator begin() const {
+    return const_iterator{ptrOr(nullptr)};
+  }
+  constexpr const_iterator cbegin() const { return begin(); }
+
+  constexpr iterator end() { return iterator{nullptr}; }
+  constexpr const_iterator end() const { return const_iterator{nullptr}; }
+  constexpr const_iterator cend() const { return end(); }
 
   /* If |isSome()|, empties this Maybe and destroys its contents. */
   constexpr void reset() {

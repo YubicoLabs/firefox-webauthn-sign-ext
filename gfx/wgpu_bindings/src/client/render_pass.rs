@@ -30,6 +30,44 @@ impl<T> FfiOption<T> {
             Self::None => None,
         }
     }
+
+    pub fn as_ref(&self) -> std::option::Option<&T> {
+        match *self {
+            Self::Some(ref value) => Some(value),
+            Self::None => None,
+        }
+    }
+}
+
+/// FFI-safe analogue of [`wgc::command::RenderPassColorAttachment`].
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct FfiRenderPassColorAttachment {
+    pub view: id::TextureViewId,
+    pub depth_slice: FfiOption<u32>,
+    pub resolve_target: Option<id::TextureViewId>,
+    pub load_op: wgc::command::LoadOp<wgt::Color>,
+    pub store_op: wgc::command::StoreOp,
+}
+
+impl FfiRenderPassColorAttachment {
+    pub(crate) fn to_wgpu(self) -> wgc::command::RenderPassColorAttachment {
+        let Self {
+            view,
+            depth_slice,
+            resolve_target,
+            load_op,
+            store_op,
+        } = self;
+
+        wgc::command::RenderPassColorAttachment {
+            view,
+            depth_slice: depth_slice.to_std(),
+            resolve_target,
+            load_op,
+            store_op,
+        }
+    }
 }
 
 /// FFI-safe analogue of [`wgc::command::RenderPassDepthStencilAttachment`].
@@ -42,7 +80,9 @@ pub struct RenderPassDepthStencilAttachment {
 }
 
 impl RenderPassDepthStencilAttachment {
-    pub(crate) fn to_wgpu(self) -> wgc::command::RenderPassDepthStencilAttachment {
+    pub(crate) fn to_wgpu(
+        self,
+    ) -> wgc::command::RenderPassDepthStencilAttachment<id::TextureViewId> {
         let Self {
             view,
             depth,
@@ -112,6 +152,7 @@ impl<V1, V2> MapClearValue<V1, V2> for wgc::command::LoadOp<V1> {
         match self {
             Self::Clear(value) => wgc::command::LoadOp::Clear(f(value)),
             Self::Load => wgc::command::LoadOp::Load,
+            Self::DontCare(token) => wgc::command::LoadOp::DontCare(token),
         }
     }
 }

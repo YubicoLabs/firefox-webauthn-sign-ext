@@ -11,15 +11,19 @@ import org.mozilla.fenix.helpers.AppAndSystemHelper.runWithCondition
 import org.mozilla.fenix.helpers.AppAndSystemHelper.runWithLauncherIntent
 import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.TestSetup
+import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
 import org.mozilla.fenix.ui.robots.homeScreen
 
 class OnboardingTest : TestSetup() {
 
     @get:Rule
-    val activityTestRule =
+    val composeTestRule =
         AndroidComposeTestRule(
             HomeActivityIntentTestRule.withDefaultSettingsOverrides(launchActivity = false),
         ) { it.activity }
+
+    @get:Rule
+    val memoryLeaksRule = DetectMemoryLeaksRule()
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2122321
     @Test
@@ -27,9 +31,9 @@ class OnboardingTest : TestSetup() {
         // Run UI test only on devices with Android version lower than 10
         // because on Android 10 and above, the default browser dialog is shown and the first onboarding card is skipped
         runWithCondition(Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            runWithLauncherIntent(activityTestRule) {
-                homeScreen {
-                    verifyFirstOnboardingCard(activityTestRule)
+            runWithLauncherIntent(composeTestRule) {
+                homeScreen(composeTestRule) {
+                    verifyFirstOnboardingCard()
                 }
             }
         }
@@ -41,15 +45,15 @@ class OnboardingTest : TestSetup() {
         // Run UI test only on devices with Android version lower than 10
         // because on Android 10 and above, the default browser dialog is shown and the first onboarding card is skipped
         runWithCondition(Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            runWithLauncherIntent(activityTestRule) {
-                homeScreen {
-                    clickDefaultCardNotNowOnboardingButton(activityTestRule)
-                    verifySecondOnboardingCard(activityTestRule)
+            runWithLauncherIntent(composeTestRule) {
+                homeScreen(composeTestRule) {
+                    clickDefaultCardNotNowOnboardingButton()
+                    verifySecondOnboardingCard()
                     swipeSecondOnboardingCardToRight()
-                }.clickSetAsDefaultBrowserOnboardingButton(activityTestRule) {
+                }.clickSetAsDefaultBrowserOnboardingButton {
                     verifyAndroidDefaultAppsMenuAppears()
-                }.goBackToOnboardingScreen {
-                    verifySecondOnboardingCard(activityTestRule)
+                }.goBackToOnboardingScreen(composeTestRule) {
+                    verifySecondOnboardingCard()
                 }
             }
         }
@@ -58,18 +62,15 @@ class OnboardingTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2122343
     @Test
     fun verifySecondOnboardingCardItemsTest() {
-        activityTestRule.activityRule.applySettingsExceptions {
-            it.isSetAsDefaultBrowserPromptEnabled = true
-        }
-        runWithLauncherIntent(activityTestRule) {
-            homeScreen {
+        runWithLauncherIntent(composeTestRule) {
+            homeScreen(composeTestRule) {
                 // Check if the device is running on Android version lower than 10
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                     // If true, click the "Not Now" button from the first onboarding card
-                    clickDefaultCardNotNowOnboardingButton(activityTestRule)
+                    clickDefaultCardNotNowOnboardingButton()
                 }
                 dismissSetAsDefaultBrowserOnboardingDialog()
-                verifySecondOnboardingCard(activityTestRule)
+                verifySecondOnboardingCard()
             }
         }
     }
@@ -78,21 +79,18 @@ class OnboardingTest : TestSetup() {
     @SmokeTest
     @Test
     fun verifyThirdOnboardingCardSignInFunctionalityTest() {
-        activityTestRule.activityRule.applySettingsExceptions {
-            it.isSetAsDefaultBrowserPromptEnabled = true
-        }
-        runWithLauncherIntent(activityTestRule) {
-            homeScreen {
+        runWithLauncherIntent(composeTestRule) {
+            homeScreen(composeTestRule) {
                 // Check if the device is running on Android version lower than 10
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                     // If true, click the "Not Now" button from the first onboarding card
-                    clickDefaultCardNotNowOnboardingButton(activityTestRule)
+                    clickDefaultCardNotNowOnboardingButton()
                 }
                 dismissSetAsDefaultBrowserOnboardingDialog()
-                verifySecondOnboardingCard(activityTestRule)
-                clickAddSearchWidgetNotNowOnboardingButton(activityTestRule)
-                verifyThirdOnboardingCard(activityTestRule)
-            }.clickSignInOnboardingButton(activityTestRule) {
+                verifySecondOnboardingCard()
+                clickAddSearchWidgetNotNowOnboardingButton()
+                verifyThirdOnboardingCard()
+            }.clickSignInOnboardingButton {
                 verifyTurnOnSyncMenu()
             }
         }
@@ -103,11 +101,8 @@ class OnboardingTest : TestSetup() {
     @SmokeTest
     @Test
     fun verifySetAsDefaultBrowserDialogWhileFirefoxIsNotSetAsDefaultBrowserTest() {
-        activityTestRule.activityRule.applySettingsExceptions {
-            it.isSetAsDefaultBrowserPromptEnabled = true
-        }
-        runWithLauncherIntent(activityTestRule) {
-            homeScreen {
+        runWithLauncherIntent(composeTestRule) {
+            homeScreen(composeTestRule) {
                 verifySetAsDefaultBrowserDialogWhileFirefoxIsNotSetAsDefaultBrowser()
             }
         }

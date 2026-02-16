@@ -4,7 +4,6 @@
 import argparse
 import os
 
-import six
 from mozlog.commandline import add_logging_group
 
 (FIREFOX, CHROME, SAFARI, SAFARI_TP, CHROMIUM_RELEASE) = DESKTOP_APPS = [
@@ -23,6 +22,8 @@ from mozlog.commandline import add_logging_group
     "chrome-m",
     "cstm-car-m",
 ]
+ANDROID_APPS = FIREFOX_ANDROID_APPS + CHROME_ANDROID_APPS
+
 FIREFOX_APPS = FIREFOX_ANDROID_APPS + [FIREFOX]
 
 CHROMIUM_DISTROS = [CHROME, CHROMIUM_RELEASE]
@@ -186,10 +187,11 @@ def create_parser(mach_interface=False):
         "--gecko-profile",
         action="store_true",
         dest="gecko_profile",
-        help="Profile the run and out-put the results in $MOZ_UPLOAD_DIR. "
+        help="Profile the run and output the results in $MOZ_UPLOAD_DIR. "
         "After talos is finished, profiler.firefox.com will be launched in Firefox "
         "so you can analyze the local profiles. To disable auto-launching of "
-        "profiler.firefox.com, set the DISABLE_PROFILE_LAUNCH=1 env var.",
+        "profiler.firefox.com, set the DISABLE_PROFILE_LAUNCH=1 env var. "
+        "Copy paste the parameters used in this profiling run directly from about:profiling in Nightly.",
     )
     add_arg(
         "--gecko-profile-entries",
@@ -254,20 +256,24 @@ def create_parser(mach_interface=False):
         default=None,
         help="How long to wait (ms) after browser start-up before starting the tests",
     )
-    add_arg(
-        "--browser-cycles",
-        dest="browser_cycles",
-        type=int,
-        help="The number of times a cold load test is repeated (for cold load tests only, "
-        "where the browser is shutdown and restarted between test iterations)",
-    ),
-    add_arg(
-        "--project",
-        dest="project",
-        type=str,
-        default="mozilla-central",
-        help="Project name (try, mozilla-central, etc.)",
-    ),
+    (
+        add_arg(
+            "--browser-cycles",
+            dest="browser_cycles",
+            type=int,
+            help="The number of times a cold load test is repeated (for cold load tests only, "
+            "where the browser is shutdown and restarted between test iterations)",
+        ),
+    )
+    (
+        add_arg(
+            "--project",
+            dest="project",
+            type=str,
+            default="mozilla-central",
+            help="Project name (try, mozilla-central, etc.)",
+        ),
+    )
     add_arg(
         "--test-url-params",
         dest="test_url_params",
@@ -651,7 +657,7 @@ class _StopAction(argparse.Action):
         default=argparse.SUPPRESS,
         help=None,
     ):
-        super(_StopAction, self).__init__(
+        super().__init__(
             option_strings=option_strings,
             dest=dest,
             default=default,
@@ -662,7 +668,7 @@ class _StopAction(argparse.Action):
 
 class _PrintTests(_StopAction):
     def __init__(self, integrated_apps=INTEGRATED_APPS, *args, **kwargs):
-        super(_PrintTests, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.integrated_apps = integrated_apps
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -715,13 +721,13 @@ class _PrintTests(_StopAction):
                         subtest = next_test["name"]
                         measure = next_test.get("measure")
                         if measure is not None:
-                            subtest = "{0} ({1})".format(
+                            subtest = "{} ({})".format(
                                 subtest, measure.replace("\n", ", ")
                             )
                         test_list[suite]["subtests"].append(subtest)
 
             # print the list in a nice, readable format
-            for key in sorted(six.iterkeys(test_list)):
+            for key in sorted(test_list.keys()):
                 print("\n%s" % key)
                 print("  type: %s" % test_list[key]["type"])
                 if len(test_list[key]["subtests"]) != 0:

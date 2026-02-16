@@ -38,6 +38,19 @@ function getURL() {
   return url;
 }
 
+function getAddonName() {
+  var url = document.documentURI;
+  var match = url.match(/&a=([^&]+)/);
+
+  // match == null if not found; if so, return an empty string
+  // instead of what would turn out to be portions of the URI
+  if (!match) {
+    return "";
+  }
+
+  return decodeURIComponent(match[1]);
+}
+
 /**
  * Check whether this warning page is overridable or not, in which case
  * the "ignore the risk" suggestion in the error description
@@ -67,86 +80,125 @@ function onClickSeeDetails() {
 }
 
 function initPage() {
-  var error = "";
-  switch (getErrorCode()) {
-    case "malwareBlocked":
-      error = "malware";
-      break;
-    case "deceptiveBlocked":
-      error = "phishing";
-      break;
-    case "unwantedBlocked":
-      error = "unwanted";
-      break;
-    case "harmfulBlocked":
-      error = "harmful";
-      break;
-    default:
-      return;
+  const errorMap = {
+    malwareBlocked: "malware",
+    deceptiveBlocked: "phishing",
+    unwantedBlocked: "unwanted",
+    harmfulBlocked: "harmful",
+    addonBlocked: "addon",
+  };
+  const error = errorMap[getErrorCode()];
+  if (error === undefined) {
+    return;
   }
+
+  const messageIDs = {
+    malware: {
+      title: "safeb-blocked-malware-page-title",
+      shortDesc: "safeb-blocked-malware-page-short-desc",
+      innerDescOverride: "safeb-blocked-malware-page-error-desc-override-sumo",
+      innerDescNoOverride:
+        "safeb-blocked-malware-page-error-desc-no-override-sumo",
+      learnMore: "safeb-blocked-malware-page-learn-more-sumo",
+    },
+    phishing: {
+      title: "safeb-blocked-phishing-page-title",
+      shortDesc: "safeb-blocked-phishing-page-short-desc",
+      innerDescOverride: "safeb-blocked-phishing-page-error-desc-override",
+      innerDescNoOverride: "safeb-blocked-phishing-page-error-desc-no-override",
+      learnMore: "safeb-blocked-phishing-page-learn-more",
+    },
+    unwanted: {
+      title: "safeb-blocked-unwanted-page-title",
+      shortDesc: "safeb-blocked-unwanted-page-short-desc",
+      innerDescOverride: "safeb-blocked-unwanted-page-error-desc-override",
+      innerDescNoOverride: "safeb-blocked-unwanted-page-error-desc-no-override",
+      learnMore: "safeb-blocked-unwanted-page-learn-more",
+    },
+    harmful: {
+      title: "safeb-blocked-harmful-page-title",
+      shortDesc: "safeb-blocked-harmful-page-short-desc",
+      innerDescOverride: "safeb-blocked-harmful-page-error-desc-override",
+      innerDescNoOverride: "safeb-blocked-harmful-page-error-desc-no-override",
+      learnMore: "safeb-blocked-harmful-page-learn-more",
+    },
+    addon: {
+      title: "safeb-blocked-addon-page-title",
+      shortDesc: "safeb-blocked-addon-page-short-desc",
+      innerDescOverride: [
+        "safeb-blocked-addon-page-error-desc-override",
+        "safeb-blocked-addon-page-error-desc2-override",
+        "",
+        "safeb-blocked-addon-page-error-desc3-override",
+        "safeb-blocked-addon-page-error-desc4-override",
+      ],
+      innerDescNoOverride: [
+        "safeb-blocked-addon-page-error-desc-override",
+        "safeb-blocked-addon-page-error-desc2-override",
+        "",
+        "safeb-blocked-addon-page-error-desc3-override",
+        "safeb-blocked-addon-page-error-desc4-override",
+      ],
+      learnMore: "safeb-blocked-addon-page-learn-more",
+    },
+  };
 
   // Set page contents depending on type of blocked page
   // Prepare the title and short description text
   let titleText = document.getElementById("errorTitleText");
-  document.l10n.setAttributes(
-    titleText,
-    "safeb-blocked-" + error + "-page-title"
-  );
+  document.l10n.setAttributes(titleText, messageIDs[error].title);
   let shortDesc = document.getElementById("errorShortDescText");
-  document.l10n.setAttributes(
-    shortDesc,
-    "safeb-blocked-" + error + "-page-short-desc"
-  );
+  document.l10n.setAttributes(shortDesc, messageIDs[error].shortDesc);
 
   // Prepare the inner description, ensuring any redundant inner elements are removed.
   let innerDesc = document.getElementById("errorInnerDescription");
-  let innerDescL10nID = "safeb-blocked-" + error + "-page-error-desc-";
+  let innerDescL10nID;
   if (!getOverride()) {
-    innerDescL10nID += "no-override";
+    innerDescL10nID = messageIDs[error].innerDescNoOverride;
     document.getElementById("ignore_warning_link").remove();
   } else {
-    innerDescL10nID += "override";
+    innerDescL10nID = messageIDs[error].innerDescOverride;
   }
-  if (error == "unwanted" || error == "harmful") {
+  if (error == "unwanted" || error == "harmful" || error == "addon") {
     document.getElementById("report_detection").remove();
   }
 
-  // Add the inner description:
-  // Map specific elements to a different message ID, to allow updates to
-  // existing labels
-  let descriptionMapping = {
-    malware: innerDescL10nID + "-sumo",
+  const descArgs = {
+    sitename: getHostString(),
+    addonName: getAddonName(),
   };
-  document.l10n.setAttributes(
-    innerDesc,
-    descriptionMapping[error] || innerDescL10nID,
-    {
-      sitename: getHostString(),
+
+  // Add the inner description:
+  if (Array.isArray(innerDescL10nID)) {
+    const template = innerDesc.cloneNode(true);
+
+    while (innerDesc.firstChild) {
+      innerDesc.firstChild.remove();
     }
-  );
+
+    for (const id of innerDescL10nID) {
+      if (id === "") {
+        innerDesc.appendChild(document.createElement("br"));
+      }
+
+      const node = template.cloneNode(true);
+      document.l10n.setAttributes(node, id, descArgs);
+      innerDesc.appendChild(node);
+    }
+  } else {
+    document.l10n.setAttributes(innerDesc, innerDescL10nID, descArgs);
+  }
 
   // Add the learn more content:
-  // Map specific elements to a different message ID, to allow updates to
-  // existing labels
-  let stringMapping = {
-    malware: "safeb-blocked-malware-page-learn-more-sumo",
-  };
-
   let learnMore = document.getElementById("learn_more");
-  document.l10n.setAttributes(
-    learnMore,
-    stringMapping[error] || `safeb-blocked-${error}-page-learn-more`
-  );
+  document.l10n.setAttributes(learnMore, messageIDs[error].learnMore);
 
   // Set sitename to bold by adding class
   let errorSitename = document.getElementById("error_desc_sitename");
   errorSitename.setAttribute("class", "sitename");
 
   let titleEl = document.createElement("title");
-  document.l10n.setAttributes(
-    titleEl,
-    "safeb-blocked-" + error + "-page-title"
-  );
+  document.l10n.setAttributes(titleEl, messageIDs[error].title);
   document.head.appendChild(titleEl);
 
   // Inform the test harness that we're done loading the page.

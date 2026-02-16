@@ -2,12 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef CacheFile__h__
-#define CacheFile__h__
+#ifndef CacheFile_h_
+#define CacheFile_h_
 
 #include "CacheFileChunk.h"
 #include "CacheFileIOManager.h"
 #include "CacheFileMetadata.h"
+#include "Dictionary.h"
 #include "nsRefPtrHashtable.h"
 #include "nsClassHashtable.h"
 #include "mozilla/Mutex.h"
@@ -30,22 +31,20 @@ namespace CacheFileUtils {
 class CacheFileLock;
 };
 
-#define CACHEFILELISTENER_IID                        \
-  { /* 95e7f284-84ba-48f9-b1fc-3a7336b4c33c */       \
-    0x95e7f284, 0x84ba, 0x48f9, {                    \
-      0xb1, 0xfc, 0x3a, 0x73, 0x36, 0xb4, 0xc3, 0x3c \
-    }                                                \
-  }
+#define CACHEFILELISTENER_IID                 \
+  {/* 95e7f284-84ba-48f9-b1fc-3a7336b4c33c */ \
+   0x95e7f284,                                \
+   0x84ba,                                    \
+   0x48f9,                                    \
+   {0xb1, 0xfc, 0x3a, 0x73, 0x36, 0xb4, 0xc3, 0x3c}}
 
 class CacheFileListener : public nsISupports {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(CACHEFILELISTENER_IID)
+  NS_INLINE_DECL_STATIC_IID(CACHEFILELISTENER_IID)
 
   NS_IMETHOD OnFileReady(nsresult aResult, bool aIsNew) = 0;
   NS_IMETHOD OnFileDoomed(nsresult aResult) = 0;
 };
-
-NS_DEFINE_STATIC_IID_ACCESSOR(CacheFileListener, CACHEFILELISTENER_IID)
 
 class MOZ_CAPABILITY("mutex") CacheFile final
     : public CacheFileChunkListener,
@@ -126,6 +125,8 @@ class MOZ_CAPABILITY("mutex") CacheFile final
   // Returns true when there is a potentially unfinished write operation.
   bool IsWriteInProgress();
   bool EntryWouldExceedLimit(int64_t aOffset, int64_t aSize, bool aIsAltData);
+
+  void SetDictionary(DictionaryCacheEntry* aDict);
 
   // Memory reporting
   size_t SizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
@@ -226,6 +227,8 @@ class MOZ_CAPABILITY("mutex") CacheFile final
   nsCString mKey MOZ_GUARDED_BY(this);
   nsCString mAltDataType
       MOZ_GUARDED_BY(this);  // The type of the saved alt-data. May be empty.
+
+  RefPtr<DictionaryCacheEntry> mDict MOZ_GUARDED_BY(this);
 
   RefPtr<CacheFileHandle> mHandle MOZ_GUARDED_BY(this);
   RefPtr<CacheFileMetadata> mMetadata MOZ_GUARDED_BY(this);

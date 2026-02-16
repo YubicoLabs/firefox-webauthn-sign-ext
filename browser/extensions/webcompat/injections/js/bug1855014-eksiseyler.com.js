@@ -12,16 +12,10 @@
  * window.loggingEnabled = false
  */
 
-/* globals exportFunction */
+if (typeof loggingEnabled == "undefined") {
+  console.info(
+    "loggingEnabled been set to true for compatibility reasons. See https://bugzilla.mozilla.org/show_bug.cgi?id=1855014 for details."
+  );
 
-console.info(
-  "loggingEnabled been set to true for compatibility reasons. See https://webcompat.com/issues/77221 for details."
-);
-
-Object.defineProperty(window.wrappedJSObject, "loggingEnabled", {
-  get: exportFunction(function () {
-    return false;
-  }, window),
-
-  set: exportFunction(function () {}, window),
-});
+  window.loggingEnabled = false;
+}

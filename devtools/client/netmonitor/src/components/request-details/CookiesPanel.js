@@ -7,8 +7,8 @@
 const {
   Component,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
 const {
   L10N,
@@ -92,8 +92,8 @@ class CookiesPanel extends Component {
    * Mapping array to dict for TreeView usage.
    * Since TreeView only support Object(dict) format.
    *
-   * @param {Object[]} arr - key-value pair array like cookies or params
-   * @returns {Object}
+   * @param {object[]} arr - key-value pair array like cookies or params
+   * @returns {object}
    */
   getProperties(arr, title) {
     const cookies = arr.reduce((map, obj) => {
@@ -118,7 +118,7 @@ class CookiesPanel extends Component {
    * Custom rendering method passed to PropertiesView. It's
    * responsible to filter out level 0 node in the tree
    *
-   * @param {Object} props
+   * @param {object} props
    */
   renderRow(props) {
     const { level } = props.member;
@@ -132,7 +132,8 @@ class CookiesPanel extends Component {
 
   /**
    * Get the selected cookies path
-   * @param {Object} searchResult
+   *
+   * @param {object} searchResult
    * @returns {string}
    */
   getTargetCookiePath(searchResult) {

@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __nsDialogParamBlock_h
-#define __nsDialogParamBlock_h
+#ifndef _nsDialogParamBlock_h
+#define _nsDialogParamBlock_h
 
 #include "nsIDialogParamBlock.h"
 #include "nsIMutableArray.h"
@@ -13,12 +13,8 @@
 #include "nsStringFwd.h"
 
 // {4E4AAE11-8901-46cc-8217-DAD7C5415873}
-#define NS_DIALOGPARAMBLOCK_CID                      \
-  {                                                  \
-    0x4e4aae11, 0x8901, 0x46cc, {                    \
-      0x82, 0x17, 0xda, 0xd7, 0xc5, 0x41, 0x58, 0x73 \
-    }                                                \
-  }
+#define NS_DIALOGPARAMBLOCK_CID \
+  {0x4e4aae11, 0x8901, 0x46cc, {0x82, 0x17, 0xda, 0xd7, 0xc5, 0x41, 0x58, 0x73}}
 
 class nsDialogParamBlock : public nsIDialogParamBlock {
  public:

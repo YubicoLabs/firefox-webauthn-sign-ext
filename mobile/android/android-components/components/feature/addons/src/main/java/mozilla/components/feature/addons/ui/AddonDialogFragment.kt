@@ -5,12 +5,12 @@
 package mozilla.components.feature.addons.ui
 
 import android.graphics.Bitmap
-import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
 import androidx.annotation.ColorRes
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AppCompatDialogFragment
 import androidx.appcompat.widget.AppCompatImageView
+import androidx.core.graphics.drawable.toDrawable
 import mozilla.components.feature.addons.Addon
 import mozilla.components.support.utils.ext.getParcelableCompat
 
@@ -32,7 +32,7 @@ open class AddonDialogFragment : AppCompatDialogFragment() {
         val icon =
             safeArguments.getParcelableCompat(KEY_ICON, Bitmap::class.java)
         if (icon != null) {
-            iconView.setImageDrawable(BitmapDrawable(iconView.resources, addon.icon))
+            iconView.setImageDrawable(addon.icon?.toDrawable(iconView.resources))
         } else {
             safeArguments.putParcelable(KEY_ICON, addon.provideIcon())
             iconView.setIcon(addon)
@@ -45,12 +45,11 @@ open class AddonDialogFragment : AppCompatDialogFragment() {
     data class PromptsStyling(
         val gravity: Int,
         val shouldWidthMatchParent: Boolean = false,
-        @ColorRes
-        val confirmButtonBackgroundColor: Int? = null,
-        @ColorRes
-        val learnMoreLinkTextColor: Int? = null,
-        @ColorRes
-        val confirmButtonTextColor: Int? = null,
+        @param:ColorRes val confirmButtonBackgroundColor: Int? = null,
+        @param:ColorRes val confirmButtonTextColor: Int? = null,
+        @param:ColorRes val confirmButtonDisabledBackgroundColor: Int? = null,
+        @param:ColorRes val confirmButtonDisabledTextColor: Int? = null,
+        @param:ColorRes val learnMoreLinkTextColor: Int? = null,
         val confirmButtonRadius: Float? = null,
     )
 }

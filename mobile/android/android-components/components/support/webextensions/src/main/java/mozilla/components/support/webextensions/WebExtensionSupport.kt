@@ -6,8 +6,10 @@ package mozilla.components.support.webextensions
 
 import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -38,6 +40,7 @@ import mozilla.components.lib.state.ext.flowScoped
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.ktx.kotlin.isExtensionUrl
 import mozilla.components.support.ktx.kotlinx.coroutines.flow.filterChanged
+import mozilla.components.support.webextensions.WebExtensionSupport.initialize
 import mozilla.components.support.webextensions.facts.emitWebExtensionsInitializedFact
 import java.util.concurrent.ConcurrentHashMap
 
@@ -45,9 +48,10 @@ import java.util.concurrent.ConcurrentHashMap
  * Function to relay the permission request to the app / user.
  */
 typealias onUpdatePermissionRequest = (
-    current: WebExtension,
-    updated: WebExtension,
+    extension: WebExtension,
     newPermissions: List<String>,
+    newOrigins: List<String>,
+    newDataCollectionPermissions: List<String>,
     onPermissionsGranted: ((Boolean) -> Unit),
 ) -> Unit
 
@@ -167,14 +171,16 @@ object WebExtensionSupport {
      * engine. Note that the UI (browser/page actions etc.) may not be initialized at this point.
      * System add-ons (built-in extensions) will not be passed along.
      */
+    @Suppress("CognitiveComplexMethod")
     fun initialize(
         runtime: WebExtensionRuntime,
         store: BrowserStore,
         openPopupInTab: Boolean = false,
+        mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
         onNewTabOverride: ((WebExtension?, EngineSession, String) -> String)? = null,
         onCloseTabOverride: ((WebExtension?, String) -> Unit)? = null,
         onSelectTabOverride: ((WebExtension?, String) -> Unit)? = null,
-        onUpdatePermissionRequest: onUpdatePermissionRequest? = { _, _, _, _ -> },
+        onUpdatePermissionRequest: onUpdatePermissionRequest? = { _, _, _, _, _ -> },
         onExtensionsLoaded: ((List<WebExtension>) -> Unit)? = null,
     ) {
         this.onUpdatePermissionRequest = onUpdatePermissionRequest
@@ -183,10 +189,10 @@ object WebExtensionSupport {
         this.onSelectTabOverride = onSelectTabOverride
 
         // Queries the runtime for installed extensions and adds them to the store
-        registerInstalledExtensions(store, runtime)
+        registerInstalledExtensions(store, runtime, mainDispatcher)
 
         // Observes the store and registers action and tab handlers for newly added engine sessions
-        registerHandlersForNewSessions(store)
+        registerHandlersForNewSessions(store, mainDispatcher)
 
         runtime.registerWebExtensionDelegate(
             object : WebExtensionDelegate {
@@ -308,6 +314,7 @@ object WebExtensionSupport {
                     extension: WebExtension,
                     permissions: List<String>,
                     origins: List<String>,
+                    dataCollectionPermissions: List<String>,
                     onConfirm: (PermissionPromptResponse) -> Unit,
                 ) {
                     store.dispatch(
@@ -316,6 +323,7 @@ object WebExtensionSupport {
                                 extension,
                                 permissions,
                                 origins,
+                                dataCollectionPermissions,
                                 onConfirm,
                             ),
                         ),
@@ -323,15 +331,17 @@ object WebExtensionSupport {
                 }
 
                 override fun onUpdatePermissionRequest(
-                    current: WebExtension,
-                    updated: WebExtension,
+                    extension: WebExtension,
                     newPermissions: List<String>,
+                    newOrigins: List<String>,
+                    newDataCollectionPermissions: List<String>,
                     onPermissionsGranted: ((Boolean) -> Unit),
                 ) {
                     this@WebExtensionSupport.onUpdatePermissionRequest?.invoke(
-                        current,
-                        updated,
+                        extension,
                         newPermissions,
+                        newOrigins,
+                        newDataCollectionPermissions,
                         onPermissionsGranted,
                     )
                 }
@@ -340,6 +350,7 @@ object WebExtensionSupport {
                     extension: WebExtension,
                     permissions: List<String>,
                     origins: List<String>,
+                    dataCollectionPermissions: List<String>,
                     onPermissionsGranted: ((Boolean) -> Unit),
                 ) {
                     store.dispatch(
@@ -348,6 +359,7 @@ object WebExtensionSupport {
                                 extension,
                                 permissions,
                                 origins,
+                                dataCollectionPermissions,
                                 onPermissionsGranted,
                             ),
                         ),
@@ -357,7 +369,7 @@ object WebExtensionSupport {
                 override fun onExtensionListUpdated() {
                     installedExtensions.clear()
                     store.dispatch(WebExtensionAction.UninstallAllWebExtensionsAction)
-                    registerInstalledExtensions(store, runtime)
+                    registerInstalledExtensions(store, runtime, mainDispatcher)
                 }
 
                 override fun onDisabledExtensionProcessSpawning() {
@@ -376,18 +388,20 @@ object WebExtensionSupport {
     /**
      * Queries the [WebExtensionRuntime] for installed web extensions and adds them to the [store].
      */
-    private fun registerInstalledExtensions(store: BrowserStore, runtime: WebExtensionRuntime) {
+    private fun registerInstalledExtensions(
+        store: BrowserStore,
+        runtime: WebExtensionRuntime,
+        mainDispatcher: CoroutineDispatcher,
+    ) {
         runtime.listInstalledWebExtensions(
-            onSuccess = {
-                    extensions ->
+            onSuccess = { extensions ->
                 extensions.forEach { registerInstalledExtension(store, it) }
                 emitWebExtensionsInitializedFact(extensions)
-                closeUnsupportedTabs(store, extensions)
+                closeUnsupportedTabs(store, extensions, mainDispatcher)
                 initializationResult.complete(Unit)
                 onExtensionsLoaded?.invoke(extensions.filter { !it.isBuiltIn() })
             },
-            onError = {
-                    throwable ->
+            onError = { throwable ->
                 logger.error("Failed to query installed extension", throwable)
                 initializationResult.completeExceptionally(throwable)
             },
@@ -422,14 +436,18 @@ object WebExtensionSupport {
      * should handle this case to make sure we don't have any unloadable tabs
      * around.
      */
-    private fun closeUnsupportedTabs(store: BrowserStore, extensions: List<WebExtension>) {
+    private fun closeUnsupportedTabs(
+        store: BrowserStore,
+        extensions: List<WebExtension>,
+        mainDispatcher: CoroutineDispatcher,
+    ) {
         val supportedUrls = extensions.mapNotNull { it.getMetadata()?.baseUrl }
 
         // We only need to do this a single time, once tabs are restored. We need to observe the
         // store (instead of querying it directly), as tabs can be restored asynchronously on
         // startup and might not be ready yet.
         var scope: CoroutineScope? = null
-        scope = store.flowScoped { flow ->
+        scope = store.flowScoped(dispatcher = mainDispatcher) { flow ->
             flow.map { state -> state.tabs.filter { it.restored }.size }
                 .distinctUntilChanged()
                 .collect { size ->
@@ -465,10 +483,10 @@ object WebExtensionSupport {
      * Observes the provided store to register session-specific [ActionHandler]s
      * for all installed extensions on newly added sessions.
      */
-    private fun registerHandlersForNewSessions(store: BrowserStore) {
+    private fun registerHandlersForNewSessions(store: BrowserStore, mainDispatcher: CoroutineDispatcher) {
         // We need to observe for the entire lifetime of the application,
         // as web extension support is not tied to any particular view.
-        store.flowScoped { flow ->
+        store.flowScoped(dispatcher = mainDispatcher) { flow ->
             flow.mapNotNull { state -> state.allTabs }
                 .filterChanged {
                     it.engineState.engineSession

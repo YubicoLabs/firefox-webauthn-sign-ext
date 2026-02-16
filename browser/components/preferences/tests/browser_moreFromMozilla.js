@@ -3,20 +3,11 @@
 
 "use strict";
 
-const { EnterprisePolicyTesting } = ChromeUtils.importESModule(
-  "resource://testing-common/EnterprisePolicyTesting.sys.mjs"
-);
-
 let { TelemetryTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/TelemetryTestUtils.sys.mjs"
 );
 
-const TOTAL_PROMO_CARDS_COUNT = 5;
-
-async function clearPolicies() {
-  // Ensure no active policies are set
-  await EnterprisePolicyTesting.setupPolicyEngineWithJson("");
-}
+const TOTAL_PROMO_CARDS_COUNT = 6;
 
 // The Relay promo is only shown if the default FxA instance is detected, and
 // tests override it to a dummy address, so we need to make the dummy address
@@ -171,7 +162,7 @@ add_task(async function test_aboutpreferences_event_telemetry() {
     { category: "aboutpreferences", method: "show", object: "click" },
     { clear: false }
   );
-  TelemetryTestUtils.assertNumberOfEvents(2);
+  TelemetryTestUtils.assertNumberOfEvents(2, { category: "aboutpreferences" });
   BrowserTestUtils.removeTab(gBrowser.selectedTab);
 });
 
@@ -416,6 +407,30 @@ add_task(async function show_solo_more_from_mozilla() {
     BrowserTestUtils.isVisible(soloBtn),
     "Solo button rendered on page"
   );
+
+  BrowserTestUtils.removeTab(tab);
+});
+
+add_task(async function show_mdn_more_from_mozilla() {
+  await clearPolicies();
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["browser.preferences.moreFromMozilla", true],
+      ["browser.preferences.moreFromMozilla.template", "simple"],
+    ],
+  });
+  await openPreferencesViaOpenPreferencesAPI("paneMoreFromMozilla", {
+    leaveOpen: true,
+  });
+
+  let doc = gBrowser.contentDocument;
+  let tab = gBrowser.selectedTab;
+
+  const mdnCard = doc.getElementById("mdn");
+  let mdnBtn = doc.getElementById("simple-mdn");
+
+  Assert.ok(BrowserTestUtils.isVisible(mdnCard), "MDN card is shown");
+  Assert.ok(BrowserTestUtils.isVisible(mdnBtn), "MDN button rendered on page");
 
   BrowserTestUtils.removeTab(tab);
 });

@@ -19,10 +19,7 @@
 #ifndef wasm_valtype_h
 #define wasm_valtype_h
 
-#include "mozilla/HashTable.h"
 #include "mozilla/Maybe.h"
-
-#include <type_traits>
 
 #include "jit/IonTypes.h"
 #include "wasm/WasmConstants.h"
@@ -31,11 +28,6 @@
 
 namespace js {
 namespace wasm {
-
-class RecGroup;
-class TypeDef;
-class TypeContext;
-enum class TypeDefKind : uint8_t;
 
 // A PackedTypeCode represents any value type.
 union PackedTypeCode {
@@ -351,6 +343,11 @@ class RefType {
   RefType() : ptc_(PackedTypeCode::invalid()) {}
   explicit RefType(PackedTypeCode ptc) : ptc_(ptc) { MOZ_ASSERT(isValid()); }
 
+  static RefType fromKind(Kind kind, bool nullable) {
+    MOZ_ASSERT(kind != TypeRef);
+    return RefType(kind, nullable);
+  }
+
   static RefType fromTypeCode(TypeCode tc, bool nullable) {
     MOZ_ASSERT(tc != AbstractTypeRefCode);
     return RefType(Kind(tc), nullable);
@@ -368,8 +365,13 @@ class RefType {
   PackedTypeCode* addressOfPacked() { return &ptc_; }
   const PackedTypeCode* addressOfPacked() const { return &ptc_; }
 
-#ifdef DEBUG
+  // Further restricts PackedTypeCode::isValid() to only those TypeCodes which
+  // represent a wasm reference type.
   bool isValid() const {
+    if (!ptc_.isValid()) {
+      return false;
+    }
+
     MOZ_ASSERT((ptc_.typeCode() == AbstractTypeRefCode) ==
                (ptc_.typeDef() != nullptr));
     switch (ptc_.typeCode()) {
@@ -391,7 +393,6 @@ class RefType {
         return false;
     }
   }
-#endif
 
   static RefType func() { return RefType(Func, true); }
   static RefType extern_() { return RefType(Extern, true); }
@@ -440,9 +441,27 @@ class RefType {
   static bool isSubTypeOf(RefType subType, RefType superType);
   static bool castPossible(RefType sourceType, RefType destType);
 
+  // If we have two references, one of type `a` and one of type `b`, return
+  // true if there is any possibility that they might point at the same thing.
+  // That can only happen if either they are the same type or if one type is a
+  // subtype of the other.  Note, this can only be used for types in the same
+  // hierarchy.
+  static bool valuesMightAlias(RefType a, RefType b) {
+    MOZ_RELEASE_ASSERT(a.hierarchy() == b.hierarchy());
+    // The exact-same-type case is subsumed by `isSubTypeOf`.
+    return RefType::isSubTypeOf(a, b) || RefType::isSubTypeOf(b, a);
+  }
+
   // Gets the top of the given type's hierarchy, e.g. Any for structs and
-  // arrays, and Func for funcs
+  // arrays, and Func for funcs.
   RefType topType() const;
+
+  // Gets the bottom of the given type's hierarchy, e.g. None for structs and
+  // arrays, and NoFunc for funcs.
+  RefType bottomType() const;
+
+  static RefType leastUpperBound(RefType a, RefType b);
+  static RefType greatestLowerBound(RefType a, RefType b);
 
   // Gets the TypeDefKind associated with this RefType, e.g. TypeDefKind::Struct
   // for RefType::Struct.
@@ -883,6 +902,8 @@ class PackedType : public T {
     }
   }
 
+  MaybeRefType toMaybeRefType() const;
+
   bool isValType() const {
     switch (tc_.typeCode()) {
       case TypeCode::I8:
@@ -931,13 +952,101 @@ class PackedType : public T {
   bool operator!=(Kind that) const { return !(*this == that); }
 };
 
-using ValType = PackedType<ValTypeTraits>;
 using StorageType = PackedType<StorageTypeTraits>;
 
 // The dominant use of this data type is for locals and args, and profiling
 // with ZenGarden and Tanks suggests an initial size of 16 minimises heap
 // allocation, both in terms of blocks and bytes.
 using ValTypeVector = Vector<ValType, 16, SystemAllocPolicy>;
+
+// A MaybeRefType behaves like a mozilla::Maybe<RefType>, but saves space by
+// reusing PackedTypeCode. If the inner RefType is not valid, it will be
+// considered Nothing; otherwise it will be considered Some.
+class MaybeRefType {
+ private:
+  RefType inner_;
+
+ public:
+  // Creates a MaybeRefType that isNothing().
+  MaybeRefType() { MOZ_ASSERT(isNothing()); }
+
+  // Creates a MaybeRefType that isSome().
+  explicit MaybeRefType(RefType type) : inner_(type) {
+    MOZ_RELEASE_ASSERT(isSome());
+  }
+
+  bool isSome() const { return inner_.isValid(); }
+  bool isNothing() const { return !isSome(); }
+
+  /* Returns the inner RefType by value. Unsafe unless |isSome()|. */
+  RefType& value() & {
+    MOZ_RELEASE_ASSERT(isSome());
+    return inner_;
+  };
+  const RefType& value() const& {
+    MOZ_RELEASE_ASSERT(isSome());
+    return inner_;
+  };
+
+  RefType& valueOr(RefType& aDefault) {
+    if (isSome()) {
+      return value();
+    }
+    return aDefault;
+  }
+  const RefType& valueOr(const RefType& aDefault) {
+    if (isSome()) {
+      return value();
+    }
+    return aDefault;
+  }
+
+  bool operator==(const MaybeRefType& other) { return inner_ == other.inner_; }
+  bool operator!=(const MaybeRefType& other) { return inner_ != other.inner_; }
+
+  explicit operator bool() const { return isSome(); }
+
+  mozilla::Maybe<wasm::RefTypeHierarchy> hierarchy() const {
+    if (isSome()) {
+      return mozilla::Some(value().hierarchy());
+    }
+    return mozilla::Nothing();
+  }
+
+  // Takes the least upper bound of two ref types. Returns Nothing if either
+  // input is Nothing. This is because the LUB is the "conservative" choice, for
+  // when you need to find a common type for two different values.
+  // (Conceptually, Nothing is above the top type in each wasm type hierarchy.)
+  static MaybeRefType leastUpperBound(MaybeRefType a, MaybeRefType b) {
+    if (a.isSome() && b.isSome()) {
+      return MaybeRefType(RefType::leastUpperBound(a.value(), b.value()));
+    }
+    return MaybeRefType();
+  }
+
+  // Takes the greatest lower bound of two ref types. Returns Nothing only if
+  // *both* inputs are Nothing. This is because the GLB is the "aggressive"
+  // choice, for when two values are determined to be equal and we want the
+  // tightest possible type to describe them. (Conceptually, Nothing is above
+  // the top type in each wasm type hierarchy.)
+  static MaybeRefType greatestLowerBound(MaybeRefType a, MaybeRefType b) {
+    if (!a.isSome()) {
+      return b;
+    }
+    if (!b.isSome()) {
+      return a;
+    }
+    return MaybeRefType(RefType::greatestLowerBound(a.value(), b.value()));
+  }
+};
+
+template <class T>
+MaybeRefType PackedType<T>::toMaybeRefType() const {
+  if (!isRefType()) {
+    return MaybeRefType();
+  }
+  return MaybeRefType(refType());
+};
 
 // ValType utilities
 
@@ -949,6 +1058,7 @@ extern UniqueChars ToString(ValType type, const TypeContext* types);
 extern UniqueChars ToString(StorageType type, const TypeContext* types);
 extern UniqueChars ToString(const mozilla::Maybe<ValType>& type,
                             const TypeContext* types);
+extern UniqueChars ToString(const MaybeRefType& type, const TypeContext* types);
 
 }  // namespace wasm
 }  // namespace js

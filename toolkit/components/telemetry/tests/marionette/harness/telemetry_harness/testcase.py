@@ -25,7 +25,7 @@ UUID_PATTERN = re.compile(
 class TelemetryTestCase(WindowManagerMixin, MarionetteTestCase):
     def __init__(self, *args, **kwargs):
         """Initialize the test case and create a ping server."""
-        super(TelemetryTestCase, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def setUp(self, *args, **kwargs):
         """Set up the test case and start the ping server."""
@@ -35,7 +35,7 @@ class TelemetryTestCase(WindowManagerMixin, MarionetteTestCase):
         )
         self.ping_server.start()
 
-        super(TelemetryTestCase, self).setUp(*args, **kwargs)
+        super().setUp(*args, **kwargs)
 
         # Store IDs of addons installed via self.install_addon()
         self.addon_ids = []
@@ -45,16 +45,16 @@ class TelemetryTestCase(WindowManagerMixin, MarionetteTestCase):
 
     def disable_telemetry(self):
         """Disable the Firefox Data Collection and Use in the current browser."""
-        self.marionette.instance.profile.set_persistent_preferences(
-            {"datareporting.healthreport.uploadEnabled": False}
-        )
+        self.marionette.instance.profile.set_persistent_preferences({
+            "datareporting.healthreport.uploadEnabled": False
+        })
         self.marionette.set_pref("datareporting.healthreport.uploadEnabled", False)
 
     def enable_telemetry(self):
         """Enable the Firefox Data Collection and Use in the current browser."""
-        self.marionette.instance.profile.set_persistent_preferences(
-            {"datareporting.healthreport.uploadEnabled": True}
-        )
+        self.marionette.instance.profile.set_persistent_preferences({
+            "datareporting.healthreport.uploadEnabled": True
+        })
         self.marionette.set_pref("datareporting.healthreport.uploadEnabled", True)
 
     @contextlib.contextmanager
@@ -118,11 +118,7 @@ class TelemetryTestCase(WindowManagerMixin, MarionetteTestCase):
 
             return len(filtered_pings) >= count
 
-        self.logger.info(
-            "wait_for_pings running action '{action}'.".format(
-                action=action_func.__name__
-            )
-        )
+        self.logger.info(f"wait_for_pings running action '{action_func.__name__}'.")
 
         # Call given action and wait for a ping
         action_func()
@@ -130,7 +126,7 @@ class TelemetryTestCase(WindowManagerMixin, MarionetteTestCase):
         try:
             Wait(self.marionette, 60).until(wait_func)
         except Exception as e:
-            self.fail("Error waiting for ping: {}".format(e))
+            self.fail(f"Error waiting for ping: {e}")
 
         return filtered_pings[:count]
 
@@ -182,7 +178,7 @@ class TelemetryTestCase(WindowManagerMixin, MarionetteTestCase):
             addons = Addons(self.marionette)
             addon_id = addons.install(addon_path, temp=temp)
         except MarionetteException as e:
-            self.fail("{} - Error installing addon: {} - ".format(e.cause, e))
+            self.fail(f"{e.cause} - Error installing addon: {e} - ")
         else:
             self.addon_ids.append(addon_id)
 
@@ -236,6 +232,6 @@ class TelemetryTestCase(WindowManagerMixin, MarionetteTestCase):
 
     def tearDown(self, *args, **kwargs):
         """Stop the ping server and tear down the testcase."""
-        super(TelemetryTestCase, self).tearDown()
+        super().tearDown()
         self.ping_server.stop()
         self.marionette.quit(in_app=False, clean=True)

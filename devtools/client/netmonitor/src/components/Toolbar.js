@@ -7,9 +7,9 @@
 const {
   Component,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   connect,
 } = require("resource://devtools/client/shared/vendor/react-redux.js");
@@ -210,10 +210,24 @@ class Toolbar extends Component {
       this.props.toggleSearchPanel();
     });
 
-    this.shortcuts.on(COPY_KEY_SHORTCUT, () => {
-      if (this.props.selectedRequest && this.props.selectedRequest.url) {
-        copyString(this.props.selectedRequest.url);
+    // Keyboard shortcut to copy the selected request URL
+    this.shortcuts.on(COPY_KEY_SHORTCUT, e => {
+      if (!this.props.selectedRequest?.url) {
+        return;
       }
+
+      const selection = window.getSelection();
+      if (
+        // We don't want to copy selected URL in clipboard if the user selected some text…
+        (!selection.isCollapsed && selection.toString()) ||
+        // …or if the keyboard shortcut happened in some inputs (which includes
+        // CodeMirror 5 underlying textarea)
+        e.target.matches("input, textarea")
+      ) {
+        return;
+      }
+
+      copyString(this.props.selectedRequest.url);
     });
   }
 
@@ -280,7 +294,7 @@ class Toolbar extends Component {
   onSearchBoxFocusKeyboardShortcut(event) {
     // Don't take focus when the keyboard shortcut is triggered in a CodeMirror instance,
     // so the CodeMirror search UI is displayed.
-    return !!event.target.closest(".CodeMirror");
+    return !!event.target.closest(".cm-editor");
   }
 
   onSearchBoxFocus() {
@@ -470,6 +484,9 @@ class Toolbar extends Component {
       placeholder: SEARCH_PLACE_HOLDER,
       type: "filter",
       ref: "searchbox",
+      initialValue: Services.prefs.getCharPref(
+        "devtools.netmonitor.requestfilter"
+      ),
       onChange: setRequestFilterText,
       onFocusKeyboardShortcut: this.onSearchBoxFocusKeyboardShortcut,
       onFocus: this.onSearchBoxFocus,

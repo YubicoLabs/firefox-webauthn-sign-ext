@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.DialogFragment
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
@@ -47,7 +48,9 @@ class LanguageDialogPreferenceFragment : DialogFragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View {
-        val view = ComposeView(requireContext())
+        val view = ComposeView(requireContext()).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        }
         when (args.modelState) {
             ModelState.NOT_DOWNLOADED -> setDownloadLanguageFileDialog(view)
             ModelState.DOWNLOAD_IN_PROGRESS -> {}
@@ -68,6 +71,7 @@ class LanguageDialogPreferenceFragment : DialogFragment() {
                         isAllLanguagesItemType =
                         args.itemType ==
                             DownloadLanguageItemTypePreference.AllLanguages,
+                        fileSizeFormatter = requireComponents.core.fileSizeFormatter,
                         fileSize = args.modelSize,
                         onConfirmDelete = {
                             if (args.itemType == DownloadLanguageItemTypePreference.AllLanguages) {
@@ -111,6 +115,7 @@ class LanguageDialogPreferenceFragment : DialogFragment() {
                         } else {
                             DownloadLanguageFileDialogType.Default
                         },
+                        fileSizeFormatter = requireComponents.core.fileSizeFormatter,
                         fileSize = args.modelSize,
                         isCheckBoxEnabled = checkBoxEnabled,
                         onSavingModeStateChange = { checkBoxEnabled = it },

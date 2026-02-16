@@ -164,7 +164,6 @@ pub enum SpatialTreeItem {
 pub enum DisplayItem {
     // These are the "real content" display items
     Rectangle(RectangleDisplayItem),
-    ClearRectangle(ClearRectangleDisplayItem),
     HitTest(HitTestDisplayItem),
     Text(TextDisplayItem),
     Line(LineDisplayItem),
@@ -195,7 +194,6 @@ pub enum DisplayItem {
     SetGradientStops,
     SetFilterOps,
     SetFilterData,
-    SetFilterPrimitives,
     SetPoints,
 
     // These marker items terminate a scope introduced by a previous item.
@@ -205,6 +203,9 @@ pub enum DisplayItem {
 
     ReuseItems(ItemKey),
     RetainedItems(ItemKey),
+
+    // For debugging purposes.
+    DebugMarker(u32),
 }
 
 /// This is a "complete" version of the DisplayItem, with all implicit trailing
@@ -214,7 +215,6 @@ pub enum DisplayItem {
 #[cfg_attr(feature = "deserialize", derive(Deserialize))]
 pub enum DebugDisplayItem {
     Rectangle(RectangleDisplayItem),
-    ClearRectangle(ClearRectangleDisplayItem),
     HitTest(HitTestDisplayItem),
     Text(TextDisplayItem, Vec<font::GlyphInstance>),
     Line(LineDisplayItem),
@@ -241,12 +241,13 @@ pub enum DebugDisplayItem {
     SetGradientStops(Vec<GradientStop>),
     SetFilterOps(Vec<FilterOp>),
     SetFilterData(FilterData),
-    SetFilterPrimitives(Vec<FilterPrimitive>),
     SetPoints(Vec<LayoutPoint>),
 
     PopReferenceFrame,
     PopStackingContext,
     PopAllShadows,
+
+    DebugMarker(u32)
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
@@ -273,7 +274,7 @@ pub struct RoundedRectClipDisplayItem {
 
 /// The minimum and maximum allowable offset for a sticky frame in a single dimension.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
 pub struct StickyOffsetBounds {
     /// The minimum offset for this frame, typically a negative value, which specifies how
     /// far in the negative direction the sticky frame can offset its contents in this
@@ -359,14 +360,6 @@ pub struct RectangleDisplayItem {
     pub common: CommonItemProperties,
     pub bounds: LayoutRect,
     pub color: PropertyBinding<ColorF>,
-}
-
-/// Clears all colors from the area, making it possible to cut holes in the window.
-/// (useful for things like the macos frosted-glass effect).
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
-pub struct ClearRectangleDisplayItem {
-    pub common: CommonItemProperties,
-    pub bounds: LayoutRect,
 }
 
 /// A minimal hit-testable item for the parent browser's convenience, and is
@@ -629,6 +622,7 @@ pub struct BoxShadowDisplayItem {
     pub blur_radius: f32,
     pub spread_radius: f32,
     pub border_radius: BorderRadius,
+    pub shadow_radius: BorderRadius,
     pub clip_mode: BoxShadowClipMode,
 }
 
@@ -779,7 +773,7 @@ pub struct ReferenceFrameDescriptor {
     pub reference_frame: ReferenceFrame,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
 pub enum ReferenceFrameKind {
     /// A normal transform matrix, may contain perspective (the CSS transform property)
     Transform {
@@ -926,7 +920,7 @@ pub struct StackingContext {
 // IMPLICIT: filters: Vec<FilterOp>, filter_datas: Vec<FilterData>, filter_primitives: Vec<FilterPrimitive>
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
 pub enum TransformStyle {
     Flat = 0,
     Preserve3D = 1,
@@ -991,6 +985,8 @@ bitflags! {
         /// a clip-mask). This is needed to allow the correct selection of a backdrop root
         /// since a clip-mask stacking context creates a parent surface.
         const WRAPS_BACKDROP_FILTER = 1 << 1;
+        /// If true, this stacking context must be isolated from parent by a surface.
+        const FORCED_ISOLATION = 1 << 2;
     }
 }
 
@@ -2214,7 +2210,7 @@ impl ClipId {
 }
 
 /// A reference to a spatial node defining item positioning.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
 pub struct SpatialId(pub usize, PipelineId);
 
 const ROOT_REFERENCE_FRAME_SPATIAL_ID: usize = 0;
@@ -2245,7 +2241,7 @@ impl SpatialId {
 ///
 /// When setting display lists with the `preserve_frame_state` this id is used to preserve scroll
 /// offsets between different sets of SpatialNodes which are ScrollFrames.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
 #[repr(C)]
 pub struct ExternalScrollId(pub u64, pub PipelineId);
 
@@ -2264,7 +2260,6 @@ impl DisplayItem {
         match *self {
             DisplayItem::Border(..) => "border",
             DisplayItem::BoxShadow(..) => "box_shadow",
-            DisplayItem::ClearRectangle(..) => "clear_rectangle",
             DisplayItem::HitTest(..) => "hit_test",
             DisplayItem::RectClip(..) => "rect_clip",
             DisplayItem::RoundedRectClip(..) => "rounded_rect_clip",
@@ -2284,7 +2279,6 @@ impl DisplayItem {
             DisplayItem::PushStackingContext(..) => "push_stacking_context",
             DisplayItem::SetFilterOps => "set_filter_ops",
             DisplayItem::SetFilterData => "set_filter_data",
-            DisplayItem::SetFilterPrimitives => "set_filter_primitives",
             DisplayItem::SetPoints => "set_points",
             DisplayItem::RadialGradient(..) => "radial_gradient",
             DisplayItem::Rectangle(..) => "rectangle",
@@ -2294,6 +2288,7 @@ impl DisplayItem {
             DisplayItem::Text(..) => "text",
             DisplayItem::YuvImage(..) => "yuv_image",
             DisplayItem::BackdropFilter(..) => "backdrop_filter",
+            DisplayItem::DebugMarker(..) => "debug",
         }
     }
 }

@@ -16,7 +16,6 @@
 #include "vm/BoundFunctionObject.h"
 #include "vm/EnvironmentObject.h"
 #include "vm/JSFunction.h"
-#include "vm/Probes.h"
 #include "vm/PropertyResult.h"
 #include "vm/TypedArrayObject.h"
 #include "gc/BufferAllocator-inl.h"
@@ -78,22 +77,17 @@ js::NativeObject::calculateDynamicSlots(SharedShape* shape) {
 }
 
 inline void JSObject::finalize(JS::GCContext* gcx) {
-  js::probes::FinalizeObject(this);
-
 #ifdef DEBUG
   MOZ_ASSERT(isTenured());
-  if (!IsBackgroundFinalized(asTenured().getAllocKind())) {
-    /* Assert we're on the main thread. */
-    MOZ_ASSERT(js::CurrentThreadCanAccessZone(zone()));
-  }
+  js::gc::AllocKind kind = asTenured().getAllocKind();
+  MOZ_ASSERT(IsFinalizedKind(kind));
+  MOZ_ASSERT_IF(IsForegroundFinalized(kind),
+                js::CurrentThreadCanAccessZone(zoneFromAnyThread()));
 #endif
 
-  js::Shape* objShape = shape();
-
-  const JSClass* clasp = objShape->getObjectClass();
-  if (clasp->hasFinalize()) {
-    clasp->doFinalize(gcx, this);
-  }
+  const JSClass* clasp = shape()->getObjectClass();
+  MOZ_ASSERT(clasp->hasFinalize());
+  clasp->doFinalize(gcx, this);
 }
 
 inline bool JSObject::isQualifiedVarObj() const {
@@ -123,10 +117,6 @@ inline bool JSObject::setQualifiedVarObj(
   return setFlag(cx, obj, js::ObjectFlag::QualifiedVarObj);
 }
 
-inline bool JSObject::canHaveFixedElements() const {
-  return is<js::ArrayObject>();
-}
-
 namespace js {
 
 #ifdef DEBUG
@@ -138,6 +128,7 @@ inline bool ClassCanHaveFixedData(const JSClass* clasp) {
   return !clasp->isNativeObject() ||
          clasp == &js::FixedLengthArrayBufferObject::class_ ||
          clasp == &js::ResizableArrayBufferObject::class_ ||
+         clasp == &js::ImmutableArrayBufferObject::class_ ||
          js::IsTypedArrayClass(clasp);
 }
 #endif
@@ -510,7 +501,7 @@ inline T* NewBuiltinClassInstance(JSContext* cx, gc::AllocKind allocKind,
   return obj ? &obj->as<T>() : nullptr;
 }
 
-static inline gc::AllocKind GuessArrayGCKind(size_t numElements) {
+static constexpr gc::AllocKind GuessArrayGCKind(size_t numElements) {
   if (numElements) {
     return gc::GetGCArrayKind(numElements);
   }
@@ -556,12 +547,18 @@ inline bool IsConstructor(const Value& v) {
 }
 
 static inline bool MaybePreserveDOMWrapper(JSContext* cx, HandleObject obj) {
-  if (!obj->getClass()->isDOMClass()) {
+  const JSClass* clasp = obj->getClass();
+  // If this ever changes, we'll just need to reevaluate the check below
+  MOZ_ASSERT_IF(clasp->preservesWrapper(), clasp->isDOMClass());
+  if (!clasp->isDOMClass()) {
     return true;
   }
 
-  MOZ_ASSERT(cx->runtime()->preserveWrapperCallback);
-  return cx->runtime()->preserveWrapperCallback(cx, obj);
+  if (!obj->zone()->preserveWrapper(obj.get())) {
+    return cx->runtime()->preserveWrapperCallback(cx, obj);
+  }
+
+  return true;
 }
 
 } /* namespace js */

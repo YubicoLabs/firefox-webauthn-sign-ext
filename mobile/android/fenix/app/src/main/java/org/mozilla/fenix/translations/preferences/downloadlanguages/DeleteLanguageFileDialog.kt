@@ -4,19 +4,20 @@
 
 package org.mozilla.fenix.translations.preferences.downloadlanguages
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
-import mozilla.components.compose.base.annotation.LightDarkPreview
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.PreviewParameter
 import mozilla.components.compose.base.button.TextButton
-import mozilla.components.feature.downloads.toMegabyteOrKilobyteString
+import mozilla.components.feature.downloads.DefaultFileSizeFormatter
+import mozilla.components.feature.downloads.FileSizeFormatter
 import org.mozilla.fenix.R
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.theme.PreviewThemeProvider
+import org.mozilla.fenix.theme.Theme
 import java.util.Locale
 
 /**
@@ -24,6 +25,7 @@ import java.util.Locale
  *
  * @param language Language name that should be displayed in the dialogue title.
  * @param isAllLanguagesItemType Whether the download language file item is of type all languages.
+ * @param fileSizeFormatter [FileSizeFormatter] used to format the size of the file item.
  * @param fileSize Language file size in bytes that should be displayed in the dialogue title.
  * @param onConfirmDelete Invoked when the user clicks on the "Delete" dialog button.
  * @param onCancel Invoked when the user clicks on the "Cancel" dialog button.
@@ -32,28 +34,25 @@ import java.util.Locale
 fun DeleteLanguageFileDialog(
     language: String? = null,
     isAllLanguagesItemType: Boolean,
+    fileSizeFormatter: FileSizeFormatter,
     fileSize: Long? = null,
     onConfirmDelete: () -> Unit,
     onCancel: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = {},
-        modifier = Modifier.background(
-            color = FirefoxTheme.colors.layer2,
-            shape = RoundedCornerShape(8.dp),
-        ),
         title = {
             val title: String? = if (isAllLanguagesItemType) {
                 stringResource(
                     id = R.string.delete_language_all_languages_file_dialog_title,
-                    fileSize?.toMegabyteOrKilobyteString() ?: 0L,
+                    fileSizeFormatter.formatSizeInBytes(fileSize ?: 0L),
                 )
             } else {
                 language?.let {
                     stringResource(
                         id = R.string.delete_language_file_dialog_title,
                         it,
-                        fileSize?.toMegabyteOrKilobyteString() ?: 0L,
+                        fileSizeFormatter.formatSizeInBytes(fileSize ?: 0L),
                     )
                 }
             }
@@ -61,8 +60,7 @@ fun DeleteLanguageFileDialog(
             title?.let {
                 Text(
                     text = it,
-                    color = FirefoxTheme.colors.textPrimary,
-                    style = FirefoxTheme.typography.headline7,
+                    style = FirefoxTheme.typography.headline5,
                 )
             }
         },
@@ -81,35 +79,34 @@ fun DeleteLanguageFileDialog(
 
             Text(
                 text = message,
-                color = FirefoxTheme.colors.textPrimary,
                 style = FirefoxTheme.typography.body2,
             )
         },
         confirmButton = {
             TextButton(
                 text = stringResource(id = R.string.delete_language_file_dialog_positive_button_text),
-                upperCaseText = false,
                 onClick = { onConfirmDelete() },
             )
         },
         dismissButton = {
             TextButton(
                 text = stringResource(id = R.string.delete_language_file_dialog_negative_button_text),
-                upperCaseText = false,
                 onClick = { onCancel() },
             )
         },
-        backgroundColor = FirefoxTheme.colors.layer2,
     )
 }
 
+@Preview
 @Composable
-@LightDarkPreview
-private fun DeleteLanguageFileDialogPreview() {
-    FirefoxTheme {
+private fun DeleteLanguageFileDialogPreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
         DeleteLanguageFileDialog(
             language = Locale.CHINA.displayLanguage,
             isAllLanguagesItemType = false,
+            fileSizeFormatter = DefaultFileSizeFormatter(LocalContext.current),
             fileSize = 4000L,
             onConfirmDelete = {},
             onCancel = {},
@@ -117,13 +114,16 @@ private fun DeleteLanguageFileDialogPreview() {
     }
 }
 
+@Preview
 @Composable
-@LightDarkPreview
-private fun DeleteAllLanguagesFileDialogPreview() {
-    FirefoxTheme {
+private fun DeleteAllLanguagesFileDialogPreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
         DeleteLanguageFileDialog(
             language = Locale.CHINA.displayLanguage,
             isAllLanguagesItemType = true,
+            fileSizeFormatter = DefaultFileSizeFormatter(LocalContext.current),
             fileSize = 4000L,
             onConfirmDelete = {},
             onCancel = {},

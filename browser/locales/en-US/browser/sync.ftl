@@ -23,10 +23,11 @@ fxa-menu-connect-another-device =
     .label = Connect another device…
 # Variables:
 #   $tabCount (Number): The number of tabs sent to the device.
-fxa-menu-send-tab-to-device =
+# The following string intentionally omits the word "tab" from the singular and includes it in the plural.
+fxa-menu-send-to-device =
     .label =
         { $tabCount ->
-            [1] Send tab to device
+            [1] Send to device
            *[other] Send { $tabCount } tabs to device
         }
 
@@ -41,15 +42,20 @@ fxa-menu-sign-out =
     .label = Sign out…
 
 
-fxa-menu-sync-title = Sync
 fxa-menu-sync-description = Access your web anywhere
 
+fxa-avatar-sign-in = Sign in
+fxa-avatar-sign-up = Sign up
+fxa-avatar-tooltip =
+    .tooltiptext = Sign in to your account
 
-# Dialog strings that we show the user when signing into Mozilla account/setting up sync
+## Dialog strings that we show the user when signing into Mozilla account/setting up sync
 
 sync-setup-verify-continue = Continue
 sync-setup-verify-title = Merge Warning
 sync-setup-verify-heading = Are you sure you want to sign in to sync?
+
+##
 
 # The user was previously signed into sync. This dialog confirms to the user
 # that they will be merging the data from the previously signed in into the newly signed in one

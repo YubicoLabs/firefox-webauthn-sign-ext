@@ -7,27 +7,27 @@ Templates provide a way of modifying the task definition of selected tasks.
 They are added to 'try_task_config.json' and processed by the transforms.
 """
 
-
 import json
 import os
 import pathlib
 import subprocess
 import sys
-from abc import ABCMeta, abstractmethod, abstractproperty
+from abc import ABCMeta, abstractmethod
 from argparse import SUPPRESS, Action
 from textwrap import dedent
 
 import mozpack.path as mozpath
 import requests
-import six
 from mozbuild.base import BuildEnvironmentNotFoundException, MozbuildObject
-from taskgraph.util import taskcluster
 
 from .tasks import resolve_tests_by_suite
 from .util.ssh import get_ssh_user
 
 here = pathlib.Path(__file__).parent
 build = MozbuildObject.from_environment(cwd=str(here))
+
+# Set from mach settings in mach_commands.init()
+SKIP_ARTIFACT_BUILD_CHECK = False
 
 
 class ParameterConfig:
@@ -41,7 +41,8 @@ class ParameterConfig:
             action = parser.add_argument(*cli, **kwargs)
             self.dests.add(action.dest)
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def arguments(self):
         pass
 
@@ -51,6 +52,19 @@ class ParameterConfig:
 
     def validate(self, **kwargs):
         pass
+
+
+class TargetTasksMethod(ParameterConfig):
+    arguments = [
+        [
+            ["--target-tasks-method"],
+            {"help": "Custom target tasks method to use."},
+        ],
+    ]
+
+    def get_parameters(self, target_tasks_method: str, **kwargs):
+        if target_tasks_method:
+            return {"target_tasks_method": target_tasks_method}
 
 
 class TryConfig(ParameterConfig):
@@ -98,6 +112,11 @@ class Artifact(TryConfig):
         if no_artifact:
             return
 
+        # If 'try.noartifact' is set in mach settings, default to non-artifact
+        # try instead of checking current build environment.
+        if SKIP_ARTIFACT_BUILD_CHECK:
+            return
+
         if self.is_artifact_build():
             print("Artifact builds enabled, pass --no-artifact to disable")
             return {"use-artifact-builds": True, "disable-pgo": True}
@@ -143,14 +162,12 @@ class Pernosco(TryConfig):
                 if not address.endswith("@mozilla.com"):
                     print(
                         dedent(
-                            """\
+                            f"""\
                         Pernosco requires a Mozilla e-mail address to view its reports. Please
                         push to try with an @mozilla.com address to use --pernosco.
 
-                            Current user: {}
-                    """.format(
-                                address
-                            )
+                            Current user: {address}
+                    """
                         )
                     )
                     sys.exit(1)
@@ -196,26 +213,43 @@ class Path(TryConfig):
                 "help": "Run tasks containing tests under the specified path(s).",
             },
         ],
+        [
+            ["--allow-testfile-path"],
+            {
+                "dest": "allow_testfile_path",
+                "action": "store_true",
+                "default": None,
+                "help": "Opt in to pass a specific testfile path (ie not only a folder)",
+            },
+        ],
     ]
 
-    def try_config(self, paths, **kwargs):
+    def try_config(self, paths, allow_testfile_path, **kwargs):
         if not paths:
             return
 
-        for p in paths:
+        for i, p in enumerate(paths):
             if not os.path.exists(p):
-                print("error: '{}' is not a valid path.".format(p), file=sys.stderr)
+                print(f"error: '{p}' is not a valid path.", file=sys.stderr)
                 sys.exit(1)
 
-        paths = [
-            mozpath.relpath(mozpath.join(os.getcwd(), p), build.topsrcdir)
-            for p in paths
-        ]
+            # Passing paths to specific tests doesn't work with the Treeherder
+            # test path filter or test-verify. Re-write it to the containing
+            # directory to avoid confusion.
+            if os.path.isfile(p) and not allow_testfile_path:
+                parent = os.path.dirname(p)
+                print(
+                    f"warning: paths to individual tests may not work, re-writing to {parent}. Pass --allow-testfile-path to override"
+                )
+                paths[i] = parent
+
+            paths[i] = mozpath.relpath(
+                mozpath.join(os.getcwd(), paths[i]), build.topsrcdir
+            )
+
         return {
             "env": {
-                "MOZHARNESS_TEST_PATHS": six.ensure_text(
-                    json.dumps(resolve_tests_by_suite(paths))
-                ),
+                "MOZHARNESS_TEST_PATHS": json.dumps(resolve_tests_by_suite(paths)),
             }
         }
 
@@ -254,9 +288,29 @@ class Environment(TryConfig):
                 "Can be passed in multiple times.",
             },
         ],
+        [
+            ["--record"],
+            {
+                "action": "store_true",
+                "help": "Get a screen recording of the tests where possible.",
+            },
+        ],
+        [
+            ["--profiler"],
+            {
+                "action": "store_true",
+                "help": "Enable the profiler by setting MOZ_PROFILER_STARTUP=1.",
+            },
+        ],
     ]
 
-    def try_config(self, env, **kwargs):
+    def try_config(self, env, record, profiler, **kwargs):
+        if env is None:
+            env = []
+        if record:
+            env.append("MOZ_RECORD_TEST=1")
+        if profiler:
+            env.append("MOZ_PROFILER_STARTUP=1")
         if not env:
             return
         return {
@@ -292,6 +346,8 @@ class ExistingTasks(ParameterConfig):
     ]
 
     def find_decision_task(self, use_existing_tasks):
+        from taskgraph.util import taskcluster
+
         branch = "try"
         if use_existing_tasks == "last_try_push":
             # Use existing tasks from user's previous try push.
@@ -319,6 +375,8 @@ class ExistingTasks(ParameterConfig):
         if not use_existing_tasks:
             return
 
+        from taskgraph.util import taskcluster
+
         if use_existing_tasks.startswith("task-id="):
             tid = use_existing_tasks[len("task-id=") :]
         else:
@@ -332,15 +390,15 @@ class RangeAction(Action):
     def __init__(self, min, max, *args, **kwargs):
         self.min = min
         self.max = max
-        kwargs["metavar"] = "[{}-{}]".format(self.min, self.max)
+        kwargs["metavar"] = f"[{self.min}-{self.max}]"
         super().__init__(*args, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         name = option_string or self.dest
         if values < self.min:
-            parser.error("{} can not be less than {}".format(name, self.min))
+            parser.error(f"{name} can not be less than {self.min}")
         if values > self.max:
-            parser.error("{} can not be more than {}".format(name, self.max))
+            parser.error(f"{name} can not be more than {self.max}")
         setattr(namespace, self.dest, values)
 
 
@@ -350,7 +408,7 @@ class Rebuild(TryConfig):
             ["--rebuild"],
             {
                 "action": RangeAction,
-                "min": 2,
+                "min": 1,
                 "max": 20,
                 "default": None,
                 "type": int,
@@ -363,16 +421,17 @@ class Rebuild(TryConfig):
         if not rebuild:
             return
 
-        if (
-            not kwargs.get("new_test_config", False)
-            and kwargs.get("full")
-            and rebuild > 3
-        ):
-            print(
-                "warning: limiting --rebuild to 3 when using --full. "
-                "Use custom push actions to add more."
-            )
-            rebuild = 3
+        if not kwargs.get("new_test_config", False):
+            if rebuild == 1:
+                print(
+                    "warning: setting --rebuild to 1 is the same as not specifying it."
+                )
+            elif kwargs.get("full") and rebuild > 3:
+                print(
+                    "warning: limiting --rebuild to 3 when using --full. "
+                    "Use custom push actions to add more."
+                )
+                rebuild = 3
 
         return {
             "rebuild": rebuild,
@@ -404,17 +463,20 @@ class Routes(TryConfig):
 class ChemspillPrio(TryConfig):
     arguments = [
         [
-            ["--chemspill-prio"],
+            ["--chemspill", "--chemspill-priority"],
             {
                 "action": "store_true",
+                "dest": "chemspill",
                 "help": "Run at a higher priority than most try jobs (chemspills only).",
             },
         ],
     ]
 
-    def try_config(self, chemspill_prio, **kwargs):
-        if chemspill_prio:
-            return {"chemspill-prio": True}
+    def try_config(self, chemspill, **kwargs):
+        if chemspill:
+            # Despite being "low", this is still higher than other tasks on
+            # try, the equivalent of a push to autoland.
+            return {"priority": "low"}
 
 
 class GeckoProfile(TryConfig):
@@ -425,7 +487,10 @@ class GeckoProfile(TryConfig):
                 "dest": "profile",
                 "action": "store_true",
                 "default": False,
-                "help": "Create and upload a gecko profile during talos/raptor tasks.",
+                "help": (
+                    "Create and upload a gecko profile during talos/raptor tasks. "
+                    "Copy paste the parameters used in this profiling run directly from about:profiling in Nightly."
+                ),
             },
         ],
         [
@@ -471,7 +536,7 @@ class GeckoProfile(TryConfig):
                 "help": SUPPRESS,
             },
         ],
-        # This is added for consistency with the 'syntax' selector
+        # This is added for consistency with the old 'syntax' selector
         [
             ["--geckoProfile"],
             {
@@ -559,6 +624,51 @@ class NewConfig(TryConfig):
             }
 
 
+class DoNotOptimize(ParameterConfig):
+    arguments = [
+        [
+            ["--do-not-optimize"],
+            {
+                "action": "append",
+                "dest": "do_not_optimize",
+                "default": None,
+                "help": (
+                    "Task labels to not optimize. These tasks will always be built "
+                    "instead of being replaced by indexed tasks. Can be specified multiple times."
+                ),
+            },
+        ],
+    ]
+
+    def get_parameters(self, do_not_optimize, **kwargs):
+        if do_not_optimize:
+            return {"do_not_optimize": do_not_optimize}
+
+
+class BuildCar(ParameterConfig):
+    arguments = [
+        [
+            ["--build-car"],
+            {
+                "action": "store_true",
+                "help": "Force rebuild of custom-car toolchains instead of reusing mozilla-central artifacts.",
+            },
+        ],
+    ]
+
+    CUSTOM_CAR_LABELS = [
+        "toolchain-linux64-custom-car",
+        "toolchain-win64-custom-car",
+        "toolchain-macosx-custom-car",
+        "toolchain-macosx-arm64-custom-car",
+        "toolchain-android-custom-car",
+    ]
+
+    def get_parameters(self, build_car, **kwargs):
+        if build_car:
+            return {"do_not_optimize": self.CUSTOM_CAR_LABELS}
+
+
 class WorkerOverrides(TryConfig):
     arguments = [
         [
@@ -601,41 +711,65 @@ class WorkerOverrides(TryConfig):
         from gecko_taskgraph.util.workertypes import get_worker_type
         from taskgraph.config import load_graph_config
 
+        root = build.topsrcdir
+        root = os.path.join(root, "taskcluster")
+        graph_config = load_graph_config(root)
+
         overrides = {}
         if worker_overrides:
             for override in worker_overrides:
                 alias, worker_pool = override.split("=", 1)
                 if alias in overrides:
                     print(
-                        "Can't override worker alias {alias} more than once. "
-                        "Already set to use {previous}, but also asked to use {new}.".format(
-                            alias=alias, previous=overrides[alias], new=worker_pool
-                        )
+                        f"Can't override worker alias {alias} more than once. "
+                        f"Already set to use {overrides[alias]}, but also asked to use {worker_pool}."
                     )
                     sys.exit(1)
                 overrides[alias] = worker_pool
 
+                try:
+                    provisioner, worker_type = get_worker_type(
+                        graph_config, worker_type=alias, parameters={"level": "1"}
+                    )
+                except KeyError:
+                    print(
+                        f"Invalid worker type {alias}, use a value that matches below (limited to b-*, t-*, win*):"
+                    )
+                    root_alias = alias.strip("gecko-")
+                    root_alias = root_alias.strip("t-")
+                    root_alias = root_alias.split("-")[0]
+                    possible_matches = []
+                    for item in graph_config["workers"]["aliases"]:
+                        if root_alias in item:
+                            possible_matches.append(item)
+                        if (
+                            item.startswith("t-")
+                            or item.startswith("b-")
+                            or item.startswith("win")
+                        ):
+                            print(f"{item}")
+
+                    print("")
+                    if len(possible_matches) == 1:
+                        print(f"did you mean: {possible_matches[0]}")
+                    elif len(possible_matches) > 1:
+                        print(f"did you mean one of these {possible_matches}")
+                    sys.exit(1)
+
         if worker_suffixes:
-            root = build.topsrcdir
-            root = os.path.join(root, "taskcluster")
-            graph_config = load_graph_config(root)
             for worker_suffix in worker_suffixes:
                 alias, suffix = worker_suffix.split("=", 1)
                 if alias in overrides:
                     print(
-                        "Can't override worker alias {alias} more than once. "
-                        "Already set to use {previous}, but also asked "
-                        "to add suffix {suffix}.".format(
-                            alias=alias, previous=overrides[alias], suffix=suffix
-                        )
+                        f"Can't override worker alias {alias} more than once. "
+                        f"Already set to use {overrides[alias]}, but also asked "
+                        f"to add suffix {suffix}."
                     )
                     sys.exit(1)
                 provisioner, worker_type = get_worker_type(
                     graph_config, worker_type=alias, parameters={"level": "1"}
                 )
-                overrides[alias] = "{provisioner}/{worker_type}{suffix}".format(
-                    provisioner=provisioner, worker_type=worker_type, suffix=suffix
-                )
+                overrides[alias] = f"{provisioner}/{worker_type}{suffix}"
 
         retVal = {}
         if worker_types:
@@ -649,8 +783,10 @@ class WorkerOverrides(TryConfig):
 all_task_configs = {
     "artifact": Artifact,
     "browsertime": Browsertime,
+    "build-car": BuildCar,
     "chemspill-prio": ChemspillPrio,
     "disable-pgo": DisablePgo,
+    "do-not-optimize": DoNotOptimize,
     "env": Environment,
     "existing-tasks": ExistingTasks,
     "gecko-profile": GeckoProfile,
@@ -660,5 +796,6 @@ all_task_configs = {
     "pernosco": Pernosco,
     "rebuild": Rebuild,
     "routes": Routes,
+    "target-tasks-method": TargetTasksMethod,
     "worker-overrides": WorkerOverrides,
 }

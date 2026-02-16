@@ -7,6 +7,7 @@
 
 #include "TouchManager.h"
 
+#include "PositionedEventTargeting.h"
 #include "Units.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/PresShell.h"
@@ -20,8 +21,6 @@
 #include "nsIContent.h"
 #include "nsIFrame.h"
 #include "nsLayoutUtils.h"
-#include "nsView.h"
-#include "PositionedEventTargeting.h"
 
 using namespace mozilla::dom;
 
@@ -74,17 +73,12 @@ void TouchManager::EvictTouchPoint(RefPtr<Touch>& aTouch,
   if (node) {
     Document* doc = node->GetComposedDoc();
     if (doc && (!aLimitToDocument || aLimitToDocument == doc)) {
-      PresShell* presShell = doc->GetPresShell();
-      if (presShell) {
-        nsIFrame* frame = presShell->GetRootFrame();
-        if (frame) {
-          nsCOMPtr<nsIWidget> widget =
-              frame->GetView()->GetNearestWidget(nullptr);
-          if (widget) {
+      if (PresShell* presShell = doc->GetPresShell()) {
+        if (nsIFrame* frame = presShell->GetRootFrame()) {
+          if (nsCOMPtr<nsIWidget> widget = frame->GetNearestWidget()) {
             WidgetTouchEvent event(true, eTouchEnd, widget);
             event.mTouches.AppendElement(aTouch);
-            nsEventStatus status;
-            widget->DispatchEvent(&event, status);
+            widget->DispatchEvent(&event);
           }
         }
       }
@@ -137,8 +131,7 @@ nsIFrame* TouchManager::SetupTarget(WidgetTouchEvent* aEvent,
           aEvent, touch->mRefPoint, relativeTo);
       target = FindFrameTargetedByInputEvent(aEvent, relativeTo, eventPoint);
       if (target) {
-        nsCOMPtr<nsIContent> targetContent;
-        target->GetContentForEvent(aEvent, getter_AddRefs(targetContent));
+        nsIContent* targetContent = target->GetContentForEvent(aEvent);
         touch->SetTouchTarget(targetContent
                                   ? targetContent->GetAsElementOrParentElement()
                                   : nullptr);
@@ -237,9 +230,7 @@ nsIFrame* TouchManager::SuppressInvalidPointsAndGetTargetedFrame(
         touch->mIsTouchEventSuppressed = true;
       } else {
         targetFrame = newTargetFrame;
-        nsCOMPtr<nsIContent> newTargetContent;
-        targetFrame->GetContentForEvent(aEvent,
-                                        getter_AddRefs(newTargetContent));
+        nsIContent* newTargetContent = targetFrame->GetContentForEvent(aEvent);
         touch->SetTouchTarget(
             newTargetContent ? newTargetContent->GetAsElementOrParentElement()
                              : nullptr);
@@ -306,6 +297,9 @@ bool TouchManager::PreHandleEvent(WidgetEvent* aEvent, nsEventStatus* aStatus,
       }
       break;
     }
+    case eTouchRawUpdate:
+      MOZ_ASSERT_UNREACHABLE("eTouchRawUpdate shouldn't be handled as a touch");
+      break;
     case eTouchMove: {
       // Check for touches that changed. Mark them add to queue
       WidgetTouchEvent* touchEvent = aEvent->AsTouchEvent();
@@ -451,6 +445,9 @@ bool TouchManager::PreHandleEvent(WidgetEvent* aEvent, nsEventStatus* aStatus,
 void TouchManager::PostHandleEvent(const WidgetEvent* aEvent,
                                    const nsEventStatus* aStatus) {
   switch (aEvent->mMessage) {
+    case eTouchRawUpdate:
+      MOZ_ASSERT_UNREACHABLE("eTouchRawUpdate shouldn't be handled as a touch");
+      break;
     case eTouchMove: {
       if (sSingleTouchStartTimeStamp.IsNull()) {
         break;
@@ -562,7 +559,8 @@ bool TouchManager::ShouldConvertTouchToPointer(const Touch* aTouch,
       // We don't want to fire duplicated pointerdown.
       return false;
     }
-    case eTouchMove: {
+    case eTouchMove:
+    case eTouchRawUpdate: {
       return !aTouch->Equals(info.mTouch);
     }
     default:

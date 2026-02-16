@@ -7,7 +7,7 @@
 use std::{
     cell::RefCell,
     collections::VecDeque,
-    fmt::{Debug, Display},
+    fmt::{self, Debug, Display, Formatter},
     mem,
     rc::Rc,
     slice::SliceIndex,
@@ -61,6 +61,8 @@ struct ActivePushStreams {
 }
 
 impl ActivePushStreams {
+    // Const constructor for compile-time initialization in PushController::new().
+    // Could derive Default if const was not required.
     pub const fn new() -> Self {
         Self {
             push_streams: VecDeque::new(),
@@ -77,7 +79,7 @@ impl ActivePushStreams {
             return None;
         }
 
-        let inx = usize::try_from(u64::from(push_id - self.first_push_id)).unwrap();
+        let inx = usize::try_from(u64::from(push_id - self.first_push_id)).ok()?;
         if inx >= self.push_streams.len() {
             self.push_streams.resize(inx + 1, PushState::Init);
         }
@@ -116,7 +118,7 @@ impl ActivePushStreams {
                     .filter(|&e| e == &PushState::Closed)
                     .count(),
             )
-            .unwrap()
+            .expect("usize fits in u64")
     }
 
     pub fn clear(&mut self) {
@@ -157,7 +159,7 @@ pub struct PushController {
 }
 
 impl Display for PushController {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "Push controller")
     }
 }
@@ -412,7 +414,7 @@ impl PushController {
         }
     }
 
-    pub fn handle_zero_rtt_rejected(&mut self) {
+    pub const fn handle_zero_rtt_rejected(&mut self) {
         self.current_max_push_id = PushId::new(0);
     }
 
@@ -463,7 +465,7 @@ impl RecvPushEvents {
 }
 
 impl RecvStreamEvents for RecvPushEvents {
-    fn data_readable(&self, _stream_info: Http3StreamInfo) {
+    fn data_readable(&self, _stream_info: &Http3StreamInfo) {
         self.push_handler.borrow_mut().new_stream_event(
             self.push_id,
             Http3ClientEvent::PushDataReadable {
@@ -472,7 +474,7 @@ impl RecvStreamEvents for RecvPushEvents {
         );
     }
 
-    fn recv_closed(&self, _stream_info: Http3StreamInfo, close_type: CloseType) {
+    fn recv_closed(&self, _stream_info: &Http3StreamInfo, close_type: CloseType) {
         match close_type {
             CloseType::ResetApp(_) => {}
             CloseType::ResetRemote(_) | CloseType::LocalError(_) => self
@@ -487,7 +489,7 @@ impl RecvStreamEvents for RecvPushEvents {
 impl HttpRecvStreamEvents for RecvPushEvents {
     fn header_ready(
         &self,
-        _stream_info: Http3StreamInfo,
+        _stream_info: &Http3StreamInfo,
         headers: Vec<Header>,
         interim: bool,
         fin: bool,
@@ -501,5 +503,21 @@ impl HttpRecvStreamEvents for RecvPushEvents {
                 fin,
             },
         );
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::{Http3ClientEvents, PushController};
+
+    #[test]
+    fn can_receive_push() {
+        let events = Http3ClientEvents::default();
+        let disabled = PushController::new(0, events.clone());
+        assert!(!disabled.can_receive_push());
+
+        let enabled = PushController::new(1, events);
+        assert!(enabled.can_receive_push());
     }
 }

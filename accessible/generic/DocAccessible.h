@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_a11y_DocAccessible_h__
-#define mozilla_a11y_DocAccessible_h__
+#ifndef mozilla_a11y_DocAccessible_h_
+#define mozilla_a11y_DocAccessible_h_
 
 #include "HyperTextAccessible.h"
 #include "AccEvent.h"
@@ -65,8 +65,10 @@ class DocAccessible : public HyperTextAccessible,
   virtual nsINode* GetNode() const override;
   Document* DocumentNode() const { return mDocumentNode; }
 
-  virtual mozilla::a11y::ENameValueFlag Name(nsString& aName) const override;
-  virtual void Description(nsString& aDescription) const override;
+  virtual mozilla::a11y::ENameValueFlag DirectName(
+      nsString& aName) const override;
+  virtual EDescriptionValueFlag Description(
+      nsString& aDescription) const override;
   virtual Accessible* FocusedChild() override;
   virtual mozilla::a11y::role NativeRole() const override;
   virtual uint64_t NativeState() const override;
@@ -128,7 +130,8 @@ class DocAccessible : public HyperTextAccessible,
    * We call this when we observe an ID mutation or when an acc is bound
    * to its document.
    */
-  void QueueCacheUpdateForDependentRelations(LocalAccessible* aAcc);
+  void QueueCacheUpdateForDependentRelations(
+      LocalAccessible* aAcc, const nsAttrValue* aOldId = nullptr);
 
   /**
    * Returns true if the instance has shutdown.
@@ -217,14 +220,13 @@ class DocAccessible : public HyperTextAccessible,
    */
   void MaybeNotifyOfValueChange(LocalAccessible* aAccessible);
 
-  /**
-   * Get/set the anchor jump.
-   */
-  LocalAccessible* AnchorJump() {
-    return GetAccessibleOrContainer(mAnchorJumpElm);
-  }
-
   void SetAnchorJump(nsIContent* aTargetNode) { mAnchorJumpElm = aTargetNode; }
+
+  /**
+   * Process an anchor jump, if any. Returns false if the current focus caused
+   * us to ignore the anchor jump, true otherwise.
+   */
+  bool ProcessAnchorJump();
 
   /**
    * Bind the child document to the tree.
@@ -327,7 +329,7 @@ class DocAccessible : public HyperTextAccessible,
   /**
    * Return true if the given ID is referred by relation attribute.
    */
-  bool IsDependentID(dom::Element* aElement, const nsAString& aID) const {
+  bool IsDependentID(dom::Element* aElement, nsAtom* aID) const {
     return GetRelProviders(aElement, aID);
   }
 
@@ -401,9 +403,11 @@ class DocAccessible : public HyperTextAccessible,
    * and returns its scroll position and scroll range. If the given
    * accessible is `this`, return the scroll position and range of
    * the root scroll frame. Return values have been scaled by the
-   * PresShell's resolution.
+   * PresShell's resolution when aShouldScaleByResolution is explicitly
+   * true or unspecified.
    */
-  std::pair<nsPoint, nsRect> ComputeScrollData(LocalAccessible* aAcc);
+  std::pair<nsPoint, nsRect> ComputeScrollData(
+      const LocalAccessible* aAcc, bool aShouldScaleByResolution = true);
 
   /**
    * Only works in content process documents.
@@ -414,6 +418,18 @@ class DocAccessible : public HyperTextAccessible,
 
   void AttrElementWillChange(dom::Element* aElement, nsAtom* aAttr);
   void AttrElementChanged(dom::Element* aElement, nsAtom* aAttr);
+
+  /**
+   * Given an accessible, check if it is anchored to other frames, and
+   * refresh the cache on each of those frames' accessibles.
+   */
+  void RefreshAnchorRelationCacheForTarget(LocalAccessible* aTarget);
+
+  /**
+   * Queue cache updates for all invokers (popovertarget/commandfor) of a
+   * popover element.
+   */
+  void QueueCacheUpdateForPopoverInvokers(dom::Element* aPopoverEl);
 
  protected:
   virtual ~DocAccessible();
@@ -624,10 +640,8 @@ class DocAccessible : public HyperTextAccessible,
    * Return true if the document is a target of document loading events
    * (for example, state busy change or document reload events).
    *
-   * Rules: The root chrome document accessible is never an event target
-   * (for example, Firefox UI window). If the sub document is loaded within its
-   * parent document then the parent document is a target only (aka events
-   * coalescence).
+   * Rule: The root chrome document accessible is never an event target
+   * (for example, Firefox UI window).
    */
   bool IsLoadEventTarget() const;
 
@@ -748,7 +762,7 @@ class DocAccessible : public HyperTextAccessible,
   };
 
   typedef nsTArray<mozilla::UniquePtr<AttrRelProvider>> AttrRelProviders;
-  typedef nsClassHashtable<nsStringHashKey, AttrRelProviders>
+  typedef nsClassHashtable<nsAtomHashKey, AttrRelProviders>
       DependentIDsHashtable;
 
   /**
@@ -756,11 +770,10 @@ class DocAccessible : public HyperTextAccessible,
    * a DOM document if the element is in uncomposed document or associated
    * with shadow DOM the element is in.
    */
-  AttrRelProviders* GetRelProviders(dom::Element* aElement,
-                                    const nsAString& aID) const;
+  AttrRelProviders* GetRelProviders(dom::Element* aElement, nsAtom* aID) const;
   AttrRelProviders* GetOrCreateRelProviders(dom::Element* aElement,
-                                            const nsAString& aID);
-  void RemoveRelProvidersIfEmpty(dom::Element* aElement, const nsAString& aID);
+                                            nsAtom* aID);
+  void RemoveRelProvidersIfEmpty(dom::Element* aElement, nsAtom* aID);
 
   /**
    * A map used to look up the target node for an implicit reverse relation
@@ -793,6 +806,7 @@ class DocAccessible : public HyperTextAccessible,
   nsTHashMap<nsIContent*, AttrRelProviders> mDependentElementsMap;
 
   friend class RelatedAccIterator;
+  friend class HTMLLabelIterator;
 
   /**
    * Used for our caching algorithm. We store the list of nodes that should be
@@ -843,6 +857,9 @@ class DocAccessible : public HyperTextAccessible,
    * aria-labelledby/describedby target.
    */
   void MaybeHandleChangeToHiddenNameOrDescription(nsIContent* aChild);
+
+  void MaybeHandleChangeToAriaActions(LocalAccessible* aAcc,
+                                      const nsAtom* aAttribute);
 
   void MaybeFireEventsForChangedPopover(LocalAccessible* aAcc);
 

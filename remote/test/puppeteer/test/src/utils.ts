@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {access, constants, rm, watch} from 'fs/promises';
-import {tmpdir} from 'os';
-import {basename, dirname} from 'path';
+import {access, constants, rm, watch} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {basename, dirname} from 'node:path';
 
 import expect from 'expect';
 import type {Frame} from 'puppeteer-core/internal/api/Frame.js';
@@ -164,12 +164,18 @@ export interface FilePlaceholder {
   [Symbol.dispose](): void;
 }
 
-export function getUniqueVideoFilePlaceholder(): FilePlaceholder {
+export function getUniqueVideoFilePlaceholder(
+  debugging = false,
+): FilePlaceholder {
+  const name = debugging
+    ? './debugging'
+    : `${tmpdir()}/test-video-${Math.round(Math.random() * 10000)}`;
   return {
-    filename: `${tmpdir()}/test-video-${Math.round(
-      Math.random() * 10000,
-    )}.webm`,
+    filename: `${name}.webm`,
     [Symbol.dispose]() {
+      if (debugging) {
+        return;
+      }
       void rmIfExists(this.filename);
     },
   };
@@ -208,4 +214,34 @@ export async function waitForFileExistence(
       }
     });
   }
+}
+
+export function html(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): string {
+  const bodyContent = strings.reduce((acc, str, i) => {
+    return acc + str + (values[i] || '');
+  }, '');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My test page</title>
+  </head>
+  <body>
+    ${bodyContent}
+  </body>
+</html>`;
+}
+
+export function htmlRaw(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): string {
+  return strings.reduce((acc, str, i) => {
+    return acc + str + (values[i] || '');
+  }, '');
 }

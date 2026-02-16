@@ -19,11 +19,15 @@
 #include "gc/Cell.h"
 #include "gc/GC.h"
 #include "gc/GCContext.h"
+#include "gc/GCMarker.h"
 #include "vm/GeckoProfiler.h"
 #include "vm/HelperThreads.h"
 #include "vm/JSContext.h"
 
 namespace js {
+
+class GCMarker;
+
 namespace gc {
 
 /*
@@ -77,23 +81,6 @@ class MOZ_RAII AutoEmptyNursery : public AutoAssertEmptyNursery {
   explicit AutoEmptyNursery(JSContext* cx);
 };
 
-// Abstract base class for exclusive heap access for tracing or GC.
-class MOZ_RAII AutoHeapSession {
- public:
-  ~AutoHeapSession();
-
- protected:
-  AutoHeapSession(GCRuntime* gc, JS::HeapState state);
-
- private:
-  AutoHeapSession(const AutoHeapSession&) = delete;
-  void operator=(const AutoHeapSession&) = delete;
-
-  GCRuntime* gc;
-  JS::HeapState prevState;
-  mozilla::Maybe<AutoGeckoProfilerEntry> profilingStackFrame;
-};
-
 class MOZ_RAII AutoGCSession : public AutoHeapSession {
  public:
   explicit AutoGCSession(GCRuntime* gc, JS::HeapState state)
@@ -103,28 +90,6 @@ class MOZ_RAII AutoGCSession : public AutoHeapSession {
 class MOZ_RAII AutoMajorGCProfilerEntry : public AutoGeckoProfilerEntry {
  public:
   explicit AutoMajorGCProfilerEntry(GCRuntime* gc);
-};
-
-class MOZ_RAII AutoTraceSession : public AutoHeapSession {
- public:
-  explicit AutoTraceSession(JSRuntime* rt)
-      : AutoHeapSession(&rt->gc, JS::HeapState::Tracing) {}
-};
-
-struct MOZ_RAII AutoFinishGC {
-  explicit AutoFinishGC(JSContext* cx, JS::GCReason reason) {
-    FinishGC(cx, reason);
-  }
-};
-
-// This class should be used by any code that needs exclusive access to the heap
-// in order to trace through it.
-class MOZ_RAII AutoPrepareForTracing : private AutoFinishGC,
-                                       public AutoTraceSession {
- public:
-  explicit AutoPrepareForTracing(JSContext* cx)
-      : AutoFinishGC(cx, JS::GCReason::PREPARE_FOR_TRACING),
-        AutoTraceSession(cx->runtime()) {}
 };
 
 // This class should be used by any code that needs exclusive access to the heap
@@ -139,18 +104,6 @@ class MOZ_RAII AutoEmptyNurseryAndPrepareForTracing : private AutoFinishGC,
       : AutoFinishGC(cx, JS::GCReason::PREPARE_FOR_TRACING),
         AutoEmptyNursery(cx),
         AutoTraceSession(cx->runtime()) {}
-};
-
-/*
- * Temporarily disable incremental barriers.
- */
-class AutoDisableBarriers {
- public:
-  explicit AutoDisableBarriers(GCRuntime* gc);
-  ~AutoDisableBarriers();
-
- private:
-  GCRuntime* gc;
 };
 
 // Set compartments' maybeAlive flags if anything is marked while this class is
@@ -297,6 +250,28 @@ class AutoSetThreadIsSweeping : public AutoSetThreadGCUseT<GCUse::Sweeping> {
 #endif
 };
 
+class MOZ_RAII AutoDisallowPreWriteBarrier {
+ public:
+  explicit AutoDisallowPreWriteBarrier(JS::GCContext* gcx) {
+#ifdef DEBUG
+    gcx_ = gcx;
+    MOZ_ASSERT(gcx->preWriteBarrierAllowed_);
+    gcx->preWriteBarrierAllowed_ = false;
+#endif
+  }
+  ~AutoDisallowPreWriteBarrier() {
+#ifdef DEBUG
+    MOZ_ASSERT(!gcx_->preWriteBarrierAllowed_);
+    gcx_->preWriteBarrierAllowed_ = true;
+#endif
+  }
+
+ private:
+#ifdef DEBUG
+  JS::GCContext* gcx_;
+#endif
+};
+
 #ifdef JSGC_HASH_TABLE_CHECKS
 void CheckHashTablesAfterMovingGC(JSRuntime* rt);
 void CheckHeapAfterGC(JSRuntime* rt);
@@ -319,6 +294,16 @@ struct MinorSweepingTracer final
   template <typename T>
   void onEdge(T** thingp, const char* name);
   friend class GenericTracerImpl<MinorSweepingTracer>;
+};
+
+class MOZ_RAII AutoUpdateMarkStackRanges {
+  GCMarker& marker_;
+
+ public:
+  explicit AutoUpdateMarkStackRanges(GCMarker& marker) : marker_(marker) {
+    marker_.updateRangesAtStartOfSlice();
+  }
+  ~AutoUpdateMarkStackRanges() { marker_.updateRangesAtEndOfSlice(); }
 };
 
 extern void DelayCrossCompartmentGrayMarking(GCMarker* maybeMarker,

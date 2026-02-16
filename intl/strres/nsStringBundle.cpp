@@ -5,7 +5,6 @@
 
 #include "nsStringBundle.h"
 
-#include "netCore.h"
 #include "nsID.h"
 #include "nsString.h"
 #include "nsIStringBundle.h"
@@ -26,11 +25,9 @@
 #include "nsQueryObject.h"
 #include "nsSimpleEnumerator.h"
 #include "nsStringStream.h"
-#include "mozilla/dom/txXSLTMsgsURL.h"
 #include "mozilla/ipc/SharedMemoryHandle.h"
 #include "mozilla/BinarySearch.h"
 #include "mozilla/ClearOnShutdown.h"
-#include "mozilla/ResultExtensions.h"
 #include "mozilla/URLPreloader.h"
 #include "mozilla/Try.h"
 #include "mozilla/dom/ContentParent.h"
@@ -113,7 +110,7 @@ namespace {
 class StringBundleProxy : public nsIStringBundle {
   NS_DECL_THREADSAFE_ISUPPORTS
 
-  NS_DECLARE_STATIC_IID_ACCESSOR(STRINGBUNDLEPROXY_IID)
+  NS_INLINE_DECL_STATIC_IID(STRINGBUNDLEPROXY_IID)
 
   explicit StringBundleProxy(already_AddRefed<nsIStringBundle> aTarget)
       : mMutex("StringBundleProxy::mMutex"), mTarget(aTarget) {}
@@ -128,6 +125,7 @@ class StringBundleProxy : public nsIStringBundle {
   NS_IMETHOD GetStringFromID(int32_t aID, nsAString& _retval) override {
     return Target()->GetStringFromID(aID, _retval);
   }
+
   NS_IMETHOD GetStringFromAUTF8Name(const nsACString& aName,
                                     nsAString& _retval) override {
     return Target()->GetStringFromAUTF8Name(aName, _retval);
@@ -135,10 +133,7 @@ class StringBundleProxy : public nsIStringBundle {
   NS_IMETHOD GetStringFromName(const char* aName, nsAString& _retval) override {
     return Target()->GetStringFromName(aName, _retval);
   }
-  NS_IMETHOD FormatStringFromID(int32_t aID, const nsTArray<nsString>& params,
-                                nsAString& _retval) override {
-    return Target()->FormatStringFromID(aID, params, _retval);
-  }
+
   NS_IMETHOD FormatStringFromAUTF8Name(const nsACString& aName,
                                        const nsTArray<nsString>& params,
                                        nsAString& _retval) override {
@@ -179,8 +174,6 @@ class StringBundleProxy : public nsIStringBundle {
   }
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(StringBundleProxy, STRINGBUNDLEPROXY_IID)
-
 NS_IMPL_ISUPPORTS(StringBundleProxy, nsIStringBundle, StringBundleProxy)
 
 #define SHAREDSTRINGBUNDLE_IID \
@@ -205,7 +198,7 @@ class SharedStringBundle final : public nsStringBundleBase {
   void SetMapFile(mozilla::ipc::ReadOnlySharedMemoryHandle&& aHandle);
 
   NS_DECL_ISUPPORTS_INHERITED
-  NS_DECLARE_STATIC_IID_ACCESSOR(SHAREDSTRINGBUNDLE_IID)
+  NS_INLINE_DECL_STATIC_IID(SHAREDSTRINGBUNDLE_IID)
 
   nsresult LoadProperties() override;
 
@@ -267,8 +260,6 @@ class SharedStringBundle final : public nsStringBundleBase {
 
   Maybe<mozilla::ipc::ReadOnlySharedMemoryHandle> mMapHandle;
 };
-
-NS_DEFINE_STATIC_IID_ACCESSOR(SharedStringBundle, SHAREDSTRINGBUNDLE_IID)
 
 class StringMapEnumerator final : public nsSimpleEnumerator {
  public:
@@ -612,15 +603,6 @@ nsresult SharedStringBundle::GetStringImpl(const nsACString& aName,
   return NS_ERROR_FAILURE;
 }
 
-NS_IMETHODIMP
-nsStringBundleBase::FormatStringFromID(int32_t aID,
-                                       const nsTArray<nsString>& aParams,
-                                       nsAString& aResult) {
-  nsAutoCString idStr;
-  idStr.AppendInt(aID, 10);
-  return FormatStringFromName(idStr.get(), aParams, aResult);
-}
-
 // this function supports at most 10 parameters.. see below for why
 NS_IMETHODIMP
 nsStringBundleBase::FormatStringFromAUTF8Name(const nsACString& aName,
@@ -772,6 +754,7 @@ nsStringBundleService::Observe(nsISupports* aSubject, const char* aTopic,
       strcmp("chrome-flush-caches", aTopic) == 0 ||
       strcmp("intl:app-locales-changed", aTopic) == 0) {
     flushBundleCache(/* ignoreShared = */ false);
+    mBundleMap.Clear();
   } else if (strcmp("memory-pressure", aTopic) == 0) {
     flushBundleCache(/* ignoreShared = */ true);
   }
@@ -813,7 +796,7 @@ void nsStringBundleService::SendContentBundles(ContentParent* aContentParent) {
     }
   }
 
-  Unused << aContentParent->SendRegisterStringBundles(std::move(bundles));
+  (void)aContentParent->SendRegisterStringBundles(std::move(bundles));
 }
 
 void nsStringBundleService::RegisterContentBundle(
@@ -846,8 +829,9 @@ void nsStringBundleService::RegisterContentBundle(
   mSharedBundles.insertBack(cacheEntry);
 }
 
-void nsStringBundleService::getStringBundle(const char* aURLSpec,
-                                            nsIStringBundle** aResult) {
+NS_IMETHODIMP
+nsStringBundleService::CreateBundle(const char* aURLSpec,
+                                    nsIStringBundle** aResult) {
   nsDependentCString key(aURLSpec);
   bundleCacheEntry_t* cacheEntry = mBundleMap.Get(key);
 
@@ -899,6 +883,8 @@ void nsStringBundleService::getStringBundle(const char* aURLSpec,
   // finally, return the value
   *aResult = cacheEntry->mBundle;
   NS_ADDREF(*aResult);
+
+  return NS_OK;
 }
 
 UniquePtr<bundleCacheEntry_t> nsStringBundleService::evictOneEntry() {
@@ -931,86 +917,4 @@ bundleCacheEntry_t* nsStringBundleService::insertIntoCache(
   mBundleMap.InsertOrUpdate(cacheEntry->mHashKey, cacheEntry.get());
 
   return cacheEntry.release();
-}
-
-NS_IMETHODIMP
-nsStringBundleService::CreateBundle(const char* aURLSpec,
-                                    nsIStringBundle** aResult) {
-  getStringBundle(aURLSpec, aResult);
-  return NS_OK;
-}
-
-#define GLOBAL_PROPERTIES "chrome://global/locale/global-strres.properties"
-
-nsresult nsStringBundleService::FormatWithBundle(
-    nsIStringBundle* bundle, nsresult aStatus,
-    const nsTArray<nsString>& argArray, nsAString& result) {
-  nsresult rv;
-
-  // try looking up the error message with the int key:
-  uint16_t code = NS_ERROR_GET_CODE(aStatus);
-  rv = bundle->FormatStringFromID(code, argArray, result);
-
-  // If the int key fails, try looking up the default error message. E.g. print:
-  //   An unknown error has occurred (0x804B0003).
-  if (NS_FAILED(rv)) {
-    AutoTArray<nsString, 1> otherArgArray;
-    otherArgArray.AppendElement()->AppendInt(static_cast<uint32_t>(aStatus),
-                                             16);
-    uint16_t code = NS_ERROR_GET_CODE(NS_ERROR_FAILURE);
-    rv = bundle->FormatStringFromID(code, otherArgArray, result);
-  }
-
-  return rv;
-}
-
-NS_IMETHODIMP
-nsStringBundleService::FormatStatusMessage(nsresult aStatus,
-                                           const char16_t* aStatusArg,
-                                           nsAString& result) {
-  uint32_t i, argCount = 0;
-  nsCOMPtr<nsIStringBundle> bundle;
-
-  // XXX hack for mailnews who has already formatted their messages:
-  if (aStatus == NS_OK && aStatusArg) {
-    result.Assign(aStatusArg);
-    return NS_OK;
-  }
-
-  if (aStatus == NS_OK) {
-    return NS_ERROR_FAILURE;  // no message to format
-  }
-
-  // format the arguments:
-  const nsDependentString args(aStatusArg);
-  argCount = args.CountChar(char16_t('\n')) + 1;
-  NS_ENSURE_ARG(argCount <= 10);  // enforce 10-parameter limit
-  AutoTArray<nsString, 10> argArray;
-
-  // convert the aStatusArg into an nsString array
-  if (argCount == 1) {
-    argArray.AppendElement(aStatusArg);
-  } else if (argCount > 1) {
-    int32_t offset = 0;
-    for (i = 0; i < argCount; i++) {
-      int32_t pos = args.FindChar('\n', offset);
-      if (pos == -1) pos = args.Length();
-      argArray.AppendElement(Substring(args, offset, pos - offset));
-      offset = pos + 1;
-    }
-  }
-
-  switch (NS_ERROR_GET_MODULE(aStatus)) {
-    case NS_ERROR_MODULE_XSLT:
-      getStringBundle(XSLT_MSGS_URL, getter_AddRefs(bundle));
-      break;
-    case NS_ERROR_MODULE_NETWORK:
-      getStringBundle(NECKO_MSGS_URL, getter_AddRefs(bundle));
-      break;
-    default:
-      getStringBundle(GLOBAL_PROPERTIES, getter_AddRefs(bundle));
-      break;
-  }
-
-  return FormatWithBundle(bundle, aStatus, argArray, result);
 }

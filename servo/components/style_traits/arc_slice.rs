@@ -9,7 +9,11 @@ use serde::ser::{Serialize, Serializer};
 use servo_arc::ThinArc;
 use std::ops::Deref;
 use std::ptr::NonNull;
-use std::{iter, mem, hash::{Hash, Hasher}};
+use std::sync::LazyLock;
+use std::{
+    hash::{Hash, Hasher},
+    iter, mem,
+};
 
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps, MallocUnconditionalSizeOf};
 
@@ -44,12 +48,9 @@ impl<T> Clone for ArcSlice<T> {
     }
 }
 
-lazy_static! {
-    // ThinArc doesn't support alignments greater than align_of::<u64>.
-    static ref EMPTY_ARC_SLICE: ArcSlice<u64> = {
-        ArcSlice::from_iter_leaked(iter::empty())
-    };
-}
+// ThinArc doesn't support alignments greater than align_of::<u64>.
+static EMPTY_ARC_SLICE: LazyLock<ArcSlice<u64>> =
+    LazyLock::new(|| ArcSlice::from_iter_leaked(iter::empty()));
 
 impl<T> Default for ArcSlice<T> {
     #[allow(unsafe_code)]

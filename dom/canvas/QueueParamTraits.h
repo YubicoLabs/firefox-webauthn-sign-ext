@@ -5,21 +5,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef _QUEUEPARAMTRAITS_H_
-#define _QUEUEPARAMTRAITS_H_ 1
+#ifndef QUEUEPARAMTRAITS_H_
+#define QUEUEPARAMTRAITS_H_ 1
 
+#include "WebGLTypes.h"
 #include "ipc/EnumSerializer.h"
-#include "mozilla/gfx/2D.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/IntegerRange.h"
-#include "mozilla/ipc/ProtocolUtils.h"
 #include "mozilla/Logging.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/ipc/ProtocolUtils.h"
 #include "nsExceptionHandler.h"
 #include "nsString.h"
-#include "WebGLTypes.h"
-
-#include <optional>
 
 namespace mozilla::webgl {
 
@@ -438,8 +436,22 @@ struct QueueParamTraits<webgl::TexUnpackBlobDesc> {
           !view.ReadParam(&stride)) {
         return false;
       }
-      const size_t dataSize = stride * surfSize.height;
-      const auto range = view.template ReadRange<uint8_t>(dataSize);
+      if (!CheckedInt32(stride).isValid() || surfSize.IsEmpty()) {
+        return false;
+      }
+      int32_t bpp = BytesPerPixel(format);
+      CheckedInt<size_t> minStride(bpp);
+      minStride *= surfSize.width;
+      if (!minStride.isValid() || minStride.value() <= 0 ||
+          stride < minStride.value()) {
+        return false;
+      }
+      CheckedInt<size_t> dataSize(stride);
+      dataSize *= surfSize.height;
+      if (!dataSize.isValid()) {
+        return false;
+      }
+      const auto range = view.template ReadRange<uint8_t>(dataSize.value());
       if (!range) return false;
 
       // DataSourceSurface demands pointer-to-mutable.
@@ -752,6 +764,66 @@ struct QueueParamTraits<std::pair<TypeA, TypeB>> {
   }
 };
 
+// -
+
+template <class... T>
+struct QueueParamTraits<std::tuple<T...>> {
+  using ParamType = std::tuple<T...>;
+
+  template <typename U>
+  static bool Write(ProducerView<U>& aProducerView, const ParamType& aArg) {
+    bool ok = true;
+    mozilla::MapTuple(aArg, [&](const auto& field) {
+      ok &= aProducerView.WriteParam(field);
+      return true;  // ignored
+    });
+    return ok;
+  }
+
+  template <typename U>
+  static bool Read(ConsumerView<U>& aConsumerView, ParamType* aArg) {
+    bool ok = true;
+    mozilla::MapTuple(*aArg, [&](auto& field) {
+      ok &= aConsumerView.ReadParam(&field);
+      return true;  // ignored
+    });
+    return ok;
+  }
+};
+
+// -
+
+template <class K, class V, class H, class E>
+struct QueueParamTraits<std::unordered_map<K, V, H, E>> {
+  using ParamType = std::unordered_map<K, V, H, E>;
+
+  template <typename U>
+  static bool Write(ProducerView<U>& aProducerView, const ParamType& aArg) {
+    bool ok = aProducerView.WriteParam(uint64_t{aArg.size()});
+    for (const auto& pair : aArg) {
+      ok &= aProducerView.WriteParam(pair);
+    }
+    return ok;
+  }
+
+  template <typename U>
+  static bool Read(ConsumerView<U>& aConsumerView, ParamType* aArg) {
+    aArg->clear();
+
+    auto size = uint64_t{0};
+    if (!aConsumerView.ReadParam(&size)) return false;
+
+    aArg->reserve(size);
+    for (const auto i : IntegerRange(size)) {
+      (void)i;
+      auto pair = std::pair<K, V>{};
+      if (!aConsumerView.ReadParam(&pair)) return false;
+      aArg->insert(pair);
+    }
+    return true;
+  }
+};
+
 }  // namespace mozilla::webgl
 
-#endif  // _QUEUEPARAMTRAITS_H_
+#endif  // QUEUEPARAMTRAITS_H_

@@ -36,6 +36,12 @@ using MResumePointIterator = InlineForwardListIterator<MResumePoint>;
 
 class LBlock;
 
+// Represents the likelihood of a basic block to be executed at runtime.
+// Unknown: default value.
+// Likely: Likely to be executed at runtime, hot block.
+// Unlikely: unlikely to be executed, cold block.
+enum class Frequency : uint8_t { Unknown = 0, Likely = 1, Unlikely = 2 };
+
 class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock> {
  public:
   enum Kind {
@@ -62,8 +68,9 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock> {
   // This block will unconditionally bail out.
   bool alwaysBails_ = false;
 
-  // Will be used for branch hinting in wasm.
-  wasm::BranchHint branchHint_ = wasm::BranchHint::Invalid;
+  // Represents the execution frequency of this block, considered unknown by
+  // default. Various passes can use this information for optimizations.
+  Frequency frequency_ = Frequency::Unknown;
 
   // Pushes a copy of a local variable or argument.
   void pushVariable(uint32_t slot) { push(slots_[slot]); }
@@ -308,6 +315,12 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock> {
   // with multiple entries.
   void setLoopHeader(MBasicBlock* newBackedge);
 
+  // Marks this as a LOOP_HEADER block, but doesn't change anything else.
+  void setLoopHeader() {
+    MOZ_ASSERT(!isLoopHeader());
+    kind_ = LOOP_HEADER;
+  }
+
   // Propagates backedge slots into phis operands of the loop header.
   [[nodiscard]] bool inheritPhisFromBackedge(MBasicBlock* backedge);
 
@@ -379,14 +392,14 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock> {
   uint32_t id() const { return id_; }
   uint32_t numPredecessors() const { return predecessors_.length(); }
 
-  bool branchHintingUnlikely() const {
-    return branchHint_ == wasm::BranchHint::Unlikely;
-  }
-  bool branchHintingLikely() const {
-    return branchHint_ == wasm::BranchHint::Likely;
-  }
+  bool isUnknownFrequency() const { return frequency_ == Frequency::Unknown; }
 
-  void setBranchHinting(wasm::BranchHint value) { branchHint_ = value; }
+  bool isLikelyFrequency() const { return frequency_ == Frequency::Likely; }
+
+  bool isUnlikelyFrequency() const { return frequency_ == Frequency::Unlikely; }
+
+  Frequency getFrequency() const { return frequency_; }
+  void setFrequency(Frequency value) { frequency_ = value; }
 
   uint32_t domIndex() const {
     MOZ_ASSERT(!isDead());
@@ -395,6 +408,13 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock> {
   void setDomIndex(uint32_t d) { domIndex_ = d; }
 
   MBasicBlock* getPredecessor(uint32_t i) const { return predecessors_[i]; }
+  void setPredecessor(uint32_t i, MBasicBlock* p) { predecessors_[i] = p; }
+  [[nodiscard]]
+  bool appendPredecessor(MBasicBlock* p) {
+    return predecessors_.append(p);
+  }
+  void erasePredecessor(uint32_t i) { predecessors_.erase(&predecessors_[i]); }
+
   size_t indexForPredecessor(MBasicBlock* block) const {
     // This should only be called before critical edge splitting.
     MOZ_ASSERT(!block->successorWithPhis());
@@ -428,7 +448,7 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock> {
   bool resumePointsEmpty() const { return resumePoints_.empty(); }
 #endif
   MInstructionIterator begin() { return instructions_.begin(); }
-  MInstructionIterator begin(MInstruction* at) {
+  MInstructionIterator begin(const MInstruction* at) {
     MOZ_ASSERT(at->block() == this);
     return instructions_.begin(at);
   }
@@ -608,6 +628,29 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock> {
   // Find the previous resume point that would be used if this instruction
   // bails out.
   MResumePoint* activeResumePoint(MInstruction* ins);
+
+#ifdef JS_JITSPEW
+  const char* nameOfKind() const {
+    switch (kind_) {
+      case MBasicBlock::Kind::NORMAL:
+        return "NORMAL";
+      case MBasicBlock::Kind::PENDING_LOOP_HEADER:
+        return "PENDING_LOOP_HEADER";
+      case MBasicBlock::Kind::LOOP_HEADER:
+        return "LOOP_HEADER";
+      case MBasicBlock::Kind::SPLIT_EDGE:
+        return "SPLIT_EDGE";
+      case MBasicBlock::Kind::FAKE_LOOP_PRED:
+        return "FAKE_LOOP_PRED";
+      case MBasicBlock::Kind::INTERNAL:
+        return "INTERNAL";
+      case MBasicBlock::Kind::DEAD:
+        return "DEAD";
+      default:
+        return "MBasicBlock::Kind::???";
+    }
+  }
+#endif
 
  private:
   MIRGraph& graph_;

@@ -21,6 +21,10 @@ pub fn enc_dec<T: FrameDecoder<T>>(d: &Encoder, st: &str, remaining: usize) -> T
     let mut conn_c = default_client();
     let mut conn_s = default_server();
     let out = conn_c.process_output(now());
+    let out2 = conn_c.process_output(now());
+    _ = conn_s.process(out.dgram(), now());
+    let out = conn_s.process(out2.dgram(), now());
+    let out = conn_c.process(out.dgram(), now());
     let out = conn_s.process(out.dgram(), now());
     let out = conn_c.process(out.dgram(), now());
     drop(conn_s.process(out.dgram(), now()));
@@ -40,10 +44,10 @@ pub fn enc_dec<T: FrameDecoder<T>>(d: &Encoder, st: &str, remaining: usize) -> T
     drop(conn_c.process(out.dgram(), now()));
 
     let (frame, fin) = fr
-        .receive::<T>(&mut StreamReaderConnectionWrapper::new(
-            &mut conn_c,
-            stream_id,
-        ))
+        .receive::<T>(
+            &mut StreamReaderConnectionWrapper::new(&mut conn_c, stream_id),
+            now(),
+        )
         .unwrap();
     assert!(!fin);
     assert!(frame.is_some());
@@ -58,21 +62,15 @@ pub fn enc_dec<T: FrameDecoder<T>>(d: &Encoder, st: &str, remaining: usize) -> T
 
 pub fn enc_dec_hframe(f: &HFrame, st: &str, remaining: usize) {
     let mut d = Encoder::default();
-
     f.encode(&mut d);
-
     let frame = enc_dec::<HFrame>(&d, st, remaining);
-
     assert_eq!(*f, frame);
 }
 
 pub fn enc_dec_wtframe(f: &WebTransportFrame, st: &str, remaining: usize) {
     let mut d = Encoder::default();
-
     f.encode(&mut d);
-
     let frame = enc_dec::<WebTransportFrame>(&d, st, remaining);
-
     assert_eq!(*f, frame);
 }
 

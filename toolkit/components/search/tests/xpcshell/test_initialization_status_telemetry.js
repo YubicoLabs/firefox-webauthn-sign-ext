@@ -5,7 +5,6 @@
  * Tests telemetry is captured when search service initialization has failed or
  * succeeded.
  */
-const searchService = Services.search.wrappedJSObject;
 
 add_setup(async () => {
   consoleAllowList.push("#init: failure initializing search:");
@@ -15,15 +14,15 @@ add_setup(async () => {
 
 add_task(async function test_init_success_telemetry() {
   Assert.equal(
-    searchService.isInitialized,
+    SearchService.isInitialized,
     false,
     "Search Service should not be initialized."
   );
 
-  await Services.search.init();
+  await SearchService.init();
 
   Assert.equal(
-    searchService.hasSuccessfullyInitialized,
+    SearchService.hasSuccessfullyInitialized,
     true,
     "Search Service should have initialized successfully."
   );
@@ -57,7 +56,7 @@ add_task(async function test_init_failure_telemetry() {
     "Should have incremented load engines failure by one."
   );
 
-  // This error is recognized based on the error message so we set it explicitly.
+  // This error is recognized based on the error message, so we set it explicitly.
   await startInitFailure("LoadSettingsAddonManager", "Addon manager failed");
   Assert.equal(
     1,
@@ -65,6 +64,7 @@ add_task(async function test_init_failure_telemetry() {
     "Should have incremented get settings addon manager failure by one."
   );
 
+  // This type of failure should not be reported in telemetry.
   await startInitFailure(
     "LoadSettingsAddonManager",
     "Addon manager shutting down"
@@ -76,13 +76,50 @@ add_task(async function test_init_failure_telemetry() {
   );
 });
 
-async function startInitFailure(errorType, errorMessage) {
-  searchService.reset();
-  searchService.errorToThrowInTest.type = errorType;
-  searchService.errorToThrowInTest.message = errorMessage;
+add_task(async function test_corrupt_settings() {
+  consoleAllowList.push("get: Settings file empty or corrupt.");
+  SearchService.reset();
+
+  // Prevent `SearchUIUtils.searchSettingsResetNotificationBox` from
+  // running because it would fail since there is no window.
+  let notificationBoxStub = sinon.stub(
+    SearchService,
+    "_showSearchSettingsResetNotificationBox"
+  );
+
+  await IOUtils.writeJSON(
+    PathUtils.join(PathUtils.profileDir, SETTINGS_FILENAME),
+    "{invalid json",
+    { compress: true }
+  );
 
   Assert.equal(
-    searchService.isInitialized,
+    SearchService.isInitialized,
+    false,
+    "Search Service should not be initialized."
+  );
+  await SearchService.init();
+  Assert.equal(
+    SearchService.hasSuccessfullyInitialized,
+    true,
+    "Search Service should have initialized successfully."
+  );
+
+  Assert.equal(
+    1,
+    await Glean.searchService.initializationStatus.settingsCorrupt.testGetValue(),
+    "Should have incremented settings corrupt by one."
+  );
+  notificationBoxStub.reset();
+});
+
+async function startInitFailure(errorType, errorMessage) {
+  SearchService.reset();
+  SearchService.errorToThrowInTest.type = errorType;
+  SearchService.errorToThrowInTest.message = errorMessage;
+
+  Assert.equal(
+    SearchService.isInitialized,
     false,
     "Search Service should not be initialized."
   );
@@ -93,16 +130,16 @@ async function startInitFailure(errorType, errorMessage) {
   );
 
   await Assert.rejects(
-    Services.search.init(),
+    SearchService.init(),
     messageRegex,
     "Should have thrown an error on init."
   );
 
   await Assert.rejects(
-    Services.search.promiseInitialized,
+    SearchService.promiseInitialized,
     messageRegex,
     "Should have rejected the promise."
   );
 
-  searchService.errorToThrowInTest = { type: null, message: null };
+  SearchService.errorToThrowInTest = { type: null, message: null };
 }

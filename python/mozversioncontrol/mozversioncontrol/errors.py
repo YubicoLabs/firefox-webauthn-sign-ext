@@ -20,8 +20,8 @@ class MissingVCSExtension(MissingVCSInfo):
 
     def __init__(self, ext):
         self.ext = ext
-        msg = "Could not detect required extension '{}'".format(self.ext)
-        super(MissingVCSExtension, self).__init__(msg)
+        msg = f"Could not detect required extension '{self.ext}'"
+        super().__init__(msg)
 
 
 class InvalidRepoPath(Exception):

@@ -8,7 +8,6 @@
 
 #include <utility>
 
-#include "nsString.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/NotNull.h"
 #include "mozilla/RefPtr.h"
@@ -17,6 +16,7 @@
 #include "mozilla/dom/quota/OriginScope.h"
 #include "mozilla/dom/quota/PersistenceScope.h"
 #include "mozilla/dom/quota/QuotaManager.h"
+#include "nsString.h"
 
 namespace mozilla::dom::quota {
 
@@ -30,7 +30,7 @@ RefPtr<ClientDirectoryLock> ClientDirectoryLock::Create(
       std::move(aQuotaManager),
       PersistenceScope::CreateFromValue(aPersistenceType),
       OriginScope::FromOrigin(aOriginMetadata),
-      Nullable<Client::Type>(aClientType), aExclusive, false,
+      ClientStorageScope::CreateFromClient(aClientType), aExclusive, false,
       ShouldUpdateLockIdTableFlag::Yes, DirectoryLockCategory::None);
 }
 
@@ -38,20 +38,22 @@ RefPtr<ClientDirectoryLock> ClientDirectoryLock::Create(
 RefPtr<ClientDirectoryLock> ClientDirectoryLock::Create(
     MovingNotNull<RefPtr<QuotaManager>> aQuotaManager,
     const PersistenceScope& aPersistenceScope, const OriginScope& aOriginScope,
-    const Nullable<Client::Type>& aClientType, bool aExclusive, bool aInternal,
-    ShouldUpdateLockIdTableFlag aShouldUpdateLockIdTableFlag,
+    const ClientStorageScope& aClientStorageScope, bool aExclusive,
+    bool aInternal, ShouldUpdateLockIdTableFlag aShouldUpdateLockIdTableFlag,
     DirectoryLockCategory aCategory) {
   MOZ_ASSERT_IF(aOriginScope.IsOrigin(), !aOriginScope.GetOrigin().IsEmpty());
   MOZ_ASSERT_IF(!aInternal, aPersistenceScope.IsValue());
   MOZ_ASSERT_IF(!aInternal,
                 aPersistenceScope.GetValue() != PERSISTENCE_TYPE_INVALID);
   MOZ_ASSERT_IF(!aInternal, aOriginScope.IsOrigin());
-  MOZ_ASSERT_IF(!aInternal, !aClientType.IsNull());
-  MOZ_ASSERT_IF(!aInternal, aClientType.Value() < Client::TypeMax());
+  MOZ_ASSERT_IF(!aInternal, aClientStorageScope.IsClient());
+  MOZ_ASSERT_IF(!aInternal,
+                aClientStorageScope.GetClientType() < Client::TypeMax());
 
   return MakeRefPtr<ClientDirectoryLock>(
-      std::move(aQuotaManager), aPersistenceScope, aOriginScope, aClientType,
-      aExclusive, aInternal, aShouldUpdateLockIdTableFlag, aCategory);
+      std::move(aQuotaManager), aPersistenceScope, aOriginScope,
+      aClientStorageScope, aExclusive, aInternal, aShouldUpdateLockIdTableFlag,
+      aCategory);
 }
 
 }  // namespace mozilla::dom::quota

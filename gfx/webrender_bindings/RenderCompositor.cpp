@@ -40,9 +40,12 @@ namespace mozilla::wr {
 void wr_compositor_add_surface(void* aCompositor, wr::NativeSurfaceId aId,
                                const wr::CompositorSurfaceTransform* aTransform,
                                wr::DeviceIntRect aClipRect,
-                               wr::ImageRendering aImageRendering) {
+                               wr::ImageRendering aImageRendering,
+                               wr::DeviceIntRect aRoundedClipRect,
+                               wr::ClipRadius aRoundedClipRadius) {
   RenderCompositor* compositor = static_cast<RenderCompositor*>(aCompositor);
-  compositor->AddSurface(aId, *aTransform, aClipRect, aImageRendering);
+  compositor->AddSurface(aId, *aTransform, aClipRect, aImageRendering,
+                         aRoundedClipRect, aRoundedClipRadius);
 }
 
 void wr_compositor_begin_frame(void* aCompositor) {
@@ -75,9 +78,11 @@ void wr_compositor_create_external_surface(void* aCompositor,
 void wr_compositor_create_swapchain_surface(void* aCompositor,
                                             wr::NativeSurfaceId aId,
                                             wr::DeviceIntSize aSize,
-                                            bool aIsOpaque) {
+                                            bool aIsOpaque,
+                                            bool aNeedsSyncDcompCommit) {
   RenderCompositor* compositor = static_cast<RenderCompositor*>(aCompositor);
-  compositor->CreateSwapChainSurface(aId, aSize, aIsOpaque);
+  compositor->CreateSwapChainSurface(aId, aSize, aIsOpaque,
+                                     aNeedsSyncDcompCommit);
 }
 
 void wr_compositor_resize_swapchain(void* aCompositor, wr::NativeSurfaceId aId,
@@ -105,15 +110,18 @@ void wr_compositor_destroy_tile(void* aCompositor, wr::NativeSurfaceId aId,
   compositor->DestroyTile(aId, aX, aY);
 }
 
-void wr_compositor_bind_swapchain(void* aCompositor, wr::NativeSurfaceId aId) {
+void wr_compositor_bind_swapchain(void* aCompositor, wr::NativeSurfaceId aId,
+                                  const wr::DeviceIntRect* aDirtyRects,
+                                  size_t aNumDirtyRects) {
   RenderCompositor* compositor = static_cast<RenderCompositor*>(aCompositor);
-  compositor->BindSwapChain(aId);
+  compositor->BindSwapChain(aId, aDirtyRects, aNumDirtyRects);
 }
 
-void wr_compositor_present_swapchain(void* aCompositor,
-                                     wr::NativeSurfaceId aId) {
+void wr_compositor_present_swapchain(void* aCompositor, wr::NativeSurfaceId aId,
+                                     const wr::DeviceIntRect* aDirtyRects,
+                                     size_t aNumDirtyRects) {
   RenderCompositor* compositor = static_cast<RenderCompositor*>(aCompositor);
-  compositor->PresentSwapChain(aId);
+  compositor->PresentSwapChain(aId, aDirtyRects, aNumDirtyRects);
 }
 
 void wr_compositor_destroy_surface(void* aCompositor, NativeSurfaceId aId) {

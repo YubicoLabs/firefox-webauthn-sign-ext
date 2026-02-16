@@ -2,9 +2,9 @@
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
-includes: [deepEqual.js, sm/non262-shell.js, sm/non262.js]
+includes: [deepEqual.js]
 flags:
-- noStrict
+  - noStrict
 description: |
   pending
 esid: pending

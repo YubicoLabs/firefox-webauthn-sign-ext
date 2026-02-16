@@ -8,7 +8,6 @@ import os
 import sys
 
 import mozinfo
-import six
 from mach.decorators import Command, CommandArgument, CommandArgumentGroup
 from mozbuild.base import BinaryNotFoundException
 from mozbuild.base import MachCommandConditions as conditions
@@ -96,7 +95,7 @@ def run_awsy(command_context, tests, binary=None, **kwargs):
     else:
         kwargs["testvars"] = [runtime_testvars_path]
 
-    runtime_testvars_file = open(runtime_testvars_path, "wb" if six.PY2 else "w")
+    runtime_testvars_file = open(runtime_testvars_path, "w")
     runtime_testvars_file.write(json.dumps(runtime_testvars, indent=2))
     runtime_testvars_file.close()
 
@@ -167,7 +166,7 @@ def run_awsy(command_context, tests, binary=None, **kwargs):
         if bin_dir not in sys.path:
             sys.path.append(bin_dir)
 
-    for k, v in six.iteritems(kwargs):
+    for k, v in kwargs.items():
         setattr(args, k, v)
 
     parser.verify_usage(args)
@@ -250,8 +249,7 @@ def run_awsy(command_context, tests, binary=None, **kwargs):
     action="store",
     type=int,
     dest="iterations",
-    help="Number of times to run through the test suite. "
-    "Defaults to %s." % ITERATIONS,
+    help="Number of times to run through the test suite. Defaults to %s." % ITERATIONS,
 )
 @CommandArgument(
     "--per-tab-pause",

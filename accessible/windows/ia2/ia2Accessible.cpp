@@ -20,7 +20,6 @@
 #include "nsCoreUtils.h"
 #include "nsIAccessibleTypes.h"
 #include "mozilla/a11y/PDocAccessible.h"
-#include "mozilla/StaticPrefs_accessibility.h"
 #include "Relation.h"
 #include "TextRange-inl.h"
 #include "nsAccessibilityService.h"
@@ -168,7 +167,7 @@ ia2Accessible::role(long* aRole) {
   a11y::role geckoRole;
   geckoRole = acc->Role();
   switch (geckoRole) {
-#include "RoleMap.h"
+#include "RoleMap.inc"
     default:
       MOZ_CRASH("Unknown role.");
   }
@@ -355,7 +354,7 @@ ia2Accessible::get_windowHandle(HWND* aWindowHandle) {
   if (!acc) return CO_E_OBJNOTCONNECTED;
 
   *aWindowHandle = MsaaAccessible::GetHWNDFor(acc);
-  if (!*aWindowHandle && !StaticPrefs::accessibility_uia_enable()) {
+  if (!*aWindowHandle && !Compatibility::IsUiaEnabled()) {
     // Bug 1890155: This can happen if a document is detached from its embedder.
     // The document might be about to die or it might be moving to a different
     // embedder; e.g. a tab in a different window. The IA2 -> UIA proxy may

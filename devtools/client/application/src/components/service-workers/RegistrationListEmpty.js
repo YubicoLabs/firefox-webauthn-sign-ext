@@ -11,7 +11,7 @@ const {
 const {
   createFactory,
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const {
   a,
   article,
@@ -28,10 +28,12 @@ const Localized = createFactory(FluentReact.Localized);
 const {
   services,
 } = require("resource://devtools/client/application/src/modules/application-services.js");
-
+const { getMdnLinkParams } = ChromeUtils.importESModule(
+  "resource://devtools/shared/mdn.mjs"
+);
 const DOC_URL =
-  "https://developer.mozilla.org/docs/Web/API/Service_Worker_API/Using_Service_Workers" +
-  "?utm_source=devtools&utm_medium=sw-panel-blank";
+  "https://developer.mozilla.org/docs/Web/API/Service_Worker_API/Using_Service_Workers?" +
+  getMdnLinkParams("sw-panel-blank");
 
 /**
  * This component displays help information when no service workers are found for the

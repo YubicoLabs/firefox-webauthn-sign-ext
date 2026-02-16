@@ -7,7 +7,7 @@
  * https://w3c.github.io/webcodecs/#videodecoder
  */
 
-[Exposed=(Window,DedicatedWorker), SecureContext, Pref="dom.media.webcodecs.enabled"]
+[Exposed=(Window,DedicatedWorker), SecureContext, Func="nsRFPService::ExposeWebCodecsAPI"]
 interface VideoDecoder : EventTarget {
   [Throws]
   constructor(VideoDecoderInit init);
@@ -45,8 +45,7 @@ dictionary VideoDecoderSupport {
 
 dictionary VideoDecoderConfig {
   required DOMString codec;
-  // Bug 1696216: Should be [AllowShared] BufferSource description;
-  ([AllowShared] ArrayBufferView or [AllowShared] ArrayBuffer) description;
+  AllowSharedBufferSource description;
   [EnforceRange] unsigned long codedWidth;
   [EnforceRange] unsigned long codedHeight;
   [EnforceRange] unsigned long displayAspectWidth;

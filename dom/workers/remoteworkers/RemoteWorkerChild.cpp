@@ -9,6 +9,37 @@
 #include <utility>
 
 #include "MainThreadUtils.h"
+#include "RemoteWorkerService.h"
+#include "mozilla/ArrayAlgorithm.h"
+#include "mozilla/Assertions.h"
+#include "mozilla/BasePrincipal.h"
+#include "mozilla/ErrorResult.h"
+#include "mozilla/PermissionManager.h"
+#include "mozilla/SchedulerGroup.h"
+#include "mozilla/ScopeExit.h"
+#include "mozilla/Services.h"
+#include "mozilla/dom/FetchEventOpProxyChild.h"
+#include "mozilla/dom/IndexedDatabaseManager.h"
+#include "mozilla/dom/MessagePort.h"
+#include "mozilla/dom/PolicyContainer.h"
+#include "mozilla/dom/RemoteWorkerTypes.h"
+#include "mozilla/dom/ServiceWorkerDescriptor.h"
+#include "mozilla/dom/ServiceWorkerInterceptController.h"
+#include "mozilla/dom/ServiceWorkerOp.h"
+#include "mozilla/dom/ServiceWorkerRegistrationDescriptor.h"
+#include "mozilla/dom/ServiceWorkerShutdownState.h"
+#include "mozilla/dom/ServiceWorkerUtils.h"
+#include "mozilla/dom/SharedWorkerOp.h"
+#include "mozilla/dom/WorkerCSPContext.h"
+#include "mozilla/dom/WorkerError.h"
+#include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/dom/WorkerRef.h"
+#include "mozilla/dom/WorkerRunnable.h"
+#include "mozilla/dom/WorkerScope.h"
+#include "mozilla/dom/workerinternals/ScriptLoader.h"
+#include "mozilla/ipc/BackgroundUtils.h"
+#include "mozilla/ipc/URIUtils.h"
+#include "mozilla/net/CookieJarSettings.h"
 #include "nsCOMPtr.h"
 #include "nsDebug.h"
 #include "nsError.h"
@@ -18,38 +49,6 @@
 #include "nsNetUtil.h"
 #include "nsThreadUtils.h"
 #include "nsXULAppAPI.h"
-
-#include "RemoteWorkerService.h"
-#include "mozilla/ArrayAlgorithm.h"
-#include "mozilla/Assertions.h"
-#include "mozilla/Attributes.h"
-#include "mozilla/BasePrincipal.h"
-#include "mozilla/ErrorResult.h"
-#include "mozilla/SchedulerGroup.h"
-#include "mozilla/Services.h"
-#include "mozilla/ScopeExit.h"
-#include "mozilla/Unused.h"
-#include "mozilla/dom/FetchEventOpProxyChild.h"
-#include "mozilla/dom/IndexedDatabaseManager.h"
-#include "mozilla/dom/MessagePort.h"
-#include "mozilla/dom/RemoteWorkerTypes.h"
-#include "mozilla/dom/ServiceWorkerDescriptor.h"
-#include "mozilla/dom/ServiceWorkerInterceptController.h"
-#include "mozilla/dom/ServiceWorkerOp.h"
-#include "mozilla/dom/ServiceWorkerRegistrationDescriptor.h"
-#include "mozilla/dom/ServiceWorkerShutdownState.h"
-#include "mozilla/dom/ServiceWorkerUtils.h"
-#include "mozilla/dom/SharedWorkerOp.h"
-#include "mozilla/dom/workerinternals/ScriptLoader.h"
-#include "mozilla/dom/WorkerError.h"
-#include "mozilla/dom/WorkerPrivate.h"
-#include "mozilla/dom/WorkerRef.h"
-#include "mozilla/dom/WorkerRunnable.h"
-#include "mozilla/dom/WorkerScope.h"
-#include "mozilla/ipc/BackgroundUtils.h"
-#include "mozilla/ipc/URIUtils.h"
-#include "mozilla/net/CookieJarSettings.h"
-#include "mozilla/PermissionManager.h"
 
 mozilla::LazyLogModule gRemoteWorkerChildLog("RemoteWorkerChild");
 
@@ -138,7 +137,8 @@ RemoteWorkerChild::RemoteWorkerChild(const RemoteWorkerData& aData)
     : mState(VariantType<remoteworker::Pending>(), "RemoteWorkerState"),
       mServiceKeepAlive(RemoteWorkerService::MaybeGetKeepAlive()),
       mIsServiceWorker(aData.serviceWorkerData().type() ==
-                       OptionalServiceWorkerData::TServiceWorkerData) {
+                       OptionalServiceWorkerData::TServiceWorkerData),
+      mPendingOps("PendingRemoteWorkerOps") {
   MOZ_ASSERT(RemoteWorkerService::Thread()->IsOnCurrentThread());
 }
 
@@ -152,7 +152,7 @@ RemoteWorkerChild::~RemoteWorkerChild() {
 void RemoteWorkerChild::ActorDestroy(ActorDestroyReason) {
   auto launcherData = mLauncherData.Access();
 
-  Unused << NS_WARN_IF(!launcherData->mTerminationPromise.IsEmpty());
+  (void)NS_WARN_IF(!launcherData->mTerminationPromise.IsEmpty());
   launcherData->mTerminationPromise.RejectIfExists(NS_ERROR_DOM_ABORT_ERR,
                                                    __func__);
 
@@ -206,7 +206,7 @@ void RemoteWorkerChild::ExecWorker(
 
         // Creation failure will already have been reported via the method
         // above internally using ScopeExit.
-        Unused << NS_WARN_IF(NS_FAILED(rv));
+        (void)NS_WARN_IF(NS_FAILED(rv));
       });
 
   MOZ_ALWAYS_SUCCEEDS(SchedulerGroup::Dispatch(r.forget()));
@@ -223,7 +223,7 @@ nsresult RemoteWorkerChild::ExecWorkerOnMainThread(
   // initialized.
   IndexedDatabaseManager* idm = IndexedDatabaseManager::GetOrCreate();
   if (idm) {
-    Unused << NS_WARN_IF(NS_FAILED(idm->EnsureLocale()));
+    (void)NS_WARN_IF(NS_FAILED(idm->EnsureLocale()));
   } else {
     NS_WARNING("Failed to get IndexedDatabaseManager!");
   }
@@ -281,13 +281,6 @@ nsresult RemoteWorkerChild::ExecWorkerOnMainThread(
                                       getter_AddRefs(info.mCookieJarSettings));
   info.mCookieJarSettingsArgs = aData.cookieJarSettings();
   info.mIsOn3PCBExceptionList = aData.isOn3PCBExceptionList();
-
-  // Default CSP permissions for now.  These will be overrided if necessary
-  // based on the script CSP headers during load in ScriptLoader.
-  info.mEvalAllowed = true;
-  info.mReportEvalCSPViolations = false;
-  info.mWasmEvalAllowed = true;
-  info.mReportWasmEvalCSPViolations = false;
   info.mSecureContext = aData.isSecureContext()
                             ? WorkerLoadInfo::eSecureContext
                             : WorkerLoadInfo::eInsecureContext;
@@ -303,25 +296,25 @@ nsresult RemoteWorkerChild::ExecWorkerOnMainThread(
     clientInfo.emplace(ClientInfo(aData.clientInfo().ref()));
   }
 
-  nsresult rv = NS_OK;
-
   if (mIsServiceWorker) {
     info.mSourceInfo = clientInfo;
   } else {
     if (clientInfo.isSome()) {
-      Maybe<mozilla::ipc::CSPInfo> cspInfo = clientInfo.ref().GetCspInfo();
-      if (cspInfo.isSome()) {
-        info.mCSP = CSPInfoToCSP(cspInfo.ref(), nullptr);
-        info.mCSPInfo = MakeUnique<CSPInfo>();
-        rv = CSPToCSPInfo(info.mCSP, info.mCSPInfo.get());
-        if (NS_WARN_IF(NS_FAILED(rv))) {
-          return rv;
+      Maybe<mozilla::ipc::PolicyContainerArgs> policyContainerArgs =
+          clientInfo.ref().GetPolicyContainerArgs();
+      if (policyContainerArgs.isSome() && policyContainerArgs->csp().isSome()) {
+        info.mCSP = CSPInfoToCSP(*policyContainerArgs->csp(), nullptr);
+        mozilla::Result<UniquePtr<WorkerCSPContext>, nsresult> ctx =
+            WorkerCSPContext::CreateFromCSP(info.mCSP);
+        if (ctx.isErr()) {
+          return ctx.unwrapErr();
         }
+        info.mCSPContext = ctx.unwrap();
       }
     }
   }
 
-  rv = info.SetPrincipalsAndCSPOnMainThread(
+  nsresult rv = info.SetPrincipalsAndCSPOnMainThread(
       info.mPrincipal, info.mPartitionedPrincipal, info.mLoadGroup, info.mCSP);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
@@ -415,7 +408,7 @@ nsresult RemoteWorkerChild::ExecWorkerOnMainThread(
     nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
         __func__, [workerTarget,
                    initializeWorkerRunnable = std::move(runnable)]() mutable {
-          Unused << NS_WARN_IF(NS_FAILED(
+          (void)NS_WARN_IF(NS_FAILED(
               workerTarget->Dispatch(initializeWorkerRunnable.forget())));
         });
 
@@ -510,7 +503,7 @@ void RemoteWorkerChild::CreationSucceededOrFailedOnAnyThread(
           return;
         }
 
-        Unused << self->SendCreated(didCreationSucceed);
+        (void)self->SendCreated(didCreationSucceed);
         launcherData->mDidSendCreated = true;
       });
 
@@ -560,7 +553,7 @@ void RemoteWorkerChild::ErrorPropagation(const ErrorValue& aValue) {
     return;
   }
 
-  Unused << SendError(aValue);
+  (void)SendError(aValue);
 }
 
 void RemoteWorkerChild::ErrorPropagationDispatch(nsresult aError) {
@@ -622,7 +615,7 @@ void RemoteWorkerChild::NotifyLock(bool aCreated) {
           return;
         }
 
-        Unused << self->SendNotifyLock(aCreated);
+        (void)self->SendNotifyLock(aCreated);
       });
 
   GetActorEventTarget()->Dispatch(r.forget(), NS_DISPATCH_NORMAL);
@@ -635,7 +628,7 @@ void RemoteWorkerChild::NotifyWebTransport(bool aCreated) {
           return;
         }
 
-        Unused << self->SendNotifyWebTransport(aCreated);
+        (void)self->SendNotifyWebTransport(aCreated);
       });
 
   GetActorEventTarget()->Dispatch(r.forget(), NS_DISPATCH_NORMAL);
@@ -716,7 +709,7 @@ void RemoteWorkerChild::TransitionStateFromCanceledToKilled() {
     launcherData->mTerminationPromise.ResolveIfExists(true, __func__);
 
     if (self->CanSend()) {
-      Unused << self->SendClose();
+      (void)self->SendClose();
     }
   });
 
@@ -813,8 +806,33 @@ void RemoteWorkerChild::CancelAllPendingOps(RemoteWorkerState& aState) {
   }
 }
 
+void RemoteWorkerChild::PendRemoteWorkerOp(RefPtr<RemoteWorkerOp> aOp) {
+  MOZ_ASSERT_DEBUG_OR_FUZZING(mIsThawing);
+
+  auto pendingOps = mPendingOps.Lock();
+
+  pendingOps->AppendElement(std::move(aOp));
+}
+
+void RemoteWorkerChild::RunAllPendingOpsOnMainThread() {
+  RefPtr<RemoteWorkerChild> self = this;
+
+  auto pendingOps = mPendingOps.Lock();
+
+  for (auto& op : *pendingOps) {
+    op->StartOnMainThread(self);
+  }
+
+  pendingOps->Clear();
+}
+
 void RemoteWorkerChild::MaybeStartOp(RefPtr<RemoteWorkerOp>&& aOp) {
   MOZ_ASSERT(aOp);
+
+  if (mIsThawing) {
+    PendRemoteWorkerOp(std::move(aOp));
+    return;
+  }
 
   auto lock = mState.Lock();
 

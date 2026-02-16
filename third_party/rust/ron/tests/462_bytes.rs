@@ -14,9 +14,12 @@ fn test_deserialise_byte_slice() {
         Err(ron::error::SpannedError {
             code: ron::error::Error::InvalidValueForType {
                 expected: String::from("a borrowed byte array"),
-                found: String::from("the bytes \"AAECAw==\""),
+                found: String::from("the byte string b\"\\x00\\x01\\x02\\x03\""),
             },
-            position: ron::error::Position { line: 1, col: 10 },
+            span: ron::error::Span {
+                start: ron::error::Position { line: 1, col: 9 },
+                end: ron::error::Position { line: 1, col: 10 },
+            }
         })
     );
 }

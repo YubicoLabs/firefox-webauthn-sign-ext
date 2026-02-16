@@ -16,7 +16,6 @@ namespace mozilla {
 namespace a11y {
 
 class MsaaAccessible;
-class sdnAccessible;
 
 /**
  * This class is responsible for generating child IDs used by our MSAA
@@ -26,11 +25,11 @@ class MsaaIdGenerator {
  public:
   uint32_t GetID();
   void ReleaseID(NotNull<MsaaAccessible*> aMsaaAcc);
-  void ReleaseID(NotNull<sdnAccessible*> aSdnAcc);
 
  private:
   bool ReleaseID(uint32_t aID);
   void ReleasePendingIDs();
+  static void ReleasePendingIdsCallback(nsITimer* aTimer, void* aClosure);
 
  private:
   static constexpr uint32_t kNumFullIDBits = 31UL;

@@ -7,9 +7,9 @@
 const {
   createFactory,
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const { LocalizationHelper } = require("resource://devtools/shared/l10n.js");
 
 const ComputedProperty = createFactory(
@@ -48,7 +48,7 @@ class BoxModelProperties extends PureComponent {
    * This returns the right element if there needs to be one, and one was passed in the
    * props.
    *
-   * @return {Object} An object with 2 properties:
+   * @return {object} An object with 2 properties:
    * - referenceElement {NodeFront}
    * - referenceElementType {String}
    */

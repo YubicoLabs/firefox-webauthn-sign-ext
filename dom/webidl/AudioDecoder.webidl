@@ -7,7 +7,7 @@
  * https://w3c.github.io/webcodecs/#audiodecoder
  */
 
-[Exposed=(Window,DedicatedWorker), SecureContext, Pref="dom.media.webcodecs.enabled"]
+[Exposed=(Window,DedicatedWorker), SecureContext, Func="nsRFPService::ExposeWebCodecsAPI"]
 interface AudioDecoder : EventTarget {
   [Throws]
   constructor(AudioDecoderInit init);
@@ -48,6 +48,6 @@ dictionary AudioDecoderConfig {
   required [EnforceRange] unsigned long sampleRate;
   required [EnforceRange] unsigned long numberOfChannels;
 
-  // Bug 1696216: Should be AllowSharedBufferSource
-  ([AllowShared] ArrayBufferView or [AllowShared] ArrayBuffer) description;
+  // Bug 1958020: This should be BufferSource
+  AllowSharedBufferSource description;
 };

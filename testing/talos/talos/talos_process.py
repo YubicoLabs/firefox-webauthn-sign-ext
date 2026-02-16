@@ -11,7 +11,7 @@ from threading import Timer
 
 import mozcrash
 import psutil
-import six
+from mozdebug import prepend_debugger_args
 from mozlog import get_proxy_logger
 from mozscreenshot import dump_screen
 
@@ -20,7 +20,7 @@ from talos.utils import TalosError
 LOG = get_proxy_logger()
 
 
-class ProcessContext(object):
+class ProcessContext:
     """
     Store useful results of the browser execution.
     """
@@ -44,10 +44,8 @@ class ProcessContext(object):
         kids = parentProc and parentProc.is_running() and parentProc.children()
         if self.is_launcher and kids and len(kids) == 1 and kids[0].is_running():
             LOG.debug(
-                (
-                    "Launcher process {} detected. Terminating parent"
-                    " process {} instead."
-                ).format(parentProc, kids[0])
+                f"Launcher process {parentProc} detected. Terminating parent"
+                f" process {kids[0]} instead."
             )
             parentProc = kids[0]
 
@@ -71,7 +69,7 @@ class ProcessContext(object):
                 return parentProc.wait(3)
 
 
-class Reader(object):
+class Reader:
     def __init__(self):
         self.output = []
         self.got_end_timestamp = False
@@ -81,7 +79,7 @@ class Reader(object):
         self.proc = None
 
     def __call__(self, line):
-        line = six.ensure_str(line)
+        line = line.decode() if isinstance(line, bytes) else line
         line = line.strip("\r\n")
         if line.find("__endTimestamp") != -1:
             self.got_end_timestamp = True
@@ -110,7 +108,7 @@ def run_browser(
     debugger=None,
     debugger_args=None,
     utility_path=None,
-    **kwargs
+    **kwargs,
 ):
     """
     Run the browser using the given `command`.
@@ -136,10 +134,12 @@ def run_browser(
     Returns a ProcessContext instance, with available output and pid used.
     """
 
-    debugger_info = find_debugger_info(debug, debugger, debugger_args)
-    if debugger_info is not None:
+    if debug or debugger or debugger_args:
+        command_under_dbg = prepend_debugger_args(command, debugger, debugger_args)
+        if not command_under_dbg:
+            raise TalosError("Could not find a suitable debugger in your PATH.")
         return run_in_debug_mode(
-            command, debugger_info, on_started=on_started, env=kwargs.get("env")
+            command_under_dbg, on_started=on_started, env=kwargs.get("env")
         )
 
     is_launcher = sys.platform.startswith("win") and "-wait-for-browser" in command
@@ -185,14 +185,14 @@ def run_browser(
             proc.wait(wait_for_quit_timeout)
             if proc.poll() is None:
                 LOG.info(
-                    "Browser shutdown timed out after {0} seconds, killing"
-                    " process.".format(wait_for_quit_timeout)
+                    f"Browser shutdown timed out after {wait_for_quit_timeout} seconds, killing"
+                    " process."
                 )
                 dump_screen_on_failure(utility_path)
                 kill_and_get_minidump(context, minidump_dir)
                 raise TalosError(
-                    "Browser shutdown timed out after {0} seconds, killed"
-                    " process.".format(wait_for_quit_timeout)
+                    f"Browser shutdown timed out after {wait_for_quit_timeout} seconds, killed"
+                    " process."
                 )
         elif reader.got_timeout:
             dump_screen_on_failure(utility_path)
@@ -230,32 +230,9 @@ def run_browser(
     return context
 
 
-def find_debugger_info(debug, debugger, debugger_args):
-    debuggerInfo = None
-    if debug or debugger or debugger_args:
-        import mozdebug
-
-        if not debugger:
-            # No debugger name was provided. Look for the default ones on
-            # current OS.
-            debugger = mozdebug.get_default_debugger_name(
-                mozdebug.DebuggerSearch.KeepLooking
-            )
-
-        debuggerInfo = None
-        if debugger:
-            debuggerInfo = mozdebug.get_debugger_info(debugger, debugger_args)
-
-        if debuggerInfo is None:
-            raise TalosError("Could not find a suitable debugger in your PATH.")
-
-    return debuggerInfo
-
-
-def run_in_debug_mode(command, debugger_info, on_started=None, env=None):
+def run_in_debug_mode(command_under_dbg, on_started=None, env=None):
     signal.signal(signal.SIGINT, lambda sigid, frame: None)
     context = ProcessContext()
-    command_under_dbg = [debugger_info.path] + debugger_info.args + command
 
     ttest_process = subprocess.Popen(command_under_dbg, env=env)
 
@@ -279,10 +256,8 @@ def kill_and_get_minidump(context, minidump_dir):
         kids = context.process.children()
         if len(kids) == 1:
             LOG.debug(
-                (
-                    "Launcher process {} detected. Killing parent"
-                    " process {} instead."
-                ).format(proc, kids[0])
+                f"Launcher process {proc} detected. Killing parent"
+                f" process {kids[0]} instead."
             )
             proc = kids[0]
     LOG.debug("Killing %s and writing a minidump file" % proc)

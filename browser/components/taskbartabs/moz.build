@@ -4,10 +4,32 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-EXTRA_JS_MODULES += [
-    "TaskbarTabUI.sys.mjs",
+with Files("**"):
+    BUG_COMPONENT = ("Firefox", "Web Apps")
+
+EXTRA_JS_MODULES.taskbartabs += [
+    "TaskbarTabs.sys.mjs",
+    "TaskbarTabsChrome.sys.mjs",
+    "TaskbarTabsCmd.sys.mjs",
+    "TaskbarTabsPageAction.sys.mjs",
+    "TaskbarTabsPin.sys.mjs",
+    "TaskbarTabsRegistry.sys.mjs",
+    "TaskbarTabsUtils.sys.mjs",
+    "TaskbarTabsWindowManager.sys.mjs",
 ]
+
+JAR_MANIFESTS += ["jar.mn"]
 
 BROWSER_CHROME_MANIFESTS += [
     "test/browser/browser.toml",
 ]
+
+XPCSHELL_TESTS_MANIFESTS += [
+    "test/xpcshell/xpcshell.toml",
+]
+
+XPCOM_MANIFESTS += [
+    "components.conf",
+]
+
+SPHINX_TREES["docs"] = "docs"

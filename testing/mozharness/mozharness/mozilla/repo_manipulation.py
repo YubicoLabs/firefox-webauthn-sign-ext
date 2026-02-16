@@ -2,23 +2,16 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import six
-
-# pylint --py3k: W1648
-if six.PY2:
-    from ConfigParser import ConfigParser
-else:
-    from configparser import ConfigParser
-
 import json
 import os
+from configparser import ConfigParser
 
 from mozharness.base.errors import HgErrorList
 from mozharness.base.log import FATAL, INFO
 from mozharness.base.vcs.mercurial import MercurialVCS
 
 
-class MercurialRepoManipulationMixin(object):
+class MercurialRepoManipulationMixin:
     def get_version(self, repo_root, version_file="browser/config/version.txt"):
         version_path = os.path.join(repo_root, version_file)
         contents = self.read_from_file(version_path, error_level=FATAL)
@@ -143,7 +136,7 @@ class MercurialRepoManipulationMixin(object):
         force=None,
         halt_on_failure=True,
     ):
-        if isinstance(tags, six.string_types):
+        if isinstance(tags, str):
             tags = [tags]
         cmd = self.query_exe("hg", return_type="list") + ["tag"]
         if not message:
@@ -177,9 +170,7 @@ class MercurialRepoManipulationMixin(object):
                 # existing_tags = {TAG: REVISION, ...}
                 existing_tags[parts[0]] = parts[-1].split(":")[-1]
         self.info(
-            "existing_tags:\n{}".format(
-                json.dumps(existing_tags, sort_keys=True, indent=4)
-            )
+            f"existing_tags:\n{json.dumps(existing_tags, sort_keys=True, indent=4)}"
         )
         return existing_tags
 

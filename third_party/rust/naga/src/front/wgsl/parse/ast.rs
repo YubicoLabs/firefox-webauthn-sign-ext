@@ -1,9 +1,10 @@
+use alloc::vec::Vec;
+use core::hash::Hash;
+
 use crate::diagnostic_filter::DiagnosticFilterNode;
 use crate::front::wgsl::parse::directive::enable_extension::EnableExtensions;
 use crate::front::wgsl::parse::number::Number;
-use crate::front::wgsl::Scalar;
 use crate::{Arena, FastIndexSet, Handle, Span};
-use std::hash::Hash;
 
 #[derive(Debug, Default)]
 pub struct TranslationUnit<'a> {
@@ -22,12 +23,6 @@ pub struct TranslationUnit<'a> {
     /// [`Function`]: crate::Function
     pub expressions: Arena<Expression<'a>>,
 
-    /// Non-user-defined types, like `vec4<f32>` or `array<i32, 10>`.
-    ///
-    /// These are referred to by `Handle<ast::Type<'a>>` values.
-    /// User-defined types are referred to by name until lowering.
-    pub types: Arena<Type<'a>>,
-
     /// Arena for all diagnostic filter rules parsed in this module, including those in functions.
     ///
     /// See [`DiagnosticFilterNode`] for details on how the tree is represented and used in
@@ -38,6 +33,10 @@ pub struct TranslationUnit<'a> {
     /// See [`DiagnosticFilterNode`] for details on how the tree is represented and used in
     /// validation.
     pub diagnostic_filter_leaf: Option<Handle<DiagnosticFilterNode>>,
+
+    /// Doc comments appearing first in the file.
+    /// This serves as documentation for the whole TranslationUnit.
+    pub doc_comments: Vec<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -46,10 +45,107 @@ pub struct Ident<'a> {
     pub span: Span,
 }
 
+/// An identifier that [resolves] to some declaration.
+///
+/// This does not cover context-dependent names: attributes, built-in values,
+/// and so on. We map those to their Naga IR equivalents as soon as they're
+/// parsed, so they never need to appear as identifiers in the AST.
+///
+/// [resolves]: https://gpuweb.github.io/gpuweb/wgsl/#resolves
 #[derive(Debug)]
 pub enum IdentExpr<'a> {
+    /// An identifier referring to a module-scope declaration or predeclared
+    /// object.
+    ///
+    /// We need to collect the entire module before we can resolve this, to
+    /// distinguish between predeclared objects and module-scope declarations
+    /// that appear after their uses.
+    ///
+    /// Whenever you create one of these values, you almost certainly want to
+    /// insert the `&str` into [`ExpressionContext::unresolved`][ECu], to ensure
+    /// that [indexing] knows that the name's declaration must be lowered before
+    /// the one containing this use. Using [`Parser::ident_expr`][ie] to build
+    /// `IdentExpr` will take care of that for you.
+    ///
+    /// [ECu]: super::ExpressionContext::unresolved
+    /// [ie]: super::Parser::ident_expr
+    /// [indexing]: crate::front::wgsl::index::Index::generate
     Unresolved(&'a str),
+
+    /// An identifier that has been resolved to a non-module-scope declaration.
     Local(Handle<Local>),
+}
+
+/// An identifier with optional template parameters.
+///
+/// Following the WGSL specification (see the [`template_list`] non-terminal),
+/// `TemplateElaboratedIdent` represents all template parameters as expressions:
+/// even parameters to type generators, like the `f32` in `vec3<f32>`, are [Type
+/// Expressions].
+///
+/// # Examples
+///
+/// - A use of a global variable `colors` would be an [`Expression::Ident(v)`][EI],
+///   where `v` is an `TemplateElaboratedIdent` whose `ident` is
+///   [`IdentExpr::Unresolved("colors")`][IEU]. Lowering will resolve this to a
+///   reference to the global variable.
+///
+/// - The type `f32` in a variable declaration is represented as a
+///   `TemplateElaboratedIdent` whose `ident` is
+///   [`IdentExpr::Unresolved("f32")`][IEU]. Lowering will resolve this to
+///   WGSL's predeclared `f32` type.
+///
+/// - The type `vec3<f32>` can be represented as a `TemplateElaboratedIdent`
+///   whose `ident` is [`IdentExpr::Unresolved("vec3")`][IEU], and whose
+///   `template_list` has one element: an [`ExpressionIdent(v)`][EI] where `v` is a
+///   nested `TemplateElaboratedIdent` representing `f32` as described above.
+///
+/// - The type `array<vec3<f32>, 4>` has `"array"` as its `ident`, and then
+///   a two-element `template_list`:
+///
+///     - `template_list[0]` is an [`Expression::Ident(v)`][EI] where `v` is a nested
+///       `TemplateElaboratedIdent` representing `vec3<f32>` as described above.
+///
+///     - `template_list[1]` is an [`Expression`] representing `4`.
+///
+/// After [indexing] the module to ensure that declarations appear before uses,
+/// lowering can see which declaration a given `TemplateElaboratedIdent`s
+/// `ident` refers to. The declaration then determines how to interpret the
+/// `template_list`.
+///
+/// [`template_list`]: https://gpuweb.github.io/gpuweb/wgsl/#syntax-template_list
+/// [Type Expressions]: https://gpuweb.github.io/gpuweb/wgsl/#type-expr
+/// [IEU]: IdentExpr::Unresolved
+/// [EI]: Expression::Ident
+/// [indexing]: crate::front::wgsl::index::Index::generate
+#[derive(Debug)]
+pub struct TemplateElaboratedIdent<'a> {
+    pub ident: IdentExpr<'a>,
+    pub ident_span: Span,
+
+    /// If non-empty, the template parameters following the identifier.
+    pub template_list: Vec<Handle<Expression<'a>>>,
+    pub template_list_span: Span,
+}
+
+/// A function call or value constructor expression.
+///
+/// We can't tell whether an expression like `IDENTIFIER(EXPR, ...)` is a
+/// construction expression or a function call until we know `IDENTIFIER`'s
+/// definition, so we represent everything of that form as one of these
+/// expressions until lowering. At that point, [`Lowerer::call`] has
+/// everything's definition in hand, and can decide whether to emit a Naga
+/// [`Constant`], [`As`], [`Splat`], or [`Compose`] expression.
+///
+/// [`Lowerer::call`]: Lowerer::call
+/// [`Constant`]: crate::Expression::Constant
+/// [`As`]: crate::Expression::As
+/// [`Splat`]: crate::Expression::Splat
+/// [`Compose`]: crate::Expression::Compose
+#[derive(Debug)]
+pub struct CallPhrase<'a> {
+    pub function: TemplateElaboratedIdent<'a>,
+    pub arguments: Vec<Handle<Expression<'a>>>,
 }
 
 /// A reference to a module-scope definition or predeclared object.
@@ -68,7 +164,7 @@ pub struct Dependency<'a> {
 }
 
 impl Hash for Dependency<'_> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.ident.hash(state);
     }
 }
@@ -105,14 +201,14 @@ pub enum GlobalDeclKind<'a> {
 #[derive(Debug)]
 pub struct FunctionArgument<'a> {
     pub name: Ident<'a>,
-    pub ty: Handle<Type<'a>>,
+    pub ty: TemplateElaboratedIdent<'a>,
     pub binding: Option<Binding<'a>>,
     pub handle: Handle<Local>,
 }
 
 #[derive(Debug)]
 pub struct FunctionResult<'a> {
-    pub ty: Handle<Type<'a>>,
+    pub ty: TemplateElaboratedIdent<'a>,
     pub binding: Option<Binding<'a>>,
     pub must_use: bool,
 }
@@ -122,6 +218,8 @@ pub struct EntryPoint<'a> {
     pub stage: crate::ShaderStage,
     pub early_depth_test: Option<crate::EarlyDepthTest>,
     pub workgroup_size: Option<[Option<Handle<Expression<'a>>>; 3]>,
+    pub mesh_output_variable: Option<(&'a str, Span)>,
+    pub task_payload: Option<(&'a str, Span)>,
 }
 
 #[cfg(doc)]
@@ -135,6 +233,7 @@ pub struct Function<'a> {
     pub result: Option<FunctionResult<'a>>,
     pub body: Block<'a>,
     pub diagnostic_filter_leaf: Option<Handle<DiagnosticFilterNode>>,
+    pub doc_comments: Vec<&'a str>,
 }
 
 #[derive(Debug)]
@@ -142,9 +241,10 @@ pub enum Binding<'a> {
     BuiltIn(crate::BuiltIn),
     Location {
         location: Handle<Expression<'a>>,
-        second_blend_source: bool,
         interpolation: Option<crate::Interpolation>,
         sampling: Option<crate::Sampling>,
+        blend_src: Option<Handle<Expression<'a>>>,
+        per_primitive: bool,
     },
 }
 
@@ -157,101 +257,56 @@ pub struct ResourceBinding<'a> {
 #[derive(Debug)]
 pub struct GlobalVariable<'a> {
     pub name: Ident<'a>,
-    pub space: crate::AddressSpace,
+
+    /// The template list parameters for the `var`, giving the variable's
+    /// address space and access mode, if present.
+    pub template_list: Vec<Handle<Expression<'a>>>,
+
+    /// The `@group` and `@binding` attributes, if present.
     pub binding: Option<ResourceBinding<'a>>,
-    pub ty: Option<Handle<Type<'a>>>,
+
+    pub ty: Option<TemplateElaboratedIdent<'a>>,
     pub init: Option<Handle<Expression<'a>>>,
+    pub doc_comments: Vec<&'a str>,
 }
 
 #[derive(Debug)]
 pub struct StructMember<'a> {
     pub name: Ident<'a>,
-    pub ty: Handle<Type<'a>>,
+    pub ty: TemplateElaboratedIdent<'a>,
     pub binding: Option<Binding<'a>>,
     pub align: Option<Handle<Expression<'a>>>,
     pub size: Option<Handle<Expression<'a>>>,
+    pub doc_comments: Vec<&'a str>,
 }
 
 #[derive(Debug)]
 pub struct Struct<'a> {
     pub name: Ident<'a>,
     pub members: Vec<StructMember<'a>>,
+    pub doc_comments: Vec<&'a str>,
 }
 
 #[derive(Debug)]
 pub struct TypeAlias<'a> {
     pub name: Ident<'a>,
-    pub ty: Handle<Type<'a>>,
+    pub ty: TemplateElaboratedIdent<'a>,
 }
 
 #[derive(Debug)]
 pub struct Const<'a> {
     pub name: Ident<'a>,
-    pub ty: Option<Handle<Type<'a>>>,
+    pub ty: Option<TemplateElaboratedIdent<'a>>,
     pub init: Handle<Expression<'a>>,
+    pub doc_comments: Vec<&'a str>,
 }
 
 #[derive(Debug)]
 pub struct Override<'a> {
     pub name: Ident<'a>,
     pub id: Option<Handle<Expression<'a>>>,
-    pub ty: Option<Handle<Type<'a>>>,
+    pub ty: Option<TemplateElaboratedIdent<'a>>,
     pub init: Option<Handle<Expression<'a>>>,
-}
-
-/// The size of an [`Array`] or [`BindingArray`].
-///
-/// [`Array`]: Type::Array
-/// [`BindingArray`]: Type::BindingArray
-#[derive(Debug, Copy, Clone)]
-pub enum ArraySize<'a> {
-    /// The length as a constant expression.
-    Constant(Handle<Expression<'a>>),
-    Dynamic,
-}
-
-#[derive(Debug)]
-pub enum Type<'a> {
-    Scalar(Scalar),
-    Vector {
-        size: crate::VectorSize,
-        ty: Handle<Type<'a>>,
-        ty_span: Span,
-    },
-    Matrix {
-        columns: crate::VectorSize,
-        rows: crate::VectorSize,
-        ty: Handle<Type<'a>>,
-        ty_span: Span,
-    },
-    Atomic(Scalar),
-    Pointer {
-        base: Handle<Type<'a>>,
-        space: crate::AddressSpace,
-    },
-    Array {
-        base: Handle<Type<'a>>,
-        size: ArraySize<'a>,
-    },
-    Image {
-        dim: crate::ImageDimension,
-        arrayed: bool,
-        class: crate::ImageClass,
-    },
-    Sampler {
-        comparison: bool,
-    },
-    AccelerationStructure,
-    RayQuery,
-    RayDesc,
-    RayIntersection,
-    BindingArray {
-        base: Handle<Type<'a>>,
-        size: ArraySize<'a>,
-    },
-
-    /// A user-defined type, like a struct or a type alias.
-    User(Ident<'a>),
 }
 
 #[derive(Debug, Default)]
@@ -289,10 +344,7 @@ pub enum StatementKind<'a> {
         value: Option<Handle<Expression<'a>>>,
     },
     Kill,
-    Call {
-        function: Ident<'a>,
-        arguments: Vec<Handle<Expression<'a>>>,
-    },
+    Call(CallPhrase<'a>),
     Assign {
         target: Handle<Expression<'a>>,
         op: Option<crate::BinaryOperator>,
@@ -317,77 +369,6 @@ pub struct SwitchCase<'a> {
     pub fall_through: bool,
 }
 
-/// A type at the head of a [`Construct`] expression.
-///
-/// WGSL has two types of [`type constructor expressions`]:
-///
-/// - Those that fully specify the type being constructed, like
-///   `vec3<f32>(x,y,z)`, which obviously constructs a `vec3<f32>`.
-///
-/// - Those that leave the component type of the composite being constructed
-///   implicit, to be inferred from the argument types, like `vec3(x,y,z)`,
-///   which constructs a `vec3<T>` where `T` is the type of `x`, `y`, and `z`.
-///
-/// This enum represents the head type of both cases. The `PartialFoo` variants
-/// represent the second case, where the component type is implicit.
-///
-/// This does not cover structs or types referred to by type aliases. See the
-/// documentation for [`Construct`] and [`Call`] expressions for details.
-///
-/// [`Construct`]: Expression::Construct
-/// [`type constructor expressions`]: https://gpuweb.github.io/gpuweb/wgsl/#type-constructor-expr
-/// [`Call`]: Expression::Call
-#[derive(Debug)]
-pub enum ConstructorType<'a> {
-    /// A scalar type or conversion: `f32(1)`.
-    Scalar(Scalar),
-
-    /// A vector construction whose component type is inferred from the
-    /// argument: `vec3(1.0)`.
-    PartialVector { size: crate::VectorSize },
-
-    /// A vector construction whose component type is written out:
-    /// `vec3<f32>(1.0)`.
-    Vector {
-        size: crate::VectorSize,
-        ty: Handle<Type<'a>>,
-        ty_span: Span,
-    },
-
-    /// A matrix construction whose component type is inferred from the
-    /// argument: `mat2x2(1,2,3,4)`.
-    PartialMatrix {
-        columns: crate::VectorSize,
-        rows: crate::VectorSize,
-    },
-
-    /// A matrix construction whose component type is written out:
-    /// `mat2x2<f32>(1,2,3,4)`.
-    Matrix {
-        columns: crate::VectorSize,
-        rows: crate::VectorSize,
-        ty: Handle<Type<'a>>,
-        ty_span: Span,
-    },
-
-    /// An array whose component type and size are inferred from the arguments:
-    /// `array(3,4,5)`.
-    PartialArray,
-
-    /// An array whose component type and size are written out:
-    /// `array<u32, 4>(3,4,5)`.
-    Array {
-        base: Handle<Type<'a>>,
-        size: ArraySize<'a>,
-    },
-
-    /// Constructing a value of a known Naga IR type.
-    ///
-    /// This variant is produced only during lowering, when we have Naga types
-    /// available, never during parsing.
-    Type(Handle<crate::Type>),
-}
-
 #[derive(Debug, Copy, Clone)]
 pub enum Literal {
     Bool(bool),
@@ -400,27 +381,7 @@ use crate::front::wgsl::lower::Lowerer;
 #[derive(Debug)]
 pub enum Expression<'a> {
     Literal(Literal),
-    Ident(IdentExpr<'a>),
-
-    /// A type constructor expression.
-    ///
-    /// This is only used for expressions like `KEYWORD(EXPR...)` and
-    /// `KEYWORD<PARAM>(EXPR...)`, where `KEYWORD` is a [type-defining keyword] like
-    /// `vec3`. These keywords cannot be shadowed by user definitions, so we can
-    /// tell that such an expression is a construction immediately.
-    ///
-    /// For ordinary identifiers, we can't tell whether an expression like
-    /// `IDENTIFIER(EXPR, ...)` is a construction expression or a function call
-    /// until we know `IDENTIFIER`'s definition, so we represent those as
-    /// [`Call`] expressions.
-    ///
-    /// [type-defining keyword]: https://gpuweb.github.io/gpuweb/wgsl/#type-defining-keywords
-    /// [`Call`]: Expression::Call
-    Construct {
-        ty: ConstructorType<'a>,
-        ty_span: Span,
-        components: Vec<Handle<Expression<'a>>>,
-    },
+    Ident(TemplateElaboratedIdent<'a>),
     Unary {
         op: crate::UnaryOperator,
         expr: Handle<Expression<'a>>,
@@ -432,25 +393,7 @@ pub enum Expression<'a> {
         left: Handle<Expression<'a>>,
         right: Handle<Expression<'a>>,
     },
-
-    /// A function call or type constructor expression.
-    ///
-    /// We can't tell whether an expression like `IDENTIFIER(EXPR, ...)` is a
-    /// construction expression or a function call until we know `IDENTIFIER`'s
-    /// definition, so we represent everything of that form as one of these
-    /// expressions until lowering. At that point, [`Lowerer::call`] has
-    /// everything's definition in hand, and can decide whether to emit a Naga
-    /// [`Constant`], [`As`], [`Splat`], or [`Compose`] expression.
-    ///
-    /// [`Lowerer::call`]: Lowerer::call
-    /// [`Constant`]: crate::Expression::Constant
-    /// [`As`]: crate::Expression::As
-    /// [`Splat`]: crate::Expression::Splat
-    /// [`Compose`]: crate::Expression::Compose
-    Call {
-        function: Ident<'a>,
-        arguments: Vec<Handle<Expression<'a>>>,
-    },
+    Call(CallPhrase<'a>),
     Index {
         base: Handle<Expression<'a>>,
         index: Handle<Expression<'a>>,
@@ -459,17 +402,12 @@ pub enum Expression<'a> {
         base: Handle<Expression<'a>>,
         field: Ident<'a>,
     },
-    Bitcast {
-        expr: Handle<Expression<'a>>,
-        to: Handle<Type<'a>>,
-        ty_span: Span,
-    },
 }
 
 #[derive(Debug)]
 pub struct LocalVariable<'a> {
     pub name: Ident<'a>,
-    pub ty: Option<Handle<Type<'a>>>,
+    pub ty: Option<TemplateElaboratedIdent<'a>>,
     pub init: Option<Handle<Expression<'a>>>,
     pub handle: Handle<Local>,
 }
@@ -477,7 +415,7 @@ pub struct LocalVariable<'a> {
 #[derive(Debug)]
 pub struct Let<'a> {
     pub name: Ident<'a>,
-    pub ty: Option<Handle<Type<'a>>>,
+    pub ty: Option<TemplateElaboratedIdent<'a>>,
     pub init: Handle<Expression<'a>>,
     pub handle: Handle<Local>,
 }
@@ -485,7 +423,7 @@ pub struct Let<'a> {
 #[derive(Debug)]
 pub struct LocalConst<'a> {
     pub name: Ident<'a>,
-    pub ty: Option<Handle<Type<'a>>>,
+    pub ty: Option<TemplateElaboratedIdent<'a>>,
     pub init: Handle<Expression<'a>>,
     pub handle: Handle<Local>,
 }

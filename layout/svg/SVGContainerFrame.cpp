@@ -9,6 +9,7 @@
 
 // Keep others in (case-insensitive) order:
 #include "ImgDrawResult.h"
+#include "SVGAnimatedTransformList.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/RestyleManager.h"
 #include "mozilla/SVGObserverUtils.h"
@@ -16,7 +17,6 @@
 #include "mozilla/SVGUtils.h"
 #include "mozilla/dom/SVGElement.h"
 #include "nsCSSFrameConstructor.h"
-#include "SVGAnimatedTransformList.h"
 
 using namespace mozilla::dom;
 using namespace mozilla::image;
@@ -187,10 +187,13 @@ void SVGDisplayContainerFrame::RemoveFrame(DestroyContext& aContext,
   // SVGContainerFrame::RemoveFrame doesn't call down into
   // nsContainerFrame::RemoveFrame, so it doesn't call FrameNeedsReflow. We
   // need to schedule a repaint and schedule an update to our overflow rects.
+  // TODO(emilio, bug 2008045): It sure looks like it should just call into
+  // nsContainerFrame.
   SchedulePaint();
   if (!HasAnyStateBits(NS_FRAME_IS_NONDISPLAY)) {
     PresContext()->RestyleManager()->PostRestyleEvent(
         mContent->AsElement(), RestyleHint{0}, nsChangeHint_UpdateOverflow);
+    PresShell()->SynthesizeMouseMove(false);
   }
 
   SVGContainerFrame::RemoveFrame(aContext, aListID, aOldFrame);
@@ -378,15 +381,16 @@ void SVGDisplayContainerFrame::DidSetComputedStyle(ComputedStyle* aOldStyle) {
   }
   if (StyleDisplay()->CalcTransformPropertyDifference(
           *aOldStyle->StyleDisplay())) {
-    NotifySVGChanged(TRANSFORM_CHANGED);
+    NotifySVGChanged(ChangeFlag::TransformChanged);
   }
 }
 
-void SVGDisplayContainerFrame::NotifySVGChanged(uint32_t aFlags) {
-  MOZ_ASSERT(aFlags & (TRANSFORM_CHANGED | COORD_CONTEXT_CHANGED),
+void SVGDisplayContainerFrame::NotifySVGChanged(ChangeFlags aFlags) {
+  MOZ_ASSERT(aFlags.contains(ChangeFlag::TransformChanged) ||
+                 aFlags.contains(ChangeFlag::CoordContextChanged),
              "Invalidation logic may need adjusting");
 
-  if (aFlags & TRANSFORM_CHANGED) {
+  if (aFlags.contains(ChangeFlag::TransformChanged)) {
     // make sure our cached transform matrix gets (lazily) updated
     mCanvasTM = nullptr;
   }
@@ -427,8 +431,8 @@ gfxMatrix SVGDisplayContainerFrame::GetCanvasTM() {
     NS_ASSERTION(GetParent(), "null parent");
     auto* parent = static_cast<SVGContainerFrame*>(GetParent());
     auto* content = static_cast<SVGElement*>(GetContent());
-    mCanvasTM = MakeUnique<gfxMatrix>(content->ChildToUserSpaceTransform() *
-                                      parent->GetCanvasTM());
+    mCanvasTM = std::make_unique<gfxMatrix>(
+        content->ChildToUserSpaceTransform() * parent->GetCanvasTM());
   }
 
   return *mCanvasTM;

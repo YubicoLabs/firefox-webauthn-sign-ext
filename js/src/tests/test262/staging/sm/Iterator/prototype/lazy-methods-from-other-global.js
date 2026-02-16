@@ -1,19 +1,15 @@
-// |reftest| shell-option(--enable-iterator-helpers) skip-if(!this.hasOwnProperty('Iterator')||!xulRuntime.shell) -- iterator-helpers is not enabled unconditionally, requires shell-options
 // Copyright (C) 2024 Mozilla Corporation. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
 features:
-- iterator-helpers
+  - iterator-helpers
 description: |
   pending
 esid: pending
 ---*/
 
-const otherIteratorProto = createNewGlobal({newCompartment: true}).Iterator.prototype;
+const otherIteratorProto = $262.createRealm().global.Iterator.prototype;
 
 const methods = [
   ["map", x => x],

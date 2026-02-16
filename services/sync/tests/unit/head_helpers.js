@@ -206,60 +206,31 @@ async function generateNewKeys(collectionKeys, collections = null) {
 // These reflect part of the internal structure of TabEngine,
 // and stub part of Service.wm.
 
-function mockShouldSkipWindow(win) {
-  return win.closed || win.mockIsPrivate;
-}
-
 function mockGetTabState(tab) {
   return tab;
 }
 
-function mockGetWindowEnumerator(urls) {
-  let elements = [];
+function mockGetOrderedNonPrivateWindows(urls) {
+  let tabs = [];
+  let win = {
+    gBrowser: {
+      tabs,
+    },
+  };
 
-  const numWindows = 1;
-  for (let w = 0; w < numWindows; ++w) {
-    let tabs = [];
-    let win = {
-      closed: false,
-      mockIsPrivate: false,
-      gBrowser: {
-        tabs,
+  let lastAccessed = 2000;
+  for (let url of urls) {
+    tabs.push({
+      linkedBrowser: {
+        currentURI: Services.io.newURI(url),
+        contentTitle: "title",
       },
-    };
-    elements.push(win);
-
-    let lastAccessed = 2000;
-    for (let url of urls) {
-      tabs.push({
-        linkedBrowser: {
-          currentURI: Services.io.newURI(url),
-          contentTitle: "title",
-        },
-        lastAccessed,
-      });
-      lastAccessed += 1000;
-    }
+      lastAccessed,
+    });
+    lastAccessed += 1000;
   }
 
-  // Always include a closed window and a private window.
-  elements.push({
-    closed: true,
-    mockIsPrivate: false,
-    gBrowser: {
-      tabs: [],
-    },
-  });
-
-  elements.push({
-    closed: false,
-    mockIsPrivate: true,
-    gBrowser: {
-      tabs: [],
-    },
-  });
-
-  return elements.values();
+  return [win];
 }
 
 // Helper function to get the sync telemetry and add the typically used test
@@ -312,34 +283,36 @@ function assert_valid_ping(record) {
   }
 }
 
+function assert_success_sync(record) {
+  ok(!record.failureReason, JSON.stringify(record.failureReason));
+  equal(undefined, record.status);
+  greater(record.engines.length, 0);
+  for (let e of record.engines) {
+    ok(!e.failureReason);
+    equal(undefined, e.status);
+    if (e.validation) {
+      equal(undefined, e.validation.problems);
+      equal(undefined, e.validation.failureReason);
+    }
+    if (e.outgoing) {
+      for (let o of e.outgoing) {
+        equal(undefined, o.failed);
+        notEqual(undefined, o.sent);
+      }
+    }
+    if (e.incoming) {
+      equal(undefined, e.incoming.failed);
+      equal(undefined, e.incoming.newFailed);
+      notEqual(undefined, e.incoming.applied || e.incoming.reconciled);
+    }
+  }
+}
+
 // Asserts that `ping` is a ping that doesn't contain any failure information
 function assert_success_ping(ping) {
   ok(!!ping);
   assert_valid_ping(ping);
-  ping.syncs.forEach(record => {
-    ok(!record.failureReason, JSON.stringify(record.failureReason));
-    equal(undefined, record.status);
-    greater(record.engines.length, 0);
-    for (let e of record.engines) {
-      ok(!e.failureReason);
-      equal(undefined, e.status);
-      if (e.validation) {
-        equal(undefined, e.validation.problems);
-        equal(undefined, e.validation.failureReason);
-      }
-      if (e.outgoing) {
-        for (let o of e.outgoing) {
-          equal(undefined, o.failed);
-          notEqual(undefined, o.sent);
-        }
-      }
-      if (e.incoming) {
-        equal(undefined, e.incoming.failed);
-        equal(undefined, e.incoming.newFailed);
-        notEqual(undefined, e.incoming.applied || e.incoming.reconciled);
-      }
-    }
-  });
+  ping.syncs.forEach(assert_success_sync);
 }
 
 // Hooks into telemetry to validate all pings after calling.
@@ -416,7 +389,7 @@ async function sync_and_validate_telem(
       }
     };
     await Service.sync();
-    Assert.ok(numErrors == 0, "There were telemetry validation errors");
+    Assert.equal(numErrors, 0, "There were telemetry validation errors");
   } finally {
     telem.submit = oldSubmit;
   }

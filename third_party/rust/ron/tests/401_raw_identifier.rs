@@ -1,4 +1,4 @@
-use ron::error::{Error, Position, SpannedError};
+use ron::error::{Position, Span, SpannedError};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -15,6 +15,7 @@ struct EmptyStruct;
 struct RawStruct {
     #[serde(rename = "ab.cd-ef")]
     field: bool,
+    really_not_raw: i32,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -31,24 +32,27 @@ fn test_invalid_identifiers() {
     );
     assert_eq!(
         ser,
-        Err(Error::InvalidIdentifier(String::from("Hello World")))
+        Err(ron::Error::InvalidIdentifier(String::from("Hello World")))
     );
 
     let ser = ron::ser::to_string_pretty(
         &EmptyStruct,
         ron::ser::PrettyConfig::default().struct_names(true),
     );
-    assert_eq!(ser, Err(Error::InvalidIdentifier(String::from(""))));
+    assert_eq!(ser, Err(ron::Error::InvalidIdentifier(String::from(""))));
 
     let de = ron::from_str::<InvalidStruct>("Hello World").unwrap_err();
     assert_eq!(
         de,
         SpannedError {
-            code: Error::ExpectedDifferentStructName {
+            code: ron::Error::ExpectedDifferentStructName {
                 expected: "Hello World",
                 found: String::from("Hello"),
             },
-            position: Position { line: 1, col: 6 },
+            span: Span {
+                start: Position { line: 1, col: 1 },
+                end: Position { line: 1, col: 6 },
+            }
         }
     );
 
@@ -56,8 +60,11 @@ fn test_invalid_identifiers() {
     assert_eq!(
         de,
         SpannedError {
-            code: Error::ExpectedUnit,
-            position: Position { line: 1, col: 1 },
+            code: ron::Error::ExpectedUnit,
+            span: Span {
+                start: Position { line: 1, col: 1 },
+                end: Position { line: 1, col: 1 },
+            }
         }
     );
 
@@ -71,8 +78,11 @@ fn test_invalid_identifiers() {
     assert_eq!(
         de,
         SpannedError {
-            code: Error::ExpectedNamedStructLike("Hello+World"),
-            position: Position { line: 1, col: 1 },
+            code: ron::Error::ExpectedNamedStructLike("Hello+World"),
+            span: Span {
+                start: Position { line: 1, col: 1 },
+                end: Position { line: 1, col: 1 },
+            }
         },
     );
 
@@ -80,8 +90,11 @@ fn test_invalid_identifiers() {
     assert_eq!(
         de,
         SpannedError {
-            code: Error::ExpectedNamedStructLike("Hello+World"),
-            position: Position { line: 1, col: 1 },
+            code: ron::Error::ExpectedNamedStructLike("Hello+World"),
+            span: Span {
+                start: Position { line: 1, col: 1 },
+                end: Position { line: 1, col: 1 },
+            }
         },
     );
 
@@ -89,8 +102,11 @@ fn test_invalid_identifiers() {
     assert_eq!(
         de,
         SpannedError {
-            code: Error::SuggestRawIdentifier(String::from("Hello+World")),
-            position: Position { line: 1, col: 1 },
+            code: ron::Error::SuggestRawIdentifier(String::from("Hello+World")),
+            span: Span {
+                start: Position { line: 1, col: 1 },
+                end: Position { line: 1, col: 1 },
+            }
         }
     );
 
@@ -103,8 +119,28 @@ fn test_invalid_identifiers() {
     assert_eq!(
         de,
         SpannedError {
-            code: Error::SuggestRawIdentifier(String::from("ab.cd-ef")),
-            position: Position { line: 2, col: 9 },
+            code: ron::Error::SuggestRawIdentifier(String::from("ab.cd-ef")),
+            span: Span {
+                start: Position { line: 1, col: 15 },
+                end: Position { line: 2, col: 9 },
+            }
+        }
+    );
+
+    let de = ron::from_str::<RawStruct>(
+        "r#Hello+World(
+        rab.cd-ef: true,
+    )",
+    )
+    .unwrap_err();
+    assert_eq!(
+        de,
+        SpannedError {
+            code: ron::Error::SuggestRawIdentifier(String::from("rab.cd-ef")),
+            span: Span {
+                start: Position { line: 1, col: 15 },
+                end: Position { line: 2, col: 9 },
+            }
         }
     );
 
@@ -117,12 +153,15 @@ fn test_invalid_identifiers() {
     assert_eq!(
         de,
         SpannedError {
-            code: Error::NoSuchStructField {
-                expected: &["ab.cd-ef"],
+            code: ron::Error::NoSuchStructField {
+                expected: &["ab.cd-ef", "really_not_raw"],
                 found: String::from("ab.cd+ef"),
                 outer: Some(String::from("Hello+World")),
             },
-            position: Position { line: 2, col: 19 },
+            span: Span {
+                start: Position { line: 2, col: 11 },
+                end: Position { line: 2, col: 19 },
+            }
         }
     );
 
@@ -130,8 +169,11 @@ fn test_invalid_identifiers() {
     assert_eq!(
         de,
         SpannedError {
-            code: Error::SuggestRawIdentifier(String::from("Hello-World")),
-            position: Position { line: 1, col: 1 },
+            code: ron::Error::SuggestRawIdentifier(String::from("Hello-World")),
+            span: Span {
+                start: Position { line: 1, col: 1 },
+                end: Position { line: 1, col: 1 },
+            }
         }
     );
 
@@ -139,30 +181,39 @@ fn test_invalid_identifiers() {
     assert_eq!(
         de,
         SpannedError {
-            code: Error::NoSuchEnumVariant {
+            code: ron::Error::NoSuchEnumVariant {
                 expected: &["Hello-World"],
                 found: String::from("Hello+World"),
                 outer: Some(String::from("RawEnum")),
             },
-            position: Position { line: 1, col: 14 },
+            span: Span {
+                start: Position { line: 1, col: 3 },
+                end: Position { line: 1, col: 14 },
+            }
         }
     );
 
     let de = ron::from_str::<EmptyStruct>("r#+").unwrap_err();
     assert_eq!(
         format!("{}", de),
-        r#"1:4: Expected struct ""_[invalid identifier] but found `r#+`"#,
+        r#"1:3-1:4: Expected only opening `(`, no name, for un-nameable struct"#,
     );
 }
 
 #[test]
 fn test_raw_identifier_roundtrip() {
-    let val = RawStruct { field: true };
+    let val = RawStruct {
+        field: true,
+        really_not_raw: 42,
+    };
 
     let ser =
         ron::ser::to_string_pretty(&val, ron::ser::PrettyConfig::default().struct_names(true))
             .unwrap();
-    assert_eq!(ser, "r#Hello+World(\n    r#ab.cd-ef: true,\n)");
+    assert_eq!(
+        ser,
+        "r#Hello+World(\n    r#ab.cd-ef: true,\n    really_not_raw: 42,\n)"
+    );
 
     let de: RawStruct = ron::from_str(&ser).unwrap();
     assert_eq!(de, val);

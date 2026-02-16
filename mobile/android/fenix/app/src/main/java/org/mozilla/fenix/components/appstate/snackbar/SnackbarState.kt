@@ -4,32 +4,51 @@
 
 package org.mozilla.fenix.components.appstate.snackbar
 
+import com.google.android.material.snackbar.BaseTransientBottomBar.LENGTH_SHORT
+import mozilla.components.browser.state.state.content.DownloadState
 import mozilla.components.concept.storage.BookmarkNode
 import mozilla.components.concept.sync.TabData
+import org.mozilla.fenix.bookmarks.BookmarksGlobalResultReport
 
 /**
  * The state of the snackbar to display.
+ *
+ * 📝Note: If you don't need a specific snackbar type, consider re-using [ShowSnackbar] or updating the API accordingly.
  */
 sealed class SnackbarState {
     /**
      * There is no snackbar to display.
+     *
+     * @property previous The previous displayed snackbar, if any.
      */
-    data object None : SnackbarState()
+    data class None(
+        val previous: SnackbarState? = null,
+    ) : SnackbarState()
+
+    /**
+     * Display a generic snackbar with a custom title.
+     *
+     * @property title The title to display in the snackbar.
+     * @property duration The length of time for the snackbar to show.
+     */
+    data class ShowSnackbar(
+        val title: String,
+        val duration: Int = LENGTH_SHORT,
+    ) : SnackbarState()
 
     /**
      * Dismiss an existing snackbar that is displayed with an indefinite duration.
+     *
+     * @property previous The previous displayed snackbar, if any.
      */
-    data object Dismiss : SnackbarState()
+    data class Dismiss(
+        val previous: SnackbarState? = null,
+    ) : SnackbarState()
 
     /**
      * Display a snackbar of the newly added shortcut.
      */
     data object ShortcutAdded : SnackbarState()
-
-    /**
-     * Display a snackbar of the removed shortcut.
-     */
-    data object ShortcutRemoved : SnackbarState()
 
     /**
      * Display a snackbar when deleting browsing data before quitting.
@@ -53,6 +72,12 @@ sealed class SnackbarState {
      * @property title The title of the bookmark that was deleted.
      */
     data class BookmarkDeleted(val title: String?) : SnackbarState()
+
+    /**
+     * Display a snackbar informing of the result of an operation in the bookmarks
+     * feature that must be reported globally.
+     */
+    data class BookmarkOperationResultReported(val result: BookmarksGlobalResultReport) : SnackbarState()
 
     /**
      * There is a translation in progression for the given [sessionId].
@@ -104,12 +129,54 @@ sealed class SnackbarState {
     data object CopyLinkToClipboard : SnackbarState()
 
     /**
+     * Display a snackbar when a crash report is sent
+     */
+    data object ReportSent : SnackbarState()
+
+    /**
+     * Display a snackbar when an URL has been copied to the clipboard.
+     */
+    data object URLCopiedToClipboard : SnackbarState()
+
+    /**
      * Display a snackbar when the WebCompat report has been successfully submitted.
      */
     data object WebCompatReportSent : SnackbarState()
 
     /**
-     * Display a snackbar when the current site's data has been deleted.
+     * Display a snackbar when the current tab has been closed.
+     *
+     * @property isPrivate Whether closed tab was private or not.
      */
-    data object SiteDataCleared : SnackbarState()
+    data class CurrentTabClosed(
+        val isPrivate: Boolean,
+    ) : SnackbarState()
+
+    /**
+     * Display a snackbar when a download is in progress.
+     *
+     * @property downloadId The unique identifier for the ongoing download.
+     */
+    data class DownloadInProgress(val downloadId: String) : SnackbarState()
+
+    /**
+     * Display a snackbar when a download has failed.
+     *
+     * @property fileName The name of the file that failed to download.
+     */
+    data class DownloadFailed(val fileName: String?) : SnackbarState()
+
+    /**
+     * Display a snackbar when a download has completed.
+     *
+     * @property downloadState The state object containing information about the completed download.
+     */
+    data class DownloadCompleted(val downloadState: DownloadState) : SnackbarState()
+
+    /**
+     * Display a snackbar when there is an error opening a file.
+     *
+     * @property downloadState The state object containing information about the failed download.
+     */
+    data class CannotOpenFileError(val downloadState: DownloadState) : SnackbarState()
 }

@@ -9,14 +9,6 @@
  * child process.
  */
 
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
-  ExtensionChildDevToolsUtils:
-    "resource://gre/modules/ExtensionChildDevToolsUtils.sys.mjs",
-  Schemas: "resource://gre/modules/Schemas.sys.mjs",
-});
-
 const CATEGORY_EXTENSION_SCRIPTS_ADDON = "webextension-scripts-addon";
 const CATEGORY_EXTENSION_SCRIPTS_DEVTOOLS = "webextension-scripts-devtools";
 
@@ -27,6 +19,13 @@ import {
   Messenger,
 } from "resource://gre/modules/ExtensionChild.sys.mjs";
 import { ExtensionUtils } from "resource://gre/modules/ExtensionUtils.sys.mjs";
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+
+const lazy = XPCOMUtils.declareLazy({
+  ExtensionChildDevToolsUtils:
+    "resource://gre/modules/ExtensionChildDevToolsUtils.sys.mjs",
+  Schemas: "resource://gre/modules/Schemas.sys.mjs",
+});
 
 const { getInnerWindowID, promiseEvent } = ExtensionUtils;
 

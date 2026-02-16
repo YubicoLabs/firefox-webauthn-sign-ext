@@ -80,19 +80,19 @@ class ExternalEngineStateMachine final
 
   void NotifyEvent(ExternalEngineEvent aEvent) {
     // On the engine manager thread.
-    Unused << OwnerThread()->Dispatch(NS_NewRunnableFunction(
+    (void)OwnerThread()->Dispatch(NS_NewRunnableFunction(
         "ExternalEngineStateMachine::NotifyEvent",
         [self = RefPtr{this}, aEvent] { self->NotifyEventInternal(aEvent); }));
   }
   void NotifyError(const MediaResult& aError) {
     // On the engine manager thread.
-    Unused << OwnerThread()->Dispatch(NS_NewRunnableFunction(
+    (void)OwnerThread()->Dispatch(NS_NewRunnableFunction(
         "ExternalEngineStateMachine::NotifyError",
         [self = RefPtr{this}, aError] { self->NotifyErrorInternal(aError); }));
   }
   void NotifyResizing(uint32_t aWidth, uint32_t aHeight) {
     // On the engine manager thread.
-    Unused << OwnerThread()->Dispatch(
+    (void)OwnerThread()->Dispatch(
         NS_NewRunnableFunction("ExternalEngineStateMachine::NotifyResizing",
                                [self = RefPtr{this}, aWidth, aHeight] {
                                  self->NotifyResizingInternal(aWidth, aHeight);
@@ -103,7 +103,7 @@ class ExternalEngineStateMachine final
 
   RefPtr<SetCDMPromise> SetCDMProxy(CDMProxy* aProxy) override;
 
-  bool IsCDMProxySupported(CDMProxy* aProxy) override;
+  nsresult IsCDMProxySupported(CDMProxy* aProxy) override;
 
   bool IsExternalEngineStateMachine() const override { return true; }
 

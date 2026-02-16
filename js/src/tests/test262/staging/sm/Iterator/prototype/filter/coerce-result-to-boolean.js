@@ -1,14 +1,10 @@
-// |reftest| shell-option(--enable-iterator-helpers) skip-if(!this.hasOwnProperty('Iterator')||!xulRuntime.shell) -- iterator-helpers is not enabled unconditionally, requires shell-options
 // Copyright (C) 2024 Mozilla Corporation. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
 features:
-- IsHTMLDDA
-- iterator-helpers
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
+  - IsHTMLDDA
+  - iterator-helpers
 info: |
   Iterator is not enabled unconditionally
 description: |
@@ -23,7 +19,7 @@ for (const value of [...truthyValues].values().filter(x => x)) {
 }
 
 // All falsy values are filtered out.
-const falsyValues = [false, 0, '', null, undefined, NaN, -0, 0n, createIsHTMLDDA()];
+const falsyValues = [false, 0, '', null, undefined, NaN, -0, 0n, $262.IsHTMLDDA];
 const result = falsyValues.values().filter(x => x).next();
 assert.sameValue(result.done, true);
 assert.sameValue(result.value, undefined);

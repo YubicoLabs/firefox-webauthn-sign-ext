@@ -11,11 +11,10 @@ process interspersed with some tips.
 
 Before vendoring a new Puppeteer release make sure that there are no Puppeteer
 specific changes in mozilla-central repository that haven't been upstreamed yet
-since the last vendor happened. Run one of the following commands and check the
-listed bugs or related upstream code to verify:
+since the last vendor happened. Run the following command and check the listed
+bugs or related upstream code to verify:
 
 ```shell
-% hg log remote/test/puppeteer
 % git log remote/test/puppeteer
 ```
 
@@ -61,8 +60,24 @@ to skip this step; for example, if you want to run installation separately at
 a later point.
 
 Validate that newly created files and folders are required to be tracked by
-version control. If that is not the case then update both the top-level
-`.hgignore` and `remote/.gitignore` files for those paths.
+version control. If that is not the case then update the top-level
+`remote/.gitignore` file for those paths.
+
+### Apply recurring patches
+
+Due to some discrepancies between mozilla-central and the upstream puppeteer
+repository, some patches need to be manually applied every time we vendor a new
+version.
+
+All patches should be located under `remote/test/puppeteer-patches`, and can be
+applied with `git apply`:
+
+```shell
+% git apply -3 remote/test/puppeteer-patches/skip-aria-test.patch
+% git commit -a -m "Bug XXXXXXX - [puppeteer] Skip test \"\$\$eval should handle many elements\" which is causing the error summary log to overflow"
+% git apply -3 remote/test/puppeteer-patches/skip-mozilla-ci-incompatible-tests.patch
+% git commit -a -m "Bug XXXXXXX - [puppeteer] Disable all puppeteer tests incompatible with Mozilla CI"
+```
 
 ### Validate that the new code works
 
@@ -84,6 +99,7 @@ To do this, run the Puppeteer test job on try (see [Testing]). If these tests
 are specific for Chrome or time out, we want to keep them skipped, if they fail
 we want to have `FAIL` status for all platforms in the expectation meta data.
 You can see, if the meta data needs to be updated, at the end of the log file.
+Nightly-specific overrides to the test expectations are stored in [CanaryTestExpectations.json].
 
 Examine the job logs and make sure the run didn't get interrupted early by a
 crash or a hang, especially if you see a lot of `TEST-UNEXPECTED-MISSING` in
@@ -105,4 +121,5 @@ to check for stability.
 [install the project]: https://github.com/puppeteer/puppeteer/blob/main/docs/contributing.md#getting-started
 [run tests against both Chromium and Firefox]: https://github.com/puppeteer/puppeteer/blob/main/test/README.md#running-tests
 [TestExpectations.json]: https://searchfox.org/mozilla-central/source/remote/test/puppeteer/test/TestExpectations.json
+[CanaryTestExpectations.json]: https://searchfox.org/mozilla-central/source/remote/test/puppeteer/test/CanaryTestExpectations.json
 [contributing.md]: https://github.com/puppeteer/puppeteer/blob/main/docs/contributing.md

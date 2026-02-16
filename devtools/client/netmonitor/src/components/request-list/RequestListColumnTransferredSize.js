@@ -6,9 +6,9 @@
 
 const {
   Component,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   getFormattedSize,
 } = require("resource://devtools/client/netmonitor/src/utils/format-utils.js");
@@ -29,6 +29,8 @@ const UPDATED_TRANSFERRED_PROPS = [
   "fromCache",
   "isRacing",
   "fromServiceWorker",
+  "blockedReason",
+  "extension",
 ];
 
 class RequestListColumnTransferredSize extends Component {
@@ -49,7 +51,7 @@ class RequestListColumnTransferredSize extends Component {
   render() {
     const {
       blockedReason,
-      blockingExtension,
+      extension,
       fromCache,
       fromServiceWorker,
       status,
@@ -59,7 +61,7 @@ class RequestListColumnTransferredSize extends Component {
     let text;
 
     if (blockedReason) {
-      text = getBlockedReasonString(blockedReason, blockingExtension);
+      text = getBlockedReasonString(blockedReason, extension);
     } else if (fromCache || status === "304") {
       text = SIZE_CACHED;
     } else if (fromServiceWorker) {
@@ -77,7 +79,8 @@ class RequestListColumnTransferredSize extends Component {
 
     return dom.td(
       {
-        className: "requests-list-column requests-list-transferred",
+        className:
+          "requests-list-column requests-list-number-column requests-list-transferred",
         title,
       },
       text

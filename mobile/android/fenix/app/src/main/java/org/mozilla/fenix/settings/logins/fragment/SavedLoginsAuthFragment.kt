@@ -12,10 +12,10 @@ import androidx.preference.SwitchPreference
 import mozilla.components.feature.autofill.preference.AutofillPreference
 import mozilla.components.service.fxa.SyncEngine
 import mozilla.telemetry.glean.private.NoExtras
-import org.mozilla.fenix.AuthenticationStatus
-import org.mozilla.fenix.BiometricAuthenticationManager
 import org.mozilla.fenix.GleanMetrics.Logins
 import org.mozilla.fenix.R
+import org.mozilla.fenix.biometricauthentication.AuthenticationStatus
+import org.mozilla.fenix.biometricauthentication.BiometricAuthenticationManager
 import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.navigateWithBreadcrumb
@@ -33,7 +33,6 @@ class SavedLoginsAuthFragment : PreferenceFragmentCompat() {
         setPreferencesFromResource(R.xml.logins_preferences, rootKey)
     }
 
-    @Suppress("LongMethod")
     override fun onResume() {
         super.onResume()
         showToolbar(getString(R.string.preferences_passwords_logins_and_passwords_2))

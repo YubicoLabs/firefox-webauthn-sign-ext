@@ -6,13 +6,12 @@
 
 /* constants used in the style struct data provided by ComputedStyle */
 
-#ifndef nsStyleConsts_h___
-#define nsStyleConsts_h___
+#ifndef nsStyleConsts_h_
+#define nsStyleConsts_h_
 
 #include <inttypes.h>
 
 #include "X11UndefineNone.h"
-
 #include "gfxFontConstants.h"
 #include "mozilla/ServoStyleConsts.h"
 
@@ -56,7 +55,7 @@ enum class StyleBoxPack : uint8_t {
 };
 
 // box-sizing
-enum class StyleBoxSizing : uint8_t { Content, Border };
+enum class StyleBoxSizing : uint8_t { ContentBox, BorderBox };
 
 // box-shadow
 enum class StyleBoxShadowType : uint8_t {
@@ -192,15 +191,6 @@ enum class StyleDirection : uint8_t { Ltr, Rtl };
 // values here accidentally use it in their binary representation.)
 static constexpr uint8_t kWritingModeSidewaysMask = 4;
 
-enum class StyleWritingModeProperty : uint8_t {
-  HorizontalTb = 0,
-  VerticalRl = 1,
-  // HorizontalBT = 2,    // hypothetical
-  VerticalLr = 3,
-  SidewaysRl = VerticalRl | kWritingModeSidewaysMask,
-  SidewaysLr = VerticalLr | kWritingModeSidewaysMask,
-};
-
 // See nsStylePosition
 enum class StyleFlexDirection : uint8_t {
   Row,
@@ -251,6 +241,9 @@ enum class StyleMathVariant : uint8_t {
 
 // See nsStyleFont::mMathStyle
 enum class StyleMathStyle : uint8_t { Compact = 0, Normal = 1 };
+
+// See nsStyleFont::mMathShift
+enum class StyleMathShift : uint8_t { Compact = 0, Normal = 1 };
 
 enum class FrameBorderProperty : uint8_t { Yes, No, One, Zero };
 
@@ -392,7 +385,7 @@ enum class StyleTextOrientation : uint8_t {
 
 // Whether flexbox visibility: collapse items use legacy -moz-box behavior or
 // not.
-enum class StyleMozBoxCollapse : uint8_t {
+enum class StyleBoxCollapse : uint8_t {
   Flex,
   Legacy,
 };
@@ -543,4 +536,4 @@ enum class StyleScrollBehavior : uint8_t {
 
 }  // namespace mozilla
 
-#endif /* nsStyleConsts_h___ */
+#endif /* nsStyleConsts_h_ */

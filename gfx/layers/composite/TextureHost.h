@@ -63,6 +63,8 @@ class CompositableParentManager;
 class ReadLockDescriptor;
 class CompositorBridgeParent;
 class DXGITextureHostD3D11;
+class DXGIYCbCrTextureHostD3D11;
+class Fence;
 class SurfaceDescriptor;
 class HostIPCAllocator;
 class ISurfaceAllocator;
@@ -626,6 +628,10 @@ class TextureHost : public AtomicRefCountedWithFinalize<TextureHost> {
 
   virtual DXGITextureHostD3D11* AsDXGITextureHostD3D11() { return nullptr; }
 
+  virtual DXGIYCbCrTextureHostD3D11* AsDXGIYCbCrTextureHostD3D11() {
+    return nullptr;
+  }
+
   virtual bool IsWrappingSurfaceTextureHost() { return false; }
 
   // Create the corresponding RenderTextureHost type of this texture, and
@@ -695,14 +701,6 @@ class TextureHost : public AtomicRefCountedWithFinalize<TextureHost> {
 
   virtual bool NeedsYFlip() const;
 
-  virtual void SetAcquireFence(UniqueFileHandle&& aFenceFd) {}
-
-  virtual void SetReleaseFence(UniqueFileHandle&& aFenceFd) {}
-
-  virtual UniqueFileHandle GetAndResetReleaseFence() {
-    return UniqueFileHandle();
-  }
-
   virtual AndroidHardwareBuffer* GetAndroidHardwareBuffer() const {
     return nullptr;
   }
@@ -712,6 +710,8 @@ class TextureHost : public AtomicRefCountedWithFinalize<TextureHost> {
   }
 
   virtual TextureHostType GetTextureHostType() { return mTextureHostType; }
+
+  virtual void SetReadFence(Fence* aReadFence) {}
 
   // Our WebRender backend may impose restrictions on whether textures are
   // prepared as native textures or not, or it may have no restriction at
@@ -796,9 +796,9 @@ class BufferTextureHost : public TextureHost {
 
   virtual ~BufferTextureHost();
 
-  virtual uint8_t* GetBuffer() = 0;
+  virtual uint8_t* GetBuffer() const = 0;
 
-  virtual size_t GetBufferSize() = 0;
+  virtual size_t GetBufferSize() const = 0;
 
   void UnbindTextureSource() override;
 
@@ -888,9 +888,9 @@ class ShmemTextureHost : public BufferTextureHost {
 
   void ForgetSharedData() override;
 
-  uint8_t* GetBuffer() override;
+  uint8_t* GetBuffer() const override;
 
-  size_t GetBufferSize() override;
+  size_t GetBufferSize() const override;
 
   const char* Name() override { return "ShmemTextureHost"; }
 
@@ -922,9 +922,9 @@ class MemoryTextureHost : public BufferTextureHost {
 
   void ForgetSharedData() override;
 
-  uint8_t* GetBuffer() override;
+  uint8_t* GetBuffer() const override;
 
-  size_t GetBufferSize() override;
+  size_t GetBufferSize() const override;
 
   const char* Name() override { return "MemoryTextureHost"; }
 

@@ -13,7 +13,7 @@ Usage: $(basename "$0") [-p product]
            # Use archive.m.o instead of the taskcluster index to get xpcshell
            [--use-ftp-builds]
            # Use git rather than hg. Using git does not currently support cloning (use
-           # --skip-repo as well).
+           # --skip-clone as well).
            [--use-git]
            # One (or more) of the following actions must be specified.
            --hsts | --hpkp | --remote-settings | --suffix-list | --mobile-experiments | --ct-logs
@@ -119,7 +119,11 @@ if [ "${TOPSRCDIR}" == "" ]; then
 fi
 
 case "${BRANCH}" in
-  mozilla-central|comm-central|try )
+  try)
+    # don't clone try, that can only end in sadness
+    HGREPO="https://${HGHOST}/mozilla-central"
+    ;;
+  mozilla-central|comm-central )
     HGREPO="https://${HGHOST}/${BRANCH}"
     ;;
   mozilla-*|comm-* )
@@ -131,12 +135,11 @@ case "${BRANCH}" in
 esac
 
 BROWSER_ARCHIVE="target.tar.xz"
-TESTS_ARCHIVE="target.common.tests.tar.gz"
+TESTS_ARCHIVE="target.common.tests.tar.zst"
 
-UNPACK_CMD="tar Jxf"
+UNPACK_CMD="tar xf"
 COMMIT_AUTHOR='ffxbld <ffxbld@mozilla.com>'
 WGET="wget -nv"
-UNTAR="tar -zxf"
 DIFF="$(command -v diff) -u"
 JQ="$(command -v jq)"
 
@@ -275,7 +278,7 @@ function unpack_artifacts {
   ${UNPACK_CMD} "${BROWSER_ARCHIVE}"
   mkdir -p tests
   cd tests
-  ${UNTAR} "../${TESTS_ARCHIVE}"
+  ${UNPACK_CMD} "../${TESTS_ARCHIVE}"
   cd "${BASEDIR}"
   cp tests/bin/xpcshell "${PRODUCT}"
 }
@@ -407,9 +410,18 @@ function compare_remote_settings_files {
 
   # 1. List remote settings collections from server.
   echo "INFO: fetch remote settings list from server"
-  ${WGET} -qO- "${REMOTE_SETTINGS_SERVER}/buckets/monitor/collections/changes/records" |\
-    ${JQ} -r '.data[] | .bucket+"/"+.collection+"/"+(.last_modified|tostring)' |\
-    # 2. For each entry ${bucket, collection, last_modified}
+  changes_lines="$(
+    ${WGET} -O- \
+      "${REMOTE_SETTINGS_SERVER}/buckets/monitor/collections/changes/changeset?_expected=0" |
+        ${JQ} -r '.changes[] | .bucket+"/"+.collection+"/"+(.last_modified|tostring)'
+  )"
+  line_count="$(printf '%s\n' "${changes_lines}" | wc -l | xargs)"
+  if [ "${line_count}" -le 1 ]; then
+    echo "ERROR: no changes pulled from server" >&2
+    exit 15
+  fi
+
+  # 2. For each entry ${bucket, collection, last_modified}
   while IFS="/" read -r bucket collection last_modified; do
 
     # 3. Check to see if the collection exists in the dump directory of the repository,
@@ -456,7 +468,18 @@ function compare_remote_settings_files {
       done
     fi
     # NOTE: The downloaded data is not validated. xpcshell should be used for that.
-  done
+    
+    # bug 1959683: remote settings update can add untracked search-config-icons
+    # It is not safe to take these (see https://bugzilla.mozilla.org/show_bug.cgi?id=1873448)
+    # If they are around as untracked files when `arc diff` runs, that command will fail.
+    # (We explicitly don't want to use `arc diff --allow-untracked` to avoid accidentally
+    # missing files from other updates - we'd rather the job fail.)
+    if [ "${USE_GIT}" == "true" ]; then
+      ${GIT} -C "${TOPSRCDIR}" clean -f -d services/settings/dumps/main/search-config-icons
+    else
+      ${HG} --cwd "${TOPSRCDIR}" purge services/settings/dumps/main/search-config-icons
+    fi
+  done <<< "${changes_lines}"
 
   echo "INFO: diffing old/new remote settings dumps..."
   create_repo_diff "${REMOTE_SETTINGS_DIR}" "${REMOTE_SETTINGS_DIFF_ARTIFACT}"
@@ -597,7 +620,9 @@ function push_repo {
     echo '{"transactions": [{"type":"abandon", "value": true}], "objectIdentifier": "'"${diff}"'"}' | $ARC call-conduit -- differential.revision.edit
   done
 
-  $ARC diff --verbatim --reviewers "${REVIEWERS}"
+  # bug 1959683: using /dev/null as stdin causes arcanist to fail quickly
+  # instead of hang if user input is requested.
+  $ARC diff --verbatim --reviewers "${REVIEWERS}" < /dev/null
 }
 
 

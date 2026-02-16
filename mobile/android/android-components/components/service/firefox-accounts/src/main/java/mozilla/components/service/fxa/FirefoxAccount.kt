@@ -4,13 +4,15 @@
 
 package mozilla.components.service.fxa
 
-import android.net.Uri
+import androidx.core.net.toUri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.withContext
 import mozilla.appservices.fxaclient.FxaClient
+import mozilla.appservices.fxaclient.FxaEvent
+import mozilla.appservices.fxaclient.FxaState
 import mozilla.components.concept.base.crash.CrashReporting
 import mozilla.components.concept.sync.AuthFlowUrl
 import mozilla.components.concept.sync.DeviceConstellation
@@ -97,6 +99,8 @@ class FirefoxAccount internal constructor(
 
     internal fun getAuthState() = inner.getAuthState()
 
+    internal fun processEvent(event: FxaEvent): FxaState = inner.processEvent(event)
+
     internal fun simulateNetworkError() = inner.simulateNetworkError()
     internal fun simulateTemporaryAuthTokenIssue() = inner.simulateTemporaryAuthTokenIssue()
     internal fun simulatePermanentAuthTokenIssue() = inner.simulatePermanentAuthTokenIssue()
@@ -107,7 +111,7 @@ class FirefoxAccount internal constructor(
     ) = withContext(scope.coroutineContext) {
         handleFxaExceptions(logger, "begin oauth flow", { null }) {
             val url = inner.beginOAuthFlow(scopes.toTypedArray(), entryPoint.entryName)
-            val state = Uri.parse(url).getQueryParameter("state")!!
+            val state = url.toUri().getQueryParameter("state")!!
             AuthFlowUrl(state, url)
         }
     }
@@ -122,7 +126,7 @@ class FirefoxAccount internal constructor(
         // actual value doesn't matter much)
         handleFxaExceptions(logger, "begin oauth pairing flow", { null }) {
             val url = inner.beginPairingFlow(pairingUrl, scopes.toTypedArray(), entryPoint.entryName)
-            val state = Uri.parse(url).getQueryParameter("state")!!
+            val state = url.toUri().getQueryParameter("state")!!
             AuthFlowUrl(state, url)
         }
     }
@@ -195,6 +199,15 @@ class FirefoxAccount internal constructor(
     override suspend fun getAccessToken(singleScope: String) = withContext(scope.coroutineContext) {
         handleFxaExceptions(logger, "get access token", { null }) {
             inner.getAccessToken(singleScope).into()
+        }
+    }
+
+    /**
+     * See [OAuthAccount.getAttachedClient].
+     */
+    override suspend fun getAttachedClient() = withContext(scope.coroutineContext) {
+        handleFxaExceptions(logger, "get attached client", { emptyList() }) {
+            inner.getAttachedClients().map { it.into() }
         }
     }
 

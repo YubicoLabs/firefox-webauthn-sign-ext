@@ -9,10 +9,9 @@
 
 #include <cstdint>
 #include <ostream>
+
 #include "ErrorList.h"
 #include "js/RootingAPI.h"
-#include "mozilla/Assertions.h"
-#include "mozilla/Maybe.h"
 #include "mozilla/RangeBoundary.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/WeakPtr.h"
@@ -30,6 +29,7 @@ namespace mozilla::dom {
 class Document;
 class Selection;
 class StaticRange;
+class HTMLSlotElement;
 
 enum class AllowRangeCrossShadowBoundary : bool { No, Yes };
 
@@ -41,10 +41,13 @@ class AbstractRange : public nsISupports,
       mozilla::dom::AllowRangeCrossShadowBoundary;
 
  protected:
-  explicit AbstractRange(nsINode* aNode, bool aIsDynamicRange);
+  explicit AbstractRange(nsINode* aNode, bool aIsDynamicRange,
+                         TreeKind aBoundaryTreeKind);
   virtual ~AbstractRange();
 
  public:
+  enum class IsUnlinking : bool { No, Yes };
+
   AbstractRange() = delete;
   explicit AbstractRange(const AbstractRange& aOther) = delete;
 
@@ -165,10 +168,10 @@ class AbstractRange : public nsISupports,
    */
   bool IsInAnySelection() const { return !mSelections.IsEmpty(); }
 
-  MOZ_CAN_RUN_SCRIPT void RegisterSelection(
-      mozilla::dom::Selection& aSelection);
+  void RegisterSelection(mozilla::dom::Selection& aSelection);
 
-  void UnregisterSelection(const mozilla::dom::Selection& aSelection);
+  void UnregisterSelection(const mozilla::dom::Selection& aSelection,
+                           IsUnlinking aIsUnlinking = IsUnlinking::No);
 
   /**
    * Returns a list of all Selections the range is associated with.
@@ -185,12 +188,21 @@ class AbstractRange : public nsISupports,
    */
   static bool IsRootUAWidget(const nsINode* aRoot);
 
+  /**
+   * Return a shrunken range computed by
+   * SelectionMoveUtils::GetFirstVisiblePointAtLeaf() and
+   * SelectionMoveUtils::GetLastVisiblePointAtLeaf().
+   */
+  already_AddRefed<StaticRange> GetShrunkenRangeToVisibleLeaves() const;
+
  protected:
   template <typename SPT, typename SRT, typename EPT, typename ERT,
             typename RangeType>
   static nsresult SetStartAndEndInternal(
       const RangeBoundaryBase<SPT, SRT>& aStartBoundary,
-      const RangeBoundaryBase<EPT, ERT>& aEndBoundary, RangeType* aRange);
+      const RangeBoundaryBase<EPT, ERT>& aEndBoundary, RangeType* aRange,
+      AllowRangeCrossShadowBoundary aAllowCrossShadowBoundary =
+          AllowRangeCrossShadowBoundary::No);
 
   template <class RangeType>
   static bool MaybeCacheToReuse(RangeType& aInstance);
@@ -219,12 +231,20 @@ class AbstractRange : public nsISupports,
   /**
    * https://dom.spec.whatwg.org/#concept-tree-inclusive-ancestor
    */
-  void UnregisterClosestCommonInclusiveAncestor(bool aIsUnlinking = false);
+  void UnregisterClosestCommonInclusiveAncestor(
+      IsUnlinking aIsUnlinking = IsUnlinking::No);
 
   void UpdateCommonAncestorIfNecessary();
 
-  static void MarkDescendants(const nsINode& aNode);
-  static void UnmarkDescendants(const nsINode& aNode);
+  static void MarkDescendants(nsINode& aNode);
+  static void UnmarkDescendants(nsINode& aNode);
+
+  static void UpdateDescendantsInFlattenedTree(nsINode& aNode,
+                                               bool aMarkDescendants);
+  friend void mozilla::SlotAssignedNodeAdded(dom::HTMLSlotElement* aSlot,
+                                             nsIContent& aAssignedNode);
+  friend void mozilla::SlotAssignedNodeRemoved(dom::HTMLSlotElement* aSlot,
+                                               nsIContent& aUnassignedNode);
 
  private:
   void ClearForReuse();

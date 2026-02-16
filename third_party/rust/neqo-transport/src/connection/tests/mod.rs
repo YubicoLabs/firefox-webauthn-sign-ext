@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use enum_map::enum_map;
+use enum_map::EnumMap;
 use neqo_common::{event::Provider as _, qdebug, qtrace, Datagram, Decoder, Role};
 use neqo_crypto::{random, AllowZeroRtt, AuthenticationStatus, ResumptionToken};
 use test_fixture::{fixture_init, new_neqo_qlog, now, DEFAULT_ADDR};
@@ -24,12 +24,12 @@ use crate::{
     cc::CWND_INITIAL_PKTS,
     cid::ConnectionIdRef,
     events::ConnectionEvent,
-    frame::FRAME_TYPE_PING,
-    packet::PacketBuilder,
+    frame::FrameType,
+    packet,
     pmtud::Pmtud,
     recovery::ACK_ONLY_SIZE_LIMIT,
-    stats::{FrameStats, Stats, MAX_PTO_COUNTS},
-    tparams::{DISABLE_MIGRATION, GREASE_QUIC_BIT},
+    stats::{FrameStats, Stats},
+    tparams::TransportParameterId::*,
     ConnectionIdDecoder, ConnectionIdGenerator, ConnectionParameters, EmptyConnectionIdGenerator,
     Error, StreamId, StreamType, Version, MIN_INITIAL_PACKET_SIZE,
 };
@@ -45,6 +45,7 @@ mod idle;
 mod keys;
 mod migration;
 mod null;
+mod pmtud;
 mod priority;
 mod recovery;
 mod resumption;
@@ -72,7 +73,7 @@ pub struct CountingConnectionIdGenerator {
 
 impl ConnectionIdDecoder for CountingConnectionIdGenerator {
     fn decode_cid<'a>(&self, dec: &mut Decoder<'a>) -> Option<ConnectionIdRef<'a>> {
-        let len = usize::from(dec.peek_byte().unwrap());
+        let len = usize::from(dec.peek_byte()?);
         dec.decode(len).map(ConnectionIdRef::from)
     }
 }
@@ -81,10 +82,10 @@ impl ConnectionIdGenerator for CountingConnectionIdGenerator {
     fn generate_cid(&mut self) -> Option<ConnectionId> {
         let mut r = random::<20>();
         r[0] = 8;
-        r[1] = u8::try_from(self.counter >> 24).unwrap();
-        r[2] = u8::try_from((self.counter >> 16) & 0xff).unwrap();
-        r[3] = u8::try_from((self.counter >> 8) & 0xff).unwrap();
-        r[4] = u8::try_from(self.counter & 0xff).unwrap();
+        r[1] = u8::try_from(self.counter >> 24).ok()?;
+        r[2] = u8::try_from((self.counter >> 16) & 0xff).ok()?;
+        r[3] = u8::try_from((self.counter >> 8) & 0xff).ok()?;
+        r[4] = u8::try_from(self.counter & 0xff).ok()?;
         self.counter += 1;
         Some(ConnectionId::from(&r[..8]))
     }
@@ -181,19 +182,22 @@ pub fn rttvar_after_n_updates(n: usize, rtt: Duration) -> Duration {
 struct PingWriter {}
 
 impl test_internal::FrameWriter for PingWriter {
-    fn write_frames(&mut self, builder: &mut PacketBuilder) {
-        builder.encode_varint(FRAME_TYPE_PING);
+    fn write_frames(&mut self, builder: &mut packet::Builder<&mut Vec<u8>>) {
+        builder.encode_varint(FrameType::Ping);
     }
 }
 
 /// Drive the handshake between the client and server.
-fn handshake_with_modifier(
+fn handshake_with_modifier<F>(
     client: &mut Connection,
     server: &mut Connection,
     now: Instant,
     rtt: Duration,
-    modifier: fn(Datagram) -> Option<Datagram>,
-) -> Instant {
+    mut modifier: F,
+) -> Instant
+where
+    F: FnMut(Datagram) -> Option<Datagram>,
+{
     let mut a = client;
     let mut b = server;
     let mut now = now;
@@ -206,7 +210,7 @@ fn handshake_with_modifier(
         )
     };
 
-    let mut did_ping = enum_map! {_ => false};
+    let mut did_ping = EnumMap::from_array([false, false]);
     while !is_done(a) {
         _ = maybe_authenticate(a);
         // Insert a PING frame into the first application data packet an endpoint sends,
@@ -227,7 +231,7 @@ fn handshake_with_modifier(
             a.test_frame_writer = None;
             did_ping[a.role()] = true;
         }
-        input = output.and_then(modifier);
+        input = output.and_then(&mut modifier);
         qtrace!("handshake: t += {:?}", rtt / 2);
         now += rtt / 2;
         mem::swap(&mut a, &mut b);
@@ -258,13 +262,16 @@ fn connect_fail(
     assert_error(server, &CloseReason::Transport(server_error));
 }
 
-fn connect_with_rtt_and_modifier(
+fn connect_with_rtt_and_modifier<F>(
     client: &mut Connection,
     server: &mut Connection,
     now: Instant,
     rtt: Duration,
-    modifier: fn(Datagram) -> Option<Datagram>,
-) -> Instant {
+    modifier: F,
+) -> Instant
+where
+    F: FnMut(Datagram) -> Option<Datagram>,
+{
     fn check_rtt(stats: &Stats, rtt: Duration) {
         assert_eq!(stats.rtt, rtt);
         // Validate that rttvar has been computed correctly based on the number of RTT updates.
@@ -329,18 +336,21 @@ fn assert_idle(client: &mut Connection, server: &mut Connection, rtt: Duration, 
     // Client started its idle period half an RTT before now.
     assert_eq!(
         client.process_output(now),
-        Output::Callback(idle_timeout - rtt / 2)
+        Output::Callback(idle_timeout.checked_sub(rtt / 2).unwrap())
     );
     assert_eq!(server.process_output(now), Output::Callback(idle_timeout));
 }
 
 /// Connect with an RTT and then force both peers to be idle.
-fn connect_rtt_idle_with_modifier(
+fn connect_rtt_idle_with_modifier<F>(
     client: &mut Connection,
     server: &mut Connection,
     rtt: Duration,
-    modifier: fn(Datagram) -> Option<Datagram>,
-) -> Instant {
+    modifier: F,
+) -> Instant
+where
+    F: FnMut(Datagram) -> Option<Datagram>,
+{
     let now = connect_with_rtt_and_modifier(client, server, now(), rtt, modifier);
     assert_idle(client, server, rtt, now);
     // Drain events from both as well.
@@ -504,7 +514,7 @@ fn induce_persistent_congestion(
     qtrace!("[{client}] induce_persistent_congestion");
     now += AT_LEAST_PTO;
 
-    let mut pto_counts = [0; MAX_PTO_COUNTS];
+    let mut pto_counts = [0; Stats::MAX_PTO_COUNTS];
     assert_eq!(client.stats.borrow().pto_counts, pto_counts);
 
     qtrace!("[{client}] first PTO");
@@ -686,8 +696,7 @@ fn assert_path_challenge_min_len(c: &Connection, d: &Datagram, now: Instant) {
     let path = c.paths.find_path(
         d.source(),
         d.destination(),
-        c.conn_params.get_cc_algorithm(),
-        c.conn_params.pacing_enabled(),
+        &c.conn_params,
         now,
         &mut c.stats.borrow_mut(),
     );
@@ -710,8 +719,8 @@ fn create_client() {
     assert!(matches!(client.state(), State::Init));
     let stats = client.stats();
     assert_default_stats(&stats);
-    assert_eq!(stats.rtt, crate::rtt::INITIAL_RTT);
-    assert_eq!(stats.rttvar, crate::rtt::INITIAL_RTT / 2);
+    assert_eq!(stats.rtt, crate::DEFAULT_INITIAL_RTT);
+    assert_eq!(stats.rttvar, crate::DEFAULT_INITIAL_RTT / 2);
 }
 
 #[test]
@@ -729,7 +738,7 @@ fn create_server() {
 fn tp_grease() {
     for enable in [true, false] {
         let client = new_client(ConnectionParameters::default().grease(enable));
-        let grease = client.tps.borrow_mut().local.get_empty(GREASE_QUIC_BIT);
+        let grease = client.tps.borrow_mut().local().get_empty(GreaseQuicBit);
         assert_eq!(enable, grease);
     }
 }
@@ -738,7 +747,40 @@ fn tp_grease() {
 fn tp_disable_migration() {
     for disable in [true, false] {
         let client = new_client(ConnectionParameters::default().disable_migration(disable));
-        let disable_migration = client.tps.borrow_mut().local.get_empty(DISABLE_MIGRATION);
+        let disable_migration = client.tps.borrow_mut().local().get_empty(DisableMigration);
         assert_eq!(disable, disable_migration);
     }
+}
+
+#[test]
+fn server_receives_new_token() {
+    struct NewTokenWriter {}
+
+    impl test_internal::FrameWriter for NewTokenWriter {
+        fn write_frames(&mut self, builder: &mut packet::Builder<&mut Vec<u8>>) {
+            builder.encode_varint(FrameType::NewToken);
+            builder.encode_vvec(&[0; 4]);
+        }
+    }
+
+    let mut client = default_client();
+    let mut server = default_server();
+    connect_force_idle(&mut client, &mut server);
+    assert_eq!(client.state(), &State::Confirmed);
+    assert_eq!(server.state(), &State::Confirmed);
+
+    let spoofed = client
+        .test_write_frames(NewTokenWriter {}, now())
+        .dgram()
+        .unwrap();
+
+    // Now deliver the packet with the spoofed NEW_TOKEN frame.
+    server.process_input(spoofed, now());
+    assert!(matches!(
+        server.state(),
+        State::Closing {
+            error: CloseReason::Transport(Error::ProtocolViolation),
+            ..
+        }
+    ));
 }

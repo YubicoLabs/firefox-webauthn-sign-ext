@@ -5,21 +5,20 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ScreenOrientation.h"
-#include "nsIDocShell.h"
-#include "mozilla/dom/Document.h"
-#include "nsGlobalWindowInner.h"
-#include "nsSandboxFlags.h"
-#include "nsScreen.h"
 
 #include "mozilla/DOMEventTargetHelper.h"
 #include "mozilla/Hal.h"
 #include "mozilla/Preferences.h"
-
+#include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/Event.h"
 #include "mozilla/dom/Promise.h"
-#include "mozilla/StaticPrefs_browser.h"
 #include "nsContentUtils.h"
+#include "nsGlobalWindowInner.h"
+#include "nsIDocShell.h"
+#include "nsSandboxFlags.h"
+#include "nsScreen.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -76,8 +75,14 @@ ScreenOrientation::ScreenOrientation(nsPIDOMWindowInner* aWindow,
 
   Document* doc = GetResponsibleDocument();
   BrowsingContext* bc = doc ? doc->GetBrowsingContext() : nullptr;
-  if (bc && !bc->IsDiscarded() && !bc->InRDMPane()) {
+  if (bc && !bc->IsDiscarded() && !bc->HasOrientationOverride()) {
     MOZ_ALWAYS_SUCCEEDS(bc->SetCurrentOrientation(mType, mAngle));
+  } else if (bc && !bc->IsTop() && bc->HasOrientationOverride()) {
+    // Resync the override for newly created iframes.
+    BrowsingContext* topBC = bc->Top();
+    MOZ_ALWAYS_SUCCEEDS(
+        bc->SetOrientationOverride(topBC->GetCurrentOrientationType(),
+                                   topBC->GetCurrentOrientationAngle()));
   }
 }
 
@@ -217,8 +222,31 @@ ScreenOrientation::LockOrientationTask::Run() {
               return;
             }
 
-            if (!self->mDocument) {
+            if (aValue.IsReject()) {
+              // Since current device doesn't support lock orientation or
+              // causes something device error, we should throw it, instead of
+              // abort.
+              self->mPromise->MaybeReject(aValue.RejectValue());
+              self->mDocument->ClearOrientationPendingPromise();
+              return;
+            }
+
+            if (!self->mDocument || !self->mDocument->IsFullyActive()) {
+              // Pending promise in document will be clear during destroying
+              // document.
               self->mPromise->MaybeReject(NS_ERROR_DOM_ABORT_ERR);
+              // Since orientation.lock is failed, but system side might be
+              // successful, reset orientation lock.
+              if (self->mDocument) {
+                BrowsingContext* bc = self->mDocument->GetBrowsingContext();
+                bc = bc ? bc->Top() : nullptr;
+                if (bc) {
+                  bc->SetOrientationLock(hal::ScreenOrientation::None,
+                                         IgnoreErrors());
+                  self->mScreenOrientation->UnlockDeviceOrientation();
+                }
+              }
+
               return;
             }
 
@@ -229,27 +257,22 @@ ScreenOrientation::LockOrientationTask::Run() {
               // by AbortInProcessOrientationPromises()
               return;
             }
-            if (aValue.IsResolve()) {
-              // LockDeviceOrientation won't change orientation, so change
-              // event isn't fired.
-              if (BrowsingContext* bc = self->mDocument->GetBrowsingContext()) {
-                OrientationType currentOrientationType =
-                    bc->GetCurrentOrientationType();
-                if ((previousOrientationType == currentOrientationType &&
-                     self->OrientationLockContains(currentOrientationType)) ||
-                    (self->mOrientationLock ==
-                         hal::ScreenOrientation::Default &&
-                     bc->GetCurrentOrientationAngle() == 0)) {
-                  // Orientation lock will not cause an orientation change, so
-                  // we need to manually resolve the promise here.
-                  self->mPromise->MaybeResolveWithUndefined();
-                  self->mDocument->ClearOrientationPendingPromise();
-                }
+
+            // LockDeviceOrientation won't change orientation, so change
+            // event isn't fired.
+            if (BrowsingContext* bc = self->mDocument->GetBrowsingContext()) {
+              OrientationType currentOrientationType =
+                  bc->GetCurrentOrientationType();
+              if ((previousOrientationType == currentOrientationType &&
+                   self->OrientationLockContains(currentOrientationType)) ||
+                  (self->mOrientationLock == hal::ScreenOrientation::Default &&
+                   bc->GetCurrentOrientationAngle() == 0)) {
+                // Orientation lock will not cause an orientation change, so
+                // we need to manually resolve the promise here.
+                self->mPromise->MaybeResolveWithUndefined();
+                self->mDocument->ClearOrientationPendingPromise();
               }
-              return;
             }
-            self->mPromise->MaybeReject(aValue.RejectValue());
-            self->mDocument->ClearOrientationPendingPromise();
           });
 
   return NS_OK;
@@ -424,6 +447,46 @@ void ScreenOrientation::AbortInProcessOrientationPromises(
   });
 }
 
+// https://w3c.github.io/screen-orientation/#dfn-common-safety-checks.
+
+// static
+bool ScreenOrientation::CommonSafetyChecks(nsPIDOMWindowInner* aOwner,
+                                           Document* aDocument,
+                                           ErrorResult& aRv) {
+  MOZ_ASSERT(aOwner);
+  MOZ_ASSERT(aDocument);
+
+  // Chrome can always lock the screen orientation.
+  if (aOwner->GetBrowsingContext()->IsChrome()) {
+    return true;
+  }
+
+  // 5.4.1.
+  // If document is not fully active, throw an "InvalidStateError" DOMException.
+  if (!aOwner->IsFullyActive()) {
+    aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
+    return false;
+  }
+
+  // 5.4.2.
+  // If document has the sandboxed orientation lock browsing context flag set,
+  // throw "SecurityError" DOMException.
+  if (aDocument->GetSandboxFlags() & SANDBOXED_ORIENTATION_LOCK) {
+    aRv.Throw(NS_ERROR_DOM_SECURITY_ERR);
+    return false;
+  }
+
+  // 5.4.3.
+  // If document's visibility state is "hidden", throw "SecurityError"
+  // DOMException.
+  if (aDocument->Hidden()) {
+    aRv.Throw(NS_ERROR_DOM_SECURITY_ERR);
+    return false;
+  }
+
+  return true;
+}
+
 already_AddRefed<Promise> ScreenOrientation::LockInternal(
     hal::ScreenOrientation aOrientation, ErrorResult& aRv) {
   // Steps to apply an orientation lock as defined in spec.
@@ -436,10 +499,6 @@ already_AddRefed<Promise> ScreenOrientation::LockInternal(
     aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
     return nullptr;
   }
-
-  // Step 2.
-  // If document is not fully active, return a promise rejected with an
-  // "InvalidStateError" DOMException.
 
   nsCOMPtr<nsPIDOMWindowInner> owner = GetOwnerWindow();
   if (NS_WARN_IF(!owner)) {
@@ -460,18 +519,20 @@ already_AddRefed<Promise> ScreenOrientation::LockInternal(
     return nullptr;
   }
 
-  if (!owner->IsFullyActive()) {
-    p->MaybeReject(NS_ERROR_DOM_INVALID_STATE_ERR);
+  if (!CommonSafetyChecks(owner, doc, aRv)) {
+    if (aOrientation == hal::ScreenOrientation::None) {
+      // When unlock, throws a DOM exception.
+      return nullptr;
+    }
+    p->MaybeReject(aRv.StealNSResult());
     return p.forget();
   }
 
-  // Step 3.
-  // If document has the sandboxed orientation lock browsing context flag set,
-  // or doesn't meet the pre-lock conditions, or locking would be a security
-  // risk, return a promise rejected with a "SecurityError" DOMException and
-  // abort these steps.
+  // If document doesn't meet the pre-lock conditions, or locking would be a
+  // security risk, return a promise rejected with a "SecurityError"
+  // DOMException and abort these steps.
 
-  LockPermission perm = GetLockOrientationPermission(true);
+  LockPermission perm = GetLockOrientationPermission(owner, doc);
   if (perm == LOCK_DENIED) {
     p->MaybeReject(NS_ERROR_DOM_SECURITY_ERR);
     return p.forget();
@@ -687,26 +748,16 @@ uint16_t ScreenOrientation::GetAngle(CallerType aCallerType,
   return angle;
 }
 
+// static
 ScreenOrientation::LockPermission
-ScreenOrientation::GetLockOrientationPermission(bool aCheckSandbox) const {
-  nsCOMPtr<nsPIDOMWindowInner> owner = GetOwnerWindow();
-  if (!owner) {
-    return LOCK_DENIED;
-  }
+ScreenOrientation::GetLockOrientationPermission(nsPIDOMWindowInner* aOwner,
+                                                Document* aDocument) {
+  MOZ_ASSERT(aOwner);
+  MOZ_ASSERT(aDocument);
 
   // Chrome can always lock the screen orientation.
-  if (owner->GetBrowsingContext()->IsChrome()) {
+  if (aOwner->GetBrowsingContext()->IsChrome()) {
     return LOCK_ALLOWED;
-  }
-
-  nsCOMPtr<Document> doc = owner->GetDoc();
-  if (!doc || doc->Hidden()) {
-    return LOCK_DENIED;
-  }
-
-  // Sandboxed without "allow-orientation-lock"
-  if (aCheckSandbox && doc->GetSandboxFlags() & SANDBOXED_ORIENTATION_LOCK) {
-    return LOCK_DENIED;
   }
 
   if (Preferences::GetBool(
@@ -715,7 +766,7 @@ ScreenOrientation::GetLockOrientationPermission(bool aCheckSandbox) const {
   }
 
   // Other content must be fullscreen in order to lock orientation.
-  return doc->Fullscreen() || doc->HasPendingFullscreenRequests()
+  return aDocument->Fullscreen() || aDocument->HasPendingFullscreenRequests()
              ? FULLSCREEN_LOCK_ALLOWED
              : LOCK_DENIED;
 }
@@ -775,9 +826,52 @@ void ScreenOrientation::MaybeChanged() {
     rv = bc->SetCurrentOrientation(mType, mAngle);
     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "SetCurrentOrientation failed");
 
-    nsCOMPtr<nsIRunnable> runnable = DispatchChangeEventAndResolvePromise();
-    rv = NS_DispatchToMainThread(runnable);
-    NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "NS_DispatchToMainThread failed");
+    MaybeDispatchChangeEvent(bc);
+  }
+}
+
+void ScreenOrientation::MaybeDispatchChangeEvent(
+    BrowsingContext* aBrowsingContext) {
+  // change event has to be dispatched by descendantDocs.
+  // Looking for top level browsing context that has screen in process.
+  // If parent document has screen, we don't dispatch it at this time.
+  // change event will be dispatched by parent's
+  // ScreenOrientation::MaybeChanged.
+  BrowsingContext* rootBc = aBrowsingContext;
+  bool dispatchChangeEvent = true;
+  while (rootBc->GetParent()) {
+    rootBc = rootBc->GetParent();
+    if (Document* doc = rootBc->GetExtantDocument()) {
+      if (auto* win = nsGlobalWindowInner::Cast(doc->GetInnerWindow())) {
+        if (win->HasScreen()) {
+          // Parent of browsing context has screen object. Child shouldn't
+          // dispatch change event.
+          dispatchChangeEvent = false;
+          break;
+        }
+      }
+    }
+  }
+  if (dispatchChangeEvent) {
+    DispatchChangeEventToChildren(rootBc);
+  }
+}
+
+void ScreenOrientation::MaybeDispatchEventsForOverride(
+    BrowsingContext* aBrowsingContext, bool aOldHasOrientationOverride,
+    bool aOverrideIsDifferentThanDevice) {
+  Document* doc = aBrowsingContext->GetExtantDocument();
+  nsCOMPtr<nsPIDOMWindowOuter> outerWindow = doc->GetWindow();
+
+  // Send the event if the orientation was already overriden or different
+  // from device metrics or the override was reset and it is different from
+  // device metrics.
+  if ((aBrowsingContext->HasOrientationOverride() &&
+       (aOldHasOrientationOverride || aOverrideIsDifferentThanDevice)) ||
+      (!aBrowsingContext->HasOrientationOverride() &&
+       aOldHasOrientationOverride && aOverrideIsDifferentThanDevice)) {
+    outerWindow->DispatchCustomEvent(u"orientationchange"_ns);
+    MaybeDispatchChangeEvent(aBrowsingContext);
   }
 }
 
@@ -794,6 +888,28 @@ void ScreenOrientation::UpdateActiveOrientationLock(
                                    "hal::LockScreenOrientation failed");
             });
   }
+}
+
+// static
+void ScreenOrientation::DispatchChangeEventToChildren(
+    BrowsingContext* aBrowsingContext) {
+  // XXX(m_kato):
+  // If crossing process, child process's document might receive change event
+  // before parent process is received.
+  aBrowsingContext->PreOrderWalk([](BrowsingContext* aContext) {
+    if (Document* doc = aContext->GetExtantDocument()) {
+      if (auto* win = nsGlobalWindowInner::Cast(doc->GetInnerWindow())) {
+        if (win->HasScreen()) {
+          ScreenOrientation* orientation = win->Screen()->Orientation();
+          nsCOMPtr<nsIRunnable> runnable =
+              orientation->DispatchChangeEventAndResolvePromise();
+          DebugOnly<nsresult> rv = NS_DispatchToMainThread(runnable);
+          NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
+                               "NS_DispatchToMainThread failed");
+        }
+      }
+    }
+  });
 }
 
 nsCOMPtr<nsIRunnable>

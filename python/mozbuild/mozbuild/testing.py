@@ -71,7 +71,7 @@ def all_test_flavors():
     )
 
 
-class TestInstallInfo(object):
+class TestInstallInfo:
     def __init__(self):
         self.seen = set()
         self.pattern_installs = []
@@ -87,7 +87,7 @@ class TestInstallInfo(object):
         return self
 
 
-class SupportFilesConverter(object):
+class SupportFilesConverter:
     """Processes a "support-files" entry from a test object, either from
     a parsed object from a test manifests or its representation in
     moz.build and returns the installs to perform for this test object.
@@ -152,9 +152,10 @@ class SupportFilesConverter(object):
                     full = mozpath.normpath(
                         mozpath.join(manifest_dir, mozpath.basename(pattern))
                     )
-                    info.installs.append(
-                        (full, mozpath.join(install_root, pattern[1:]))
-                    )
+                    info.installs.append((
+                        full,
+                        mozpath.join(install_root, pattern[1:]),
+                    ))
                 else:
                     full = mozpath.normpath(mozpath.join(manifest_dir, pattern))
                     dest_path = mozpath.join(out_dir, pattern)
@@ -250,11 +251,12 @@ def read_wpt_manifest(context, paths):
         import manifest as wptmanifest
     finally:
         sys.path = old_path
-        f = context._finder.get(full_path)
-        try:
-            rv = wptmanifest.manifest.load(tests_root, f)
-        except wptmanifest.manifest.ManifestVersionMismatch:
-            # If we accidentially end up with a committed manifest that's the wrong
-            # version, then return an empty manifest here just to not break the build
-            rv = wptmanifest.manifest.Manifest()
-        return rv
+
+    f = context._finder.get(full_path)
+    try:
+        rv = wptmanifest.manifest.load(tests_root, f)
+    except wptmanifest.manifest.ManifestVersionMismatch:
+        # If we accidentially end up with a committed manifest that's the wrong
+        # version, then return an empty manifest here just to not break the build
+        rv = wptmanifest.manifest.Manifest()
+    return rv

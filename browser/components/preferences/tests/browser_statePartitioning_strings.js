@@ -4,7 +4,8 @@
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 const CB_STRICT_FEATURES_PREF = "browser.contentblocking.features.strict";
-const CB_STRICT_FEATURES_VALUE = "tp,tpPrivate,cookieBehavior5,cm,fp,stp,lvl2";
+const CB_STRICT_FEATURES_VALUE =
+  "tp,tpPrivate,cookieBehavior5,cryptoTP,fp,stp,lvl2";
 const FPI_PREF = "privacy.firstparty.isolate";
 const COOKIE_BEHAVIOR_PREF = "network.cookie.cookieBehavior";
 const COOKIE_BEHAVIOR_VALUE = 5;
@@ -28,7 +29,7 @@ async function testStrings() {
     let id = doc.l10n.getAttributes(elt).id;
     is(
       id,
-      "content-blocking-and-isolating-etp-warning-description-2",
+      "content-blocking-and-isolating-etp-warning-description-4",
       "The correct warning description string is in use"
     );
   }
@@ -38,7 +39,7 @@ async function testStrings() {
   let id = doc.l10n.getAttributes(elt).id;
   is(
     id,
-    "sitedata-option-block-cross-site-cookies",
+    "sitedata-option-block-cross-site-cookies2",
     "The correct string is in use for the cookie blocking option"
   );
 

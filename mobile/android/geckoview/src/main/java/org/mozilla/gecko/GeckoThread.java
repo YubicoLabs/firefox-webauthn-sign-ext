@@ -32,6 +32,7 @@ import org.mozilla.gecko.annotation.WrapForJNI;
 import org.mozilla.gecko.mozglue.GeckoLoader;
 import org.mozilla.gecko.process.GeckoProcessManager;
 import org.mozilla.gecko.process.GeckoProcessType;
+import org.mozilla.gecko.process.MemoryController;
 import org.mozilla.gecko.util.GeckoBundle;
 import org.mozilla.gecko.util.ThreadUtils;
 import org.mozilla.geckoview.BuildConfig;
@@ -136,7 +137,6 @@ public class GeckoThread extends Thread {
   @WrapForJNI private static MessageQueue msgQueue;
   @WrapForJNI private static int uiThreadId;
 
-  private static TelemetryUtils.Timer sInitTimer;
   private static LinkedList<StateGeckoResult> sStateListeners = new LinkedList<>();
 
   // Main process parameters
@@ -144,11 +144,18 @@ public class GeckoThread extends Thread {
   public static final int FLAG_PRELOAD_CHILD = 1 << 1; // Preload child during main thread start.
   public static final int FLAG_ENABLE_NATIVE_CRASHREPORTER =
       1 << 2; // Enable native crash reporting.
+  public static final int FLAG_DISABLE_LOW_MEMORY_DETECTION =
+      1 << 3; // Disable low-memory detection and notifications.
+  public static final int FLAG_CHILD = 1 << 4; // This is a child process.
+  public static final int FLAG_CONTENT_ISOLATED = 1 << 5; // Content service is isolated process.
+  public static final int FLAG_CONTENT_ISOLATED_HAS_ZYGOTE =
+      1 << 6; // Content service has app Zygote enabled.
 
   /* package */ static final String EXTRA_ARGS = "args";
 
   private boolean mInitialized;
   private InitInfo mInitInfo;
+  private MemoryController mMemoryController;
 
   public static class InitInfo {
     public final String[] args;
@@ -263,7 +270,7 @@ public class GeckoThread extends Thread {
   @WrapForJNI
   private static boolean isChildProcess() {
     final InitInfo info = INSTANCE.mInitInfo;
-    return info != null && info.fds != null;
+    return info != null && ((info.flags & FLAG_CHILD) != 0);
   }
 
   public static boolean init(final InitInfo info) {
@@ -277,8 +284,6 @@ public class GeckoThread extends Thread {
     if (mInitialized) {
       return false;
     }
-
-    sInitTimer = new TelemetryUtils.UptimeTimer("GV_STARTUP_RUNTIME_MS");
 
     mInitInfo = info;
     mInitialized = true;
@@ -404,6 +409,17 @@ public class GeckoThread extends Thread {
     return result;
   }
 
+  // See GeckoLoader.java and APKOpen.cpp
+  private int processType() {
+    if (mInitInfo.xpcshell) {
+      return GeckoLoader.PROCESS_TYPE_XPCSHELL;
+    } else if ((mInitInfo.flags & FLAG_CHILD) != 0) {
+      return GeckoLoader.PROCESS_TYPE_CHILD;
+    } else {
+      return GeckoLoader.PROCESS_TYPE_MAIN;
+    }
+  }
+
   @Override
   public void run() {
     Log.i(LOGTAG, "preparing to run Gecko");
@@ -443,8 +459,14 @@ public class GeckoThread extends Thread {
     final List<String> env = getEnvFromExtras(mInitInfo.extras);
 
     // In Gecko, the native crash reporter is enabled by default in opt builds, and
-    // disabled by default in debug builds.
-    if ((mInitInfo.flags & FLAG_ENABLE_NATIVE_CRASHREPORTER) == 0 && !BuildConfig.DEBUG_BUILD) {
+    // disabled by default in debug builds. This may be inconsistent with whether a GeckoView
+    // handler is set, so default Gecko to follow GeckoView unless overridden (such as by a test
+    // harness).
+    if (env.contains("MOZ_CRASHREPORTER=1") || env.contains("MOZ_CRASHREPORTER_DISABLE=1")) {
+      // If explicitly set, pass settings to Gecko regardless of whether a GeckoView handler exists.
+      // Native crashes can still write out minidumps even if GeckoView doesn't process them.
+    } else if ((mInitInfo.flags & FLAG_ENABLE_NATIVE_CRASHREPORTER) == 0
+        && !BuildConfig.DEBUG_BUILD) {
       env.add(0, "MOZ_CRASHREPORTER_DISABLE=1");
     } else if ((mInitInfo.flags & FLAG_ENABLE_NATIVE_CRASHREPORTER) != 0
         && BuildConfig.DEBUG_BUILD) {
@@ -454,6 +476,8 @@ public class GeckoThread extends Thread {
     if (mInitInfo.userSerialNumber != null) {
       env.add(0, "MOZ_ANDROID_USER_SERIAL_NUMBER=" + mInitInfo.userSerialNumber);
     }
+
+    maybeRegisterMemoryController(env);
 
     // Start the profiler before even loading mozglue, so we can capture more
     // things that are happening on the JVM side.
@@ -479,6 +503,14 @@ public class GeckoThread extends Thread {
       GeckoProcessManager.getInstance().preload(GeckoProcessType.CONTENT);
     }
 
+    if ((mInitInfo.flags & FLAG_CONTENT_ISOLATED) != 0) {
+      GeckoProcessManager.getInstance().setIsolatedProcessEnabled(true);
+    }
+
+    if ((mInitInfo.flags & FLAG_CONTENT_ISOLATED_HAS_ZYGOTE) != 0) {
+      GeckoProcessManager.getInstance().setAppZygoteEnabled(true);
+    }
+
     if ((mInitInfo.flags & FLAG_DEBUGGING) != 0) {
       try {
         Thread.sleep(5 * 1000 /* 5 seconds */);
@@ -496,10 +528,7 @@ public class GeckoThread extends Thread {
 
     // And go.
     GeckoLoader.nativeRun(
-        args,
-        mInitInfo.fds,
-        !isChildProcess && mInitInfo.xpcshell,
-        isChildProcess ? null : mInitInfo.outFilePath);
+        args, mInitInfo.fds, processType(), isChildProcess ? null : mInitInfo.outFilePath);
 
     // And... we're done.
     final boolean restarting = isState(State.RESTARTING);
@@ -517,6 +546,50 @@ public class GeckoThread extends Thread {
       // it alive after Gecko exits.
       System.exit(0);
     }
+  }
+
+  // Register the memory controller which will listen to low-memory events from
+  // the Android framework and forward them to Gecko. Note that we only use it
+  // as long as Gecko is running and we don't enable it in tests where it
+  // causes unpredictable behavior.
+  private void maybeRegisterMemoryController(final @NonNull List<String> env) {
+    if ((mInitInfo.flags & GeckoThread.FLAG_DISABLE_LOW_MEMORY_DETECTION) != 0) {
+      return;
+    }
+
+    for (final String envItem : env) {
+      if (envItem == null) {
+        continue;
+      }
+
+      final String mozInAutomationEnv = "MOZ_IN_AUTOMATION=";
+
+      if (envItem.startsWith(mozInAutomationEnv)) {
+        final String value = envItem.substring(mozInAutomationEnv.length());
+
+        if (value.equals("1")) {
+          // We're in automation, do not check for low memory as sending low
+          // memory events creates unpredictable conditions in tests.
+          return;
+        }
+      }
+    }
+
+    final Context context = GeckoAppShell.getApplicationContext();
+
+    mMemoryController = new MemoryController();
+    waitForState(State.RUNNING)
+        .accept(
+            val -> {
+              context.registerComponentCallbacks(mMemoryController);
+            },
+            e -> Log.e(LOGTAG, "Unable to register the MemoryController", e));
+    waitForState(State.EXITING)
+        .accept(
+            val -> {
+              context.unregisterComponentCallbacks(mMemoryController);
+            },
+            e -> Log.e(LOGTAG, "Unable to unregister the MemoryController", e));
   }
 
   // This may start the gecko profiler early by looking at the environment variables.
@@ -671,12 +744,6 @@ public class GeckoThread extends Thread {
     final boolean result = sNativeQueue.checkAndSetState(expectedState, newState);
     if (result) {
       Log.d(LOGTAG, "State changed to " + newState);
-
-      if (sInitTimer != null && isRunning()) {
-        sInitTimer.stop();
-        sInitTimer = null;
-      }
-
       notifyStateListeners();
     }
     return result;

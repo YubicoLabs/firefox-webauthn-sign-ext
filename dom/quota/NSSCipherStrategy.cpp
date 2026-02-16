@@ -9,14 +9,13 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <memory>
-#include <type_traits>
 #include <utility>
+
 #include "mozilla/Assertions.h"
-#include "mozilla/ResultExtensions.h"
 
 // NSS includes
 #include "blapit.h"
+#include "nsNSSComponent.h"
 #include "pk11pub.h"
 #include "pkcs11t.h"
 #include "seccomon.h"
@@ -56,6 +55,8 @@ nsresult NSSCipherStrategy::Init(const CipherMode aMode,
                                  const Span<const uint8_t> aKey,
                                  const Span<const uint8_t> aInitialIv) {
   MOZ_ASSERT_IF(CipherMode::Encrypt == aMode, aInitialIv.Length() == 32);
+  MOZ_RELEASE_ASSERT(EnsureNSSInitializedChromeOrContent(),
+                     "Could not initialize NSS.");
 
   mMode.init(aMode);
 

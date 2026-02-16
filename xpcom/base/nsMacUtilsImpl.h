@@ -4,12 +4,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsMacUtilsImpl_h___
-#define nsMacUtilsImpl_h___
+#ifndef nsMacUtilsImpl_h_
+#define nsMacUtilsImpl_h_
 
 #include "nsString.h"
 #include "mozilla/Atomics.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPtr.h"
 
@@ -50,6 +49,25 @@ nsresult GetArchitecturesForBinary(const char* aPath, uint32_t* aArchMask);
 int PreTranslateXUL();
 int PreTranslateBinary(nsCString aBinaryPath);
 #endif
+
+enum class CodeSignatureType {
+  UnexpectedError,
+  Unsigned,
+  AdHoc,
+  DeveloperID,
+  AppStore,
+  AppleSystem,
+  Development,
+  Other
+};
+
+// Returns a string representation of the provided code signature type enum.
+// On failure, returns CodeSignatureType::UnexpectedError.
+nsCString CodeSignatureTypeToString(CodeSignatureType aType);
+
+// Returns the signature type for the binary at `aPath`.
+CodeSignatureType GetSignatureType(const nsCString& aPath);
+
 }  // namespace nsMacUtilsImpl
 
-#endif /* nsMacUtilsImpl_h___ */
+#endif /* nsMacUtilsImpl_h_ */

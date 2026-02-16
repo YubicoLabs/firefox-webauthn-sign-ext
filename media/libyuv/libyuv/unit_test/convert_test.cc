@@ -27,14 +27,9 @@
 #include "libyuv/rotate.h"
 #include "libyuv/video_common.h"
 
-#ifdef ENABLE_ROW_TESTS
-#include "libyuv/row.h" /* For ARGBToAR30Row_AVX2 */
-#endif
-
 #if defined(__riscv) && !defined(__clang__)
 #define DISABLE_SLOW_TESTS
 #undef ENABLE_FULL_TESTS
-#undef ENABLE_ROW_TESTS
 #define LEAN_TESTS
 #endif
 
@@ -678,6 +673,7 @@ TESTATOPLANAR(BGRA, 4, 1, I420, 2, 2)
 TESTATOPLANAR(I400, 1, 1, I420, 2, 2)
 TESTATOPLANAR(J400, 1, 1, J420, 2, 2)
 TESTATOPLANAR(RAW, 3, 1, I420, 2, 2)
+TESTATOPLANAR(RAW, 3, 1, I444, 1, 1)
 TESTATOPLANAR(RAW, 3, 1, J420, 2, 2)
 TESTATOPLANAR(RAW, 3, 1, J444, 1, 1)
 TESTATOPLANAR(RGB24, 3, 1, I420, 2, 2)
@@ -2075,7 +2071,7 @@ TEST_F(LibYUVConvertTest, TestRGB24ToJ420) {
   }
 
   uint32_t checksum = HashDjb2(dest_j420, kSize * 3 / 2 * 2, 5381);
-  EXPECT_EQ(2755440272u, checksum);
+  EXPECT_EQ(223551344u, checksum);
 
   free_aligned_buffer_page_end(orig_rgb24);
   free_aligned_buffer_page_end(dest_j420);
@@ -2103,7 +2099,7 @@ TEST_F(LibYUVConvertTest, TestRGB24ToI420) {
   }
 
   uint32_t checksum = HashDjb2(dest_i420, kSize * 3 / 2 * 2, 5381);
-  EXPECT_EQ(1526656597u, checksum);
+  EXPECT_EQ(4197774805u, checksum);
 
   free_aligned_buffer_page_end(orig_rgb24);
   free_aligned_buffer_page_end(dest_i420);

@@ -24,11 +24,6 @@ import mozilla.components.support.ktx.android.content.shareLocalPdf
 import mozilla.components.support.ktx.android.content.shareMedia
 
 /**
- * At most time to allow for the file to be downloaded and action to be performed.
- */
-private const val OPERATION_TIMEOUT_MS: Long = 1000L
-
-/**
  * [LifecycleAwareFeature] implementation for sharing online and local resources.
  *
  * This will intercept only [ShareResourceAction] [BrowserAction]s.
@@ -50,19 +45,25 @@ private const val OPERATION_TIMEOUT_MS: Long = 1000L
  *  @property store a reference to the application's [BrowserStore]
  *  @property tabId ID of the tab session, or null if the selected session should be used.
  *  @param httpClient Client used for downloading internet resources
- *  @param cleanupCacheCoroutineDispatcher Coroutine dispatcher used for the cleanup of old
- *  cached files. Defaults to IO.
+ *  @param mainDispatcher [CoroutineDispatcher] used for observing the store. Defaults to [Dispatchers.Main].
+ *  @param ioDispatcher Coroutine dispatcher used for IO operations like the download operation
+ *  and cleanup of old cached files. Defaults to IO.
  */
 class ShareResourceFeature(
     private val context: Context,
     private val store: BrowserStore,
     private val tabId: String?,
     httpClient: Client,
-    cleanupCacheCoroutineDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) : TemporaryDownloadFeature(context, httpClient, cleanupCacheCoroutineDispatcher) {
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : TemporaryDownloadFeature(
+    context = context,
+    httpClient = httpClient,
+    ioDispatcher = ioDispatcher,
+) {
 
     override fun start() {
-        scope = store.flowScoped { flow ->
+        scope = store.flowScoped(dispatcher = mainDispatcher) { flow ->
             flow.mapNotNull { state -> state.findTabOrCustomTabOrSelectedTab(tabId) }
                 .distinctUntilChangedBy { it.content.share }
                 .collect { state ->
@@ -84,7 +85,7 @@ class ShareResourceFeature(
         scope?.launch(coroutineExceptionHandler) {
             when (internetResource) {
                 is ShareResourceState.InternetResource -> {
-                    withTimeout(OPERATION_TIMEOUT_MS) {
+                    withTimeout(operationTimeoutMs) {
                         val download = download(internetResource)
                         shareInternetResource(
                             contentType = internetResource.contentType,

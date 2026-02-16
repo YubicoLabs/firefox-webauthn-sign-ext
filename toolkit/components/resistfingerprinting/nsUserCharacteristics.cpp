@@ -5,10 +5,13 @@
 
 #include "nsUserCharacteristics.h"
 
+#include "nsComponentManagerUtils.h"
+#include "nsICryptoHash.h"
 #include "nsID.h"
 #include "nsIGfxInfo.h"
 #include "nsIUUIDGenerator.h"
 #include "nsIUserCharacteristicsPageService.h"
+#include "nsReadableUtils.h"
 #include "nsServiceManagerUtils.h"
 
 #include "mozilla/Logging.h"
@@ -18,7 +21,6 @@
 #include "jsapi.h"
 #include "mozilla/Components.h"
 #include "mozilla/dom/Promise-inl.h"
-#include "mozilla/Variant.h"
 
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_dom.h"
@@ -33,6 +35,7 @@
 #include "mozilla/RelativeLuminanceUtils.h"
 #include "mozilla/ServoStyleConsts.h"
 #include "mozilla/dom/ScreenBinding.h"
+#include "mozilla/intl/LocaleService.h"
 #include "mozilla/intl/OSPreferences.h"
 #include "mozilla/intl/TimeZone.h"
 #include "mozilla/widget/ScreenManager.h"
@@ -49,7 +52,7 @@
 #include "mozilla/MozPromise.h"
 #include "nsThreadUtils.h"
 #include "mozilla/dom/Navigator.h"
-#include "nsIGSettingsService.h"
+#include "nsIPropertyBag2.h"
 #include "nsITimer.h"
 #include "gfxConfig.h"
 
@@ -64,6 +67,17 @@
 #elif defined(XP_MACOSX)
 #  include "nsMacUtilsImpl.h"
 #  include <CoreFoundation/CoreFoundation.h>
+#  include "CFTypeRefPtr.h"
+#endif
+#ifdef MOZ_WIDGET_GTK
+#  include "mozilla/widget/GSettings.h"
+#endif
+
+// For FPU control state detection
+#include <cfenv>
+#if defined(_MSC_VER)
+#  include <float.h>
+#  include <intrin.h>
 #endif
 
 using namespace mozilla;
@@ -71,6 +85,38 @@ using namespace mozilla;
 static LazyLogModule gUserCharacteristicsLog("UserCharacteristics");
 
 // ==================================================================
+// MathML prefs collection - extracted for testability
+static void CollectMathMLPrefs() {
+  // MathML prefs - only collect those modified from defaults
+  // Format: "shortname=val,..." (e.g. "dis=1,fnt=0")
+  nsAutoCString mathmlPrefs;
+  static const struct {
+    const char* pref;
+    const char* shortName;
+  } kMathMLPrefs[] = {
+      {"mathml.disabled", "dis"},
+      {"mathml.scale_stretchy_operators.enabled", "str"},
+      {"mathml.mathspace_names.disabled", "spc"},
+      {"mathml.rtl_operator_mirroring.enabled", "rtl"},
+      {"mathml.mathvariant_styling_fallback.disabled", "var"},
+      {"mathml.math_shift.enabled", "shf"},
+      {"mathml.operator_dictionary_accent.disabled", "acc"},
+      {"mathml.legacy_mathvariant_attribute.disabled", "leg"},
+      {"mathml.font_family_math.enabled", "fnt"},
+  };
+  for (const auto& p : kMathMLPrefs) {
+    if (Preferences::HasUserValue(p.pref)) {
+      if (!mathmlPrefs.IsEmpty()) {
+        mathmlPrefs.Append(',');
+      }
+      mathmlPrefs.Append(p.shortName);
+      mathmlPrefs.Append('=');
+      mathmlPrefs.Append(Preferences::GetBool(p.pref) ? '1' : '0');
+    }
+  }
+  glean::characteristics::mathml_diag_prefs_modified.Set(mathmlPrefs);
+}
+
 namespace testing {
 extern "C" {
 
@@ -84,13 +130,30 @@ int MaxTouchPoints() {
 #endif
 }
 
+void PopulateMathMLPrefs() { CollectMathMLPrefs(); }
+
 }  // extern "C"
 };  // namespace testing
 
+using FunctionName = nsCString;
+using AdditionalContext = nsCString;
 using PopulatePromiseBase =
-    MozPromise<void_t, std::pair<nsCString, Variant<nsresult, nsCString>>,
+    MozPromise<void_t, std::tuple<FunctionName, nsresult, AdditionalContext>,
                false>;
 using PopulatePromise = PopulatePromiseBase::Private;
+
+#define REJECT(aPromise, aFuncName, aRv, aError)                          \
+  aPromise->Reject(std::tuple<FunctionName, nsresult, AdditionalContext>( \
+                       aFuncName, aRv, aError),                           \
+                   __func__);
+
+#define REJECT_AND_FORGET(aPromise, aFuncName, aRv, aError) \
+  REJECT(aPromise, aFuncName, aRv, aError);                 \
+  return (aPromise).forget();
+
+#define REJECT_VOID(aPromise, aFuncName, aRv, aError) \
+  REJECT(aPromise, aFuncName, aRv, aError);           \
+  return;
 
 // ==================================================================
 // ==================================================================
@@ -107,9 +170,7 @@ already_AddRefed<PopulatePromise> ContentPageStuff() {
   if (NS_FAILED(rv)) {
     MOZ_LOG(gUserCharacteristicsLog, mozilla::LogLevel::Error,
             ("Could not create Content Page"));
-    populatePromise->Reject(
-        std::pair(__func__, "CREATION_FAILED"_ns.AsString()), __func__);
-    return populatePromise.forget();
+    REJECT_AND_FORGET(populatePromise, __func__, rv, "CREATION_FAILED");
   }
   MOZ_LOG(gUserCharacteristicsLog, mozilla::LogLevel::Debug,
           ("Created Content Page"));
@@ -121,20 +182,16 @@ already_AddRefed<PopulatePromise> ContentPageStuff() {
         },
         [=](JSContext*, JS::Handle<JS::Value>, mozilla::ErrorResult& error) {
           if (error.Failed()) {
-            nsresult rv = error.StealNSResult();
-            populatePromise->Reject(std::pair("ContentPageStuff"_ns, rv),
-                                    __func__);
-            return;
+            REJECT_VOID(populatePromise, "ContentPageStuff",
+                        error.StealNSResult(), "REJECTED_WITH_ERROR");
           }
-          populatePromise->Reject(
-              std::pair("ContentPageStuff"_ns, "UNKNOWN"_ns.AsString()),
-              __func__);
+          REJECT(populatePromise, "ContentPageStuff", NS_ERROR_FAILURE,
+                 "REJECTED_WITHOUT_ERROR");
         });
   } else {
     MOZ_LOG(gUserCharacteristicsLog, mozilla::LogLevel::Error,
             ("Did not get a Promise back from ContentPageStuff"));
-    populatePromise->Reject(std::pair(__func__, "NO_PROMISE"_ns.AsString()),
-                            __func__);
+    REJECT(populatePromise, __func__, NS_ERROR_FAILURE, "NO_PROMISE");
   }
 
   return populatePromise.forget();
@@ -201,32 +258,40 @@ void PopulateCSSProperties() {
 }
 
 void PopulateScreenProperties() {
+  nsCString screensMetrics = "["_ns;
+
   auto& screenManager = widget::ScreenManager::GetSingleton();
-  RefPtr<widget::Screen> screen = screenManager.GetPrimaryScreen();
-  MOZ_ASSERT(screen);
+  const auto& screens = screenManager.CurrentScreenList();
+  for (const auto& screen : screens) {
+    int32_t left, top, width, height;
 
-  dom::ScreenColorGamut colorGamut;
-  screen->GetColorGamut(&colorGamut);
-  glean::characteristics::color_gamut.Set((int)colorGamut);
+    screen->GetRect(&left, &top, &width, &height);
+    screensMetrics.AppendPrintf(R"({"rect":[%d,%d,%d,%d],)", left, top, width,
+                                height);
 
-  int32_t colorDepth;
-  screen->GetColorDepth(&colorDepth);
-  glean::characteristics::color_depth.Set(colorDepth);
-  glean::characteristics::pixel_depth.Set(screen->GetPixelDepth());
+    screen->GetAvailRect(&left, &top, &width, &height);
+    screensMetrics.AppendPrintf(R"("availRect":[%d,%d,%d,%d],)", left, top,
+                                width, height);
 
-  glean::characteristics::orientation_angle.Set(screen->GetOrientationAngle());
-  glean::characteristics::video_dynamic_range.Set(screen->GetIsHDR());
+    screensMetrics.AppendPrintf(R"("colorDepth":%d,)", screen->GetColorDepth());
+    screensMetrics.AppendPrintf(R"("pixelDepth":%d,)", screen->GetPixelDepth());
+    screensMetrics.AppendPrintf(R"("oAngle":%d,)",
+                                screen->GetOrientationAngle());
+    screensMetrics.AppendPrintf(
+        R"("oType":%d,)", static_cast<uint32_t>(screen->GetOrientationType()));
+    screensMetrics.AppendPrintf(R"("hdr":%d,)", screen->GetIsHDR());
+    screensMetrics.AppendPrintf(R"("scaleFactor":%f})",
+                                screen->GetContentsScaleFactor());
 
-  glean::characteristics::color_gamut.Set((int)colorGamut);
-  glean::characteristics::color_depth.Set(colorDepth);
-  const LayoutDeviceIntRect rect = screen->GetRect();
-  glean::characteristics::screen_height.Set(rect.Height());
-  glean::characteristics::screen_width.Set(rect.Width());
-  glean::characteristics::posx.Set(rect.X());
-  glean::characteristics::posy.Set(rect.Y());
+    if (&screen != &screens.LastElement()) {
+      screensMetrics.Append(",");
+    }
+  }
 
-  glean::characteristics::screen_orientation.Set(
-      (int)screen->GetOrientationType());
+  screensMetrics.Append("]");
+
+  glean::characteristics::screens.Set(screensMetrics);
+
   glean::characteristics::target_frame_rate.Set(gfxPlatform::TargetFrameRate());
 
   nsCOMPtr<nsPIDOMWindowInner> innerWindow =
@@ -246,8 +311,7 @@ void PopulateScreenProperties() {
     return;
   }
 
-  nsCOMPtr<nsIWidget> mainWidget;
-  treeOwnerAsWin->GetMainWidget(getter_AddRefs(mainWidget));
+  nsCOMPtr<nsIWidget> mainWidget = treeOwnerAsWin->GetMainWidget();
   if (!mainWidget) {
     return;
   }
@@ -263,9 +327,265 @@ void PopulateMissingFonts() {
   glean::characteristics::missing_fonts.Set(aMissingFonts);
 }
 
+static void DigestToHex(const nsACString& aDigest, nsCString& aOutHex) {
+  const char HEX[] = "0123456789abcdef";
+  for (size_t i = 0; i < 32; ++i) {
+    uint8_t b = aDigest[i];
+    aOutHex.Append(HEX[(b >> 4) & 0xF]);
+    aOutHex.Append(HEX[b & 0xF]);
+  }
+}
+
+nsresult ProcessFingerprintedFonts(const char* aFonts[],
+                                   nsCString& aOutAllowlistedHex,
+                                   nsCString& aOutNonAllowlistedHex) {
+  nsresult rv;
+  // Create hashes
+  nsCOMPtr<nsICryptoHash> allowlisted =
+      do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+  nsCOMPtr<nsICryptoHash> nonallowlisted =
+      do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Init hashes
+  rv = allowlisted->Init(nsICryptoHash::SHA256);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = nonallowlisted->Init(nsICryptoHash::SHA256);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Iterate over fonts and update hashes
+  for (size_t i = 0; aFonts[i] != nullptr; ++i) {
+    nsCString font(aFonts[i]);
+    bool found = false;
+    FontVisibility visibility =
+        gfxPlatformFontList::PlatformFontList()->GetFontVisibility(font, found);
+    if (!found) {
+      continue;
+    }
+
+    if (visibility == FontVisibility::Base ||
+        visibility == FontVisibility::LangPack) {
+      allowlisted->Update(reinterpret_cast<const uint8_t*>(font.get()),
+                          font.Length());
+    } else {
+      nonallowlisted->Update(reinterpret_cast<const uint8_t*>(font.get()),
+                             font.Length());
+    }
+  }
+
+  // Finish hashes
+  nsAutoCString allowlistedDigest;
+  nsAutoCString nonallowlistedDigest;
+  allowlisted->Finish(false, allowlistedDigest);
+  nonallowlisted->Finish(false, nonallowlistedDigest);
+
+  DigestToHex(allowlistedDigest, aOutAllowlistedHex);
+  DigestToHex(nonallowlistedDigest, aOutNonAllowlistedHex);
+
+  return NS_OK;
+}
+
+nsresult HashFontList(const nsTArray<nsCString>& aFonts, nsCString& aOutHex) {
+  nsresult rv;
+  nsCOMPtr<nsICryptoHash> hash =
+      do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = hash->Init(nsICryptoHash::SHA256);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  for (const auto& font : aFonts) {
+    hash->Update(reinterpret_cast<const uint8_t*>(font.get()), font.Length());
+  }
+
+  nsAutoCString digest;
+  hash->Finish(false, digest);
+
+  DigestToHex(digest, aOutHex);
+
+  return NS_OK;
+}
+
+already_AddRefed<PopulatePromise> PopulateFingerprintedFonts() {
+  RefPtr<PopulatePromise> populatePromise = new PopulatePromise(__func__);
+
+#include "FingerprintedFonts.inc"
+
+#define FONT_PAIR(list, metric)                                   \
+  {                                                               \
+    list, {                                                       \
+      glean::characteristics::fonts_##metric##_allowlisted,       \
+          glean::characteristics::fonts_##metric##_nonallowlisted \
+    }                                                             \
+  }
+  std::pair<const char**,
+            std::pair<glean::impl::StringMetric, glean::impl::StringMetric>>
+      fontLists[] = {
+          FONT_PAIR(fpjs, fpjs),          FONT_PAIR(variantA, variant_a),
+          FONT_PAIR(variantB, variant_b), FONT_PAIR(variantC, variant_c),
+          FONT_PAIR(variantD, variant_d), FONT_PAIR(variantE, variant_e)};
+
+#undef FONT_PAIR
+
+  for (const auto& [fontList, metrics] : fontLists) {
+    nsCString allowlistedHex;
+    nsCString nonallowlistedHex;
+    nsresult rv =
+        ProcessFingerprintedFonts(fontList, allowlistedHex, nonallowlistedHex);
+    if (NS_FAILED(rv)) {
+      REJECT_AND_FORGET(populatePromise, __func__, rv,
+                        "ProcessFingerprintedFonts"_ns.AsString());
+    }
+
+    metrics.first.Set(allowlistedHex);
+    metrics.second.Set(nonallowlistedHex);
+  }
+
+  // Variant F/G font fallback metrics (uses variantF font list)
+  {
+    gfxPlatformFontList* pfl = gfxPlatformFontList::PlatformFontList();
+    if (!pfl) {
+      REJECT_AND_FORGET(populatePromise, __func__, NS_ERROR_FAILURE,
+                        "No platform font list"_ns.AsString());
+    }
+
+    nsTArray<nsCString> variantFontList;
+    for (size_t i = 0; variantF_FontList[i] != nullptr; ++i) {
+      variantFontList.AppendElement(nsCString(variantF_FontList[i]));
+    }
+
+    // Variant F: Test string "A"
+    // Call twice with different visibility levels
+    nsTArray<nsCString> fontsAllowlisted;
+    pfl->ListFontsUsedForString(u"A"_ns, variantFontList, fontsAllowlisted,
+                                FontVisibility::LangPack);
+    nsTArray<nsCString> fontsNonAllowlisted;
+    pfl->ListFontsUsedForString(u"A"_ns, variantFontList, fontsNonAllowlisted,
+                                FontVisibility::User);
+
+    MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug,
+            ("Variant F Allowlisted fonts:"));
+    for (const auto& font : fontsAllowlisted) {
+      MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug, ("  - %s", font.get()));
+    }
+    MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug,
+            ("Variant F NonAllowlisted fonts:"));
+    for (const auto& font : fontsNonAllowlisted) {
+      MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug, ("  - %s", font.get()));
+    }
+
+    nsCString aAllowlisted, aNonAllowlisted;
+    if (NS_SUCCEEDED(HashFontList(fontsAllowlisted, aAllowlisted))) {
+      glean::characteristics::fonts_variant_f_allowlisted.Set(aAllowlisted);
+    }
+    if (NS_SUCCEEDED(HashFontList(fontsNonAllowlisted, aNonAllowlisted))) {
+      glean::characteristics::fonts_variant_f_nonallowlisted.Set(
+          aNonAllowlisted);
+    }
+
+    // Variant G: Test emoji U+1F47E (Space Invader)
+    nsTArray<nsCString> emojiFontsAllowlisted;
+    pfl->ListFontsUsedForString(u"\U0001F47E"_ns, variantFontList,
+                                emojiFontsAllowlisted,
+                                FontVisibility::LangPack);
+    nsTArray<nsCString> emojiFontsNonAllowlisted;
+    pfl->ListFontsUsedForString(u"\U0001F47E"_ns, variantFontList,
+                                emojiFontsNonAllowlisted, FontVisibility::User);
+
+    MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug,
+            ("Variant G Allowlisted fonts:"));
+    for (const auto& font : emojiFontsAllowlisted) {
+      MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug, ("  - %s", font.get()));
+    }
+    MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug,
+            ("Variant G NonAllowlisted fonts:"));
+    for (const auto& font : emojiFontsNonAllowlisted) {
+      MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug, ("  - %s", font.get()));
+    }
+
+    nsCString emojiAllowlisted, emojiNonAllowlisted;
+    if (NS_SUCCEEDED(HashFontList(emojiFontsAllowlisted, emojiAllowlisted))) {
+      glean::characteristics::fonts_variant_g_allowlisted.Set(emojiAllowlisted);
+    }
+    if (NS_SUCCEEDED(
+            HashFontList(emojiFontsNonAllowlisted, emojiNonAllowlisted))) {
+      glean::characteristics::fonts_variant_g_nonallowlisted.Set(
+          emojiNonAllowlisted);
+    }
+
+    // Variant H: Test multiple emojis
+    nsAutoString textEmojis;
+    for (auto emoji : variantHEmojis) {
+      AppendUCS4ToUTF16(emoji, textEmojis);
+    }
+
+    nsTArray<nsCString> emojisFontsAllowlisted;
+    pfl->ListFontsUsedForString(textEmojis, variantFontList,
+                                emojisFontsAllowlisted,
+                                FontVisibility::LangPack);
+    nsTArray<nsCString> emojisFontsNonAllowlisted;
+    pfl->ListFontsUsedForString(textEmojis, variantFontList,
+                                emojisFontsNonAllowlisted,
+                                FontVisibility::User);
+
+    MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug,
+            ("Variant H Allowlisted fonts:"));
+    for (const auto& font : emojisFontsAllowlisted) {
+      MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug, ("  - %s", font.get()));
+    }
+    MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug,
+            ("Variant H NonAllowlisted fonts:"));
+    for (const auto& font : emojisFontsNonAllowlisted) {
+      MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug, ("  - %s", font.get()));
+    }
+
+    nsCString emojisAllowlisted, emojisNonAllowlisted;
+    if (NS_SUCCEEDED(HashFontList(emojisFontsAllowlisted, emojisAllowlisted))) {
+      glean::characteristics::fonts_variant_h_allowlisted.Set(
+          emojisAllowlisted);
+    }
+    if (NS_SUCCEEDED(
+            HashFontList(emojisFontsNonAllowlisted, emojisNonAllowlisted))) {
+      glean::characteristics::fonts_variant_h_nonallowlisted.Set(
+          emojisNonAllowlisted);
+    }
+
+    // Variant I: SVG emojis with emoji-specific font list
+    nsAutoString textVariantIEmojis;
+    for (auto emoji : variantIEmojis) {
+      AppendUCS4ToUTF16(emoji, textVariantIEmojis);
+    }
+
+    nsTArray<nsCString> variantIFontList;
+    for (size_t i = 0; variantI_FontList[i] != nullptr; ++i) {
+      variantIFontList.AppendElement(nsCString(variantI_FontList[i]));
+    }
+
+    nsTArray<nsCString> variantIAllowlisted;
+    pfl->ListFontsUsedForString(textVariantIEmojis, variantIFontList,
+                                variantIAllowlisted, FontVisibility::LangPack);
+    nsTArray<nsCString> variantINonAllowlisted;
+    pfl->ListFontsUsedForString(textVariantIEmojis, variantIFontList,
+                                variantINonAllowlisted, FontVisibility::User);
+
+    nsCString iAllowlisted, iNonAllowlisted;
+    if (NS_SUCCEEDED(HashFontList(variantIAllowlisted, iAllowlisted))) {
+      glean::characteristics::fonts_variant_i_allowlisted.Set(iAllowlisted);
+    }
+    if (NS_SUCCEEDED(HashFontList(variantINonAllowlisted, iNonAllowlisted))) {
+      glean::characteristics::fonts_variant_i_nonallowlisted.Set(
+          iNonAllowlisted);
+    }
+  }
+
+  populatePromise->Resolve(void_t(), __func__);
+  return populatePromise.forget();
+}
+
 void PopulatePrefs() {
   nsAutoCString acceptLang;
-  Preferences::GetLocalizedCString("intl.accept_languages", acceptLang);
+  intl::LocaleService::GetInstance()->GetAcceptLanguages(acceptLang);
   glean::characteristics::prefs_intl_accept_languages.Set(acceptLang);
 
   glean::characteristics::prefs_media_eme_enabled.Set(
@@ -294,6 +614,8 @@ void PopulatePrefs() {
 
   glean::characteristics::prefs_network_cookie_cookiebehavior.Set(
       StaticPrefs::network_cookie_cookieBehavior());
+
+  CollectMathMLPrefs();
 }
 
 void PopulateKeyboardLayout() {
@@ -372,11 +694,11 @@ void PopulateFontPrefs() {
     return;
   }
 
-  nsCString defaultLanguageGroup;
-  Preferences::GetLocalizedCString("font.language.group", defaultLanguageGroup);
+  nsCString fontLanguageGroup;
+  intl::LocaleService::GetInstance()->GetFontLanguageGroup(fontLanguageGroup);
 
 #define FONT_PREF(PREF_NAME, METRIC_NAME)                                   \
-  CollectFontPrefValue(prefRootBranch, defaultLanguageGroup, PREF_NAME,     \
+  CollectFontPrefValue(prefRootBranch, fontLanguageGroup, PREF_NAME,        \
                        glean::characteristics::METRIC_NAME##_western,       \
                        glean::characteristics::METRIC_NAME##_default_group, \
                        glean::characteristics::METRIC_NAME##_modified)
@@ -416,25 +738,6 @@ void PopulateFontPrefs() {
   // Exceptionally this pref has no variants per-script.
   glean::characteristics::font_name_list_emoji_modified.Set(
       Preferences::HasUserValue("font.name-list.emoji"));
-}
-
-void PopulateScaling() {
-  nsCString output = "["_ns;
-
-  auto& screenManager = widget::ScreenManager::GetSingleton();
-  const auto& screens = screenManager.CurrentScreenList();
-  for (const auto& screen : screens) {
-    // Technically, not the same as (display resolution / shown resolution), but
-    // this is the value the fingerprinters can access/compute.
-    output.Append(std::to_string(screen->GetContentsScaleFactor()));
-    if (&screen != &screens.LastElement()) {
-      output.Append(",");
-    }
-  }
-
-  output.Append("]");
-
-  glean::characteristics::scalings.Set(output);
 }
 
 already_AddRefed<PopulatePromise> PopulateMediaDevices() {
@@ -478,8 +781,8 @@ already_AddRefed<PopulatePromise> PopulateMediaDevices() {
         // GetPhysicalDevices() never rejects but we'll add the following
         // just in case it changes in the future
         reason->mMessage.StripChar(',');
-        populatePromise->Reject(
-            std::pair("PopulateMediaDevices"_ns, reason->mMessage), __func__);
+        REJECT(populatePromise, "PopulateMediaDevices", NS_ERROR_FAILURE,
+               reason->mMessage);
       });
   return populatePromise.forget();
 }
@@ -490,7 +793,7 @@ void PopulateLanguages() {
   // sufficient to only collect this information as the other properties are
   // just reformats of Navigator::GetAcceptLanguages.
   nsTArray<nsString> languages;
-  dom::Navigator::GetAcceptLanguages(languages);
+  dom::Navigator::GetAcceptLanguages(languages, nullptr);
   nsCString output = "["_ns;
 
   for (const auto& language : languages) {
@@ -518,33 +821,31 @@ void PopulateTextAntiAliasing() {
   }
 #elif defined(XP_MACOSX)
   uint32_t value = 2;  // default = medium
-  CFNumberRef prefValue = (CFNumberRef)CFPreferencesCopyAppValue(
-      CFSTR("AppleFontSmoothing"), kCFPreferencesAnyApplication);
+  auto prefValue = CFTypeRefPtr<CFPropertyListRef>::WrapUnderCreateRule(
+      CFPreferencesCopyAppValue(CFSTR("AppleFontSmoothing"),
+                                kCFPreferencesAnyApplication));
   if (prefValue) {
-    if (!CFNumberGetValue(prefValue, kCFNumberIntType, &value)) {
-      value = 2;
+    if (CFGetTypeID(prefValue.get()) == CFNumberGetTypeID()) {
+      if (!CFNumberGetValue(static_cast<CFNumberRef>(prefValue.get()),
+                            kCFNumberIntType, &value)) {
+        value = 2;  // default = medium
+      }
+    } else if (CFGetTypeID(prefValue.get()) == CFStringGetTypeID()) {
+      // For some reason, the value can be a string
+      value = CFStringGetIntValue(static_cast<CFStringRef>(prefValue.get()));
     }
-    CFRelease(prefValue);
   }
   levels.AppendElement(value);
-#elif defined(XP_LINUX)
+#elif defined(MOZ_WIDGET_GTK)
   nsAutoCString level;
-  nsCOMPtr<nsIGSettingsService> gsettings =
-      do_GetService("@mozilla.org/gsettings-service;1");
-  if (gsettings) {
-    nsCOMPtr<nsIGSettingsCollection> antiAliasing;
-    gsettings->GetCollectionForSchema("org.gnome.desktop.interface"_ns,
-                                      getter_AddRefs(antiAliasing));
-    if (antiAliasing) {
-      antiAliasing->GetString("font-antialiasing"_ns, level);
-      if (level == "rgba") {  // Subpixel
-        levels.AppendElement(2);
-      } else if (level == "grayscale") {  // Standard
-        levels.AppendElement(1);
-      } else if (level == "none") {
-        levels.AppendElement(0);
-      }
-    }
+  mozilla::widget::GSettings::GetString("org.gnome.desktop.interface"_ns,
+                                        "font-antialiasing"_ns, level);
+  if (level == "rgba") {  // Subpixel
+    levels.AppendElement(2);
+  } else if (level == "grayscale") {  // Standard
+    levels.AppendElement(1);
+  } else if (level == "none") {
+    levels.AppendElement(0);
   }
 #endif
 
@@ -571,20 +872,16 @@ void PopulateErrors(
     }
 
     const auto& errorVar = result.RejectValue();
-    if (errorVar.second.is<nsresult>()) {
-      nsresult error = errorVar.second.as<nsresult>();
-      MOZ_LOG(gUserCharacteristicsLog, mozilla::LogLevel::Error,
-              ("%s rejected with nsresult: %u.", errorVar.first.get(),
-               static_cast<uint32_t>(error)));
-      errors.AppendPrintf("%s:%u", errorVar.first.get(),
-                          static_cast<uint32_t>(error));
-    } else if (errorVar.second.is<nsCString>()) {
-      nsCString error = errorVar.second.as<nsCString>();
-      MOZ_LOG(
-          gUserCharacteristicsLog, mozilla::LogLevel::Error,
-          ("%s rejected with reason: %s.", errorVar.first.get(), error.get()));
-      errors.AppendPrintf("%s:%s", errorVar.first.get(), error.get());
-    }
+    nsCString funcName = std::get<0>(errorVar);
+    nsresult rv = std::get<1>(errorVar);
+    nsCString additionalCtx = std::get<2>(errorVar);
+
+    errors.AppendPrintf("%s:%" PRIu32 ":%s", funcName.get(),
+                        static_cast<uint32_t>(rv), additionalCtx.get());
+    MOZ_LOG(gUserCharacteristicsLog, mozilla::LogLevel::Error,
+            ("Error encountered: %s:%" PRIu32 ":%s", funcName.get(),
+             static_cast<uint32_t>(rv), additionalCtx.get()));
+
     errors.Append(",");
   }
   if (errors.Length() > 0) {
@@ -608,8 +905,126 @@ void PopulateProcessorCount() {
   glean::characteristics::processor_count.Set(processorCount);
 }
 
+/**
+ * Gets the complete FPU state including rounding mode and precision.
+ * Returns a string formatted as:
+ * - x86/x86-64: "std:X;x87:Y;sse:Z;prec:P"
+ * - ARM: "std:X;arm:Y"
+ * Where X,Y,Z are rounding mode values (0-3) and P is precision.
+ */
+static nsCString GetFPUControlState() {
+  nsCString result;
+
+  // Get standard C rounding mode (portable)
+  int std_mode = std::fegetround();
+  const char* mode_str = "unknown";
+  switch (std_mode) {
+    case FE_TONEAREST:
+      mode_str = "0";
+      break;
+    case FE_DOWNWARD:
+      mode_str = "1";
+      break;
+    case FE_UPWARD:
+      mode_str = "2";
+      break;
+    case FE_TOWARDZERO:
+      mode_str = "3";
+      break;
+  }
+  result.AppendLiteral("std:");
+  result.Append(mode_str);
+
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
+  // x86/x86-64: Read both x87 and SSE control registers
+
+  // Read x87 control word
+  uint16_t x87_cw = 0;
+#  ifdef _MSC_VER
+  x87_cw = static_cast<uint16_t>(_control87(0, 0));
+#  else
+  __asm__ __volatile__("fstcw %0" : "=m"(x87_cw));
+#  endif
+
+  // Extract rounding mode (bits 10-11)
+  int x87_round = (x87_cw >> 10) & 0x3;
+  result.AppendLiteral(";x87:");
+  result.AppendInt(x87_round);
+
+  // Extract precision control (bits 8-9)
+  int precision = (x87_cw >> 8) & 0x3;
+  const char* prec_str = "unknown";
+  switch (precision) {
+    case 0:
+      prec_str = "single";
+      break;
+    case 1:
+      prec_str = "reserved";
+      break;
+    case 2:
+      prec_str = "double";
+      break;
+    case 3:
+      prec_str = "extended";
+      break;
+  }
+
+    // Read SSE MXCSR register (64-bit only, or 32-bit with SSE support)
+#  if defined(__x86_64__) || defined(_M_X64) || defined(__SSE__)
+  uint32_t mxcsr = 0;
+#    ifdef _MSC_VER
+  mxcsr = _mm_getcsr();
+#    else
+  __asm__ __volatile__("stmxcsr %0" : "=m"(mxcsr));
+#    endif
+
+  // Extract rounding mode (bits 13-14)
+  int sse_round = (mxcsr >> 13) & 0x3;
+  result.AppendLiteral(";sse:");
+  result.AppendInt(sse_round);
+#  else
+  // 32-bit without SSE
+  result.AppendLiteral(";sse:na");
+#  endif
+
+  result.AppendLiteral(";prec:");
+  result.Append(prec_str);
+
+#elif defined(__aarch64__)
+  // ARM64: Read FPCR register
+  uint64_t fpcr = 0;
+  __asm__ __volatile__("mrs %0, fpcr" : "=r"(fpcr));
+
+  // Extract rounding mode (bits 22-23)
+  int arm_round = (fpcr >> 22) & 0x3;
+  result.AppendLiteral(";arm:");
+  result.AppendInt(arm_round);
+
+#elif defined(__arm__)
+  // ARM32: Read FPSCR register
+  uint32_t fpscr = 0;
+  __asm__ __volatile__("vmrs %0, fpscr" : "=r"(fpscr));
+
+  // Extract rounding mode (bits 22-23)
+  int arm_round = (fpscr >> 22) & 0x3;
+  result.AppendLiteral(";arm:");
+  result.AppendInt(arm_round);
+
+#else
+  // Other architectures: only report standard mode
+  result.AppendLiteral(";arch:other");
+#endif
+
+  return result;
+}
+
 void PopulateMisc(bool worksInGtest) {
   if (worksInGtest) {
+    // Collect FPU control state
+    nsCString fpuState = GetFPUControlState();
+    glean::characteristics::fpu_control_state.Set(fpuState);
+
     glean::characteristics::max_touch_points.Set(testing::MaxTouchPoints());
     nsCOMPtr<nsIGfxInfo> gfxInfo = components::GfxInfo::Service();
     if (gfxInfo) {
@@ -643,11 +1058,39 @@ already_AddRefed<PopulatePromise> PopulateTimeZone() {
     glean::characteristics::timezone.Set(timeZone);
     populatePromise->Resolve(void_t(), __func__);
   } else {
-    populatePromise->Reject(std::pair(__func__, "NO_RESULT"_ns.AsString()),
-                            __func__);
+    REJECT(populatePromise, __func__, NS_ERROR_FAILURE,
+           nsPrintfCString("ICUError=%" PRIu8,
+                           static_cast<uint8_t>(result.unwrapErr())));
   }
 
   return populatePromise.forget();
+}
+
+void PopulateModelName() {
+  nsCString modelName("null");
+
+  nsCOMPtr<nsIPropertyBag2> sysInfo =
+      do_GetService("@mozilla.org/system-info;1");
+  NS_ENSURE_TRUE_VOID(sysInfo);
+
+#if defined(XP_MACOSX)
+  sysInfo->GetPropertyAsACString(u"appleModelId"_ns, modelName);
+#elif defined(MOZ_WIDGET_ANDROID)
+  sysInfo->GetPropertyAsACString(u"manufacturer"_ns, modelName);
+  modelName.AppendLiteral(" ");
+  nsCString temp;
+  sysInfo->GetPropertyAsACString(u"device"_ns, temp);
+  modelName.Append(temp);
+#elif defined(XP_WIN)
+  sysInfo->GetPropertyAsACString(u"winModelId"_ns, modelName);
+#elif defined(XP_LINUX)
+  sysInfo->GetPropertyAsACString(u"linuxProductSku"_ns, modelName);
+  if (modelName.IsEmpty()) {
+    sysInfo->GetPropertyAsACString(u"linuxProductName"_ns, modelName);
+  }
+#endif
+
+  glean::characteristics::machine_model_name.Set(modelName);
 }
 
 const RefPtr<PopulatePromise>& TimoutPromise(
@@ -658,12 +1101,11 @@ const RefPtr<PopulatePromise>& TimoutPromise(
       getter_AddRefs(timeout),
       [=](auto) {
         // NOTE: has no effect if `promise` has already been resolved.
-        promise->Reject(std::pair(funcName, "TIMEOUT"_ns.AsString()), __func__);
+        REJECT(promise, funcName, NS_ERROR_FAILURE, "TIMEOUT");
       },
-      delay, nsITimer::TYPE_ONE_SHOT, "UserCharacteristicsPromiseTimeout");
+      delay, nsITimer::TYPE_ONE_SHOT, "UserCharacteristicsPromiseTimeout"_ns);
   if (NS_FAILED(rv)) {
-    promise->Reject(std::pair(funcName, "TIMEOUT_CREATION"_ns.AsString()),
-                    __func__);
+    REJECT(promise, funcName, rv, "TIMEOUT_CREATION");
   }
 
   auto cancelTimeoutRes = [timeout = std::move(timeout)]() {
@@ -681,7 +1123,7 @@ const RefPtr<PopulatePromise>& TimoutPromise(
 // metric is set, this variable should be incremented. It'll be a lot. It's
 // okay. We're going to need it to know (including during development) what is
 // the source of the data we are looking at.
-const int kSubmissionSchema = 21;
+const int kSubmissionSchema = 31;
 
 const auto* const kUUIDPref =
     "toolkit.telemetry.user_characteristics_ping.uuid";
@@ -694,10 +1136,10 @@ const auto* const kOptOutPref =
     "toolkit.telemetry.user_characteristics_ping.opt-out";
 const auto* const kSendOncePref =
     "toolkit.telemetry.user_characteristics_ping.send-once";
-const auto* const kCanvasRandomizationPrincipalCheckPref =
-    "privacy.resistFingerprinting.randomization.canvas.disable_for_chrome";
 const auto* const kFingerprintingProtectionOverridesPref =
     "privacy.fingerprintingProtection.overrides";
+const auto* const kBaselineFPPOverridesPref =
+    "privacy.baselineFingerprintingProtection.overrides";
 
 namespace {
 
@@ -726,12 +1168,6 @@ nsresult PopulateEssentials() {
   nsAutoCString uuidString;
   nsresult rv = Preferences::GetCString(kUUIDPref, uuidString);
   if (NS_FAILED(rv) || uuidString.Length() == 0) {
-    nsCOMPtr<nsIUUIDGenerator> uuidgen =
-        do_GetService("@mozilla.org/uuid-generator;1", &rv);
-    if (NS_FAILED(rv)) {
-      return rv;
-    }
-
     nsIDToCString id(nsID::GenerateUUID());
     uuidString = id.get();
     Preferences::SetCString(kUUIDPref, uuidString);
@@ -751,7 +1187,6 @@ void AfterPingSentSteps(bool aUpdatePref) {
       Preferences::SetBool(kSendOncePref, false);
     }
   }
-  Preferences::SetBool(kCanvasRandomizationPrincipalCheckPref, false);
 }
 
 /*
@@ -787,11 +1222,18 @@ bool nsUserCharacteristics::ShouldSubmit() {
     return false;
   }
 
-  nsAutoString fppOverrides;
-  nsresult rv = Preferences::GetString(kFingerprintingProtectionOverridesPref,
-                                       fppOverrides);
-  if (NS_FAILED(rv) || !fppOverrides.IsEmpty()) {
+  nsAutoString overrides;
+  nsresult rv =
+      Preferences::GetString(kFingerprintingProtectionOverridesPref, overrides);
+  if (NS_FAILED(rv) || !overrides.IsEmpty()) {
     // If there are any overrides, we don't want to send the ping
+    // as it will mess up data.
+    return false;
+  }
+
+  rv = Preferences::GetString(kBaselineFPPOverridesPref, overrides);
+  if (NS_FAILED(rv) || !overrides.IsEmpty()) {
+    // If there are any baseline overrides, we don't want to send the ping
     // as it will mess up data.
     return false;
   }
@@ -803,9 +1245,6 @@ bool nsUserCharacteristics::ShouldSubmit() {
 
   int32_t currentVersion = GetCurrentVersion();
   int32_t lastSubmissionVersion = Preferences::GetInt(kLastVersionPref, 0);
-  MOZ_ASSERT(lastSubmissionVersion <= currentVersion,
-             "lastSubmissionVersion is somehow greater than currentVersion "
-             "- did you edit prefs improperly?");
 
   if (currentVersion == 0) {
     // Do nothing. We do not want any pings.
@@ -855,9 +1294,6 @@ void nsUserCharacteristics::PopulateDataAndEventuallySubmit(
   MOZ_LOG(gUserCharacteristicsLog, LogLevel::Warning, ("Populating Data"));
   MOZ_ASSERT(XRE_IsParentProcess());
 
-  // Enable canvas principal check for randomization
-  Preferences::SetBool(kCanvasRandomizationPrincipalCheckPref, true);
-
   if (NS_FAILED(PopulateEssentials())) {
     // We couldn't populate important metrics. Don't submit a ping.
     AfterPingSentSteps(false);
@@ -875,16 +1311,17 @@ void nsUserCharacteristics::PopulateDataAndEventuallySubmit(
 
     promises.AppendElement(PopulateMediaDevices());
     promises.AppendElement(PopulateTimeZone());
+    promises.AppendElement(PopulateFingerprintedFonts());
     PopulateMissingFonts();
     PopulateCSSProperties();
     PopulateScreenProperties();
     PopulatePrefs();
     PopulateFontPrefs();
-    PopulateScaling();
     PopulateKeyboardLayout();
     PopulateLanguages();
     PopulateTextAntiAliasing();
     PopulateProcessorCount();
+    PopulateModelName();
     PopulateMisc(false);
   }
 

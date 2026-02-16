@@ -8,26 +8,22 @@
 
 #include "mozilla/intl/Segmenter.h"
 
+#include "icu4x/GraphemeClusterSegmenter.hpp"
+#include "icu4x/LineSegmenter.hpp"
+#include "icu4x/SentenceSegmenter.hpp"
+#include "icu4x/WordSegmenter.hpp"
+#include "mozilla/ClearOnShutdown.h"
 #include "mozilla/intl/LineBreaker.h"
 #include "mozilla/intl/WordBreaker.h"
 #include "mozilla/intl/UnicodeProperties.h"
 #include "mozilla/StaticPrefs_intl.h"
 #include "nsUnicodeProperties.h"
 #include "nsCharTraits.h"
+#include "nsThreadUtils.h"
 
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
-#  include "ICU4XDataProvider.h"
-#  include "ICU4XGraphemeClusterSegmenter.h"
-#  include "ICU4XLineSegmenter.h"
-#  include "ICU4XSentenceSegmenter.h"
-#  include "ICU4XWordSegmenter.h"
-#  include "mozilla/ClearOnShutdown.h"
-#  include "mozilla/intl/ICU4XGeckoDataProvider.h"
-#  include "nsThreadUtils.h"
+#include <mutex>
 
-#  include <mutex>
-#endif
-
+using namespace icu4x;
 using namespace mozilla::unicode;
 
 namespace mozilla::intl {
@@ -45,34 +41,27 @@ Maybe<uint32_t> SegmentIteratorUtf16::Seek(uint32_t aPos) {
 LineBreakIteratorUtf16::LineBreakIteratorUtf16(Span<const char16_t> aText,
                                                const LineBreakOptions& aOptions)
     : SegmentIteratorUtf16(aText), mOptions(aOptions) {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (!StaticPrefs::intl_icu4x_segmenter_enabled()) {
     return;
   }
-  auto result =
-      capi::ICU4XLineSegmenter_create_auto(mozilla::intl::GetDataProvider());
-  MOZ_RELEASE_ASSERT(result.is_ok);
-  mSegmenter = result.ok;
-  mIterator = capi::ICU4XLineSegmenter_segment_utf16(
-      mSegmenter, mText.Elements(), mText.Length());
-#endif
+  mSegmenter = capi::icu4x_LineSegmenter_create_auto_mv1();
+  mIterator = capi::icu4x_LineSegmenter_segment_utf16_mv1(
+      mSegmenter, {mText.Elements(), mText.Length()});
 }
 
 LineBreakIteratorUtf16::~LineBreakIteratorUtf16() {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (mIterator) {
-    capi::ICU4XLineBreakIteratorUtf16_destroy(mIterator);
+    capi::icu4x_LineBreakIteratorUtf16_destroy_mv1(mIterator);
   }
   if (mSegmenter) {
-    capi::ICU4XLineSegmenter_destroy(mSegmenter);
+    capi::icu4x_LineSegmenter_destroy_mv1(mSegmenter);
   }
-#endif
 }
 
 Maybe<uint32_t> LineBreakIteratorUtf16::Next() {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (mIterator) {
-    const int32_t nextPos = capi::ICU4XLineBreakIteratorUtf16_next(mIterator);
+    const int32_t nextPos =
+        capi::icu4x_LineBreakIteratorUtf16_next_mv1(mIterator);
     if (nextPos < 0) {
       return Nothing();
     }
@@ -82,7 +71,6 @@ Maybe<uint32_t> LineBreakIteratorUtf16::Next() {
     mPos = nextPos;
     return Some(mPos);
   }
-#endif
   const int32_t nextPos =
       LineBreaker::Next(mText.Elements(), mText.Length(), mPos);
   if (nextPos == NS_LINEBREAKER_NEED_MORE_TEXT) {
@@ -93,14 +81,14 @@ Maybe<uint32_t> LineBreakIteratorUtf16::Next() {
 }
 
 Maybe<uint32_t> LineBreakIteratorUtf16::Seek(uint32_t aPos) {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (mIterator) {
     if (mPos >= aPos) {
       return Next();
     }
 
     while (mPos < aPos) {
-      const int32_t nextPos = capi::ICU4XLineBreakIteratorUtf16_next(mIterator);
+      const int32_t nextPos =
+          capi::icu4x_LineBreakIteratorUtf16_next_mv1(mIterator);
       if (nextPos < 0) {
         return Nothing();
       }
@@ -113,56 +101,46 @@ Maybe<uint32_t> LineBreakIteratorUtf16::Seek(uint32_t aPos) {
 
     return Next();
   }
-#endif
   return SegmentIteratorUtf16::Seek(aPos);
 }
 
 WordBreakIteratorUtf16::WordBreakIteratorUtf16(Span<const char16_t> aText)
     : SegmentIteratorUtf16(aText) {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (!StaticPrefs::intl_icu4x_segmenter_enabled()) {
     return;
   }
-  auto result =
-      capi::ICU4XWordSegmenter_create_auto(mozilla::intl::GetDataProvider());
-  MOZ_RELEASE_ASSERT(result.is_ok);
-  mSegmenter = result.ok;
-  mIterator = capi::ICU4XWordSegmenter_segment_utf16(
-      mSegmenter, mText.Elements(), mText.Length());
-#endif
+  mSegmenter = capi::icu4x_WordSegmenter_create_auto_mv1();
+  mIterator = capi::icu4x_WordSegmenter_segment_utf16_mv1(
+      mSegmenter, {mText.Elements(), mText.Length()});
 }
 
 WordBreakIteratorUtf16::~WordBreakIteratorUtf16() {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (mIterator) {
-    capi::ICU4XWordBreakIteratorUtf16_destroy(mIterator);
+    capi::icu4x_WordBreakIteratorUtf16_destroy_mv1(mIterator);
   }
   if (mSegmenter) {
-    capi::ICU4XWordSegmenter_destroy(mSegmenter);
+    capi::icu4x_WordSegmenter_destroy_mv1(mSegmenter);
   }
-#endif
 }
 
 void WordBreakIteratorUtf16::Reset(Span<const char16_t> aText) {
   mPos = 0;
   mText = aText;
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (mIterator) {
-    capi::ICU4XWordBreakIteratorUtf16_destroy(mIterator);
+    capi::icu4x_WordBreakIteratorUtf16_destroy_mv1(mIterator);
     mIterator = nullptr;
   }
   if (!StaticPrefs::intl_icu4x_segmenter_enabled()) {
     return;
   }
-  mIterator = capi::ICU4XWordSegmenter_segment_utf16(
-      mSegmenter, mText.Elements(), mText.Length());
-#endif
+  mIterator = capi::icu4x_WordSegmenter_segment_utf16_mv1(
+      mSegmenter, {mText.Elements(), mText.Length()});
 }
 
 Maybe<uint32_t> WordBreakIteratorUtf16::Next() {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (mIterator) {
-    const int32_t nextPos = capi::ICU4XWordBreakIteratorUtf16_next(mIterator);
+    const int32_t nextPos =
+        capi::icu4x_WordBreakIteratorUtf16_next_mv1(mIterator);
     if (nextPos < 0) {
       return Nothing();
     }
@@ -172,7 +150,6 @@ Maybe<uint32_t> WordBreakIteratorUtf16::Next() {
     mPos = nextPos;
     return Some(mPos);
   }
-#endif
   const int32_t nextPos =
       WordBreaker::Next(mText.Elements(), mText.Length(), mPos);
   if (nextPos == NS_WORDBREAKER_NEED_MORE_TEXT) {
@@ -183,14 +160,14 @@ Maybe<uint32_t> WordBreakIteratorUtf16::Next() {
 }
 
 Maybe<uint32_t> WordBreakIteratorUtf16::Seek(uint32_t aPos) {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (mIterator) {
     if (mPos >= aPos) {
       return Next();
     }
 
     while (mPos < aPos) {
-      const int32_t nextPos = capi::ICU4XWordBreakIteratorUtf16_next(mIterator);
+      const int32_t nextPos =
+          capi::icu4x_WordBreakIteratorUtf16_next_mv1(mIterator);
       if (nextPos < 0) {
         return Nothing();
       }
@@ -203,51 +180,42 @@ Maybe<uint32_t> WordBreakIteratorUtf16::Seek(uint32_t aPos) {
 
     return Next();
   }
-#endif
   return SegmentIteratorUtf16::Seek(aPos);
 }
 
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
-capi::ICU4XGraphemeClusterSegmenter*
-    GraphemeClusterBreakIteratorUtf16::sSegmenter = nullptr;
-#endif
+capi::GraphemeClusterSegmenter* GraphemeClusterBreakIteratorUtf16::sSegmenter =
+    nullptr;
 
 GraphemeClusterBreakIteratorUtf16::GraphemeClusterBreakIteratorUtf16(
     Span<const char16_t> aText)
     : SegmentIteratorUtf16(aText) {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (!StaticPrefs::intl_icu4x_segmenter_enabled()) {
     return;
   }
   static std::once_flag sOnce;
 
   std::call_once(sOnce, [] {
-    auto result = capi::ICU4XGraphemeClusterSegmenter_create(
-        mozilla::intl::GetDataProvider());
-    MOZ_RELEASE_ASSERT(result.is_ok);
-    sSegmenter = result.ok;
+    auto result = capi::icu4x_GraphemeClusterSegmenter_create_mv1();
+    sSegmenter = result;
 
     NS_DispatchToMainThread(
         NS_NewRunnableFunction("GraphemeClusterBreakIteratorUtf16", [] {
           RunOnShutdown([] {
-            capi::ICU4XGraphemeClusterSegmenter_destroy(sSegmenter);
+            capi::icu4x_GraphemeClusterSegmenter_destroy_mv1(sSegmenter);
             sSegmenter = nullptr;
           });
         }));
   });
 
   MOZ_RELEASE_ASSERT(sSegmenter);
-  mIterator = capi::ICU4XGraphemeClusterSegmenter_segment_utf16(
-      sSegmenter, mText.Elements(), mText.Length());
-#endif
+  mIterator = capi::icu4x_GraphemeClusterSegmenter_segment_utf16_mv1(
+      sSegmenter, {mText.Elements(), mText.Length()});
 }
 
 GraphemeClusterBreakIteratorUtf16::~GraphemeClusterBreakIteratorUtf16() {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (mIterator) {
-    capi::ICU4XGraphemeClusterBreakIteratorUtf16_destroy(mIterator);
+    capi::icu4x_GraphemeClusterBreakIteratorUtf16_destroy_mv1(mIterator);
   }
-#endif
 }
 
 enum HSType {
@@ -266,10 +234,9 @@ static HSType GetHangulSyllableType(uint32_t aCh) {
 
 Maybe<uint32_t> GraphemeClusterBreakIteratorUtf16::Next() {
   const auto len = mText.Length();
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (mIterator) {
     const int32_t nextPos =
-        capi::ICU4XGraphemeClusterBreakIteratorUtf16_next(mIterator);
+        capi::icu4x_GraphemeClusterBreakIteratorUtf16_next_mv1(mIterator);
     if (nextPos < 0) {
       return Nothing();
     }
@@ -279,7 +246,6 @@ Maybe<uint32_t> GraphemeClusterBreakIteratorUtf16::Next() {
     mPos = nextPos;
     return Some(mPos);
   }
-#endif
   if (mPos >= len) {
     // The iterator has already reached the end.
     return Nothing();
@@ -401,7 +367,6 @@ Maybe<uint32_t> GraphemeClusterBreakIteratorUtf16::Next() {
 }
 
 Maybe<uint32_t> GraphemeClusterBreakIteratorUtf16::Seek(uint32_t aPos) {
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (mIterator) {
     if (mPos >= aPos) {
       return Next();
@@ -409,7 +374,7 @@ Maybe<uint32_t> GraphemeClusterBreakIteratorUtf16::Seek(uint32_t aPos) {
 
     while (mPos < aPos) {
       const int32_t nextPos =
-          capi::ICU4XGraphemeClusterBreakIteratorUtf16_next(mIterator);
+          capi::icu4x_GraphemeClusterBreakIteratorUtf16_next_mv1(mIterator);
       if (nextPos < 0) {
         return Nothing();
       }
@@ -422,7 +387,6 @@ Maybe<uint32_t> GraphemeClusterBreakIteratorUtf16::Seek(uint32_t aPos) {
 
     return Next();
   }
-#endif
   return SegmentIteratorUtf16::Seek(aPos);
 }
 
@@ -462,24 +426,20 @@ Maybe<uint32_t> GraphemeClusterBreakReverseIteratorUtf16::Seek(uint32_t aPos) {
   return Next();
 }
 
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
 SentenceBreakIteratorUtf16::SentenceBreakIteratorUtf16(
     Span<const char16_t> aText)
     : SegmentIteratorUtf16(aText) {
-  auto result =
-      capi::ICU4XSentenceSegmenter_create(mozilla::intl::GetDataProvider());
-  MOZ_RELEASE_ASSERT(result.is_ok);
-  mSegmenter = result.ok;
-  mIterator = capi::ICU4XSentenceSegmenter_segment_utf16(
-      mSegmenter, mText.Elements(), mText.Length());
+  mSegmenter = capi::icu4x_SentenceSegmenter_create_mv1();
+  mIterator = capi::icu4x_SentenceSegmenter_segment_utf16_mv1(
+      mSegmenter, {mText.Elements(), mText.Length()});
 }
 
 SentenceBreakIteratorUtf16::~SentenceBreakIteratorUtf16() {
   if (mIterator) {
-    capi::ICU4XSentenceBreakIteratorUtf16_destroy(mIterator);
+    capi::icu4x_SentenceBreakIteratorUtf16_destroy_mv1(mIterator);
   }
   if (mSegmenter) {
-    capi::ICU4XSentenceSegmenter_destroy(mSegmenter);
+    capi::icu4x_SentenceSegmenter_destroy_mv1(mSegmenter);
   }
 }
 
@@ -494,7 +454,7 @@ Maybe<uint32_t> SentenceBreakIteratorUtf16::Seek(uint32_t aPos) {
 
   while (mPos < aPos) {
     const int32_t nextPos =
-        capi::ICU4XSentenceBreakIteratorUtf16_next(mIterator);
+        capi::icu4x_SentenceBreakIteratorUtf16_next_mv1(mIterator);
     if (nextPos < 0) {
       return Nothing();
     }
@@ -513,7 +473,8 @@ Maybe<uint32_t> SentenceBreakIteratorUtf16::Next() {
     return Nothing();
   }
 
-  const int32_t nextPos = capi::ICU4XSentenceBreakIteratorUtf16_next(mIterator);
+  const int32_t nextPos =
+      capi::icu4x_SentenceBreakIteratorUtf16_next_mv1(mIterator);
   if (nextPos < 0) {
     return Nothing();
   }
@@ -523,16 +484,9 @@ Maybe<uint32_t> SentenceBreakIteratorUtf16::Next() {
   mPos = nextPos;
   return Some(mPos);
 }
-#endif
 
 Result<UniquePtr<Segmenter>, ICUError> Segmenter::TryCreate(
     Span<const char> aLocale, const SegmenterOptions& aOptions) {
-#if !defined(MOZ_ICU4X) || !defined(JS_HAS_INTL_API)
-  if (aOptions.mGranularity == SegmenterGranularity::Sentence) {
-    // Grapheme and Sentence iterator are not yet implemented.
-    return Err(ICUError::InternalError);
-  }
-#endif
   return MakeUnique<Segmenter>(aLocale, aOptions);
 }
 
@@ -542,13 +496,7 @@ UniquePtr<SegmentIteratorUtf16> Segmenter::Segment(
     case SegmenterGranularity::Grapheme:
       return MakeUnique<GraphemeClusterBreakIteratorUtf16>(aText);
     case SegmenterGranularity::Sentence:
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
-      if (StaticPrefs::intl_icu4x_segmenter_enabled()) {
-        return MakeUnique<SentenceBreakIteratorUtf16>(aText);
-      }
-#endif
-      MOZ_ASSERT_UNREACHABLE("Unimplemented yet!");
-      return nullptr;
+      return MakeUnique<SentenceBreakIteratorUtf16>(aText);
     case SegmenterGranularity::Word:
       return MakeUnique<WordBreakIteratorUtf16>(aText);
     case SegmenterGranularity::Line:

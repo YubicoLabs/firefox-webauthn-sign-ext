@@ -21,25 +21,19 @@ class RaptorLogger:
         self.critical(message, **kwargs)
 
     def debug(self, message, **kwargs):
-        return self.logger.debug("Debug: {}".format(message), **kwargs)
+        return self.logger.debug(f"Debug: {message}", **kwargs)
 
     def info(self, message, **kwargs):
-        return self.logger.info("Info: {}".format(message), **kwargs)
+        return self.logger.info(f"Info: {message}", **kwargs)
 
     def warning(self, message, **kwargs):
-        return self.logger.warning(
-            "Warning:{} {}".format(RaptorLogger.app, message), **kwargs
-        )
+        return self.logger.warning(f"Warning:{RaptorLogger.app} {message}", **kwargs)
 
     def error(self, message, **kwargs):
-        return self.logger.error(
-            "Error:{} {}".format(RaptorLogger.app, message), **kwargs
-        )
+        return self.logger.error(f"Error:{RaptorLogger.app} {message}", **kwargs)
 
     def critical(self, message, **kwargs):
-        return self.logger.critical(
-            "Critical:{} {}".format(RaptorLogger.app, message), **kwargs
-        )
+        return self.logger.critical(f"Critical:{RaptorLogger.app} {message}", **kwargs)
 
     def log_raw(self, message, **kwargs):
         return self.logger.log_raw(message, **kwargs)
@@ -49,3 +43,9 @@ class RaptorLogger:
 
     def crash(self, *args, **kwargs):
         return self.logger.crash(*args, **kwargs)
+
+    def group_start(self, *args, **kwargs):
+        return self.logger.group_start(*args, **kwargs)
+
+    def group_end(self, *args, **kwargs):
+        return self.logger.group_end(*args, **kwargs)

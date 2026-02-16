@@ -12,13 +12,14 @@
  * by the library.
  */
 
-/* globals exportFunction */
+if (
+  !(window.CSSStyleProperties ?? window.CSS2Properties).prototype.msTouchAction
+) {
+  const bug = location.origin.includes("wellcare") ? "1818818" : "1944004";
+  console.info(
+    `FastClick is being disabled for compatibility reasons. See https://bugzilla.mozilla.org/show_bug.cgi?id=${bug} for details.`
+  );
 
-const proto = CSS2Properties.prototype.wrappedJSObject;
-Object.defineProperty(proto, "msTouchAction", {
-  get: exportFunction(function () {
-    return "none";
-  }, window),
-
-  set: exportFunction(function () {}, window),
-});
+  (window.CSSStyleProperties ?? window.CSS2Properties).prototype.msTouchAction =
+    "none";
+}

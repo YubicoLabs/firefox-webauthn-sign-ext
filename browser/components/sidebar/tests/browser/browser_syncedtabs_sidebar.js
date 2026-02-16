@@ -100,7 +100,7 @@ add_task(async function test_tabs() {
     .resolves(tabClients.flatMap(client => client.tabs));
 
   await SidebarController.show("viewTabsSidebar");
-  const { contentDocument } = SidebarController.browser;
+  const { contentDocument, contentWindow } = SidebarController.browser;
   const component = contentDocument.querySelector("sidebar-syncedtabs");
   Assert.ok(component, "Synced tabs panel is shown.");
   const contextMenu = SidebarController.currentContextMenu;
@@ -130,7 +130,7 @@ add_task(async function test_tabs() {
       // to ensure we properly test that path
       if (client.id === 2) {
         Assert.ok(
-          !row.renderRoot.querySelector(".dismiss-button"),
+          !row.secondaryButtonEl,
           `Dismiss button should NOT appear for tab ${
             j + 1
           } on the client that does not have available commands.`
@@ -138,37 +138,46 @@ add_task(async function test_tabs() {
       } else {
         // We need to use renderRoot since Lit components querySelector
         // won't return the right things
-        await BrowserTestUtils.waitForCondition(
-          () => row.renderRoot.querySelector(".dismiss-button") !== null,
+        await BrowserTestUtils.waitForMutationCondition(
+          row.shadowRoot,
+          { childList: true },
+          () => row.secondaryButtonEl,
           `Dismiss button should appear for tab ${j + 1}`
         );
         // Check the presence of the dismiss button
-        const dismissButton = row.renderRoot.querySelector(".dismiss-button");
+        const dismissButton = row.secondaryButtonEl;
         Assert.ok(dismissButton, `Dismiss button is present on tab ${j + 1}.`);
         // Simulate clicking the dismiss button
         EventUtils.synthesizeMouseAtCenter(dismissButton, {}, content);
 
-        await TestUtils.waitForCondition(
+        await BrowserTestUtils.waitForMutationCondition(
+          row.secondaryButtonEl,
+          { attributes: true },
           () => {
-            const undoButton = row.renderRoot.querySelector(".undo-button");
-            return undoButton && undoButton.style.display !== "none";
+            const undoButton = row.secondaryButtonEl;
+            return (
+              undoButton.classList.contains("undo-button") &&
+              undoButton.style.display !== "none"
+            );
           },
           `Undo button is shown after dismissing tab ${j + 1}.`
         );
 
         // Simulate clicking the undo button
-        const undoButton = row.renderRoot.querySelector(".undo-button");
+        const undoButton = row.secondaryButtonEl;
         EventUtils.synthesizeMouseAtCenter(
           row.mainEl,
           { type: "mouseover" },
           content
         );
         EventUtils.synthesizeMouseAtCenter(undoButton, {}, content);
-        await TestUtils.waitForCondition(
+        await BrowserTestUtils.waitForMutationCondition(
+          row.secondaryButtonEl,
+          { attributes: true },
           () => {
             return (
-              row.renderRoot.querySelector(".dismiss-button") &&
-              !row.renderRoot.querySelector(".undo-button")
+              row.secondaryButtonEl.classList.contains("dismiss-button") &&
+              !row.secondaryButtonEl.classList.contains("undo-button")
             );
           },
           `Dismiss button is restored after undoing tab ${j + 1}.`
@@ -190,13 +199,33 @@ add_task(async function test_tabs() {
     return copiedUrl == tabClients[0].tabs[0].url;
   }, "The copied URL is correct.");
 
+  info("Use keyboard shortcuts to navigate downwards.");
+  const firstCardHeader = component.cards[0].summaryEl;
+  const firstCardRows = component.lists[0].rowEls;
+  const secondCardHeader = component.cards[1].summaryEl;
+  const secondCardRows = component.lists[1].rowEls;
+
+  firstCardHeader.focus();
+  await focusWithKeyboard(firstCardRows[0], "KEY_ArrowDown", contentWindow);
+  await focusWithKeyboard(firstCardRows[1], "KEY_ArrowDown", contentWindow);
+  await focusWithKeyboard(secondCardHeader, "KEY_ArrowDown", contentWindow);
+  await focusWithKeyboard(secondCardRows[0], "KEY_ArrowDown", contentWindow);
+  await focusWithKeyboard(secondCardRows[1], "KEY_ArrowDown", contentWindow);
+
+  info("Use keyboard shortcuts to navigate upwards.");
+  await focusWithKeyboard(secondCardRows[0], "KEY_ArrowUp", contentWindow);
+  await focusWithKeyboard(secondCardHeader, "KEY_ArrowUp", contentWindow);
+  await focusWithKeyboard(firstCardRows[1], "KEY_ArrowUp", contentWindow);
+  await focusWithKeyboard(firstCardRows[0], "KEY_ArrowUp", contentWindow);
+  await focusWithKeyboard(firstCardHeader, "KEY_ArrowUp", contentWindow);
+
   SidebarController.hide();
   sandbox.restore();
 });
 
-add_task(async function test_syncedtabs_searchbox_focus() {
+add_task(async function test_syncedtabs_searchbox_focus_and_context_menu() {
   await SidebarController.show("viewTabsSidebar");
-  const { contentDocument } = SidebarController.browser;
+  const { contentDocument, contentWindow } = SidebarController.browser;
   const component = contentDocument.querySelector("sidebar-syncedtabs");
   const { searchTextbox } = component;
 
@@ -206,6 +235,24 @@ add_task(async function test_syncedtabs_searchbox_focus() {
     searchTextbox,
     "Check search box is focused"
   );
+
+  const promisePopupShown = BrowserTestUtils.waitForEvent(
+    contentWindow,
+    "popupshown"
+  );
+  EventUtils.synthesizeMouseAtCenter(
+    searchTextbox,
+    { type: "contextmenu", button: 2 },
+    contentWindow
+  );
+  const { target: menu } = await promisePopupShown;
+  Assert.equal(
+    menu.id,
+    "textbox-contextmenu",
+    "The correct context menu is shown."
+  );
+  menu.hidePopup();
+
   SidebarController.hide();
 });
 
@@ -244,6 +291,7 @@ add_task(async function test_close_remote_tab_context_menu() {
       "'Close Remote Tab' menu item is enabled."
     );
   });
+  contextMenu.hidePopup();
 
   SidebarController.hide();
   sandbox.restore();
@@ -303,10 +351,127 @@ add_task(async function test_connect_additional_devices() {
 
   SidebarController.hide();
 
-  // clean up extra tabs
-  while (gBrowser.tabs.length > 1) {
-    await BrowserTestUtils.removeTab(gBrowser.tabs.at(-1));
+  cleanUpExtraTabs();
+
+  sandbox.restore();
+});
+
+add_task(async function test_tabs_click_auxclick() {
+  const sandbox = sinon.createSandbox();
+  sandbox.stub(lazy.SyncedTabsErrorHandler, "getErrorType").returns(null);
+  sandbox.stub(lazy.TabsSetupFlowManager, "uiStateIndex").value(4);
+  sandbox.stub(lazy.SyncedTabs, "getTabClients").resolves(tabClients);
+  sandbox
+    .stub(lazy.SyncedTabs, "createRecentTabsList")
+    .resolves(tabClients.flatMap(client => client.tabs));
+
+  await SidebarController.show("viewTabsSidebar");
+  const { contentDocument } = SidebarController.browser;
+  const component = contentDocument.querySelector("sidebar-syncedtabs");
+  Assert.ok(component, "Synced tabs panel is shown.");
+
+  const client = tabClients[0];
+
+  const card = component.cards[0];
+
+  const rows = await TestUtils.waitForCondition(() => {
+    const { rowEls } = card.querySelector("sidebar-tab-list");
+    return rowEls.length === client.tabs.length && rowEls;
+  }, "Device has the correct number of tabs.");
+
+  const row = rows[1];
+
+  const content = SidebarController.browser.contentWindow;
+  await content.promiseDocumentFlushed(() => {});
+
+  {
+    const tabPromise = BrowserTestUtils.waitForNewTab(
+      gBrowser,
+      "https://www.mozilla.org/",
+      true
+    );
+
+    // See the comment in test_history_hover_buttons in
+    // browser_history_sidebar.js
+    AccessibilityUtils.setEnv({ focusableRule: false });
+    await EventUtils.synthesizeMouseAtCenter(
+      row.mainEl,
+      {
+        button: 0,
+      },
+      content
+    );
+    AccessibilityUtils.resetEnv();
+
+    const tab = await tabPromise;
+
+    is(gBrowser.selectedTab, tab, "The opened tab should be selected");
+
+    BrowserTestUtils.removeTab(tab);
   }
 
+  {
+    const tabPromise = BrowserTestUtils.waitForNewTab(
+      gBrowser,
+      "https://www.mozilla.org/",
+      true
+    );
+
+    AccessibilityUtils.setEnv({ focusableRule: false });
+    await EventUtils.synthesizeMouseAtCenter(
+      row.mainEl,
+      {
+        button: 1,
+        shiftKey: false,
+      },
+      content
+    );
+    AccessibilityUtils.resetEnv();
+
+    const tab = await tabPromise;
+
+    is(gBrowser.selectedTab, tab, "The opened tab should be selected");
+
+    BrowserTestUtils.removeTab(tab);
+  }
+
+  {
+    const selectedTabAtStart = gBrowser.selectedTab;
+
+    const tabPromise = BrowserTestUtils.waitForNewTab(
+      gBrowser,
+      "https://www.mozilla.org/",
+      true
+    );
+
+    AccessibilityUtils.setEnv({ focusableRule: false });
+    await EventUtils.synthesizeMouseAtCenter(
+      row.mainEl,
+      {
+        button: 1,
+        shiftKey: true,
+      },
+      content
+    );
+    AccessibilityUtils.resetEnv();
+
+    const tab = await tabPromise;
+
+    is(
+      gBrowser.selectedTab,
+      selectedTabAtStart,
+      "The opened tab should not be selected"
+    );
+
+    Assert.notEqual(
+      gBrowser.selectedTab,
+      tab,
+      "The opened tab should not be selected"
+    );
+
+    BrowserTestUtils.removeTab(tab);
+  }
+
+  SidebarController.hide();
   sandbox.restore();
 });

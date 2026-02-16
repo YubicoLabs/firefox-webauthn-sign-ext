@@ -7,7 +7,6 @@ run talos tests in a virtualenv
 """
 
 import copy
-import io
 import json
 import multiprocessing
 import os
@@ -17,7 +16,6 @@ import shutil
 import subprocess
 import sys
 
-import six
 from mozsystemmonitor.resourcemonitor import SystemResourceMonitor
 
 import mozharness
@@ -81,7 +79,7 @@ class TalosOutputParser(OutputParser):
     worst_tbpl_status = TBPL_SUCCESS
 
     def __init__(self, **kwargs):
-        super(TalosOutputParser, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.minidump_output = None
         self.found_perf_data = []
 
@@ -124,7 +122,7 @@ class TalosOutputParser(OutputParser):
         elif line.startswith("Running cycle ") or line.startswith("PROCESS-CRASH "):
             SystemResourceMonitor.record_event(line)
 
-        super(TalosOutputParser, self).parse_single_line(line)
+        super().parse_single_line(line)
 
 
 class Talos(
@@ -179,7 +177,10 @@ class Talos(
                     "dest": "gecko_profile",
                     "action": "store_true",
                     "default": False,
-                    "help": "Whether or not to profile the test run and save the profile results",
+                    "help": (
+                        "Whether to profile the test run and save the profile results. "
+                        "Copy paste the parameters used in this profiling run directly from about:profiling in Nightly."
+                    ),
                 },
             ],
             [
@@ -320,7 +321,7 @@ class Talos(
             ],
         )
         kwargs.setdefault("config", {})
-        super(Talos, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.workdir = self.query_abs_dirs()["abs_work_dir"]  # convenience
 
@@ -373,7 +374,7 @@ class Talos(
     def query_abs_dirs(self):
         if self.abs_dirs:
             return self.abs_dirs
-        abs_dirs = super(Talos, self).query_abs_dirs()
+        abs_dirs = super().query_abs_dirs()
         abs_dirs["abs_blob_upload_dir"] = os.path.join(
             abs_dirs["abs_work_dir"], "blobber_upload_dir"
         )
@@ -438,7 +439,7 @@ class Talos(
         iframe_pattern = re.compile(r'(iframe.*")(\.\./.*\.html)"')
         for encoding in encodings:
             try:
-                with io.open(path, "r", encoding=encoding) as f:
+                with open(path, encoding=encoding) as f:
                     content = f.read()
 
                 def replace_iframe_src(match):
@@ -458,7 +459,7 @@ class Talos(
                     return match.group(1) + new_url
 
                 content = re.sub(iframe_pattern, replace_iframe_src, content)
-                with io.open(path, "w", encoding=encoding) as f:
+                with open(path, "w", encoding=encoding) as f:
                     f.write(content)
                 break
             except UnicodeDecodeError:
@@ -574,7 +575,7 @@ class Talos(
         kw_options.update(kw)
         # talos expects tests to be in the format (e.g.) 'ts:tp5:tsvg'
         tests = kw_options.get("activeTests")
-        if tests and not isinstance(tests, six.string_types):
+        if tests and not isinstance(tests, str):
             tests = ":".join(tests)  # Talos expects this format
             kw_options["activeTests"] = tests
         for key, value in kw_options.items():
@@ -600,7 +601,7 @@ class Talos(
         if self.config["extra_prefs"]:
             extra_prefs.extend(self.config["extra_prefs"])
 
-        options.extend(["--setpref={}".format(p) for p in extra_prefs])
+        options.extend([f"--setpref={p}" for p in extra_prefs])
 
         # disabling fission can come from the --disable-fission cmd line argument; or in CI
         # it comes from a taskcluster transform which adds a --setpref for fission.autostart
@@ -654,39 +655,31 @@ class Talos(
         webextension_dest = os.path.join(self.talos_path, "talos", "webextensions")
 
         if self.query_pagesets_name():
-            tooltool_artifacts.append(
-                {
-                    "name": self.pagesets_name,
-                    "manifest": self.pagesets_name_manifest,
-                    "dest": src_talos_pageset_dest,
-                }
-            )
-            tooltool_artifacts.append(
-                {
-                    "name": self.pagesets_name,
-                    "manifest": self.pagesets_name_manifest,
-                    "dest": src_talos_pageset_multidomain_dest,
-                    "postprocess": self.replace_relative_iframe_paths,
-                }
-            )
+            tooltool_artifacts.append({
+                "name": self.pagesets_name,
+                "manifest": self.pagesets_name_manifest,
+                "dest": src_talos_pageset_dest,
+            })
+            tooltool_artifacts.append({
+                "name": self.pagesets_name,
+                "manifest": self.pagesets_name_manifest,
+                "dest": src_talos_pageset_multidomain_dest,
+                "postprocess": self.replace_relative_iframe_paths,
+            })
 
         if self.query_benchmark_zip():
-            tooltool_artifacts.append(
-                {
-                    "name": self.benchmark_zip,
-                    "manifest": self.benchmark_zip_manifest,
-                    "dest": src_talos_pageset_dest,
-                }
-            )
+            tooltool_artifacts.append({
+                "name": self.benchmark_zip,
+                "manifest": self.benchmark_zip_manifest,
+                "dest": src_talos_pageset_dest,
+            })
 
         if self.query_webextensions_zip():
-            tooltool_artifacts.append(
-                {
-                    "name": self.webextensions_zip,
-                    "manifest": self.webextensions_zip_manifest,
-                    "dest": webextension_dest,
-                }
-            )
+            tooltool_artifacts.append({
+                "name": self.webextensions_zip,
+                "manifest": self.webextensions_zip_manifest,
+                "dest": webextension_dest,
+            })
 
         # now that have the suite name, check if artifact is required, if so download it
         # the --no-download option will override this
@@ -753,7 +746,7 @@ class Talos(
             "tools/wpt_third_party/h2/*",
             "tools/wpt_third_party/pywebsocket3/*",
         ]
-        return super(Talos, self).download_and_extract(
+        return super().download_and_extract(
             extract_dirs=extract_dirs, suite_categories=["common", "talos"]
         )
 
@@ -808,7 +801,7 @@ class Talos(
             requirements=[mozbase_requirements],
             editable=True,
         )
-        super(Talos, self).create_virtualenv()
+        super().create_virtualenv()
         # talos in harness requires what else is
         # listed in talos requirements.txt file.
         self.install_module(requirements=[talos_requirements])

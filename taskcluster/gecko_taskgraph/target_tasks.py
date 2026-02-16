@@ -9,10 +9,11 @@ import os
 import re
 from datetime import datetime, timedelta
 
-import requests
 from redo import retry
+from taskcluster.exceptions import TaskclusterRestFailure
 from taskgraph import create
-from taskgraph.target_tasks import register_target_task
+from taskgraph.target_tasks import filter_for_git_branch, register_target_task
+from taskgraph.util.attributes import attrmatch
 from taskgraph.util.parameterization import resolve_timestamps
 from taskgraph.util.taskcluster import (
     find_task_id,
@@ -20,12 +21,16 @@ from taskgraph.util.taskcluster import (
     get_task_definition,
     parse_time,
 )
+from taskgraph.util.yaml import load_yaml
 
-from gecko_taskgraph import GECKO, try_option_syntax
+from gecko_taskgraph import GECKO, TEST_CONFIGS
 from gecko_taskgraph.util.attributes import (
+    is_try,
     match_run_on_hg_branches,
     match_run_on_projects,
+    match_run_on_repo_type,
 )
+from gecko_taskgraph.util.constants import TEST_KINDS
 from gecko_taskgraph.util.hg import find_hg_revision_push_info, get_hg_commit_message
 from gecko_taskgraph.util.platforms import platform_family
 from gecko_taskgraph.util.taskcluster import find_task, insert_index
@@ -45,12 +50,8 @@ UNCOMMON_TRY_TASK_LABELS = [
     r"android-geckoview-docs",
     r"android-hw",
     # Windows tasks
-    r"windows11-64-2009-hw-ref",
     r"windows11-64-24h2-hw-ref",
     r"windows10-aarch64-qr",
-    # Linux tasks
-    r"linux-",  # hide all linux32 tasks by default - bug 1599197
-    r"linux1804-32",  # hide linux32 tests - bug 1599197
     # Test tasks
     r"web-platform-tests.*backlog",  # hide wpt jobs that are not implemented yet - bug 1572820
     r"-ccov",
@@ -73,7 +74,9 @@ def index_exists(index_path, reason=""):
         task_id = find_task_id(index_path)
         print(f"Index {index_path} exists: taskId {task_id}")
         return True
-    except KeyError:
+    except (KeyError, TaskclusterRestFailure) as e:
+        if isinstance(e, TaskclusterRestFailure) and e.status_code != 404:
+            raise
         print(f"Index {index_path} doesn't exist.")
         return False
 
@@ -97,10 +100,19 @@ def filter_out_cron(task, parameters):
     return not task.attributes.get("cron")
 
 
+def filter_for_repo_type(task, parameters):
+    """Filter tasks by repository type.
+
+    This filter is temporarily in-place to facilitate the hg.mozilla.org ->
+    Github migration."""
+    run_on_repo_types = set(task.attributes.get("run_on_repo_type", ["git", "hg"]))
+    return match_run_on_repo_type(parameters["repository_type"], run_on_repo_types)
+
+
 def filter_for_project(task, parameters):
     """Filter tasks by project.  Optionally enable nightlies."""
     run_on_projects = set(task.attributes.get("run_on_projects", []))
-    return match_run_on_projects(parameters["project"], run_on_projects)
+    return match_run_on_projects(parameters, run_on_projects)
 
 
 def filter_for_hg_branch(task, parameters):
@@ -155,7 +167,6 @@ def filter_by_regex(task_label, regexes, mode="include"):
 def filter_release_tasks(task, parameters):
     platform = task.attributes.get("build_platform")
     if platform in (
-        "linux",
         "linux64",
         "linux64-aarch64",
         "macosx64",
@@ -235,7 +246,7 @@ def filter_tests_without_manifests(task, parameters):
     aware that the task exists (which is needed by the backfill action).
     """
     if (
-        task.kind == "test"
+        task.kind in TEST_KINDS
         and "test_manifests" in task.attributes
         and not task.attributes["test_manifests"]
     ):
@@ -248,8 +259,10 @@ def standard_filter(task, parameters):
         filter_func(task, parameters)
         for filter_func in (
             filter_out_cron,
+            filter_for_repo_type,
             filter_for_project,
             filter_for_hg_branch,
+            filter_for_git_branch,
             filter_tests_without_manifests,
         )
     )
@@ -345,77 +358,11 @@ def _try_task_config(full_task_graph, parameters, graph_config):
     return list(selected_tasks - missing)
 
 
-def _try_option_syntax(full_task_graph, parameters, graph_config):
-    """Generate a list of target tasks based on try syntax in
-    parameters['message'] and, for context, the full task graph."""
-    options = try_option_syntax.TryOptionSyntax(
-        parameters, full_task_graph, graph_config
-    )
-    target_tasks_labels = [
-        t.label
-        for t in full_task_graph.tasks.values()
-        if options.task_matches(t)
-        and filter_by_uncommon_try_tasks(t.label)
-        and filter_unsupported_artifact_builds(t, parameters)
-    ]
-
-    attributes = {
-        k: getattr(options, k)
-        for k in [
-            "no_retry",
-            "tag",
-        ]
-    }
-
-    for l in target_tasks_labels:
-        task = full_task_graph[l]
-        if "unittest_suite" in task.attributes:
-            task.attributes["task_duplicates"] = options.trigger_tests
-
-    for l in target_tasks_labels:
-        task = full_task_graph[l]
-        # If the developer wants test jobs to be rebuilt N times we add that value here
-        if options.trigger_tests > 1 and "unittest_suite" in task.attributes:
-            task.attributes["task_duplicates"] = options.trigger_tests
-
-        # If the developer wants test talos jobs to be rebuilt N times we add that value here
-        if (
-            options.talos_trigger_tests > 1
-            and task.attributes.get("unittest_suite") == "talos"
-        ):
-            task.attributes["task_duplicates"] = options.talos_trigger_tests
-
-        # If the developer wants test raptor jobs to be rebuilt N times we add that value here
-        if (
-            options.raptor_trigger_tests
-            and options.raptor_trigger_tests > 1
-            and task.attributes.get("unittest_suite") == "raptor"
-        ):
-            task.attributes["task_duplicates"] = options.raptor_trigger_tests
-
-        task.attributes.update(attributes)
-
-    # Add notifications here as well
-    if options.notifications:
-        for task in full_task_graph:
-            owner = parameters.get("owner")
-            routes = task.task.setdefault("routes", [])
-            if options.notifications == "all":
-                routes.append(f"notify.email.{owner}.on-any")
-            elif options.notifications == "failure":
-                routes.append(f"notify.email.{owner}.on-failed")
-                routes.append(f"notify.email.{owner}.on-exception")
-
-    return target_tasks_labels
-
-
 @register_target_task("try_tasks")
 def target_tasks_try(full_task_graph, parameters, graph_config):
     try_mode = parameters["try_mode"]
     if try_mode == "try_task_config":
         return _try_task_config(full_task_graph, parameters, graph_config)
-    if try_mode == "try_option_syntax":
-        return _try_option_syntax(full_task_graph, parameters, graph_config)
     # With no try mode, we schedule nothing, allowing the user to add tasks
     # later via treeherder.
     return []
@@ -444,7 +391,7 @@ def target_tasks_autoland(full_task_graph, parameters, graph_config):
     )
 
     def filter(task):
-        if task.kind != "test":
+        if task.kind not in TEST_KINDS:
             return True
 
         if parameters["backstop"]:
@@ -470,7 +417,7 @@ def target_tasks_mozilla_central(full_task_graph, parameters, graph_config):
     )
 
     def filter(task):
-        if task.kind != "test":
+        if task.kind not in TEST_KINDS:
             return True
 
         build_platform = task.attributes.get("build_platform")
@@ -544,8 +491,8 @@ def target_tasks_mozilla_release(full_task_graph, parameters, graph_config):
     ]
 
 
-@register_target_task("mozilla_esr128_tasks")
-def target_tasks_mozilla_esr128(full_task_graph, parameters, graph_config):
+@register_target_task("mozilla_esr140_tasks")
+def target_tasks_mozilla_esr140(full_task_graph, parameters, graph_config):
     """Select the set of tasks required for a promotable beta or release build
     of desktop, without android CI. The candidates build process involves a pipeline
     of builds and signing, but does not include beetmover or balrog jobs."""
@@ -709,7 +656,7 @@ def target_tasks_larch(full_task_graph, parameters, graph_config):
         ):
             return False
         # otherwise reduce tests only
-        if task.kind != "test":
+        if task.kind not in TEST_KINDS:
             return True
         return "browser-chrome" in task.label or "xpcshell" in task.label
 
@@ -738,8 +685,7 @@ def target_tasks_custom_car_perf_testing(full_task_graph, parameters, graph_conf
             return False
 
         try_name = attributes.get("raptor_try_name")
-
-        if "network-bench" in try_name:
+        if "network-bench" in try_name and "linux" not in platform:
             return False
 
         # Desktop and Android selection for CaR
@@ -751,8 +697,8 @@ def target_tasks_custom_car_perf_testing(full_task_graph, parameters, graph_conf
                 # Bug 1928416
                 # For ARM coverage, this will only run on M2 machines at the moment.
                 if "jetstream2" in try_name:
-                    # Bug 1947649 - Disable js2 on 1400 mac for custom-car due to near perma
-                    if "m-car" in try_name and "1400" in platform:
+                    # Bug 1963732 - Disable js2 on 1500 mac for custom-car due to near perma
+                    if "m-car" in try_name and "1500" in platform:
                         return False
                     return True
                 return True
@@ -764,14 +710,20 @@ def target_tasks_custom_car_perf_testing(full_task_graph, parameters, graph_conf
                     return False
                 if "jetstream2" in try_name:
                     return True
-                # Bug 1898514: avoid tp6m or non-essential tp6 jobs in cron on non-a55 platform
-                if "tp6m" in try_name and "a55" not in platform:
+                if "jetstream3" in try_name:
+                    return True
+                # Bug 1898514 - Avoid tp6m or non-essential tp6 jobs in cron on non-a55 platform
+                # Bug 1961831 - Disable pageload tests temporarily during provider switch
+                if "tp6m" in try_name:
                     return False
-                # Bug 1945165 Disable ebay-kleinanzeigen on cstm-car-m because of permafail
+                # Bug 1945165 - Disable ebay-kleinanzeigen on cstm-car-m because of permafail
                 if (
                     "ebay-kleinanzeigen" in try_name
                     and "ebay-kleinanzeigen-search" not in try_name
                 ):
+                    return False
+                # Bug 1960921 Disable ebay-kleinanzeigen-search-nofis on custom-car
+                if "ebay-kleinanzeigen-search-nofis" in try_name:
                     return False
                 return True
         return False
@@ -813,6 +765,12 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
                 # Disabled chrome responsiveness tests temporarily in bug 1898351
                 # due to frequent failures
                 return False
+            # Bug 1961141 - Disable unity webgl for chrome windows
+            if "chrome-unity-webgl" in try_name and "windows11" in platform:
+                return False
+            # Bug 1961145 - Disable bing-search for test-windows11-64-24h2-shippable
+            if "windows11" in platform and "bing-search" in try_name:
+                return False
             if "browsertime" in try_name:
                 if "chrome" in try_name:
                     if "tp6" in try_name and "essential" not in try_name:
@@ -829,6 +787,15 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
                     if "speedometer" in try_name:
                         return True
                 if "safari" and "benchmark" in try_name:
+                    if "jetstream2" in try_name and "safari" in try_name:
+                        return False
+                    # JetStream 3 fails with Safari 18.3 but not Safari-TP.
+                    # See bug 1996277.
+                    if (
+                        "safari-jetstream3" in try_name
+                        and "macosx1500-aarch64" in platform
+                    ):
+                        return False
                     return True
         # Android selection
         elif accept_raptor_android_build(platform):
@@ -838,6 +805,13 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
                 return False
             # Bug 1929960 - Enable all chrome-m tp6m tests on a55 only
             if "chrome-m" in try_name and "tp6m" in try_name and "hw-a55" in platform:
+                # Bug 1954923 - Disable ebay-kleinanzeigen
+                if (
+                    "ebay-kleinanzeigen" in try_name
+                    and "search" not in try_name
+                    and "nofis" in try_name
+                ):
+                    return False
                 return True
             if "chrome-m" in try_name and (
                 ("ebay" in try_name and "live" not in try_name)
@@ -866,6 +840,8 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
                 if "m-car" in try_name:
                     return False
                 if "jetstream2" in try_name:
+                    return True
+                if "jetstream3" in try_name:
                     return True
                 if "fenix" in try_name:
                     return False
@@ -909,17 +885,14 @@ def make_desktop_nightly_filter(platforms):
     """Returns a filter that gets all nightly tasks on the given platform."""
 
     def filter(task, parameters):
-        return all(
-            [
-                filter_on_platforms(task, platforms),
-                filter_for_project(task, parameters),
-                task.attributes.get("shippable", False),
-                # Tests and nightly only builds don't have `shipping_product` set
-                task.attributes.get("shipping_product")
-                in {None, "firefox", "thunderbird"},
-                task.kind not in {"l10n"},  # no on-change l10n
-            ]
-        )
+        return all([
+            filter_on_platforms(task, platforms),
+            filter_for_project(task, parameters),
+            task.attributes.get("shippable", False),
+            # Tests and nightly only builds don't have `shipping_product` set
+            task.attributes.get("shipping_product") in {None, "firefox", "thunderbird"},
+            task.kind not in {"l10n"},  # no on-change l10n
+        ])
 
     return filter
 
@@ -960,9 +933,10 @@ def target_tasks_nightly_linux(full_task_graph, parameters, graph_config):
     """Select the set of tasks required for a nightly build of linux. The
     nightly build process involves a pipeline of builds, signing,
     and, eventually, uploading the tasks to balrog."""
-    filter = make_desktop_nightly_filter(
-        {"linux64-shippable", "linux-shippable", "linux64-aarch64-shippable"}
-    )
+    filter = make_desktop_nightly_filter({
+        "linux64-shippable",
+        "linux64-aarch64-shippable",
+    })
     return [l for l, t in full_task_graph.tasks.items() if filter(t, parameters)]
 
 
@@ -1007,9 +981,10 @@ def target_tasks_nightly_asan(full_task_graph, parameters, graph_config):
     """Select the set of tasks required for a nightly build of asan. The
     nightly build process involves a pipeline of builds, signing,
     and, eventually, uploading the tasks to balrog."""
-    filter = make_desktop_nightly_filter(
-        {"linux64-asan-reporter-shippable", "win64-asan-reporter-shippable"}
-    )
+    filter = make_desktop_nightly_filter({
+        "linux64-asan-reporter-shippable",
+        "win64-asan-reporter-shippable",
+    })
     return [l for l, t in full_task_graph.tasks.items() if filter(t, parameters)]
 
 
@@ -1101,14 +1076,19 @@ def target_tasks_searchfox(full_task_graph, parameters, graph_config):
         try:
             task = find_task(index_path)
             print(f"Index {index_path} exists: taskId {task['taskId']}")
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code != 404:
+        except TaskclusterRestFailure as e:
+            if e.status_code != 404:
                 raise
             print(f"Index {index_path} doesn't exist.")
         else:
             # Find the earlier expiration time of existing tasks
             taskdef = get_task_definition(task["taskId"])
-            task_graph = get_artifact(task["taskId"], "public/task-graph.json")
+            try:
+                task_graph = get_artifact(task["taskId"], "public/task-graph.json")
+            except TaskclusterRestFailure as e:
+                if e.status_code != 404:
+                    raise
+                task_graph = None
             if task_graph:
                 base_time = parse_time(taskdef["created"])
                 first_expiry = min(
@@ -1120,12 +1100,15 @@ def target_tasks_searchfox(full_task_graph, parameters, graph_config):
                     print("Skipping index tasks")
                     return []
         if not create.testing:
-            insert_index(index_path, os.environ["TASK_ID"], use_proxy=True)
+            insert_index(index_path, os.environ["TASK_ID"])
 
     return [
+        "searchfox-linux64-searchfox/opt",
         "searchfox-linux64-searchfox/debug",
         "searchfox-macosx64-searchfox/debug",
+        "searchfox-macosx64-aarch64-searchfox/opt",
         "searchfox-macosx64-aarch64-searchfox/debug",
+        "searchfox-win64-searchfox/opt",
         "searchfox-win64-searchfox/debug",
         "searchfox-android-aarch64-searchfox/debug",
         "searchfox-ios-searchfox/debug",
@@ -1144,6 +1127,9 @@ def target_tasks_build_linux64_clang_trunk_perf(
 
     # Only keep tasks generated from platform `linux1804-64-clang-trunk-qr/opt`
     def filter(task_label):
+        # Bug 1961141 - Disable unity webgl for linux1804-64-clang-trunk-qr
+        if "linux1804-64-clang-trunk-qr/opt" in task_label and "unity" in task_label:
+            return False
         if "linux1804-64-clang-trunk-qr/opt" in task_label and "live" not in task_label:
             return True
         return False
@@ -1191,8 +1177,7 @@ def target_tasks_merge_automation(full_task_graph, parameters, graph_config):
     """Select the set of tasks required to perform repository merges."""
 
     def filter(task):
-        # For now any task in the repo-update kind is ok
-        return task.kind in ["merge-automation"]
+        return task.kind in ["merge-automation", "mark-as-merged"]
 
     return [l for l, t in full_task_graph.tasks.items() if filter(t)]
 
@@ -1226,18 +1211,15 @@ def _filter_by_release_project(parameters):
         "nightly": "mozilla-central",
         "beta": "mozilla-beta",
         "release": "mozilla-release",
-        "esr128": "mozilla-esr128",
+        "esr140": "mozilla-esr140",
     }
     target_project = project_by_release.get(parameters["release_type"])
     if target_project is None:
         raise Exception("Unknown or unspecified release type in simulation run.")
 
-    def filter_for_target_project(task):
-        """Filter tasks by project.  Optionally enable nightlies."""
-        run_on_projects = set(task.attributes.get("run_on_projects", []))
-        return match_run_on_projects(target_project, run_on_projects)
-
-    return filter_for_target_project
+    params = parameters.copy()
+    params["project"] = target_project
+    return lambda task: filter_for_project(task, params)
 
 
 def filter_out_android_on_esr(parameters, task):
@@ -1436,7 +1418,6 @@ def target_tasks_weekly_release_perf(full_task_graph, parameters, graph_config):
                 if "youtube-playback" in try_name:
                     return True
         elif accept_raptor_android_build(platform):
-
             if "browsertime" and "geckoview" in try_name:
                 return False
 
@@ -1577,6 +1558,18 @@ def target_tasks_perftest(full_task_graph, parameters, graph_config):
             yield name
 
 
+@register_target_task("perftest-fenix-startup")
+def target_tasks_perftest_fenix_startup(full_task_graph, parameters, graph_config):
+    """
+    Select perftest tasks we want to run daily for fenix startup
+    """
+    for name, task in full_task_graph.tasks.items():
+        if task.kind != "perftest":
+            continue
+        if "fenix" in name and "startup" in name and "profiling" not in name:
+            yield name
+
+
 @register_target_task("perftest-on-autoland")
 def target_tasks_perftest_autoland(full_task_graph, parameters, graph_config):
     """
@@ -1588,6 +1581,32 @@ def target_tasks_perftest_autoland(full_task_graph, parameters, graph_config):
         if task.attributes.get("cron", False) and any(
             test_name in name for test_name in ["view"]
         ):
+            yield name
+
+
+@register_target_task("retrigger-perftests-autoland")
+def retrigger_perftests_autoland_commits(full_task_graph, parameters, graph_config):
+    """
+    In this transform we are trying to do retrigger the following tasks 4 times every 20 commits in autoland:
+    - "perftest-android-hw-a55-aarch64-shippable-startup-fenix-cold-main-first-frame",
+    - "perftest-android-hw-a55-aarch64-shippable-startup-fenix-cold-view-nav-start",
+    - "perftest-android-hw-a55-aarch64-shippable-startup-fenix-homeview-startup",
+    - "perftest-android-hw-a55-aarch64-shippable-startup-fenix-newssite-applink-startup",
+    - "perftest-android-hw-a55-aarch64-shippable-startup-fenix-shopify-applink-startup",
+    - "perftest-android-hw-a55-aarch64-shippable-startup-fenix-tab-restore-shopify"
+    - "test-windows11-64-24h2-shippable/opt-browsertime-benchmark-firefox-speedometer3",
+    """
+    retrigger_count = 4
+    for name, task in full_task_graph.tasks.items():
+        if (
+            (
+                "perftest-android-hw-a55-aarch64-shippable-startup-fenix" in task.label
+                and "simple" not in task.label
+            )
+            or "test-windows11-64-24h2-shippable/opt-browsertime-benchmark-firefox-speedometer3"
+            in task.label
+        ):
+            task.attributes["task_duplicates"] = retrigger_count
             yield name
 
 
@@ -1612,24 +1631,23 @@ def target_tasks_holly(full_task_graph, parameters, graph_config):
     return [l for l, t in full_task_graph.tasks.items() if filter(t)]
 
 
-@register_target_task("snap_upstream_tests")
-def target_tasks_snap_upstream_tests(full_task_graph, parameters, graph_config):
+@register_target_task("snap_upstream_tasks")
+def target_tasks_snap_upstream_tasks(full_task_graph, parameters, graph_config):
     """
-    Select tasks for testing Snap package built as upstream. Omit -try because
-    it does not really make sense on a m-c cron
+    Select tasks for building/testing Snap package built as upstream. Omit -try
+    because it does not really make sense on a m-c cron
+
+    Use test tasks for linux64 builds and only builds for arm* until there is
+    support for running tests (bug 1855463)
     """
     for name, task in full_task_graph.tasks.items():
-        if "snap-upstream-test" in name and not "-try" in name:
+        if "snap-upstream" in name and not "-local" in name:
             yield name
 
 
 @register_target_task("nightly-android")
 def target_tasks_nightly_android(full_task_graph, parameters, graph_config):
     def filter(task, parameters):
-        # bug 1899553: don't automatically schedule uploads to google play
-        if task.kind == "push-bundle":
-            return False
-
         # geckoview
         if task.attributes.get("shipping_product") == "fennec" and task.kind in (
             "beetmover-geckoview",
@@ -1676,22 +1694,50 @@ def target_tasks_android_l10n_sync(full_task_graph, parameters, graph_config):
 
 @register_target_task("os-integration")
 def target_tasks_os_integration(full_task_graph, parameters, graph_config):
-    labels = []
+    candidate_attrs = load_yaml(os.path.join(TEST_CONFIGS, "os-integration.yml"))
 
+    labels = []
     for label, task in full_task_graph.tasks.items():
-        if task.attributes.get("unittest_variant") != "os-integration":
+        if task.kind not in TEST_KINDS + ("source-test", "perftest", "startup-test"):
             continue
 
-        index = label.index("-osint")
-        base_label = label[:index]
-        if base_label not in full_task_graph.tasks:
-            base_label += "-1"
-        base_task = full_task_graph.tasks[base_label]
+        # Match tasks against attribute sets defined in os-integration.yml.
+        if not any(attrmatch(task.attributes, **c) for c in candidate_attrs):
+            continue
 
-        if (
-            filter_for_project(base_task, parameters)
-            and filter_for_hg_branch(base_task, parameters)
-            and filter_tests_without_manifests(base_task, parameters)
-        ):
-            labels.append(label)
+        if not is_try(parameters):
+            # Only run hardware tasks if scheduled from try. We do this because
+            # the `cron` task is designed to provide a base for testing worker
+            # images, which isn't something that impacts our hardware pools.
+            if (
+                task.attributes.get("build_platform") == "macosx64"
+                or "android-hw" in label
+            ):
+                continue
+
+            # Perform additional filtering for non-try repos. We don't want to
+            # limit what can be scheduled on try as os-integration tests are still
+            # useful for manual verification of things.
+            if not (
+                filter_for_project(task, parameters)
+                and filter_for_hg_branch(task, parameters)
+                and filter_tests_without_manifests(task, parameters)
+            ):
+                continue
+
+        labels.append(label)
     return labels
+
+
+@register_target_task("weekly-test-info")
+def target_tasks_weekly_test_info(full_task_graph, parameters, graph_config):
+    return ["source-test-file-metadata-test-info-all"]
+
+
+@register_target_task("test-info-timings-periodic")
+def target_tasks_test_info_timings_periodic(full_task_graph, parameters, graph_config):
+    return [
+        "source-test-file-metadata-test-info-xpcshell-timings-periodic",
+        "source-test-file-metadata-test-info-mochitest-timings-periodic",
+        "source-test-file-metadata-test-info-manifest-timings-periodic",
+    ]

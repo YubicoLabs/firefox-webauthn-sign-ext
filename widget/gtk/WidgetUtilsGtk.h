@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef WidgetUtilsGtk_h__
-#define WidgetUtilsGtk_h__
+#ifndef WidgetUtilsGtk_h_
+#define WidgetUtilsGtk_h_
 
 #include "nsString.h"
 #include "nsTArray.h"
@@ -37,9 +37,9 @@ bool IsXWaylandProtocol();
 
 GdkDevice* GdkGetPointer();
 
-// Sets / returns the last mouse press event we processed.
-void SetLastMousePressEvent(GdkEvent*);
-GdkEvent* GetLastMousePressEvent();
+// Sets / returns the last mouse button press/touch begin event we processed.
+void SetLastPointerDownEvent(GdkEvent*);
+GdkEvent* GetLastPointerDownEvent();
 
 // Return the snap's instance name, or null when not running as a snap.
 const char* GetSnapInstanceName();
@@ -49,6 +49,9 @@ bool IsPackagedAppFileExists();
 inline bool IsRunningUnderFlatpakOrSnap() {
   return IsRunningUnderFlatpak() || IsRunningUnderSnap();
 }
+#ifdef MOZ_ENABLE_DBUS
+void RegisterHostApp();
+#endif
 
 enum class PortalKind {
   FilePicker,
@@ -87,4 +90,4 @@ void FindLatestUserTime(GdkDisplay* aDisplay, uintptr_t aWindow,
 
 }  // namespace mozilla::widget
 
-#endif  // WidgetUtilsGtk_h__
+#endif  // WidgetUtilsGtk_h_

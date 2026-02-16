@@ -8,126 +8,6 @@
 
 const AVAILABLE_SHIMS = [
   {
-    hiddenInAboutCompat: true,
-    id: "LiveTestShim",
-    platform: "all",
-    name: "Live test shim",
-    bug: "livetest",
-    file: "live-test-shim.js",
-    matches: ["*://webcompat-addon-testbed.herokuapp.com/shims_test.js"],
-    needsShimHelpers: ["getOptions", "optIn"],
-  },
-  {
-    hiddenInAboutCompat: true,
-    id: "MochitestShim",
-    platform: "all",
-    branch: ["all:ignoredOtherPlatform"],
-    name: "Test shim for Mochitests",
-    bug: "mochitest",
-    file: "mochitest-shim-1.js",
-    matches: [
-      "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test.js",
-    ],
-    needsShimHelpers: ["getOptions", "optIn"],
-    options: {
-      simpleOption: true,
-      complexOption: { a: 1, b: "test" },
-      branchValue: { value: true, branches: [] },
-      platformValue: { value: true, platform: "neverUsed" },
-    },
-    unblocksOnOptIn: ["*://trackertest.org/*"],
-  },
-  {
-    hiddenInAboutCompat: true,
-    disabled: true,
-    id: "MochitestShim2",
-    platform: "all",
-    name: "Test shim for Mochitests (disabled by default)",
-    bug: "mochitest",
-    file: "mochitest-shim-2.js",
-    matches: [
-      "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_2.js",
-    ],
-    needsShimHelpers: ["getOptions", "optIn"],
-    options: {
-      simpleOption: true,
-      complexOption: { a: 1, b: "test" },
-      branchValue: { value: true, branches: [] },
-      platformValue: { value: true, platform: "neverUsed" },
-    },
-    unblocksOnOptIn: ["*://trackertest.org/*"],
-  },
-  {
-    hiddenInAboutCompat: true,
-    id: "MochitestShim3",
-    platform: "all",
-    name: "Test shim for Mochitests (host)",
-    bug: "mochitest",
-    file: "mochitest-shim-3.js",
-    notHosts: ["example.com"],
-    matches: [
-      "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_3.js",
-    ],
-  },
-  {
-    hiddenInAboutCompat: true,
-    id: "MochitestShim4",
-    platform: "all",
-    name: "Test shim for Mochitests (notHost)",
-    bug: "mochitest",
-    file: "mochitest-shim-3.js",
-    hosts: ["example.net"],
-    matches: [
-      "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_3.js",
-    ],
-  },
-  {
-    hiddenInAboutCompat: true,
-    id: "MochitestShim5",
-    platform: "all",
-    name: "Test shim for Mochitests (branch)",
-    bug: "mochitest",
-    file: "mochitest-shim-3.js",
-    branches: ["never matches"],
-    matches: [
-      "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_3.js",
-    ],
-  },
-  {
-    hiddenInAboutCompat: true,
-    id: "MochitestShim6",
-    platform: "never matches",
-    name: "Test shim for Mochitests (platform)",
-    bug: "mochitest",
-    file: "mochitest-shim-3.js",
-    matches: [
-      "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_3.js",
-    ],
-  },
-  {
-    id: "EmbedTestShim",
-    platform: "desktop",
-    name: "Test shim for smartblock embed unblocking",
-    bug: "1892175",
-    runFirst: "embed-test-shim.js",
-    // Blank stub file just so we run the script above when the matched script
-    // files get blocked.
-    file: "empty-script.js",
-    matches: [
-      "https://itisatracker.org/browser/browser/extensions/webcompat/tests/browser/embed_test.js",
-    ],
-    // Use instagram logo as an example
-    logos: ["instagram.svg"],
-    needsShimHelpers: [
-      "embedClicked",
-      "smartblockEmbedReplaced",
-      "smartblockGetFluentString",
-    ],
-    isSmartblockEmbedShim: true,
-    onlyIfBlockedByETP: true,
-    unblocksOnOptIn: ["*://itisatracker.org/*"],
-  },
-  {
     id: "AddThis",
     platform: "all",
     name: "AddThis",
@@ -269,6 +149,29 @@ const AVAILABLE_SHIMS = [
     file: "apstag.js",
     matches: ["*://c.amazon-adsystem.com/aax2/apstag.js"],
     onlyIfBlockedByETP: true,
+  },
+  {
+    id: "AmazonAdSystem",
+    platform: "all",
+    name: "Amazon Ad System",
+    bug: "1977375",
+    file: "empty-shim.txt",
+    matches: ["*://aax.amazon-adsystem.com/e/dtb/bid/*/prebid*"],
+    onlyIfBlockedByETP: true,
+  },
+  {
+    id: "ArtstationLogin",
+    platform: "all",
+    name: "Artstation Google Login",
+    bug: "1926551",
+    contentScripts: [
+      {
+        js: "artstationLogin.js",
+        matches: ["*://www.artstation.com/*"],
+        runAt: "document_start",
+      },
+    ],
+    onlyIfDFPIActive: true,
   },
   {
     id: "BmAuth",
@@ -482,6 +385,31 @@ const AVAILABLE_SHIMS = [
     name: "Google Publisher Tags",
     bug: "1713685",
     file: "google-publisher-tags.js",
+    notHosts: [
+      "13wham.com",
+      "wpde.com",
+      "krcrtv.com",
+      "nbcmontana.com",
+      "idahonews.com",
+      "wgme.com",
+      "wtov9.com",
+      "news3lv.com",
+      "devuploads.com",
+      "wjla.com",
+      "komonews.com",
+      "fox11online.com",
+      "cbs6albany.com",
+      "okcfox.co",
+      "turnto10.com",
+      "wcti12.com",
+      "wjactv.com",
+      "keprtv.com",
+      "katu.com",
+      "kfoxtv.com",
+      "thenationaldesk.com",
+      "foxbaltimore.com",
+      "local12.com",
+    ],
     matches: [
       "*://www.googletagservices.com/tag/js/gpt.js*",
       "*://pagead2.googlesyndication.com/tag/js/gpt.js*",
@@ -591,31 +519,6 @@ const AVAILABLE_SHIMS = [
     onlyIfBlockedByETP: true,
   },
   {
-    id: "Firebase",
-    platform: "all",
-    name: "Firebase",
-    bug: "1771783",
-    onlyIfPrivateBrowsing: true,
-    runFirst: "firebase.js",
-    matches: [
-      // bugs 1750699, 1767407
-      "*://www.gstatic.com/firebasejs/*/firebase-messaging.js*",
-    ],
-    contentScripts: [
-      {
-        js: "firebase.js",
-        runAt: "document_start",
-        matches: [
-          "*://www.homedepot.ca/*", // bug 1778993
-          "*://orangerie.eu/*", // bug 1758442
-          "*://web.whatsapp.com/*", // bug 1767407
-          "*://www.tripadvisor.com/*", // bug 1779536
-          "*://www.office.com/*", // bug 1783921
-        ],
-      },
-    ],
-  },
-  {
     id: "StickyAdsTV",
     platform: "all",
     name: "StickyAdsTV",
@@ -636,32 +539,6 @@ const AVAILABLE_SHIMS = [
         types: ["image", "imageset", "xmlhttprequest"],
         onlyIfBlockedByETP: true,
       },
-    ],
-  },
-  {
-    id: "Vidible",
-    branch: ["nightly"],
-    platform: "all",
-    name: "Vidible",
-    bug: "1713710",
-    file: "vidible.js",
-    logos: ["play.svg"],
-    matches: [
-      "*://*.vidible.tv/*/vidible-min.js*",
-      "*://vdb-cdn-files.s3.amazonaws.com/*/vidible-min.js*",
-    ],
-    needsShimHelpers: ["optIn"],
-    onlyIfBlockedByETP: true,
-    unblocksOnOptIn: [
-      "*://delivery.vidible.tv/jsonp/pid=*/vid=*/*.js*",
-      "*://delivery.vidible.tv/placement/*",
-      "*://img.vidible.tv/prod/*",
-      "*://cdn-ssl.vidible.tv/prod/player/js/*.js",
-      "*://hlsrv.vidible.tv/prod/*.m3u8*",
-      "*://videos.vidible.tv/prod/*.key*",
-      "*://videos.vidible.tv/prod/*.mp4*",
-      "*://videos.vidible.tv/prod/*.webm*",
-      "*://videos.vidible.tv/prod/*.ts*",
     ],
   },
   {
@@ -707,6 +584,19 @@ const AVAILABLE_SHIMS = [
     onlyIfDFPIActive: true,
   },
   {
+    id: "MicrosoftIcon",
+    name: "Microsoft Account Icon",
+    bug: "1728111",
+    contentScripts: [
+      {
+        js: "microsoftAccountIcon.js",
+        matches: ["*://*.microsoft.com/*", "*://m365.cloud.microsoft/*"],
+        runAt: "document_start",
+      },
+    ],
+    onlyIfDFPIActive: true,
+  },
+  {
     id: "MicrosoftLogin",
     platform: "desktop",
     name: "Microsoft Login",
@@ -734,6 +624,37 @@ const AVAILABLE_SHIMS = [
       },
     ],
     onlyIfDFPIActive: true,
+  },
+  {
+    id: "CambridgeDictionaryLogin",
+    platform: "all",
+    name: "Cambridge Dictionary Google Login",
+    bug: "1993727",
+    contentScripts: [
+      {
+        js: "cambridgeDictionaryLogin.js",
+        matches: ["*://dictionary.cambridge.org/*"],
+        runAt: "document_start",
+      },
+    ],
+    onlyIfDFPIActive: true,
+  },
+  {
+    id: "MicrosoftOfficeAuth",
+    platform: "desktop",
+    name: "Microsoft Office Auth",
+    bug: "1747889",
+    contentScripts: [
+      {
+        js: "microsoftOfficeAuth.js",
+        matches: [
+          "*://usc-excel.officeapps.live.com/*",
+          "*://excel.officeapps.live.com/*",
+        ],
+        runAt: "document_start",
+        allFrames: true,
+      },
+    ],
   },
   {
     id: "MicrosoftVirtualAssistant",
@@ -812,26 +733,6 @@ const AVAILABLE_SHIMS = [
       "*://s.webtrends.com/js/webtrends.min.js",
     ],
     onlyIfBlockedByETP: true,
-  },
-  {
-    id: "Blogger",
-    platform: "all",
-    name: "Blogger",
-    bug: "1776869",
-    contentScripts: [
-      {
-        js: "blogger.js",
-        matches: ["*://www.blogger.com/comment/frame/*"],
-        runAt: "document_start",
-        allFrames: true,
-      },
-      {
-        js: "bloggerAccount.js",
-        matches: ["*://www.blogger.com/blog/*"],
-        runAt: "document_end",
-      },
-    ],
-    onlyIfDFPIActive: true,
   },
   {
     // keep this below any other shims checking adsafeprotected URLs
@@ -918,6 +819,48 @@ const AVAILABLE_SHIMS = [
     onlyIfDFPIActive: true,
   },
   {
+    id: "StackOverflowLogin",
+    platform: "all",
+    name: "StackOverflow Login",
+    bug: "1949491",
+    contentScripts: [
+      {
+        js: "stackoverflow-login.js",
+        matches: ["*://stackoverflow.com/*"],
+        runAt: "document_start",
+      },
+    ],
+    onlyIfDFPIActive: true,
+  },
+  {
+    id: "JiraZendeskSupport",
+    platform: "all",
+    name: "Jira Zendesk Support",
+    bug: "1774592",
+    contentScripts: [
+      {
+        js: "jira-zendesk-support.js",
+        matches: ["*://*.atlassian.net/*"],
+        runAt: "document_start",
+      },
+    ],
+    onlyIfDFPIActive: true,
+  },
+  {
+    id: "ZendeskAsanaSupport",
+    platform: "all",
+    name: "Zendesk Asana Support",
+    bug: "1774567",
+    contentScripts: [
+      {
+        js: "zendesk-asana-support.js",
+        matches: ["*://*.zendesk.com/*"],
+        runAt: "document_start",
+      },
+    ],
+    onlyIfDFPIActive: true,
+  },
+  {
     id: "emeraude.my.salesforce.com",
     platform: "all",
     name: "Salesforce IndexedDB Script Access",
@@ -950,6 +893,7 @@ const AVAILABLE_SHIMS = [
       "embedClicked",
       "smartblockEmbedReplaced",
       "smartblockGetFluentString",
+      "shouldShowEmbedContentInPlaceholders",
     ],
     isSmartblockEmbedShim: true,
     onlyIfBlockedByETP: true,
@@ -975,10 +919,33 @@ const AVAILABLE_SHIMS = [
       "embedClicked",
       "smartblockEmbedReplaced",
       "smartblockGetFluentString",
+      "shouldShowEmbedContentInPlaceholders",
     ],
     isSmartblockEmbedShim: true,
     onlyIfBlockedByETP: true,
     unblocksOnOptIn: ["*://www.tiktok.com/*"],
+  },
+  {
+    id: "DisqusEmbed",
+    platform: "desktop",
+    name: "Disqus embed placeholder",
+    bug: "1965307",
+    runFirst: "disqus-embed.js",
+    // Blank stub file just so we run the script above when the matched script
+    // files get blocked.
+    file: "empty-script.js",
+    matches: ["*://*.disqus.com/embed.js"],
+    logos: ["disqus.svg"],
+    webExposedShimHelpers: [],
+    needsShimHelpers: [
+      "embedClicked",
+      "smartblockEmbedReplaced",
+      "smartblockGetFluentString",
+      "shouldShowEmbedContentInPlaceholders",
+    ],
+    isSmartblockEmbedShim: true,
+    onlyIfBlockedByETP: true,
+    unblocksOnOptIn: ["*://*.disqus.com/*", "*://c.disquscdn.com/*"],
   },
   {
     id: "FingerpringJSBotd",
@@ -989,6 +956,72 @@ const AVAILABLE_SHIMS = [
     matches: ["*://openfpcdn.io/botd/v1"],
     onlyIfBlockedByETP: true,
   },
+  {
+    id: "SteamLogin",
+    platform: "all",
+    name: "Steam Login Shim",
+    bug: "1938299",
+    requestStorageAccessForRedirect: [
+      // allow cookies for *.steampowered.com <-> steamcommunity.com
+      ["*://store.steampowered.com/*", "*://steamcommunity.com/*"],
+      ["*://steamcommunity.com/*", "*://store.steampowered.com/*"],
+      ["*://help.steampowered.com/*", "*://steamcommunity.com/*"],
+      ["*://steamcommunity.com/*", "*://help.steampowered.com/*"],
+      ["*://checkout.steampowered.com/*", "*://steamcommunity.com/*"],
+      ["*://steamcommunity.com/*", "*://checkout.steampowered.com/*"],
+      // allow cookies for *.steampowered.com <-> steam.tv
+      ["*://store.steampowered.com/*", "*://steam.tv/*"],
+      ["*://steam.tv/*", "*://store.steampowered.com/*"],
+      ["*://help.steampowered.com/*", "*://steam.tv/*"],
+      ["*://steam.tv/*", "*://help.steampowered.com/*"],
+      ["*://checkout.steampowered.com/*", "*://steam.tv/*"],
+      ["*://steam.tv/*", "*://checkout.steampowered.com/*"],
+    ],
+  },
+  {
+    id: "TwitterEmbed",
+    platform: "desktop",
+    name: "Twitter embed placeholder",
+    bug: "1901602",
+    runFirst: "twitter-embed.js",
+    // Blank stub file just so we run the script above when the matched script
+    // files get blocked.
+    file: "empty-script.js",
+    matches: ["https://platform.twitter.com/widgets.js"],
+    logos: ["x-logo.svg"],
+    needsShimHelpers: [
+      "embedClicked",
+      "smartblockEmbedReplaced",
+      "smartblockGetFluentString",
+      "shouldShowEmbedContentInPlaceholders",
+    ],
+    isSmartblockEmbedShim: true,
+    onlyIfBlockedByETP: true,
+    unblocksOnOptIn: [
+      "*://platform.twitter.com/*",
+      "*://syndication.twitter.com/*",
+      "*://cdn.syndication.twimg.com/*",
+      "*://video.twimg.com/*",
+      "*://pbs.twimg.com/*",
+      "*://abs.twimg.com/*",
+      "*://abs-0.twimg.com/*",
+    ],
+  },
+  {
+    id: "AliExpressInternationalization",
+    name: "AliExpress Internationalization",
+    bug: "1912228",
+    contentScripts: [
+      {
+        js: "aliexpress-language.js",
+        matches: ["*://*.aliexpress.us/*"],
+        runAt: "document_start",
+      },
+    ],
+    onlyIfDFPIActive: true,
+  },
 ];
 
-module.exports = AVAILABLE_SHIMS;
+if (typeof module !== "undefined") {
+  module.exports = AVAILABLE_SHIMS;
+}

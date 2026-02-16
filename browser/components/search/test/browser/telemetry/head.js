@@ -18,8 +18,10 @@ ChromeUtils.defineESModuleGetters(this, {
     "moz-src:///browser/components/search/SearchSERPTelemetry.sys.mjs",
   SearchSERPTelemetryUtils:
     "moz-src:///browser/components/search/SearchSERPTelemetry.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SearchTestUtils: "resource://testing-common/SearchTestUtils.sys.mjs",
-  SearchUtils: "resource://gre/modules/SearchUtils.sys.mjs",
+  SearchUITestUtils: "resource://testing-common/SearchUITestUtils.sys.mjs",
+  SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
   SERPCategorizationRecorder:
     "moz-src:///browser/components/search/SERPCategorization.sys.mjs",
   SERPDomainToCategoriesMap:
@@ -35,6 +37,14 @@ ChromeUtils.defineESModuleGetters(this, {
 
 ChromeUtils.defineLazyGetter(this, "UrlbarTestUtils", () => {
   const { UrlbarTestUtils: module } = ChromeUtils.importESModule(
+    "resource://testing-common/UrlbarTestUtils.sys.mjs"
+  );
+  module.init(this);
+  return module;
+});
+
+ChromeUtils.defineLazyGetter(this, "SearchbarTestUtils", () => {
+  const { SearchbarTestUtils: module } = ChromeUtils.importESModule(
     "resource://testing-common/UrlbarTestUtils.sys.mjs"
   );
   module.init(this);
@@ -68,6 +78,7 @@ const REGION = Region.home;
 let gCUITestUtils = new CustomizableUITestUtils(window);
 
 SearchTestUtils.init(this);
+SearchUITestUtils.init(this);
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -215,6 +226,18 @@ function resetTelemetry() {
   SERPCategorizationRecorder.testReset();
 }
 
+const DEFAULT_IMPRESSION = {
+  provider: "example",
+  tagged: "true",
+  partner_code: "ff",
+  source: "unknown",
+  is_private: "false",
+  is_signed_in: "false",
+  is_shopping_page: "false",
+  shopping_tab_displayed: "false",
+  has_ai_summary: "false",
+};
+
 /**
  * First checks that we get the correct number of recorded Glean impression events
  * and the recorded Glean impression events have the correct keys and values.
@@ -229,7 +252,18 @@ function assertSERPTelemetry(expectedEvents) {
   // Do a deep copy of impressions in case the input is using constants, as
   // we insert impression id into the expected events to make it easier to
   // run Assert.deepEqual() on the expected and actual result.
-  expectedEvents = JSON.parse(JSON.stringify(expectedEvents));
+  expectedEvents = structuredClone(expectedEvents);
+
+  for (let expectedEvent of expectedEvents) {
+    if (expectedEvent.impression) {
+      expectedEvent.impression = {
+        ...DEFAULT_IMPRESSION,
+        ...expectedEvent.impression,
+      };
+    } else {
+      expectedEvent.impression = { ...DEFAULT_IMPRESSION };
+    }
+  }
 
   // A single test might run assertImpressionEvents more than once
   // so the Set needs to be cleared or else the impression event
@@ -308,7 +342,7 @@ function assertSERPTelemetry(expectedEvents) {
     let impressionId = expectedEvent.impression.impression_id;
     let expectedEngagements = expectedEvent.engagements;
     if (expectedEngagements) {
-      let recorded = idToEngagements.get(impressionId);
+      let recorded = idToEngagements.get(impressionId) ?? [];
       Assert.deepEqual(
         recorded,
         expectedEngagements,
@@ -466,15 +500,15 @@ function assertCategorizationValues(expectedResults) {
     let expected = expectedResults[index];
     let actual = actualResults[index].extra;
 
-    Assert.ok(
-      Number(actual?.organic_num_domains) <=
-        CATEGORIZATION_SETTINGS.MAX_DOMAINS_TO_CATEGORIZE,
+    Assert.lessOrEqual(
+      Number(actual?.organic_num_domains),
+      CATEGORIZATION_SETTINGS.MAX_DOMAINS_TO_CATEGORIZE,
       "Number of organic domains categorized should not exceed threshold."
     );
 
-    Assert.ok(
-      Number(actual?.sponsored_num_domains) <=
-        CATEGORIZATION_SETTINGS.MAX_DOMAINS_TO_CATEGORIZE,
+    Assert.lessOrEqual(
+      Number(actual?.sponsored_num_domains),
+      CATEGORIZATION_SETTINGS.MAX_DOMAINS_TO_CATEGORIZE,
       "Number of sponsored domains categorized should not exceed threshold."
     );
 
@@ -490,6 +524,10 @@ function assertCategorizationValues(expectedResults) {
 
 function waitForPageWithAction() {
   return TestUtils.topicObserved("reported-page-with-action");
+}
+
+function waitForPageWithImpression() {
+  return TestUtils.topicObserved("reported-page-with-impression");
 }
 
 function waitForPageWithAdImpressions() {
@@ -690,10 +728,14 @@ async function initSinglePageAppTest() {
         default: true,
       },
     ],
-    isSPA: true,
-    defaultPageQueryParam: {
-      key: "page",
-      value: "web",
+    pageTypeParam: {
+      enableSPAHandling: true,
+      keys: ["page"],
+      pageTypes: [
+        { name: "web", values: ["web"], enabled: true, isDefault: true },
+        { name: "shopping", values: ["shopping"], enabled: true },
+        { name: "images", values: ["images"], enabled: false },
+      ],
     },
   };
 

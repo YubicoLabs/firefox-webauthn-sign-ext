@@ -7,8 +7,6 @@ import platform
 import subprocess
 import sys
 
-import six
-
 from mozlog.formatters import base
 
 DEFAULT_MOVE_UP_CODE = "\x1b[A"
@@ -20,7 +18,7 @@ class GroupingFormatter(base.BaseFormatter):
     together in a readable format."""
 
     def __init__(self):
-        super(GroupingFormatter, self).__init__()
+        super().__init__()
         self.number_of_tests = 0
         self.completed_tests = 0
         self.need_to_erase_last_line = False
@@ -139,9 +137,7 @@ class GroupingFormatter(base.BaseFormatter):
             return new_display + "No tests running.\n"
 
     def suite_start(self, data):
-        self.number_of_tests = sum(
-            len(tests) for tests in six.itervalues(data["tests"])
-        )
+        self.number_of_tests = sum(len(tests) for tests in data["tests"].values())
         self.start_time = data["time"]
 
         if self.number_of_tests == 0:
@@ -159,7 +155,7 @@ class GroupingFormatter(base.BaseFormatter):
     def wrap_and_indent_lines(self, lines, indent):
         assert len(lines) > 0
 
-        output = indent + "\u25B6 %s\n" % lines[0]
+        output = indent + "\u25b6 %s\n" % lines[0]
         for line in lines[1:-1]:
             output += indent + "\u2502 %s\n" % line
         if len(lines) > 1:
@@ -189,7 +185,7 @@ class GroupingFormatter(base.BaseFormatter):
     def get_lines_for_known_intermittents(self, known_intermittent_results):
         lines = []
 
-        for (test, subtest), data in six.iteritems(self.known_intermittent_results):
+        for (test, subtest), data in self.known_intermittent_results.items():
             status = data["status"]
             known_intermittent = ", ".join(data["known_intermittent"])
             expected = " [expected %s, known intermittent [%s]" % (
@@ -240,7 +236,7 @@ class GroupingFormatter(base.BaseFormatter):
             else:
                 failures_by_stack[failure["stack"]].append(failure)
 
-        for stack, failures in six.iteritems(failures_by_stack):
+        for stack, failures in failures_by_stack.items():
             output += make_subtests_failure(test_name, failures, stack)
         return output
 

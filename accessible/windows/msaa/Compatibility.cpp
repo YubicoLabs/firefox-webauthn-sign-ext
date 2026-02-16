@@ -214,3 +214,64 @@ SuppressionReasons Compatibility::A11ySuppressionReasons() {
   }
   return reasons;
 }
+
+/* static */
+bool Compatibility::IsUiaEnabled() {
+  // This is the only function which should call the UIA pref function directly.
+  const uint32_t pref =
+      StaticPrefs::accessibility_uia_enable_DoNotUseDirectly();
+  if (pref == 0) {
+    return false;  // Never enable.
+  }
+  if (pref == 1) {
+    return true;  // Always enable.
+  }
+  // Bug 1956415: Some screen readers break when native UIA is enabled, so don't
+  // enable it when they're detected.
+  // Call InitConsumers() if we haven't already. It's safe to call this multiple
+  // times, but it still does a small amount of work and we can easily avoid
+  // unnecessary calls here.
+  if (!(sConsumers & UIAUTOMATION)) {
+    InitConsumers();
+  }
+  if (sConsumers & NVDA) {
+    // Cache to avoid repeated version checks.
+    static Maybe<bool> sIsNvdaVersionSupported;
+    if (sIsNvdaVersionSupported.isNothing()) {
+      if (HMODULE nvdaHandle = ::GetModuleHandleW(L"nvdaHelperRemote")) {
+        // NVDA 2025.1 and later handles UIA correctly in Gecko. Out of an
+        // abundance of caution, we check for >= 2025.2 just in case someone is
+        // running an old 2025.1 alpha which doesn't include this change.
+        sIsNvdaVersionSupported = Some(!IsModuleVersionLessThan(
+            nvdaHandle, MAKE_FILE_VERSION(2025, 2, 0, 0)));
+      } else {
+        sIsNvdaVersionSupported = Some(false);
+      }
+    }
+    return *sIsNvdaVersionSupported;
+  }
+  if (IsVisperoShared()) {
+    if (!::GetModuleHandleW(L"firefox.exe")) {
+      // JAWS and ZoomText only handle UIA correctly for firefox.exe. They
+      // don't handle it correctly for any other Gecko application; e.g.
+      // Thunderbird.
+      return false;
+    }
+    // Cache to avoid repeated version checks.
+    static Maybe<bool> sIsVisperoVersionSupported;
+    if (sIsVisperoVersionSupported.isNothing()) {
+      if (HMODULE visperoHandle = ::GetModuleHandleW(L"AccEventCache")) {
+        // JAWS and ZoomText 2026 and later handle UIA correctly in Firefox.
+        // They both use Vispero AccEventCache >= 6.0.
+        sIsVisperoVersionSupported = Some(!IsModuleVersionLessThan(
+            visperoHandle, MAKE_FILE_VERSION(6, 0, 0, 0)));
+      } else {
+        sIsVisperoVersionSupported = Some(false);
+      }
+    }
+    return *sIsVisperoVersionSupported;
+  }
+  // Disable UIA for older versions of JAWS and ZoomText which don't have
+  // AccEventCache.
+  return !IsJAWS() && !(sConsumers & ZOOMTEXT);
+}

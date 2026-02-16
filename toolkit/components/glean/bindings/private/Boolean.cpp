@@ -7,6 +7,7 @@
 #include "mozilla/glean/bindings/Boolean.h"
 
 #include "nsString.h"
+#include "mozilla/ErrorResult.h"
 #include "mozilla/ResultVariant.h"
 #include "mozilla/dom/GleanMetricsBinding.h"
 #include "mozilla/glean/bindings/ScalarGIFFTMap.h"
@@ -17,7 +18,7 @@ namespace mozilla::glean {
 
 namespace impl {
 
-void BooleanMetric::Set(bool aValue) const {
+void BooleanStandalone::Set(bool aValue) const {
   auto scalarId = ScalarIdForMetric(mId);
   if (scalarId) {
     TelemetryScalar::Set(scalarId.extract(), aValue);

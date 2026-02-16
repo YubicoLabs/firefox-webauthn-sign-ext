@@ -11,8 +11,8 @@ use crate::InterfaceCollector;
 use anyhow::{bail, Result};
 
 use uniffi_meta::{
-    ConstructorMetadata, FieldMetadata, FnMetadata, FnParamMetadata, MethodMetadata,
-    TraitMethodMetadata, Type,
+    ConstructorMetadata, DefaultValueMetadata, FieldMetadata, FnMetadata, FnParamMetadata,
+    MethodMetadata, TraitMethodMetadata,
 };
 
 impl APIConverter<FieldMetadata> for weedle::argument::Argument<'_> {
@@ -27,17 +27,12 @@ impl APIConverter<FieldMetadata> for weedle::argument::Argument<'_> {
 impl APIConverter<FieldMetadata> for weedle::argument::SingleArgument<'_> {
     fn convert(&self, ci: &mut InterfaceCollector) -> Result<FieldMetadata> {
         let type_ = ci.resolve_type_expression(&self.type_)?;
-        if let Type::Object { .. } = type_ {
-            bail!("Objects cannot currently be used in enum variant data");
-        }
         if self.default.is_some() {
             bail!("enum interface variant fields must not have default values");
         }
         if self.attributes.is_some() {
             bail!("enum interface variant fields must not have attributes");
         }
-        // TODO: maybe we should use our own `Field` type here with just name and type,
-        // rather than appropriating record::Field..?
         Ok(FieldMetadata {
             name: self.identifier.0.to_string(),
             ty: type_,
@@ -61,7 +56,9 @@ impl APIConverter<FnParamMetadata> for weedle::argument::SingleArgument<'_> {
         let type_ = ci.resolve_type_expression(&self.type_)?;
         let default = match self.default {
             None => None,
-            Some(v) => Some(convert_default_value(&v.value, &type_)?),
+            Some(v) => Some(DefaultValueMetadata::Literal(convert_default_value(
+                &v.value, &type_,
+            )?)),
         };
         let by_ref = ArgumentAttributes::try_from(self.attributes.as_ref())?.by_ref();
         Ok(FnParamMetadata {
@@ -159,6 +156,8 @@ impl APIConverter<MethodMetadata> for weedle::interface::OperationInterfaceMembe
         let takes_self_by_arc = attributes.get_self_by_arc();
         Ok(MethodMetadata {
             module_path: ci.module_path(),
+            // We don't know the name of the containing `Object` at this point, fill it in later.
+            self_name: Default::default(),
             name: match self.identifier {
                 None => bail!("anonymous methods are not supported {:?}", self),
                 Some(id) => {
@@ -169,8 +168,6 @@ impl APIConverter<MethodMetadata> for weedle::interface::OperationInterfaceMembe
                     name
                 }
             },
-            // We don't know the name of the containing `Object` at this point, fill it in later.
-            self_name: Default::default(),
             is_async,
             inputs: self.args.body.list.convert(ci)?,
             return_type,

@@ -7,6 +7,7 @@
 #ifndef DOM_TEXTDIRECTIVEFINDER_H_
 #define DOM_TEXTDIRECTIVEFINDER_H_
 #include "mozilla/RefPtr.h"
+#include "mozilla/TimeStamp.h"
 #include "nsTArray.h"
 
 class nsRange;
@@ -27,9 +28,9 @@ class Document;
  */
 class TextDirectiveFinder final {
  public:
-  TextDirectiveFinder(Document& aDocument,
-                      nsTArray<TextDirective>&& aTextDirectives);
+  ~TextDirectiveFinder();
 
+  void Traverse(nsCycleCollectionTraversalCallback& aCallback);
   /**
    * @brief Attempts to convert all uninvoked text directives to ranges.
    *
@@ -50,9 +51,27 @@ class TextDirectiveFinder final {
       const TextDirective& aTextDirective);
 
  private:
-  Document& mDocument;
+  friend class FragmentDirective;
+  TextDirectiveFinder(Document* aDocument,
+                      nsTArray<TextDirective>&& aTextDirectives);
+  NotNull<RefPtr<Document>> mDocument;
   nsTArray<TextDirective> mUninvokedTextDirectives;
+
+  /**
+   * Member variables for telemetry.
+   * Since measured function might called multiple times, we accumulate values
+   * and report them in destructor.
+   */
+  TimeStamp::DurationType mFindTextDirectivesDuration{0};
+  int64_t mFoundDirectiveCount{0};
 };
 }  // namespace mozilla::dom
+
+inline void ImplCycleCollectionTraverse(
+    nsCycleCollectionTraversalCallback& aCallback,
+    mozilla::dom::TextDirectiveFinder& aField, const char* aName,
+    uint32_t aFlags = 0) {
+  aField.Traverse(aCallback);
+}
 
 #endif

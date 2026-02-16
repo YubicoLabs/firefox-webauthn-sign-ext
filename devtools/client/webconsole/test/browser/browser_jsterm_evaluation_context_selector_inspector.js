@@ -20,8 +20,6 @@ Services.scriptloader.loadSubScript(
 requestLongerTimeout(2);
 
 add_task(async function () {
-  await pushPref("devtools.webconsole.input.context", true);
-
   const hud = await openNewTabWithIframesAndConsole(TEST_URI, [
     `https://example.org/${IFRAME_PATH}?id=iframe-1`,
     `https://example.net/${IFRAME_PATH}?id=iframe-2`,
@@ -30,15 +28,6 @@ add_task(async function () {
   const evaluationContextSelectorButton = hud.ui.outputNode.querySelector(
     ".webconsole-evaluation-selector-button"
   );
-
-  if (!isFissionEnabled() && !isEveryFrameTargetEnabled()) {
-    is(
-      evaluationContextSelectorButton,
-      null,
-      "context selector is only displayed when Fission or EFT is enabled"
-    );
-    return;
-  }
 
   setInputValue(hud, "document.location.host");
   await waitForEagerEvaluationResult(hud, `"example.com"`);

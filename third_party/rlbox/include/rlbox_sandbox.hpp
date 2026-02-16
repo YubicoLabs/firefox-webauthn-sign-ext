@@ -11,12 +11,12 @@
 #include <limits>
 #include <map>
 #include <mutex>
+#include <string>
 #ifndef RLBOX_USE_CUSTOM_SHARED_LOCK
 #  include <shared_mutex>
 #endif
 #ifdef RLBOX_MEASURE_TRANSITION_TIMES
 #  include <sstream>
-#  include <string>
 #endif
 #include <stdint.h>
 #include <type_traits>
@@ -104,7 +104,7 @@ private:
   // The actual type of the vector is std::vector<rlbox_sandbox<T_Sbx>*>
   // However clang 5, 6 have bugs where compilation seg-faults on this type
   // So we just use this std::vector<void*>
-  static inline MOZ_RUNINIT std::vector<void*> sandbox_list;
+  static inline std::vector<void*> sandbox_list;
 
   RLBOX_SHARED_LOCK(func_ptr_cache_lock);
   std::map<std::string, void*> func_ptr_map;

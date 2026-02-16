@@ -1,17 +1,12 @@
 "use strict";
 
-// This test tends to trigger a race in the fullscreen time telemetry,
-// where the fullscreen enter and fullscreen exit events (which use the
-// same histogram ID) overlap. That causes TelemetryStopwatch to log an
-// error.
-SimpleTest.ignoreAllUncaughtExceptions(true);
-
 const kPage =
   "https://example.org/browser/dom/base/test/fullscreen/dummy_page.html";
 const kInterval = 3000;
 
 add_task(async function () {
   await pushPrefs(
+    ["test.wait300msAfterTabSwitch", true],
     ["full-screen-api.transition-duration.enter", "0 0"],
     ["full-screen-api.transition-duration.leave", "0 0"],
     ["dom.fullscreen.force_exit_on_multiple_escape_interval", kInterval]

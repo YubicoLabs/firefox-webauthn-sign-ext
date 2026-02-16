@@ -1,5 +1,4 @@
 [DEFAULT]
-skip-if = ["os == 'android'"]
 support-files = [
   "windowminmaxsize1.xhtml",
   "windowminmaxsize2.xhtml",
@@ -13,8 +12,6 @@ support-files = [
   "windowminmaxsize10.xhtml",
 ]
 
-["test_bug159346.xhtml"]
-
 ["test_bug381167.xhtml"]
 
 ["test_bug398982-1.xhtml"]
@@ -25,13 +22,7 @@ support-files = [
 
 ["test_bug477754.xhtml"]
 
-["test_bug703150.xhtml"]
-skip-if = [
-  "os == 'mac' && os_version == '14.70' && processor == 'x86_64'", # Bug 1929451
-]
-
 ["test_bug987230.xhtml"]
-skip-if = ["os == 'linux'"] # No native mousedown event on Linux
 
 ["test_bug1197913.xhtml"]
 

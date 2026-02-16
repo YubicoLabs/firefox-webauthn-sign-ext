@@ -7,9 +7,12 @@ import { actionCreators as ac } from "common/Actions.mjs";
 import React from "react";
 
 const DEFAULT_PROPS = {
+  prefs: {
+    "discoverystream.sections.enabled": false,
+  },
   type: "foo",
   firstVisibleTimestamp: new Date("March 21, 2024 10:11:12").getTime(),
-  row: "3",
+  row: 3,
   spoc: {
     format: "billboard",
     id: "12345",
@@ -57,7 +60,7 @@ describe("Discovery Stream <AdBanner>", () => {
   it("should have 'sponsored' text visible", () => {
     assert.ok(wrapper.find(".ad-banner-sponsored").exists());
     assert.ok(
-      wrapper.find("[data-l10n-id='newtab-topsite-sponsored']").exists()
+      wrapper.find("[data-l10n-id='newtab-label-sponsored-fixed']").exists()
     );
   });
 
@@ -114,15 +117,17 @@ describe("Discovery Stream <AdBanner>", () => {
     assert.deepEqual(aside.prop("style"), { gridRow: clampedRow });
   });
 
-  it("should have the dismiss button be visible", () => {
-    const dismiss = wrapper.find(".ad-banner-dismiss .icon-dismiss");
+  it("should have the context menu button be visible", () => {
+    const dismiss = wrapper.find("moz-button");
     assert.ok(dismiss.exists());
 
-    dismiss.simulate("click");
+    // The rest of the context menu functionality is now tested in
+    // AdBannerContextMenu.test.jsx
+  });
 
-    let [action] = dispatch.secondCall.args;
-    assert.equal(action.type, "BLOCK_URL");
-    assert.equal(action.data[0].id, DEFAULT_PROPS.spoc.id);
+  it("should render data-is-sponsored-link='true' on banner link", () => {
+    const link = wrapper.find(".ad-banner-link a");
+    assert.equal(link.prop("data-is-sponsored-link"), true);
   });
 
   it("should call onLinkClick when banner is clicked", () => {
@@ -135,7 +140,7 @@ describe("Discovery Stream <AdBanner>", () => {
       ac.DiscoveryStreamUserEvent({
         event: "CLICK",
         source: "FOO",
-        // Banner ads dont have a position, but a row number
+        // Banner ads don't have a position, but a row number
         action_position: DEFAULT_PROPS.row,
         value: {
           card_type: "spoc",
@@ -146,6 +151,32 @@ describe("Discovery Stream <AdBanner>", () => {
           format: DEFAULT_PROPS.spoc.format,
         },
       })
+    );
+  });
+
+  it("should set proper ohttp src if ohttp, contextual, inferred, and sections are true", () => {
+    wrapper.setProps({
+      children: (
+        <AdBanner
+          dispatch={dispatch}
+          {...DEFAULT_PROPS}
+          prefs={{
+            ...DEFAULT_PROPS.prefs,
+            "discoverystream.sections.enabled": true,
+            "unifiedAds.ohttp.enabled": true,
+            ohttpImagesConfig: { enabled: true },
+            "discoverystream.sections.contextualAds.enabled": true,
+            "discoverystream.sections.personalization.inferred.user.enabled": true,
+            "discoverystream.sections.personalization.inferred.enabled": true,
+          }}
+        />
+      ),
+    });
+
+    const image = wrapper.find(".ad-banner-content img");
+    assert.equal(
+      image.prop("src"),
+      `moz-cached-ohttp://newtab-image/?url=${encodeURIComponent(DEFAULT_PROPS.spoc.raw_image_src)}`
     );
   });
 });

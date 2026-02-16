@@ -2,13 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "AuthrsBridge_ffi.h"
 #include "WebAuthnResult.h"
-#include "nsIWebAuthnAttObj.h"
+
+#include "AuthrsBridge_ffi.h"
 #include "nsCOMPtr.h"
+#include "nsIWebAuthnAttObj.h"
 #include "nsString.h"
 
 #ifdef MOZ_WIDGET_ANDROID
+
+#  include "mozilla/jni/Conversions.h"
+
 namespace mozilla::jni {
 
 template <>
@@ -55,6 +59,13 @@ WebAuthnRegisterResult::GetAttestationObject(
 }
 
 NS_IMETHODIMP
+WebAuthnRegisterResult::GetAttestationConsentPromptShown(
+    bool* aAttestationConsentPromptShown) {
+  *aAttestationConsentPromptShown = mAttestationConsentPromptShown;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 WebAuthnRegisterResult::GetCredentialId(nsTArray<uint8_t>& aCredentialId) {
   aCredentialId.Assign(mCredentialId);
   return NS_OK;
@@ -91,9 +102,18 @@ WebAuthnRegisterResult::SetCredPropsRk(bool aCredPropsRk) {
 }
 
 NS_IMETHODIMP
+WebAuthnRegisterResult::GetLargeBlobSupported(bool* aLargeBlobSupported) {
+  if (mLargeBlobSupported.isSome()) {
+    *aLargeBlobSupported = mLargeBlobSupported.ref();
+    return NS_OK;
+  }
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
 WebAuthnRegisterResult::GetPrfEnabled(bool* aPrfEnabled) {
-  if (mPrf.isSome()) {
-    *aPrfEnabled = mPrf.ref();
+  if (mPrfSupported.isSome()) {
+    *aPrfEnabled = mPrfSupported.ref();
     return NS_OK;
   }
   return NS_ERROR_NOT_AVAILABLE;
@@ -102,12 +122,20 @@ WebAuthnRegisterResult::GetPrfEnabled(bool* aPrfEnabled) {
 NS_IMETHODIMP
 WebAuthnRegisterResult::GetPrfResultsFirst(
     nsTArray<uint8_t>& aPrfResultsFirst) {
+  if (mPrfFirst.isSome()) {
+    aPrfResultsFirst.Assign(mPrfFirst.ref());
+    return NS_OK;
+  }
   return NS_ERROR_NOT_AVAILABLE;
 }
 
 NS_IMETHODIMP
 WebAuthnRegisterResult::GetPrfResultsSecond(
     nsTArray<uint8_t>& aPrfResultsSecond) {
+  if (mPrfSecond.isSome()) {
+    aPrfResultsSecond.Assign(mPrfSecond.ref());
+    return NS_OK;
+  }
   return NS_ERROR_NOT_AVAILABLE;
 }
 
@@ -157,7 +185,7 @@ WebAuthnRegisterResult::HasIdentifyingAttestation(
                                                     /* anonymize */ false,
                                                     getter_AddRefs(attObj));
   if (NS_SUCCEEDED(rv)) {
-    Unused << attObj->IsIdentifying(&isIdentifying);
+    (void)attObj->IsIdentifying(&isIdentifying);
   }
 
   *aHasIdentifyingAttestation = isIdentifying;
@@ -240,6 +268,24 @@ NS_IMETHODIMP
 WebAuthnSignResult::SetUsedAppId(bool aUsedAppId) {
   mUsedAppId = Some(aUsedAppId);
   return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnSignResult::GetLargeBlobValue(nsTArray<uint8_t>& aLargeBlobValue) {
+  if (mLargeBlobValue.isSome()) {
+    aLargeBlobValue.Assign(*mLargeBlobValue);
+    return NS_OK;
+  }
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignResult::GetLargeBlobWritten(bool* aLargeBlobWritten) {
+  if (mLargeBlobWritten.isSome()) {
+    *aLargeBlobWritten = mLargeBlobWritten.ref();
+    return NS_OK;
+  }
+  return NS_ERROR_NOT_AVAILABLE;
 }
 
 NS_IMETHODIMP

@@ -56,6 +56,7 @@ enum class State {
   D(RootsChange, 1)                      \
   D(Alloc, 2)                            \
   D(VerifierPre, 4)                      \
+  D(VerifierPost, 5)                     \
   D(YieldBeforeRootMarking, 6)           \
   D(GenerationalGC, 7)                   \
   D(YieldBeforeMarking, 8)               \
@@ -66,6 +67,7 @@ enum class State {
   D(CheckHashTablesOnMinorGC, 13)        \
   D(Compact, 14)                         \
   D(CheckHeapAfterGC, 15)                \
+  D(ConcurrentMarking, 16)               \
   D(YieldBeforeSweepingAtoms, 17)        \
   D(CheckGrayMarking, 18)                \
   D(YieldBeforeSweepingCaches, 19)       \
@@ -73,7 +75,8 @@ enum class State {
   D(YieldBeforeSweepingNonObjects, 22)   \
   D(YieldBeforeSweepingPropMapTrees, 23) \
   D(CheckWeakMapMarking, 24)             \
-  D(YieldWhileGrayMarking, 25)
+  D(YieldWhileGrayMarking, 25)           \
+  D(CheckHeapBeforeMinorGC, 26)
 
 enum class ZealMode {
 #define ZEAL_MODE(name, value) name = value,
@@ -108,11 +111,6 @@ enum class GCAbortReason {
 #define JS_FOR_EACH_INTERNAL_MEMORY_USE(_) \
   _(ArrayBufferContents)                   \
   _(StringContents)                        \
-  _(ScriptPrivateData)                     \
-  _(MapObjectData)                         \
-  _(BigIntDigits)                          \
-  _(ScopeData)                             \
-  _(WeakMapObject)                         \
   _(ShapeSetForAdd)                        \
   _(PropMapChildren)                       \
   _(PropMapTable)                          \
@@ -123,8 +121,6 @@ enum class GCAbortReason {
   _(ModuleImportAttributes)                \
   _(BaselineScript)                        \
   _(IonScript)                             \
-  _(ArgumentsData)                         \
-  _(RareArgumentsData)                     \
   _(RegExpSharedBytecode)                  \
   _(RegExpSharedNamedCaptureData)          \
   _(RegExpSharedNamedCaptureSliceData)     \
@@ -134,8 +130,6 @@ enum class GCAbortReason {
   _(ScriptDebugScript)                     \
   _(BreakpointSite)                        \
   _(Breakpoint)                            \
-  _(ForOfPIC)                              \
-  _(ForOfPICStub)                          \
   _(WasmInstanceExports)                   \
   _(WasmInstanceScopes)                    \
   _(WasmInstanceGlobals)                   \
@@ -154,6 +148,7 @@ enum class GCAbortReason {
   _(DebuggerOnStepHandler)                 \
   _(DebuggerOnPopHandler)                  \
   _(ICUObject)                             \
+  _(IntlOptions)                           \
   _(FinalizationRegistryRecordVector)      \
   _(FinalizationRegistryRegistrations)     \
   _(FinalizationRecordVector)              \
@@ -162,7 +157,7 @@ enum class GCAbortReason {
   _(XDRBufferElements)                     \
   _(GlobalObjectData)                      \
   _(ProxyExternalValueArray)               \
-  _(WasmTrailerBlock)
+  _(GraphLoadingStateRecord)
 
 #define JS_FOR_EACH_MEMORY_USE(_)  \
   JS_FOR_EACH_PUBLIC_MEMORY_USE(_) \

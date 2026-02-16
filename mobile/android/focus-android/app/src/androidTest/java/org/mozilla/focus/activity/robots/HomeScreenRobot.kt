@@ -27,8 +27,6 @@ class HomeScreenRobot {
         assertTrue(editURLBar.text.equals(getStringResource(R.string.urlbar_hint)))
     }
 
-    fun skipFirstRun() = onView(withId(R.id.skip)).perform(click())
-
     fun verifyOnboardingFirstSlide() = assertTrue(firstSlideTitle.waitForExists(waitingTime))
 
     fun verifyOnboardingSecondSlide() = assertTrue(secondSlideTitle.waitForExists(waitingTime))
@@ -211,17 +209,17 @@ private val onboardingSecondScreenSecondSubtitle =
 private val onboardingFirstScreenTermsOfUse =
     mDevice.findObject(
         UiSelector()
-            .textContains("By continuing, you agree to the Firefox Terms of Use."),
+            .descriptionContains("By continuing, you agree to the Firefox Terms of Use."),
     )
 
 private val onboardingFirstScreenPrivacyNotice =
     mDevice.findObject(
         UiSelector()
-            .textContains("Firefox cares about your privacy. Learn more in our Privacy Notice."),
+            .descriptionContains("Firefox cares about your privacy. Learn more in our Privacy Notice."),
     )
 
 private val onboardingAgreeAndContinueButton =
-    mDevice.findObject(UiSelector().textContains("Agree and continue"))
+    mDevice.findObject(UiSelector().textContains("Continue"))
 
 private val onboardingSetAsDefaultBrowserButton =
     mDevice.findObject(

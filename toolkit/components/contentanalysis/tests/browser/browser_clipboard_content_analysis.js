@@ -39,7 +39,10 @@ async function testClipboardWithContentAnalysis(allowPaste, plainTextOnly) {
 
   gBrowser.selectedTab = tab;
 
-  await promiseTabLoadEvent(tab, "data:text/html," + escape(testPage));
+  await BrowserTestUtils.loadURIString({
+    browser: tab.linkedBrowser,
+    uriString: "data:text/html," + escape(testPage),
+  });
   await SimpleTest.promiseFocus(browser);
 
   function sendKey(key, code) {
@@ -377,7 +380,7 @@ async function testClipboardWithContentAnalysis(allowPaste, plainTextOnly) {
       let expectedContents;
       if (allowPaste) {
         expectedContents =
-          '<i>Italic</i> <img id="img" tabindex="1" ' +
+          '<i>Italic</i>&nbsp;<img id="img" tabindex="1" ' +
           'src="http://example.org/browser/browser/base/content/test/general/moz.png">' +
           "Test <b>Bold</b> After<b></b>";
       } else {

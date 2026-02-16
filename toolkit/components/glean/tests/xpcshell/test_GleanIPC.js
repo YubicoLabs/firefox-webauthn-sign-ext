@@ -36,6 +36,10 @@ const MEMORY_BUCKETS = ["13509772", "32131834"]; // buckets are strings : |
 const COUNTERS_NEAR_THE_SINK = 3;
 const COUNTERS_WITH_JUNK_ON_THEM = 5;
 const INVALID_COUNTERS = 7;
+const KEYED_CATEGORIES = [
+  ["chain", "cut", 10],
+  ["ring", "lasered", 11],
+];
 
 add_task({ skip_if: () => runningInParent }, async function run_child_stuff() {
   Glean.testOnly.badCode.add(BAD_CODE_COUNT);
@@ -72,7 +76,7 @@ add_task({ skip_if: () => runningInParent }, async function run_child_stuff() {
     COUNTERS_WITH_JUNK_ON_THEM
   );
 
-  Glean.testOnly.mabelsBathroomCounters["1".repeat(72)].add(INVALID_COUNTERS);
+  Glean.testOnly.mabelsBathroomCounters["1".repeat(112)].add(INVALID_COUNTERS);
 
   Glean.testOnlyIpc.irate.addToNumerator(44);
   Glean.testOnlyIpc.irate.addToDenominator(14);
@@ -99,6 +103,12 @@ add_task({ skip_if: () => runningInParent }, async function run_child_stuff() {
   Glean.testOnlyIpc.anUnorderedBool.set(true);
 
   Glean.testOnlyIpc.anUnorderedLabeledBoolean.aLabel.set(true);
+
+  Glean.testOnlyIpc.anUnorderedQuantity.set(42);
+
+  for (let [key, category, value] of KEYED_CATEGORIES) {
+    Glean.testOnly.keyedCategories.get(key, category).add(value);
+  }
 });
 
 add_task(
@@ -214,5 +224,18 @@ add_task(
       Glean.testOnlyIpc.anUnorderedLabeledBoolean.aLabel.testGetValue(),
       "IPC works for labeled_boolean metrics that ask for it."
     );
+
+    Assert.equal(
+      42,
+      Glean.testOnlyIpc.anUnorderedQuantity.testGetValue(),
+      "IPC works for quantity metrics that ask for it."
+    );
+
+    for (let [key, category, value] of KEYED_CATEGORIES) {
+      Assert.equal(
+        value,
+        Glean.testOnly.keyedCategories.get(key, category).testGetValue()
+      );
+    }
   }
 );

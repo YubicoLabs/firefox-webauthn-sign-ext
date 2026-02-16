@@ -13,7 +13,7 @@
  */
 
 /**
- * @typedef {Object} State - The mutable state of the popup.
+ * @typedef {object} State - The mutable state of the popup.
  * @property {Array<() => void>} cleanup - Functions to cleanup once the view is hidden.
  * @property {boolean} isInfoCollapsed
  */
@@ -22,10 +22,16 @@ import { createLazyLoaders } from "resource://devtools/client/performance-new/sh
 
 const lazy = createLazyLoaders({
   PanelMultiView: () =>
-    ChromeUtils.importESModule("resource:///modules/PanelMultiView.sys.mjs"),
+    ChromeUtils.importESModule(
+      "moz-src:///browser/components/customizableui/PanelMultiView.sys.mjs"
+    ),
   Background: () =>
     ChromeUtils.importESModule(
       "resource://devtools/client/performance-new/shared/background.sys.mjs"
+    ),
+  PrefsPresets: () =>
+    ChromeUtils.importESModule(
+      "resource://devtools/shared/performance-new/prefs-presets.sys.mjs"
     ),
 });
 
@@ -114,7 +120,7 @@ function createViewControllers(state, elements) {
     },
 
     updatePresets() {
-      const { presets, getRecordingSettings } = lazy.Background();
+      const { presets, getRecordingSettings } = lazy.PrefsPresets();
       const { presetName } = getRecordingSettings(
         "aboutprofiling",
         Services.profiler.GetFeatures()
@@ -158,7 +164,7 @@ function createViewControllers(state, elements) {
         return;
       }
 
-      const { presets } = lazy.Background();
+      const { presets } = lazy.PrefsPresets();
       const currentPreset = Services.prefs.getCharPref(
         "devtools.performance.recording.preset"
       );
@@ -233,8 +239,7 @@ function initializeView(state, elements, view) {
  * @param {ViewController} view
  */
 function addPopupEventHandlers(state, elements, view) {
-  const { changePreset, startProfiler, stopProfiler, captureProfile } =
-    lazy.Background();
+  const { startProfiler, stopProfiler, captureProfile } = lazy.Background();
 
   /**
    * Adds a handler that automatically is removed once the panel is hidden.
@@ -278,11 +283,13 @@ function addPopupEventHandlers(state, elements, view) {
   });
 
   addHandler(elements.presetsMenuList, "command", () => {
-    changePreset(
-      "aboutprofiling",
-      elements.presetsMenuList.value,
-      Services.profiler.GetFeatures()
-    );
+    lazy
+      .PrefsPresets()
+      .changePreset(
+        "aboutprofiling",
+        elements.presetsMenuList.value,
+        Services.profiler.GetFeatures()
+      );
     view.updatePresets();
   });
 
@@ -304,6 +311,7 @@ function addPopupEventHandlers(state, elements, view) {
 
 /**
  * Initialize everything needed for the popup to work fine.
+ *
  * @param {State} panelState
  * @param {XULElement} panelview
  */

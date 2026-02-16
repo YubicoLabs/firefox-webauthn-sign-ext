@@ -21,8 +21,6 @@
 #include "mozilla/net/NeckoCommon.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/ProfilerMarkers.h"
-#include "mozilla/ResultExtensions.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Try.h"
 #include "nsString.h"

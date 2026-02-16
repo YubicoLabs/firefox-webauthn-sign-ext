@@ -11,8 +11,9 @@ add_task(async function () {
     window,
     value: "foo",
   });
-  Assert.ok(
-    UrlbarTestUtils.getResultCount(window) > 0,
+  Assert.greater(
+    UrlbarTestUtils.getResultCount(window),
+    0,
     `There should be some results in the view.`
   );
   Assert.ok(gURLBar.view.isOpen, `The view should be open.`);
@@ -22,9 +23,10 @@ add_task(async function () {
     results: [],
     priority: 999,
   });
-  UrlbarProvidersManager.registerProvider(provider);
+  let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+  providersManager.registerProvider(provider);
   registerCleanupFunction(async function () {
-    UrlbarProvidersManager.unregisterProvider(provider);
+    providersManager.unregisterProvider(provider);
     await PlacesUtils.history.clear();
   });
 
@@ -32,8 +34,9 @@ add_task(async function () {
     window,
     value: "foo",
   });
-  Assert.ok(
-    UrlbarTestUtils.getResultCount(window) == 0,
+  Assert.equal(
+    UrlbarTestUtils.getResultCount(window),
+    0,
     `There should be no results in the view.`
   );
   Assert.ok(!gURLBar.view.isOpen, `The view should have been closed.`);

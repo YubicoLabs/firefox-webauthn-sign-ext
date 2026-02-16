@@ -3,6 +3,11 @@
 
 "use strict";
 
+ChromeUtils.defineESModuleGetters(this, {
+  ContentAnalysis:
+    "moz-src:///browser/components/contentanalysis/content/ContentAnalysis.sys.mjs",
+});
+
 // Wraps the given object in an XPConnect wrapper and, if an interface
 // is passed, queries the result to that interface.
 function xpcWrap(obj, iface) {
@@ -44,7 +49,11 @@ function mockService(serviceNames, contractId, interfaceObj, mockService) {
   const { MockRegistrar } = ChromeUtils.importESModule(
     "resource://testing-common/MockRegistrar.sys.mjs"
   );
-  let cid = MockRegistrar.register(contractId, o);
+  let cid = MockRegistrar.registerEx(
+    contractId,
+    { shouldCreateInstance: false },
+    o
+  );
   registerCleanupFunction(() => {
     MockRegistrar.unregister(cid);
   });
@@ -130,15 +139,38 @@ function makeMockContentAnalysis() {
     //     AnalyzeContentRequest to issue its response.
     eventTarget: new EventTarget(),
 
-    setupForTest(shouldAllowRequest, waitForEvent) {
+    /**
+     * Sets up the mock CA service
+     *
+     * @param {boolean} shouldAllowRequest Whether requests should be allowed.
+     * @param {boolean} waitForEvent If this is true, a response will not be
+     *                               returned until an event is dispatched by the
+     *                               test. Helpful for testing timing scenarios.
+     * @param {boolean} showDialogs  If this is true, send the messages that will
+     *                               cause dialogs to be shown.
+     */
+    setupForTest(shouldAllowRequest, waitForEvent, showDialogs) {
       this.shouldAllowRequest = shouldAllowRequest;
       this.errorValue = undefined;
       this.waitForEvent = !!waitForEvent;
+      this.showDialogs = showDialogs;
       this.clearCalls();
+      // If showDialog is true, make sure this mock is called by
+      // CA JS code. Otherwise remove the test-only
+      // content analysis object so it goes back to using the real
+      // one, which means dialogs will not be shown.
+      ContentAnalysis.setMockContentAnalysisForTest(
+        this.showDialogs ? this : undefined
+      );
+      // This is needed so the code will re-check isActive and
+      // set up observer events.
+      ContentAnalysis.initialize(window);
     },
 
     setupForTestWithError(errorValue) {
       this.errorValue = errorValue;
+      this.waitForEvent = false;
+      this.showDialogs = false;
       this.clearCalls();
     },
 
@@ -146,6 +178,8 @@ function makeMockContentAnalysis() {
       this.calls = [];
       this.browsingContextsForURIs = [];
       this.agentCancelCalls = 0;
+      this.cancelledUserActions = [];
+      this.cancelledRequestTokens = [];
     },
 
     getAction() {
@@ -164,6 +198,12 @@ function makeMockContentAnalysis() {
     analyzeContentRequests(requests, autoAcknowledge) {
       return this.realCAService.analyzeContentRequests(
         requests,
+        autoAcknowledge
+      );
+    },
+    analyzeBatchContentRequest(request, autoAcknowledge) {
+      return this.realCAService.analyzeBatchContentRequest(
+        request,
         autoAcknowledge
       );
     },
@@ -200,10 +240,10 @@ function makeMockContentAnalysis() {
 
     analyzeContentRequestPrivate(request, _autoAcknowledge, callback) {
       info(
-        "Mock ContentAnalysis service: analyzeContentRequestPrivate, this.shouldAllowRequest=" +
-          this.shouldAllowRequest +
-          ", this.waitForEvent=" +
-          this.waitForEvent
+        `Mock ContentAnalysis service: analyzeContentRequestPrivate, ` +
+          `this.shouldAllowRequest: ${this.shouldAllowRequest} ` +
+          `| this.waitForEvent: ${this.waitForEvent} ` +
+          `| this.showDialogs: ${this.showDialogs}`
       );
       info(
         `  Request type: ${request.analysisType} ` +
@@ -234,6 +274,9 @@ function makeMockContentAnalysis() {
       }
 
       this.calls.push(request);
+      if (this.showDialogs) {
+        Services.obs.notifyObservers(request, "dlp-request-made");
+      }
 
       // Use setTimeout to simulate an async activity.
       setTimeout(async () => {
@@ -258,6 +301,9 @@ function makeMockContentAnalysis() {
           request.requestToken,
           request.userActionId
         );
+        if (this.showDialogs) {
+          Services.obs.notifyObservers(response, "dlp-response");
+        }
         callback.contentResult(response);
       }, 0);
     },
@@ -296,50 +342,30 @@ function makeMockContentAnalysis() {
       info(`got sendCancelToAgent for user action ID ${aUserActionId}`);
       this.agentCancelCalls = this.agentCancelCalls + 1;
     },
+
+    async getDiagnosticInfo() {
+      return {
+        connectedToAgent: true,
+        agentPath: "AFakePath",
+        failedSignatureVerification: false,
+        requestCount: this.calls.length,
+      };
+    },
+
+    cancelRequestsByUserAction(aUserActionId) {
+      this.cancelledUserActions.push(aUserActionId);
+    },
+
+    cancelRequestsByRequestToken(aRequestToken) {
+      this.cancelledRequestTokens.push(aRequestToken);
+    },
+
+    cancelAllRequestsAssociatedWithUserAction(aUserActionId) {
+      return this.realCAService.cancelAllRequestsAssociatedWithUserAction(
+        aUserActionId
+      );
+    },
   };
-}
-
-function whenTabLoaded(aTab, aCallback) {
-  promiseTabLoadEvent(aTab).then(aCallback);
-}
-
-function promiseTabLoaded(aTab) {
-  return new Promise(resolve => {
-    whenTabLoaded(aTab, resolve);
-  });
-}
-
-/**
- * Waits for a load (or custom) event to finish in a given tab. If provided
- * load an uri into the tab.
- *
- * @param {object} tab
- *        The tab to load into.
- * @param {string} [url]
- *        The url to load, or the current url.
- * @returns {Promise<string>} resolved when the event is handled. Rejected if
- *          a valid load event is not received within a meaningful interval
- */
-function promiseTabLoadEvent(tab, url) {
-  info("Wait tab event: load");
-
-  function handle(loadedUrl) {
-    if (loadedUrl === "about:blank" || (url && loadedUrl !== url)) {
-      info(`Skipping spurious load event for ${loadedUrl}`);
-      return false;
-    }
-
-    info("Tab event received: load");
-    return true;
-  }
-
-  let loaded = BrowserTestUtils.browserLoaded(tab.linkedBrowser, false, handle);
-
-  if (url) {
-    BrowserTestUtils.startLoadingURIString(tab.linkedBrowser, url);
-  }
-
-  return loaded;
 }
 
 function promisePopupShown(popup) {

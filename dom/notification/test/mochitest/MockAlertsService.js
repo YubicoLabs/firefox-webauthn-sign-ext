@@ -3,13 +3,17 @@
 /* exported MockAlertsService */
 
 function mockServicesChromeScript() {
-  /* eslint-env mozilla/chrome-script */
-
   const MOCK_ALERTS_CID = Components.ID(
     "{48068bc2-40ab-4904-8afd-4cdfb3a385f3}"
   );
   const SYSTEM_CID = Components.ID("{a0ccaaf8-09da-44d8-b250-9ac3e93c8117}");
   const ALERTS_SERVICE_CONTRACT_ID = "@mozilla.org/alerts-service;1";
+
+  const BinaryInputStream = Components.Constructor(
+    "@mozilla.org/binaryinputstream;1",
+    "nsIBinaryInputStream",
+    "setInputStream"
+  );
 
   const { setTimeout } = ChromeUtils.importESModule(
     "resource://gre/modules/Timer.sys.mjs"
@@ -18,42 +22,38 @@ function mockServicesChromeScript() {
 
   let activeNotifications = Object.create(null);
 
+  let throwHistory = false;
+  let history = [];
+
   const mockAlertsService = {
     showAlert(alert, listener) {
       activeNotifications[alert.name] = {
         listener,
         cookie: alert.cookie,
         title: alert.title,
+        image: alert.image,
       };
 
       // fake async alert show event
       if (listener) {
         setTimeout(() => {
+          if (this.mockFailure) {
+            listener.observe(null, "alertfinished", alert.cookie);
+            return;
+          }
+
           listener.observe(null, "alertshow", alert.cookie);
           if (this.autoClick) {
-            listener.observe(null, "alertclickcallback", alert.cookie);
+            let subject;
+            if (typeof this.autoClick === "string") {
+              subject = alert.actions.filter(
+                ac => ac.action === this.autoClick
+              )[0];
+            }
+            listener.observe(subject, "alertclickcallback", alert.cookie);
           }
         }, 100);
       }
-    },
-
-    showAlertNotification(
-      imageUrl,
-      title,
-      text,
-      textClickable,
-      cookie,
-      alertListener,
-      name
-    ) {
-      this.showAlert(
-        {
-          name,
-          cookie,
-          title,
-        },
-        alertListener
-      );
     },
 
     closeAlert(name) {
@@ -68,6 +68,13 @@ function mockServicesChromeScript() {
         }
         delete activeNotifications[name];
       }
+    },
+
+    getHistory() {
+      if (throwHistory) {
+        throw new Error("no history, sorry");
+      }
+      return history;
     },
 
     QueryInterface: ChromeUtils.generateQI(["nsIAlertsService"]),
@@ -132,13 +139,45 @@ function mockServicesChromeScript() {
     mockAlertsService.closeAlert(alertName)
   );
 
-  addMessageListener("mock-alert-service:enable-autoclick", () => {
-    mockAlertsService.autoClick = true;
+  addMessageListener("mock-alert-service:enable-autoclick", action => {
+    mockAlertsService.autoClick = action || true;
+  });
+
+  addMessageListener("mock-alert-service:mock-failure", action => {
+    mockAlertsService.mockFailure = action || true;
   });
 
   addMessageListener("mock-alert-service:get-notification-ids", () =>
     Object.keys(activeNotifications)
   );
+
+  addMessageListener("mock-alert-service:get-icon-image", id => {
+    let image = activeNotifications[id].image;
+    if (!image) {
+      return null;
+    }
+
+    const imgTools = Cc["@mozilla.org/image/tools;1"].getService(Ci.imgITools);
+    let stream = imgTools.encodeImage(image, "image/png");
+    let binaryStream = new BinaryInputStream(stream);
+
+    let count = stream.available();
+    let arrayBuffer = new ArrayBuffer(count);
+    let actuallyRead = binaryStream.readArrayBuffer(count, arrayBuffer);
+    if (actuallyRead != count) {
+      throw Error("Did not read whole stream");
+    }
+
+    return arrayBuffer;
+  });
+
+  addMessageListener("mock-alert-service:set-history", value => {
+    history = value;
+  });
+
+  addMessageListener("mock-alert-service:set-throw-history", value => {
+    throwHistory = value;
+  });
 
   sendAsyncMessage("mock-alert-service:registered");
 }
@@ -194,12 +233,39 @@ const MockAlertsService = {
       alertName
     );
   },
-  async enableAutoClick() {
-    await this._chromeScript.sendQuery("mock-alert-service:enable-autoclick");
+  async enableAutoClick(action) {
+    await this._chromeScript.sendQuery(
+      "mock-alert-service:enable-autoclick",
+      action
+    );
+  },
+  async mockFailure(action) {
+    await this._chromeScript.sendQuery(
+      "mock-alert-service:mock-failure",
+      action
+    );
   },
   async getNotificationIds() {
     return await this._chromeScript.sendQuery(
       "mock-alert-service:get-notification-ids"
+    );
+  },
+  async getIconImage(id) {
+    return await this._chromeScript.sendQuery(
+      "mock-alert-service:get-icon-image",
+      id
+    );
+  },
+  async setHistory(ids) {
+    return await this._chromeScript.sendQuery(
+      "mock-alert-service:set-history",
+      ids
+    );
+  },
+  async setThrowHistory(throws) {
+    return await this._chromeScript.sendQuery(
+      "mock-alert-service:set-throw-history",
+      throws
     );
   },
 };

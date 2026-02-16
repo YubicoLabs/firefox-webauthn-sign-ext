@@ -3,6 +3,13 @@
 
 "use strict";
 
+/* exported assertNewTabResourceMapping */
+
+/**
+ * This head.js file is shared between the browser/extensions/newtab xpcshell
+ * tests as well as browser/components/newtab xpcshell tests.
+ */
+
 const { AppConstants } = ChromeUtils.importESModule(
   "resource://gre/modules/AppConstants.sys.mjs"
 );
@@ -16,6 +23,7 @@ const { ExtensionTestUtils } = ChromeUtils.importESModule(
 );
 
 ChromeUtils.defineESModuleGetters(this, {
+  AboutNewTab: "resource:///modules/AboutNewTab.sys.mjs",
   AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
   AddonManagerPrivate: "resource://gre/modules/AddonManager.sys.mjs",
   ExtensionParent: "resource://gre/modules/ExtensionParent.sys.mjs",
@@ -38,27 +46,26 @@ AddonTestUtils.overrideCertDB();
  *   Resolves once the addon has been installed.
  */
 async function loadExtension() {
-  let extensionPath = Services.dirsvc.get("GreD", Ci.nsIFile);
-  extensionPath.append("browser");
-  extensionPath.append("chrome");
-  extensionPath.append("browser");
-  extensionPath.append("builtin-addons");
-  extensionPath.append("newtab");
+  const scopes = AddonManager.SCOPE_PROFILE | AddonManager.SCOPE_APPLICATION;
+  Services.prefs.setIntPref("extensions.enabledScopes", scopes);
 
-  let startupPromise = new Promise(resolve => {
-    const { apiManager } = ExtensionParent;
-    function onReady(event, extension) {
-      if (extension.id === "newtab@mozilla.org") {
-        apiManager.off("ready", onReady);
-        resolve();
-      }
-    }
+  const EXTENSION_ID = "newtab@mozilla.org";
+  const builtinsConfig = await fetch(
+    "chrome://browser/content/built_in_addons.json"
+  ).then(res => res.json());
 
-    apiManager.on("ready", onReady);
+  await AddonTestUtils.overrideBuiltIns({
+    system: [],
+    builtins: builtinsConfig.builtins.filter(
+      entry => entry.addon_id === EXTENSION_ID
+    ),
   });
 
-  await AddonManager.installTemporaryAddon(extensionPath);
-  await startupPromise;
+  await AddonTestUtils.promiseShutdownManager({ clearL10nRegistry: false });
+  await AddonTestUtils.promiseStartupManager();
+
+  const addon = await AddonManager.getAddonByID(EXTENSION_ID);
+  Assert.ok(addon, "Expect newtab addon to be found");
 }
 
 add_setup(async function head_initialize() {
@@ -66,12 +73,44 @@ add_setup(async function head_initialize() {
     "xpcshell@tests.mozilla.org",
     "XPCShell",
     "1",
-    "138"
+    "142"
   );
   await AddonTestUtils.promiseStartupManager();
 
-  if (AppConstants.BROWSER_NEWTAB_AS_ADDON) {
-    Services.prefs.setBoolPref("extensions.experiments.enabled", true);
-    await loadExtension();
-  }
+  Services.prefs.setBoolPref("extensions.experiments.enabled", true);
+  await loadExtension();
+  AboutNewTab.init();
 });
+
+/**
+ * Asserts that New Tab resource and chrome URI have been
+ * mapped to the expected rootURI.
+
+ * @param {string} [expectedRootURISpec]
+ *   A optional root URI spec to derive the expected resource://newtab
+ *   and chrome://newtab resource mapping to expect to have been registered.
+ *   Defaults to the built-in newtab add-on root URI.
+ */
+function assertNewTabResourceMapping(expectedRootURISpec = null) {
+  const resProto = Cc[
+    "@mozilla.org/network/protocol;1?name=resource"
+  ].getService(Ci.nsIResProtocolHandler);
+  const chromeRegistry = Cc["@mozilla.org/chrome/chrome-registry;1"].getService(
+    Ci.nsIChromeRegistry
+  );
+  const expectedSpec =
+    expectedRootURISpec ??
+    `${resProto.getSubstitution("builtin-addons").spec}newtab/`;
+  Assert.equal(
+    resProto.getSubstitution("newtab")?.spec,
+    expectedSpec,
+    "Got the expected resource://newtab/ substitution"
+  );
+  Assert.equal(
+    chromeRegistry.convertChromeURL(
+      Services.io.newURI("chrome://newtab/content/css/")
+    )?.spec,
+    `${expectedSpec}data/css/`,
+    "Got the expected chrome://newtab/content substitution"
+  );
+}

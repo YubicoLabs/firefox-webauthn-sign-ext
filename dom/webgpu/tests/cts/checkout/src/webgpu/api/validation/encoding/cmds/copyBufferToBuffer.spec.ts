@@ -25,12 +25,12 @@ Test Plan:
 
 import { makeTestGroup } from '../../../../../common/framework/test_group.js';
 import { kBufferUsages } from '../../../../capability_info.js';
-import { kResourceStates } from '../../../../gpu_test.js';
+import { kResourceStates, AllFeaturesMaxLimitsGPUTest } from '../../../../gpu_test.js';
 import { kMaxSafeMultipleOf8 } from '../../../../util/math.js';
-import { ValidationTest } from '../../validation_test.js';
+import * as vtu from '../../validation_test_utils.js';
 
-class F extends ValidationTest {
-  TestCopyBufferToBuffer(options: {
+class F extends AllFeaturesMaxLimitsGPUTest {
+  testCopyBufferToBuffer(options: {
     srcBuffer: GPUBuffer;
     srcOffset: number;
     dstBuffer: GPUBuffer;
@@ -66,11 +66,11 @@ g.test('buffer_state')
   )
   .fn(t => {
     const { srcBufferState, dstBufferState } = t.params;
-    const srcBuffer = t.createBufferWithState(srcBufferState, {
+    const srcBuffer = vtu.createBufferWithState(t, srcBufferState, {
       size: 16,
       usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
-    const dstBuffer = t.createBufferWithState(dstBufferState, {
+    const dstBuffer = vtu.createBufferWithState(t, dstBufferState, {
       size: 16,
       usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
@@ -83,7 +83,7 @@ g.test('buffer_state')
       ? 'FinishError'
       : 'SubmitError';
 
-    t.TestCopyBufferToBuffer({
+    t.testCopyBufferToBuffer({
       srcBuffer,
       srcOffset: 0,
       dstBuffer,
@@ -102,9 +102,7 @@ g.test('buffer,device_mismatch')
     { srcMismatched: true, dstMismatched: false },
     { srcMismatched: false, dstMismatched: true },
   ] as const)
-  .beforeAllSubcases(t => {
-    t.selectMismatchedDeviceOrSkipTestCase(undefined);
-  })
+  .beforeAllSubcases(t => t.usesMismatchedDevice())
   .fn(t => {
     const { srcMismatched, dstMismatched } = t.params;
 
@@ -124,7 +122,7 @@ g.test('buffer,device_mismatch')
       })
     );
 
-    t.TestCopyBufferToBuffer({
+    t.testCopyBufferToBuffer({
       srcBuffer,
       srcOffset: 0,
       dstBuffer,
@@ -155,7 +153,7 @@ g.test('buffer_usage')
     const isSuccess = srcUsage === GPUBufferUsage.COPY_SRC && dstUsage === GPUBufferUsage.COPY_DST;
     const expectation = isSuccess ? 'Success' : 'FinishError';
 
-    t.TestCopyBufferToBuffer({
+    t.testCopyBufferToBuffer({
       srcBuffer,
       srcOffset: 0,
       dstBuffer,
@@ -185,7 +183,7 @@ g.test('copy_size_alignment')
       usage: GPUBufferUsage.COPY_DST,
     });
 
-    t.TestCopyBufferToBuffer({
+    t.testCopyBufferToBuffer({
       srcBuffer,
       srcOffset: 0,
       dstBuffer,
@@ -220,7 +218,7 @@ g.test('copy_offset_alignment')
       usage: GPUBufferUsage.COPY_DST,
     });
 
-    t.TestCopyBufferToBuffer({
+    t.testCopyBufferToBuffer({
       srcBuffer,
       srcOffset,
       dstBuffer,
@@ -257,7 +255,7 @@ g.test('copy_overflow')
       usage: GPUBufferUsage.COPY_DST,
     });
 
-    t.TestCopyBufferToBuffer({
+    t.testCopyBufferToBuffer({
       srcBuffer,
       srcOffset,
       dstBuffer,
@@ -292,7 +290,7 @@ g.test('copy_out_of_bounds')
       usage: GPUBufferUsage.COPY_DST,
     });
 
-    t.TestCopyBufferToBuffer({
+    t.testCopyBufferToBuffer({
       srcBuffer,
       srcOffset,
       dstBuffer,
@@ -317,7 +315,7 @@ g.test('copy_within_same_buffer')
       usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
 
-    t.TestCopyBufferToBuffer({
+    t.testCopyBufferToBuffer({
       srcBuffer: buffer,
       srcOffset,
       dstBuffer: buffer,

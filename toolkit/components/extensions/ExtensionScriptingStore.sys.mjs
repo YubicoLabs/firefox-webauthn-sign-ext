@@ -5,14 +5,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { ExtensionUtils } from "resource://gre/modules/ExtensionUtils.sys.mjs";
+import { StartupCache } from "resource://gre/modules/ExtensionParent.sys.mjs";
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
-import { ExtensionParent } from "resource://gre/modules/ExtensionParent.sys.mjs";
-
-const { StartupCache } = ExtensionParent;
-
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   FileUtils: "resource://gre/modules/FileUtils.sys.mjs",
   KeyValueService: "resource://gre/modules/kvstore.sys.mjs",
 });
@@ -183,6 +179,7 @@ export const makeInternalContentScript = (
       // upfront.
       checkPermissions: true,
       cssPaths,
+      cssOrigin: options.cssOrigin || "author",
       excludeMatches: options.excludeMatches,
       jsPaths,
       matches: options.matches,
@@ -218,6 +215,7 @@ export const makePublicContentScript = (extension, internalScript) => {
     runAt: internalScript.runAt,
     world: internalScript.world,
     persistAcrossSessions: internalScript.persistAcrossSessions,
+    cssOrigin: internalScript.cssOrigin,
   };
 
   if (internalScript.cssPaths.length) {

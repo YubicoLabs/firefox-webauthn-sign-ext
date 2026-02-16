@@ -10,11 +10,13 @@
 
 #include "api/stats/rtcstats_objects.h"
 
+#include <memory>
+#include <string>
 #include <utility>
 
 #include "api/stats/attribute.h"
 #include "api/stats/rtc_stats.h"
-#include "rtc_base/checks.h"
+#include "api/units/timestamp.h"
 
 namespace webrtc {
 
@@ -184,7 +186,12 @@ RTCRtpStreamStats::~RTCRtpStreamStats() {}
 WEBRTC_RTCSTATS_IMPL(
     RTCReceivedRtpStreamStats, RTCRtpStreamStats, "received-rtp",
     AttributeInit("jitter", &jitter),
-    AttributeInit("packetsLost", &packets_lost))
+    AttributeInit("packetsLost", &packets_lost),
+    AttributeInit("packetsReceivedWithEct1", &packets_received_with_ect1),
+    AttributeInit("packetsReceivedWithCe", &packets_received_with_ce),
+    AttributeInit("packetsReportedAsLost", &packets_reported_as_lost),
+    AttributeInit("packetsReportedAsLostButRecovered",
+                  &packets_reported_as_lost_but_recovered))
 // clang-format on
 
 RTCReceivedRtpStreamStats::RTCReceivedRtpStreamStats(std::string id,
@@ -294,6 +301,7 @@ WEBRTC_RTCSTATS_IMPL(
     AttributeInit("remoteId", &remote_id),
     AttributeInit("mid", &mid),
     AttributeInit("rid", &rid),
+    AttributeInit("encodingIndex", &encoding_index),
     AttributeInit("retransmittedPacketsSent", &retransmitted_packets_sent),
     AttributeInit("headerBytesSent", &header_bytes_sent),
     AttributeInit("retransmittedBytesSent", &retransmitted_bytes_sent),
@@ -318,10 +326,13 @@ WEBRTC_RTCSTATS_IMPL(
     AttributeInit("pliCount", &pli_count),
     AttributeInit("nackCount", &nack_count),
     AttributeInit("qpSum", &qp_sum),
+    AttributeInit("psnrSum", &psnr_sum),
+    AttributeInit("psnrMeasurements", &psnr_measurements),
     AttributeInit("active", &active),
     AttributeInit("powerEfficientEncoder", &power_efficient_encoder),
     AttributeInit("scalabilityMode", &scalability_mode),
-    AttributeInit("rtxSsrc", &rtx_ssrc))
+    AttributeInit("rtxSsrc", &rtx_ssrc),
+    AttributeInit("packetsSentWithEct1", &packets_sent_with_ect1))
 // clang-format on
 
 RTCOutboundRtpStreamStats::RTCOutboundRtpStreamStats(std::string id,
@@ -424,7 +435,8 @@ WEBRTC_RTCSTATS_IMPL(RTCTransportStats, RTCStats, "transport",
                   &selected_candidate_pair_changes),
     AttributeInit("iceRole", &ice_role),
     AttributeInit("iceLocalUsernameFragment", &ice_local_username_fragment),
-    AttributeInit("iceState", &ice_state))
+    AttributeInit("iceState", &ice_state),
+    AttributeInit("ccfbMessagesReceived", &ccfb_messages_received))
 // clang-format on
 
 RTCTransportStats::RTCTransportStats(std::string id, Timestamp timestamp)

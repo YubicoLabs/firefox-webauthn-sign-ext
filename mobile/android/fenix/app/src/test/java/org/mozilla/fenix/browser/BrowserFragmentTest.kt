@@ -5,8 +5,9 @@
 package org.mozilla.fenix.browser
 
 import android.content.Context
+import android.content.res.Configuration
+import android.content.res.Resources
 import android.view.View
-import androidx.appcompat.content.res.AppCompatResources
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -15,11 +16,7 @@ import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.mockkStatic
 import io.mockk.spyk
-import io.mockk.unmockkObject
-import io.mockk.unmockkStatic
 import io.mockk.verify
 import io.mockk.verifyOrder
 import mozilla.components.browser.state.action.RestoreCompleteAction
@@ -30,31 +27,29 @@ import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.browser.toolbar.BrowserToolbar
-import mozilla.components.support.test.ext.joinBlocking
+import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.support.test.rule.MainCoroutineRule
-import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.FeatureFlags
 import org.mozilla.fenix.FenixApplication
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
+import org.mozilla.fenix.components.AppStore
+import org.mozilla.fenix.components.appstate.AppState
 import org.mozilla.fenix.components.toolbar.BrowserToolbarView
 import org.mozilla.fenix.components.toolbar.ToolbarIntegration
 import org.mozilla.fenix.ext.application
 import org.mozilla.fenix.ext.components
-import org.mozilla.fenix.ext.isLargeWindow
 import org.mozilla.fenix.ext.settings
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
 import org.mozilla.fenix.onboarding.FenixOnboarding
-import org.mozilla.fenix.theme.ThemeManager
 import org.mozilla.fenix.utils.Settings
+import org.robolectric.RobolectricTestRunner
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class BrowserFragmentTest {
 
     private lateinit var store: BrowserStore
@@ -64,54 +59,55 @@ class BrowserFragmentTest {
     private lateinit var homeActivity: HomeActivity
     private lateinit var fenixApplication: FenixApplication
     private lateinit var context: Context
+
+    private lateinit var resources: Resources
     private lateinit var lifecycleOwner: MockedLifecycleOwner
     private lateinit var navController: NavController
     private lateinit var onboarding: FenixOnboarding
     private lateinit var settings: Settings
+    private lateinit var appStore: AppStore
 
     @get:Rule
     val coroutinesTestRule = MainCoroutineRule()
 
     @Before
     fun setup() {
-        mockkStatic("org.mozilla.fenix.ext.FragmentKt")
-        context = mockk(relaxed = true)
+        context = spyk(testContext)
+        resources = spyk(testContext.resources)
+        every { context.resources } returns resources
+
         fenixApplication = mockk(relaxed = true)
         every { context.application } returns fenixApplication
 
         homeActivity = mockk(relaxed = true)
+        every { homeActivity.resources } returns testContext.resources
+
         view = mockk(relaxed = true)
         lifecycleOwner = MockedLifecycleOwner(Lifecycle.State.STARTED)
         navController = mockk(relaxed = true)
         onboarding = mockk(relaxed = true)
         settings = mockk(relaxed = true)
+        appStore = AppStore(initialState = AppState())
 
         browserFragment = spyk(BrowserFragment())
         every { browserFragment.view } returns view
         every { browserFragment.isAdded } returns true
-        every { browserFragment.browserToolbarView } returns mockk(relaxed = true)
+        every { browserFragment.browserToolbarView } returns mockk<BrowserToolbarView>(relaxed = true)
         every { browserFragment.browserToolbarInteractor } returns mockk(relaxed = true)
         every { browserFragment.activity } returns homeActivity
         every { browserFragment.lifecycle } returns lifecycleOwner.lifecycle
+        every { browserFragment.viewLifecycleOwner } returns lifecycleOwner
         every { context.components.fenixOnboarding } returns onboarding
         every { context.components.settings } returns settings
 
+        every { context.components.appStore } returns appStore
         every { browserFragment.requireContext() } returns context
         every { browserFragment.initializeUI(any(), any()) } returns mockk()
         every { browserFragment.fullScreenChanged(any()) } returns Unit
-        every { browserFragment.resumeDownloadDialogState(any(), any(), any()) } returns Unit
 
         testTab = createTab(url = "https://mozilla.org")
         store = BrowserStore()
         every { context.components.core.store } returns store
-
-        mockkObject(FeatureFlags)
-    }
-
-    @After
-    fun tearDown() {
-        unmockkObject(FeatureFlags)
-        unmockkStatic("org.mozilla.fenix.ext.FragmentKt")
     }
 
     @Test
@@ -174,21 +170,12 @@ class BrowserFragmentTest {
     }
 
     @Test
-    fun `GIVEN browser UI is initialized WHEN selected tab changes THEN download dialog is resumed`() {
-        browserFragment.browserInitialized = true
-        browserFragment.observeTabSelection(store, false)
-
-        val newSelectedTab = createTab("https://firefox.com")
-        addAndSelectTab(newSelectedTab)
-        verify(exactly = 1) {
-            browserFragment.resumeDownloadDialogState(newSelectedTab.id, store, context)
-        }
-    }
-
-    @Test
     fun `GIVEN tabs are restored WHEN there are no tabs THEN navigate to home`() {
+        store = BrowserStore(initialState = BrowserState(tabs = listOf(testTab)))
+        every { context.components.core.store } returns store
+
         browserFragment.observeRestoreComplete(store, navController)
-        store.dispatch(RestoreCompleteAction).joinBlocking()
+        store.dispatch(RestoreCompleteAction)
 
         verify(exactly = 1) { navController.popBackStack(R.id.homeFragment, false) }
     }
@@ -197,16 +184,18 @@ class BrowserFragmentTest {
     fun `GIVEN tabs are restored WHEN there are tabs THEN do not navigate`() {
         addAndSelectTab(testTab)
         browserFragment.observeRestoreComplete(store, navController)
-        store.dispatch(RestoreCompleteAction).joinBlocking()
+        store.dispatch(RestoreCompleteAction)
 
         verify(exactly = 0) { navController.popBackStack(R.id.homeFragment, false) }
     }
 
     @Test
     fun `GIVEN tabs are restored WHEN there is no selected tab THEN navigate to home`() {
-        val store = BrowserStore(initialState = BrowserState(tabs = listOf(testTab)))
+        store = BrowserStore(initialState = BrowserState(tabs = listOf(testTab)))
+        every { context.components.core.store } returns store
+
         browserFragment.observeRestoreComplete(store, navController)
-        store.dispatch(RestoreCompleteAction).joinBlocking()
+        store.dispatch(RestoreCompleteAction)
 
         verify(exactly = 1) { navController.popBackStack(R.id.homeFragment, false) }
     }
@@ -277,6 +266,7 @@ class BrowserFragmentTest {
 
         val newSelectedTab: TabSessionState = mockk(relaxed = true)
         every { newSelectedTab.content.loadRequest?.triggeredByRedirect } returns true
+        every { newSelectedTab.parentId } returns null
 
         browserFragment.observeTabSource(store)
         addAndSelectTab(newSelectedTab)
@@ -305,7 +295,7 @@ class BrowserFragmentTest {
         val browserToolbarView: BrowserToolbarView = mockk(relaxed = true)
         val browserToolbar: BrowserToolbar = mockk(relaxed = true)
         val toolbarIntegration: ToolbarIntegration = mockk(relaxed = true)
-        every { browserToolbarView.view } returns browserToolbar
+        every { browserToolbarView.toolbar } returns browserToolbar
         every { browserToolbarView.toolbarIntegration } returns toolbarIntegration
         every { browserFragment.context } returns null
         browserFragment._browserToolbarView = browserToolbarView
@@ -331,7 +321,7 @@ class BrowserFragmentTest {
         val browserToolbarView: BrowserToolbarView = mockk(relaxed = true)
         val browserToolbar: BrowserToolbar = mockk(relaxed = true)
         val toolbarIntegration: ToolbarIntegration = mockk(relaxed = true)
-        every { browserToolbarView.view } returns browserToolbar
+        every { browserToolbarView.toolbar } returns browserToolbar
         every { browserToolbarView.toolbarIntegration } returns toolbarIntegration
         every { browserFragment.context } returns mockk(relaxed = true)
         browserFragment._browserToolbarView = browserToolbarView
@@ -354,19 +344,10 @@ class BrowserFragmentTest {
 
         browserFragment._browserToolbarView = browserToolbarView
 
-        mockkObject(ThemeManager.Companion)
-        every { ThemeManager.resolveAttribute(any(), context) } returns mockk(relaxed = true)
-
-        mockkStatic(AppCompatResources::class)
-        every { AppCompatResources.getDrawable(context, any()) } returns mockk()
-
         browserFragment.onConfigurationChanged(mockk(relaxed = true))
         verify(exactly = 1) { browserFragment.onUpdateToolbarForConfigurationChange(any()) }
         verify(exactly = 1) { browserFragment.updateTabletToolbarActions(any()) }
         verify(exactly = 1) { browserFragment.reinitializeEngineView() }
-
-        unmockkObject(ThemeManager.Companion)
-        unmockkStatic(AppCompatResources::class)
     }
 
     @Test
@@ -376,18 +357,9 @@ class BrowserFragmentTest {
         every { browserFragment.reinitializeEngineView() } just Runs
         browserFragment._browserToolbarView = browserToolbarView
 
-        mockkObject(ThemeManager.Companion)
-        every { ThemeManager.resolveAttribute(any(), context) } returns mockk(relaxed = true)
-
-        mockkStatic(AppCompatResources::class)
-        every { AppCompatResources.getDrawable(context, any()) } returns mockk()
-
         browserFragment.onConfigurationChanged(mockk(relaxed = true))
 
         verify(exactly = 1) { browserToolbarView.dismissMenu() }
-
-        unmockkObject(ThemeManager.Companion)
-        unmockkStatic(AppCompatResources::class)
     }
 
     @Test
@@ -395,28 +367,25 @@ class BrowserFragmentTest {
         val browserToolbarView: BrowserToolbarView = mockk(relaxed = true)
         val browserToolbar: BrowserToolbar = mockk(relaxed = true)
         val leadingAction: BrowserToolbar.Button = mockk(relaxed = true)
-        browserFragment.leadingAction = leadingAction
+        browserFragment.homeAction = leadingAction
         browserFragment._browserToolbarView = browserToolbarView
-        every { browserFragment.browserToolbarView.view } returns browserToolbar
-        every { browserFragment.browserToolbarView.updateMenuVisibility(any()) } just Runs
+        every { browserToolbarView.toolbar } returns browserToolbar
+        every { browserToolbarView.updateMenuVisibility(any()) } just Runs
         every { browserFragment.reinitializeEngineView() } just Runs
 
-        mockkObject(ThemeManager.Companion)
-        every { ThemeManager.resolveAttribute(any(), context) } returns mockk(relaxed = true)
+        every { resources.configuration } returns Configuration().apply {
+            smallestScreenWidthDp = 900
+        }
 
-        mockkStatic(AppCompatResources::class)
-        every { AppCompatResources.getDrawable(context, any()) } returns mockk()
-
-        every { browserFragment.isLargeWindow() } returns true
         browserFragment.onConfigurationChanged(mockk(relaxed = true))
         verify(exactly = 3) { browserToolbar.addNavigationAction(any()) }
 
-        every { browserFragment.isLargeWindow() } returns false
+        every { resources.configuration } returns Configuration().apply {
+            smallestScreenWidthDp = 400
+        }
+
         browserFragment.onConfigurationChanged(mockk(relaxed = true))
         verify(exactly = 3) { browserToolbar.removeNavigationAction(any()) }
-
-        unmockkObject(ThemeManager.Companion)
-        unmockkStatic(AppCompatResources::class)
     }
 
     @Test
@@ -424,27 +393,21 @@ class BrowserFragmentTest {
         val browserToolbarView: BrowserToolbarView = mockk(relaxed = true)
         val browserToolbar: BrowserToolbar = mockk(relaxed = true)
         val leadingAction: BrowserToolbar.Button = mockk(relaxed = true)
-        browserFragment.leadingAction = leadingAction
+        browserFragment.homeAction = leadingAction
         browserFragment._browserToolbarView = browserToolbarView
-        every { browserFragment.browserToolbarView.view } returns browserToolbar
-        every { browserFragment.browserToolbarView.updateMenuVisibility(any()) } just Runs
+        every { browserToolbarView.toolbar } returns browserToolbar
+        every { browserToolbarView.updateMenuVisibility(any()) } just Runs
         every { browserFragment.reinitializeEngineView() } just Runs
 
-        mockkObject(ThemeManager.Companion)
-        every { ThemeManager.resolveAttribute(any(), context) } returns mockk(relaxed = true)
+        every { resources.configuration } returns Configuration().apply {
+            smallestScreenWidthDp = 900
+        }
 
-        mockkStatic(AppCompatResources::class)
-        every { AppCompatResources.getDrawable(context, any()) } returns mockk()
-
-        every { browserFragment.isLargeWindow() } returns true
         browserFragment.onConfigurationChanged(mockk(relaxed = true))
         verify(exactly = 3) { browserToolbar.addNavigationAction(any()) }
 
         browserFragment.onConfigurationChanged(mockk(relaxed = true))
         verify(exactly = 3) { browserToolbar.addNavigationAction(any()) }
-
-        unmockkObject(ThemeManager.Companion)
-        unmockkStatic(AppCompatResources::class)
     }
 
     @Test
@@ -452,19 +415,15 @@ class BrowserFragmentTest {
         val browserToolbarView: BrowserToolbarView = mockk(relaxed = true)
         val browserToolbar: BrowserToolbar = mockk(relaxed = true)
         val leadingAction: BrowserToolbar.Button = mockk(relaxed = true)
-        browserFragment.leadingAction = leadingAction
+        browserFragment.homeAction = leadingAction
         browserFragment._browserToolbarView = browserToolbarView
-        every { browserFragment.browserToolbarView.view } returns browserToolbar
-        every { browserFragment.browserToolbarView.updateMenuVisibility(any()) } just Runs
+        every { browserToolbarView.toolbar } returns browserToolbar
+        every { browserToolbarView.updateMenuVisibility(any()) } just Runs
         every { browserFragment.reinitializeEngineView() } just Runs
 
-        mockkObject(ThemeManager.Companion)
-        every { ThemeManager.resolveAttribute(any(), context) } returns mockk(relaxed = true)
-
-        mockkStatic(AppCompatResources::class)
-        every { AppCompatResources.getDrawable(context, any()) } returns mockk()
-
-        every { browserFragment.isLargeWindow() } returns false
+        every { resources.configuration } returns Configuration().apply {
+            smallestScreenWidthDp = 300
+        }
         browserFragment.onConfigurationChanged(mockk(relaxed = true))
         verify(exactly = 0) { browserToolbar.addNavigationAction(any()) }
         verify(exactly = 0) { browserToolbar.removeNavigationAction(any()) }
@@ -472,14 +431,11 @@ class BrowserFragmentTest {
         browserFragment.onConfigurationChanged(mockk(relaxed = true))
         verify(exactly = 0) { browserToolbar.addNavigationAction(any()) }
         verify(exactly = 0) { browserToolbar.removeNavigationAction(any()) }
-
-        unmockkObject(ThemeManager.Companion)
-        unmockkStatic(AppCompatResources::class)
     }
 
     private fun addAndSelectTab(tab: TabSessionState) {
-        store.dispatch(TabListAction.AddTabAction(tab)).joinBlocking()
-        store.dispatch(TabListAction.SelectTabAction(tab.id)).joinBlocking()
+        store.dispatch(TabListAction.AddTabAction(tab))
+        store.dispatch(TabListAction.SelectTabAction(tab.id))
     }
 
     internal class MockedLifecycleOwner(initialState: Lifecycle.State) : LifecycleOwner {
@@ -501,182 +457,28 @@ class BrowserFragmentTest {
     }
 
     @Test
-    fun `GIVEN redesign feature is off and configuration is portrait WHEN updating navigation icons THEN only leading action is added`() {
-        mockThemeManagerAndAppCompatResources()
-
-        val redesignEnabled = false
-        val isLandscape = false
+    fun `GIVEN device is not a tablet WHEN updating toolbar actions THEN only leading action is added and no actions are removed`() {
         browserFragment.updateBrowserToolbarLeadingAndNavigationActions(
             context = context,
-            redesignEnabled = redesignEnabled,
-            isLandscape = isLandscape,
             isTablet = false,
-            isPrivate = false,
-            feltPrivateBrowsingEnabled = false,
-            isWindowSizeSmall = true,
         )
 
-        verify(exactly = 1) { browserFragment.addLeadingAction(any(), any(), any()) }
+        verify(exactly = 1) { browserFragment.addHomeAction(any()) }
         verify(exactly = 0) { browserFragment.addTabletActions(any()) }
         verify(exactly = 0) { browserFragment.addNavigationActions(any()) }
-
-        unmockThemeManagerAndAppCompatResources()
+        verify(exactly = 0) { browserFragment.removeNavigationActions() }
     }
 
     @Test
-    fun `GIVEN redesign feature is off and configuration is landscape WHEN updating navigation icons THEN only leading action is added`() {
-        mockThemeManagerAndAppCompatResources()
-
-        val redesignEnabled = false
-        val isLandscape = true
+    fun `GIVEN device is a tablet WHEN updating toolbar actions THEN leading and navigation actions are added in order`() {
         browserFragment.updateBrowserToolbarLeadingAndNavigationActions(
             context = context,
-            redesignEnabled = redesignEnabled,
-            isLandscape = isLandscape,
-            isTablet = false,
-            isPrivate = false,
-            feltPrivateBrowsingEnabled = false,
-            isWindowSizeSmall = false,
-        )
-
-        verify(exactly = 1) { browserFragment.addLeadingAction(any(), any(), any()) }
-        verify(exactly = 0) { browserFragment.addTabletActions(any()) }
-        verify(exactly = 0) { browserFragment.addNavigationActions(any()) }
-
-        unmockThemeManagerAndAppCompatResources()
-    }
-
-    @Test
-    fun `GIVEN redesign feature is on and configuration is portrait WHEN updating navigation icons THEN no actions were added`() {
-        mockThemeManagerAndAppCompatResources()
-
-        val redesignEnabled = true
-        val isLandscape = false
-        browserFragment.updateBrowserToolbarLeadingAndNavigationActions(
-            context = context,
-            redesignEnabled = redesignEnabled,
-            isLandscape = isLandscape,
-            isTablet = false,
-            isPrivate = false,
-            feltPrivateBrowsingEnabled = false,
-            isWindowSizeSmall = true,
-        )
-
-        verify(exactly = 0) { browserFragment.addLeadingAction(any(), any(), any()) }
-        verify(exactly = 0) { browserFragment.addTabletActions(any()) }
-        verify(exactly = 0) { browserFragment.addNavigationActions(any()) }
-
-        unmockThemeManagerAndAppCompatResources()
-    }
-
-    @Test
-    fun `GIVEN redesign feature is on and configuration is landscape WHEN updating navigation actions THEN navigation actions action are added`() {
-        mockThemeManagerAndAppCompatResources()
-
-        val redesignEnabled = true
-        val isLandscape = true
-
-        browserFragment.updateBrowserToolbarLeadingAndNavigationActions(
-            context = context,
-            redesignEnabled = redesignEnabled,
-            isLandscape = isLandscape,
-            isTablet = false,
-            isPrivate = false,
-            feltPrivateBrowsingEnabled = false,
-            isWindowSizeSmall = false,
-        )
-
-        verify(exactly = 0) { browserFragment.addLeadingAction(any(), any(), any()) }
-        verify(exactly = 0) { browserFragment.addTabletActions(any()) }
-        verify(exactly = 1) { browserFragment.addNavigationActions(any()) }
-
-        unmockThemeManagerAndAppCompatResources()
-    }
-
-    @Test
-    fun `GIVEN redesign feature is off and is tablet WHEN updating navigation icons THEN leading action and navigation buttons are added in order`() {
-        mockThemeManagerAndAppCompatResources()
-
-        val isTablet = true
-
-        val redesignEnabled = false
-        val isLandscape = true
-        browserFragment.updateBrowserToolbarLeadingAndNavigationActions(
-            context = context,
-            redesignEnabled = redesignEnabled,
-            isLandscape = isLandscape,
-            isTablet = isTablet,
-            isPrivate = false,
-            feltPrivateBrowsingEnabled = false,
-            isWindowSizeSmall = false,
+            isTablet = true,
         )
 
         verifyOrder {
-            browserFragment.addLeadingAction(any(), any(), any())
+            browserFragment.addHomeAction(any())
             browserFragment.addNavigationActions(any())
         }
-
-        unmockThemeManagerAndAppCompatResources()
-    }
-
-    @Test
-    fun `GIVEN redesign feature is on and orientation is portrait and it is not tablet WHEN updating navigation icons THEN navigation items and leading action are removed`() {
-        mockThemeManagerAndAppCompatResources()
-
-        val redesignEnabled = true
-        val isLandscape = false
-        val isTablet = false
-
-        browserFragment.updateBrowserToolbarLeadingAndNavigationActions(
-            context = context,
-            redesignEnabled = redesignEnabled,
-            isLandscape = isLandscape,
-            isPrivate = false,
-            isTablet = isTablet,
-            feltPrivateBrowsingEnabled = false,
-            isWindowSizeSmall = true,
-        )
-
-        verify(exactly = 1) { browserFragment.removeLeadingAction() }
-        verify(exactly = 1) { browserFragment.removeNavigationActions() }
-
-        unmockThemeManagerAndAppCompatResources()
-    }
-
-    @Test
-    fun `GIVEN redesign feature is on and orientation is portrait and it is tablet WHEN updating navigation actions THEN navigation actions are added`() {
-        mockThemeManagerAndAppCompatResources()
-
-        val redesignEnabled = true
-        val isLandscape = false
-        val isTablet = true
-
-        browserFragment.updateBrowserToolbarLeadingAndNavigationActions(
-            context = context,
-            redesignEnabled = redesignEnabled,
-            isLandscape = isLandscape,
-            isPrivate = false,
-            isTablet = isTablet,
-            feltPrivateBrowsingEnabled = false,
-            isWindowSizeSmall = false,
-        )
-
-        verify(exactly = 0) { browserFragment.addLeadingAction(any(), any(), any()) }
-        verify(exactly = 1) { browserFragment.addNavigationActions(any()) }
-
-        unmockThemeManagerAndAppCompatResources()
-    }
-
-    private fun mockThemeManagerAndAppCompatResources() {
-        mockkObject(ThemeManager.Companion)
-        every { ThemeManager.resolveAttribute(any(), context) } returns mockk(relaxed = true)
-
-        mockkStatic(AppCompatResources::class)
-        every { AppCompatResources.getDrawable(context, any()) } returns mockk()
-    }
-
-    private fun unmockThemeManagerAndAppCompatResources() {
-        unmockkObject(ThemeManager.Companion)
-        unmockkStatic(AppCompatResources::class)
     }
 }

@@ -79,7 +79,7 @@ add_task(async function test_selector_get_reentry() {
   let promise = Promise.withResolvers();
   getStub.resetHistory();
   getStub.onFirstCall().returns(promise.promise);
-  delete engineSelector._configuration;
+  engineSelector.clearCachedConfigurationForTests();
 
   let firstResult;
   let secondResult;
@@ -222,8 +222,8 @@ add_task(async function test_selector_db_modification() {
     "Should have called the get() function twice."
   );
 
-  const databaseEntries = await db.list();
-  Assert.equal(databaseEntries.length, 0, "Should have cleared the database.");
+  const dbTimestamp = await db.getLastModified();
+  Assert.equal(dbTimestamp, null, "Should have cleared the database.");
 
   Assert.deepEqual(
     result.engines.map(e => e.name),
@@ -274,7 +274,7 @@ add_task(async function test_selector_db_modification_never_succeeds() {
       locale: "en-US",
       region: "default",
     }),
-    ex => ex.result == Cr.NS_ERROR_UNEXPECTED,
+    ex => ex.message.startsWith("Failed to get engine data"),
     "Should have rejected loading the engine configuration"
   );
 
@@ -283,8 +283,8 @@ add_task(async function test_selector_db_modification_never_succeeds() {
     "Should have called the get() function twice."
   );
 
-  const databaseEntries = await db.list();
-  Assert.equal(databaseEntries.length, 0, "Should have cleared the database.");
+  const dbTimestamp = await db.getLastModified();
+  Assert.equal(dbTimestamp, null, "Should have cleared the database.");
 });
 
 add_task(async function test_empty_results() {
@@ -325,8 +325,8 @@ add_task(async function test_empty_results() {
     "Should have called the get() function twice."
   );
 
-  const databaseEntries = await db.list();
-  Assert.equal(databaseEntries.length, 0, "Should have cleared the database.");
+  const dbTimestamp = await db.getLastModified();
+  Assert.equal(dbTimestamp, null, "Should have cleared the database.");
 
   Assert.deepEqual(
     result.engines.map(e => e.name),

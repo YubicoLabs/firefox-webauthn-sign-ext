@@ -5,8 +5,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __mozilla_widget_GfxInfo_h__
-#define __mozilla_widget_GfxInfo_h__
+#ifndef _mozilla_widget_GfxInfo_h_
+#define _mozilla_widget_GfxInfo_h_
 
 #include "GfxInfoBase.h"
 #include "GfxDriverInfo.h"
@@ -27,7 +27,6 @@ class GfxInfo : public GfxInfoBase {
 
   // We only declare the subset of nsIGfxInfo that we actually implement. The
   // rest is brought forward from GfxInfoBase.
-  NS_IMETHOD GetD2DEnabled(bool* aD2DEnabled) override;
   NS_IMETHOD GetDWriteEnabled(bool* aDWriteEnabled) override;
   NS_IMETHOD GetDWriteVersion(nsAString& aDwriteVersion) override;
   NS_IMETHOD GetEmbeddedInFirefoxReality(
@@ -69,10 +68,19 @@ class GfxInfo : public GfxInfoBase {
 
 #ifdef DEBUG
   NS_DECL_ISUPPORTS_INHERITED
-  NS_DECL_NSIGFXINFODEBUG
+
+  NS_IMETHOD SpoofVendorID(const nsAString& aVendorID) override;
+  NS_IMETHOD SpoofDeviceID(const nsAString& aDeviceID) override;
+  NS_IMETHOD SpoofDriverVersion(const nsAString& aDriverVersion) override;
+  NS_IMETHOD SpoofOSVersion(uint32_t aVersion) override;
+  NS_IMETHOD SpoofOSVersionEx(uint32_t aMajor, uint32_t aMinor, uint32_t aBuild,
+                              uint32_t aRevision) override;
 #endif
 
   virtual uint32_t OperatingSystemVersion() override;
+  GfxVersionEx OperatingSystemVersionEx() override;
+
+  void ReportGLStrings(gfx::GfxInfoGLStrings&& aStrings) override;
 
  protected:
   OperatingSystem GetOperatingSystem() override {
@@ -80,9 +88,9 @@ class GfxInfo : public GfxInfoBase {
   }
   virtual nsresult GetFeatureStatusImpl(
       int32_t aFeature, int32_t* aStatus, nsAString& aSuggestedDriverVersion,
-      const nsTArray<GfxDriverInfo>& aDriverInfo, nsACString& aFailureId,
-      OperatingSystem* aOS = nullptr) override;
-  virtual const nsTArray<GfxDriverInfo>& GetGfxDriverInfo() override;
+      const nsTArray<RefPtr<GfxDriverInfo>>& aDriverInfo,
+      nsACString& aFailureId, OperatingSystem* aOS = nullptr) override;
+  virtual const nsTArray<RefPtr<GfxDriverInfo>>& GetGfxDriverInfo() override;
 
  private:
   void AddCrashReportAnnotations();
@@ -99,6 +107,7 @@ class GfxInfo : public GfxInfoBase {
 
   nsString mModel, mHardware, mManufacturer, mProduct;
   nsCString mOSVersion;
+  GfxVersionEx mOSVersionEx;
   uint32_t mOSVersionInteger;
   int32_t mSDKVersion;
 };
@@ -106,4 +115,4 @@ class GfxInfo : public GfxInfoBase {
 }  // namespace widget
 }  // namespace mozilla
 
-#endif /* __mozilla_widget_GfxInfo_h__ */
+#endif /* _mozilla_widget_GfxInfo_h_ */

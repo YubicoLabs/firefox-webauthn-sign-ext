@@ -24,7 +24,7 @@ urlbar:
         description: >
           `sap` is the meaning of `search access point`. It records where the
           user started the search action from. The possible values are: `urlbar`
-          , `handoff`, `urlbar_newtab` and `urlbar_addonpage`.
+          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, and `searchbar`.
         type: string
       interaction:
         description: >
@@ -84,8 +84,8 @@ urlbar:
           group names are: `heuristic`, `adaptive_history`, `search_history`,
           `search_suggest`, `search_suggest_rich`, `trending_search`,
           `trending_search_rich`, `top_pick`, `top_site`, `remote_tab`,
-          `addon`, `general`, `suggest`, `about_page`, `suggested_index`, and
-          `restrict_keyword`.
+          `addon`, `general`, `suggest`, `about_page`, `suggested_index`,
+          `restrict_keyword`, `ai`.
           If the group did not fall into any of these,
           this will be `unknown` and a bug should be filed to investigate it.
         type: string
@@ -96,16 +96,25 @@ urlbar:
           possible types are:
           `action`,
           `addon`,
+          `ai_chat`,
           `autofill_about`,
           `autofill_adaptive`,
           `autofill_origin`,
           `autofill_unknown`,
           `autofill_url`,
           `bookmark`,
+          `bookmark_adaptive`,
+          `bookmark_adaptive_serp`,
+          `bookmark_serp`,
           `calc`,
           `clipboard`,
           `fxsuggest_data_sharing_opt_in`,
           `history`,
+          `history_adaptive`,
+          `history_adaptive_serp`,
+          `history_semantic`,
+          `history_semantic_serp`,
+          `history_serp`,
           `intervention_clear`,
           `intervention_refresh`,
           `intervention_unknown`,
@@ -113,6 +122,7 @@ urlbar:
           `keyword`,
           `merino_adm_sponsored`,
           `merino_amo`,
+          `merino_market`,
           `merino_top_picks`,
           `merino_wikipedia`,
           `ml_yelp`,
@@ -126,18 +136,20 @@ urlbar:
           `rust_adm_sponsored`,
           `rust_amo`,
           `rust_exposure`,
-          `rust_fakespot_amazon`,
-          `rust_fakespot_bestbuy`,
-          `rust_fakespot_other`,
-          `rust_fakespot_walmart`,
+          `rust_important_dates`,
+          `rust_market_opt_in`,
           `rust_mdn`,
-          `rust_pocket`,
           `rust_yelp`,
           `search_engine`,
           `search_history`,
           `search_suggest`,
           `search_suggest_rich`,
           `tab`,
+          `tab_adaptive`,
+          `tab_adaptive_serp`,
+          `tab_semantic`,
+          `tab_semantic_serp`,
+          `tab_serp`,
           `tab_to_search`,
           `tip_dismissal_acknowledgment`,
           `tip_onboard`,
@@ -154,21 +166,239 @@ urlbar:
         description: >
           Comma separated list of actions keys in the order they were shown to
           the user. Possible keys are: `addons`, `bookmarks`, `clear`, `downloads`,
-          `extensions`, `inspect`, `logins`, `plugins`, `print`, `private`,
+          `extensions`, `inspect`, `logins`, `print`, `private`,
           `refresh`, `restart`, `savepdf`, `screenshot`, `settings`, `tabswitch`,
           `themes`, `update`, `viewsource`.
           If there is no action shown in a position that is denoted with `none`.
+        type: string
+      available_semantic_sources:
+        description: >
+          Comma separated list of semantic sources that were available to search.
+          This indicates general availability of the source, not whether it was
+          queried.
+          The possible values are: `history`, `none`.
         type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1800414
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1805717
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1842247
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1917992
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003067
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1800414#c2
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1805717#c4
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1842247#c3
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1917992
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003067
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - fx-search-telemetry@mozilla.com
+    expires: never
+
+  bounce:
+    type: event
+    description: Recorded when the user leaves a page loaded by picking an address bar result and they spent less than 10s on it.
+    extra_keys:
+      sap:
+        description: >
+          `sap` is the meaning of `search access point`. It records where the
+          user started the search action from. The possible values are: `urlbar`
+          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, and `searchbar`.
+        type: string
+      interaction:
+        description: >
+          How the user started the search action. The possible values are:
+          `typed`, `pasted`, `topsite_search` (clicked on a topsite search
+          shortcut), `topsites` (selected a topsite result with empty search
+          string), `returned` (The user abandoned a search, then returned to it)
+          , `restarted` (The user abandoned a search, then returned to it,
+          cleared it and typed a completely different string), `refined` (The
+          user abandoned a search, then returned to it, and partially modified
+          the string), `persisted_search_terms` (The user returned to a previous
+          successful search that persisted terms in the urlbar),
+          `persisted_search_terms_restarted` (The user returned to a previous
+          successful search that persisted terms in the urlbar, then cleared it
+          and typed a completely different string) and
+          `persisted_search_terms_refined` (The user returned to a previous
+          successful search that persisted terms in the urlbar, and partially
+          modified the string).
+        type: string
+      search_mode:
+        description: >
+          If the urlbar is in search mode, thus restricting results to a
+          specific search engine or local source, this is set to the search mode
+          source. The possible sources are: `actions`, `bookmarks`, `history`,
+          `search_engine`, and `tabs`. If search mode is active but the source
+          did not fall into any of these categories, this will be `unknown`. If
+          search mode is not active, this will be an empty string.
+        type: string
+      search_engine_default_id:
+        description: >
+          The telemetry id of the search engine.
+          Reflects `search.engine.default.engine_id`.
+        type: string
+      n_chars:
+        description: >
+          The length of string used for the search. It includes whitespaces.
+        type: quantity
+      n_words:
+        description: >
+          The length of words used for the search. The words are made by
+          splitting the search string by whitespaces, thus this doesn’t support
+          CJK languages. For performance reasons a maximum of 255 characters are
+          considered when splitting.
+        type: quantity
+      n_results:
+        description: >
+          The number of results shown to the user. If this is high the results
+          list below may be truncated due to technical limitations. Also note in
+          that case not all the results may be physically visible due to the
+          screen size limitation.
+        type: quantity
+      selected_result:
+        description: >
+          The type of the result the user selected. This is to be set as the
+          selected_result value of the last engagement event.
+        type: string
+      selected_position:
+        description: >
+          The 1-based index of the result the user selected. If user searched
+          without selection, 0 will be recorded.
+        type: quantity
+      provider:
+        description: >
+          The name of the `UrlbarProvider` that provided the selected result.
+          The possible values are: `AboutPages`, `AliasEngines`, `Autofill`,
+          `BookmarkKeywords`, `calculator`, `UrlbarProviderContextualSearch`,
+          `HeuristicFallback`, `HistoryUrlHeuristic`, `InputHistory`,
+          `UrlbarProviderInterventions`, `Omnibox`, `OpenTabs`, `Places`,
+          `PrivateSearch`, `quickactions`, `UrlbarProviderQuickSuggest`,
+          `RemoteTabs`, `SearchSuggestions`, `UrlbarProviderSearchTips`,
+          `TabToSearch`, `TokenAliasEngines`, `UrlbarProviderTopSites`,
+          `UnitConversion` and `UnifiedComplete`.
+          If engagement_type is `drop_go` or `paste_go`, this will be null
+          because no results are shown. And also, if selected_result is
+          `experimental_addon`, it means that the user selected a result
+          from an add-on using the urlbar experimental API. In this case,
+          this will be the provider name specified by the add-on.
+        type: string
+      engagement_type:
+        description: >
+          Records how the user selected the result. The possible values are the same
+          as those defined for the engagement event engagement_type property.
+        type: string
+      results:
+        description: >
+          Comma separated list of result types in the order they were shown to
+          the user. The `unknown` type should not occur and indicates a bug. The
+          types are one of the values defined for the engagement event results property.
+        type: string
+      view_time:
+        description: >
+          The number of seconds the user spent on the page.
+        type: quantity
+      threshold:
+        description: >
+          The view time threshold for bounce detection, in seconds.
+        type: quantity
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1959741
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1959741
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - fx-search-telemetry@mozilla.com
+    expires: never
+
+
+  disable:
+    type: event
+    description: >
+      Recorded after a search containing a Suggest result is engaged
+      or abandoned. Number of seconds is controlled by hidden
+      browser.urlbar.disableSuggestEvent.maxSecondsFromLastSearch pref.
+      Reported values refer to the last search.
+    extra_keys:
+      sap:
+        description: >
+          `sap` is the meaning of `search access point`. It records where the
+          user started the search action from. The possible values are: `urlbar`
+          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, and `searchbar`.
+        type: string
+      interaction:
+        description: >
+          How the user started the search action. The possible values are:
+          `typed`, `pasted`, `topsite_search` (clicked on a topsite search
+          shortcut), `topsites` (selected a topsite result with empty search
+          string), `returned` (The user abandoned a search, then returned to it)
+          , `restarted` (The user abandoned a search, then returned to it,
+          cleared it and typed a completely different string), `refined` (The
+          user abandoned a search, then returned to it, and partially modified
+          the string), `persisted_search_terms` (The user returned to a previous
+          successful search that persisted terms in the urlbar),
+          `persisted_search_terms_restarted` (The user returned to a previous
+          successful search that persisted terms in the urlbar, then cleared it
+          and typed a completely different string) and
+          `persisted_search_terms_refined` (The user returned to a previous
+          successful search that persisted terms in the urlbar, and partially
+          modified the string).
+        type: string
+      search_mode:
+        description: >
+          If the urlbar is in search mode, thus restricting results to a
+          specific search engine or local source, this is set to the search mode
+          source. The possible sources are: `actions`, `bookmarks`, `history`,
+          `search_engine`, and `tabs`. If search mode is active but the source
+          did not fall into any of these categories, this will be `unknown`. If
+          search mode is not active, this will be an empty string.
+        type: string
+      search_engine_default_id:
+        description: >
+          The telemetry id of the search engine.
+          Reflects `search.engine.default.engine_id`.
+        type: string
+      n_chars:
+        description: >
+          The length of string used for the search. It includes whitespaces.
+        type: quantity
+      n_words:
+        description: >
+          The length of words used for the search. The words are made by
+          splitting the search string by whitespaces, thus this doesn’t support
+          CJK languages. For performance reasons a maximum of 255 characters are
+          considered when splitting.
+        type: quantity
+      n_results:
+        description: >
+          The number of results shown to the user. If this is high the results
+          list below may be truncated due to technical limitations. Also note in
+          that case not all the results may be physically visible due to the
+          screen size limitation.
+        type: quantity
+      selected_result:
+        description: >
+          The type of the result the user selected. If the last search was an engagement,
+          it will be set to the selected_result value of the engagement event, otherwise in
+          the case of the abandonment event, it will be set to `none`.
+        type: string
+      results:
+        description: >
+          Comma separated list of result types in the order they were shown to
+          the user. The `unknown` type should not occur and indicates a bug. The
+          types are one of the values defined for the engagement event results property.
+        type: string
+      feature:
+        description: >
+          The specific feature that is being disabled. The possible types are:
+          `suggest`
+          More values may be added in the future.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1960836
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1960836
     data_sensitivity:
       - interaction
     notification_emails:
@@ -183,7 +413,7 @@ urlbar:
         description: >
           `sap` is the meaning of `search access point`. It records where the
           user started the search action from. The possible values are: `urlbar`
-          , `handoff`, `urlbar_newtab` and `urlbar_addonpage`.
+          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, and `searchbar`.
         type: string
       interaction:
         description: >
@@ -241,17 +471,26 @@ urlbar:
           not occur and indicates a bug. The possible types are:
           `action`,
           `addon`,
+          `ai_chat`,
           `autofill_about`,
           `autofill_adaptive`,
           `autofill_origin`,
           `autofill_unknown`,
           `autofill_url`,
           `bookmark`,
+          `bookmark_adaptive`,
+          `bookmark_adaptive_serp`,
+          `bookmark_serp`,
           `calc`,
           `clipboard`,
           `experimental_addon`,
           `fxsuggest_data_sharing_opt_in`,
           `history`,
+          `history_adaptive`,
+          `history_adaptive_serp`,
+          `history_semantic`,
+          `history_semantic_serp`,
+          `history_serp`,
           `input_field`,
           `intervention_clear`,
           `intervention_refresh`,
@@ -260,6 +499,7 @@ urlbar:
           `keyword`,
           `merino_adm_sponsored`,
           `merino_amo`,
+          `merino_market`,
           `merino_top_picks`,
           `merino_wikipedia`,
           `ml_yelp`,
@@ -273,12 +513,9 @@ urlbar:
           `rust_adm_sponsored`,
           `rust_amo`,
           `rust_exposure`,
-          `rust_fakespot_amazon`,
-          `rust_fakespot_bestbuy`,
-          `rust_fakespot_other`,
-          `rust_fakespot_walmart`,
+          `rust_important_dates`,
+          `rust_market_opt_in`,
           `rust_mdn`,
-          `rust_pocket`,
           `rust_yelp`,
           `search_engine`,
           `search_history`,
@@ -287,6 +524,11 @@ urlbar:
           `search_suggest_rich`,
           `site_specific_contextual_search`,
           `tab`,
+          `tab_adaptive`,
+          `tab_adaptive_serp`,
+          `tab_semantic`,
+          `tab_semantic_serp`,
+          `tab_serp`,
           `tab_to_search`,
           `tip_dismissal_acknowledgment`,
           `tip_onboard`,
@@ -329,6 +571,7 @@ urlbar:
       engagement_type:
         description: >
           Records how the user selected the result. The possible values are:
+          `ask_button`,
           `click`,
           `dismiss`,
           `drop_go`,
@@ -337,9 +580,13 @@ urlbar:
           `help`,
           `inaccurate_location`,
           `manage`,
+          `navigate_button`,
           `not_interested`,
+          `not_now`,
           `not_relevant`,
+          `opt_in`,
           `paste_go`,
+          `search_button`,
           `show_less_frequently`
         type: string
       groups:
@@ -351,7 +598,7 @@ urlbar:
           `search_suggest`, `search_suggest_rich`, `trending_search`,
           `trending_search_rich`, `top_pick`, `top_site`, `recent_search`,
           `remote_tab`, `addon`, `general`, `suggest`, `about_page`,
-          `suggested_index`, and `restrict_keyword`.
+          `suggested_index`, `restrict_keyword`, `ai`.
           If the group did not fall into any of these, this will be `unknown`
           and a bug should be filed to investigate it. If engagement_type is
           `drop_go` or `paste_go`, this  will be empty string because no results
@@ -364,16 +611,25 @@ urlbar:
           possible types are:
           `action`,
           `addon`,
+          `ai_chat`,
           `autofill_about`,
           `autofill_adaptive`,
           `autofill_origin`,
           `autofill_unknown`,
           `autofill_url`,
           `bookmark`,
+          `bookmark_adaptive`,
+          `bookmark_adaptive_serp`,
+          `bookmark_serp`,
           `calc`,
           `clipboard`,
           `fxsuggest_data_sharing_opt_in`,
           `history`,
+          `history_adaptive`,
+          `history_adaptive_serp`,
+          `history_semantic`,
+          `history_semantic_serp`,
+          `history_serp`,
           `intervention_clear`,
           `intervention_refresh`,
           `intervention_unknown`,
@@ -381,6 +637,7 @@ urlbar:
           `keyword`,
           `merino_adm_sponsored`,
           `merino_amo`,
+          `merino_market`,
           `merino_top_picks`,
           `merino_wikipedia`,
           `ml_yelp`,
@@ -394,18 +651,20 @@ urlbar:
           `rust_adm_sponsored`,
           `rust_amo`,
           `rust_exposure`,
-          `rust_fakespot_amazon`,
-          `rust_fakespot_bestbuy`,
-          `rust_fakespot_other`,
-          `rust_fakespot_walmart`,
+          `rust_important_dates`,
+          `rust_market_opt_in`,
           `rust_mdn`,
-          `rust_pocket`,
           `rust_yelp`,
           `search_engine`,
           `search_history`,
           `search_suggest`,
           `search_suggest_rich`,
           `tab`,
+          `tab_adaptive`,
+          `tab_adaptive_serp`,
+          `tab_semantic`,
+          `tab_semantic_serp`,
+          `tab_serp`,
           `tab_to_search`,
           `tip_dismissal_acknowledgment`,
           `tip_onboard`,
@@ -422,50 +681,49 @@ urlbar:
         description: >
           Comma separated list of actions keys in the order they were shown to
           the user. Possible keys are: `addons`, `bookmarks`, `clear`, `downloads`,
-          `extensions`, `inspect`, `logins`, `plugins`, `print`, `private`,
+          `extensions`, `inspect`, `logins`, `print`, `private`,
           `refresh`, `restart`, `savepdf`, `screenshot`, `settings`, `tabswitch`,
           `themes`, `update`, `viewsource`.
           If there is no action shown in a position that is denoted with `none`.
+        type: string
+      available_semantic_sources:
+        description: >
+          Comma separated list of semantic sources that were available to search.
+          This indicates general availability of the source, not whether it was
+          queried.
+          The possible values are: `history`, `none`.
         type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1797265
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1805717
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1842247
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003067
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2008925
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1797265#c3
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1805717#c4
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1842247#c3
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003067
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2008925
     data_sensitivity:
       - interaction
     notification_emails:
       - fx-search-telemetry@mozilla.com
     expires: never
 
-  fakespot_engagement:
-    type: event
+  heuristic_result_missing:
+    type: rate
     description: >
-      Recorded when the user engages with a Fakespot suggestion.
-    extra_keys:
-      grade:
-        description: >
-          The Fakespot grade: "A", "B", etc.
-        type: string
-      rating:
-        description: >
-          The Fakespot rating: "4.1", "5.0", etc.
-        type: string
-      provider:
-        description: >
-          The product provider: "amazon", "bestbuy", "walmart"
-        type: string
+      A uint recording the number of times the address bar handleCommand fallback
+      path is hit.
     bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1907990
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1650819
     data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1907990
-    data_sensitivity:
-      - interaction
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1650819
     notification_emails:
       - fx-search-telemetry@mozilla.com
+    data_sensitivity:
+      - technical
     expires: never
 
   exposure:
@@ -538,39 +796,6 @@ urlbar:
     send_in_pings:
       - urlbar-keyword-exposure
 
-  quick_suggest_contextual_opt_in:
-    type: event
-    description: >
-      Recorded when the contextual opt-in UI is shown or interacted with.
-    extra_keys:
-      interaction:
-        description: >
-          The type of interaction. Possible values: `impression`, `dismiss`,
-          `allow`, `learn_more`.
-        type: string
-      top_position:
-        description: >
-          Whether the opt-in result appeared at the very top of results or at
-          the bottom, after one-off buttons.
-        type: boolean
-      say_hello:
-        description: >
-          Whether the alternative copy was used for the opt-in result.
-        type: boolean
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852058
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852058#c2
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1866204#c8
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1892377#c2
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1912174#c8
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1933863#c5
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    expires: 140
-
   pref_max_results:
     lifetime: application
     type: quantity
@@ -580,6 +805,7 @@ urlbar:
       Corresponds to the value of the `browser.urlbar.maxRichResults` pref.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1817196
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014318
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1817196
     data_sensitivity:
@@ -589,20 +815,20 @@ urlbar:
     expires: never
     send_in_pings:
       - events
+      - metrics
 
-  pref_suggest_data_collection:
+  pref_suggest_all:
     lifetime: application
     type: boolean
     description: >
-      Whether the user has opted in to data collection for Firefox Suggest,
-      i.e., online suggestions served from Merino.
+      Whether Suggest results are shown in the urlbar.
       Corresponds to the value of the
-      `browser.urlbar.quicksuggest.dataCollection.enabled` pref.
+      `browser.urlbar.suggest.quicksuggest.all` pref.
     bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1847855
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1849726
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995574
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014318
     data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1847855
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995574
     data_sensitivity:
       - interaction
     notification_emails:
@@ -610,19 +836,22 @@ urlbar:
     expires: never
     send_in_pings:
       - events
+      - metrics
 
-  pref_suggest_nonsponsored:
+  pref_suggest_online_available:
     lifetime: application
     type: boolean
     description: >
-      Whether non-sponsored quick suggest results are shown in the urlbar.
-      Corresponds to the value of the
-      `browser.urlbar.suggest.quicksuggest.nonsponsored` pref.
+      Whether online Suggest is available to the user.
+      Corresponds to the Nimbus variable `quickSuggestOnlineAvailable` and its
+      fallback pref `browser.urlbar.quicksuggest.online.available`.
+      NOTE: "Online Suggest" in this context means the new version of online
+      Suggest introduced in 146 with Terms of Use and OHTTP.
     bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1847855
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1849726
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995362
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014318
     data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1847855
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995362
     data_sensitivity:
       - interaction
     notification_emails:
@@ -630,6 +859,31 @@ urlbar:
     expires: never
     send_in_pings:
       - events
+      - metrics
+
+  pref_suggest_online_enabled:
+    lifetime: application
+    type: boolean
+    description: >
+      This pref is true for all users by default! You probably want to use this
+      in conjunction with pref_suggest_online_available and/or restrict your
+      analysis to user populations where you know online Suggest is available.
+      Corresponds to `browser.urlbar.quicksuggest.online.enabled`.
+      NOTE: "Online Suggest" in this context means the new version of online
+      Suggest introduced in 146 with Terms of Use and OHTTP.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995362
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014318
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995362
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - fx-search-telemetry@mozilla.com
+    expires: never
+    send_in_pings:
+      - events
+      - metrics
 
   pref_suggest_sponsored:
     lifetime: application
@@ -641,6 +895,7 @@ urlbar:
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1847855
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1849726
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014318
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1847855
     data_sensitivity:
@@ -650,6 +905,7 @@ urlbar:
     expires: never
     send_in_pings:
       - events
+      - metrics
 
   pref_suggest_topsites:
     lifetime: application
@@ -659,6 +915,7 @@ urlbar:
       Corresponds to the value of the `browser.urlbar.suggest.topsites` pref.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1817196
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014318
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1817196
     data_sensitivity:
@@ -668,6 +925,7 @@ urlbar:
     expires: never
     send_in_pings:
       - events
+      - metrics
 
   autofill_deletion:
     type: counter
@@ -686,6 +944,42 @@ urlbar:
     expires: never
     telemetry_mirror: URLBAR_AUTOFILL_DELETION
 
+  autocomplete_first_result_time:
+    type: timing_distribution
+    description: >
+      PLACES: Time for first autocomplete result if > 50ms (ms)
+
+      This metric was generated to correspond to the Legacy Telemetry
+      exponential histogram PLACES_AUTOCOMPLETE_1ST_RESULT_TIME_MS.
+    time_unit: millisecond
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1950710
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1950710
+    notification_emails:
+      - fx-search-telemetry@mozilla.com
+      - adw@mozilla.com
+    expires: never
+    telemetry_mirror: PLACES_AUTOCOMPLETE_1ST_RESULT_TIME_MS
+
+  autocomplete_sixth_result_time:
+    type: timing_distribution
+    description: >
+      PLACES: Time for the 6 first autocomplete results (ms)
+
+      This metric was generated to correspond to the Legacy Telemetry
+      exponential histogram PLACES_AUTOCOMPLETE_6_FIRST_RESULTS_TIME_MS.
+    time_unit: millisecond
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1489524
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1489524
+    notification_emails:
+      - fx-search-telemetry@mozilla.com
+      - adw@mozilla.com
+    expires: never
+    telemetry_mirror: PLACES_AUTOCOMPLETE_6_FIRST_RESULTS_TIME_MS
+
 # Replacement for PingCentre "quicksuggest-block|impression|click" pings.
 quick_suggest:
   ping_type:
@@ -702,6 +996,25 @@ quick_suggest:
       - interaction
     notification_emails:
       - najiang@mozilla.com
+    expires: never
+    send_in_pings:
+      - quick-suggest
+
+  country:
+    type: string
+    description: >
+      Records the home region of the user as determined by `Region.sys.mjs` and
+      the `browser.search.region` pref.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1968154
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1968154
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - fx-search-telemetry@mozilla.com
+      - disco-team@mozilla.com
+      - ads-eng@mozilla.com
     expires: never
     send_in_pings:
       - quick-suggest
@@ -813,11 +1126,13 @@ quick_suggest:
   improve_suggest_experience:
     type: boolean
     description: >
-      Whether the "Improve Suggest Experience" checkbox is checked.
+      Whether online Suggest is available to the user and enabled.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1836283
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995362
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1836283
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995362
     data_sensitivity:
       - interaction
     notification_emails:
@@ -946,15 +1261,13 @@ suggest:
     time_unit: microsecond
     labels:
       - icon
-      - data
+      - amp
+      - wikipedia
       - amo-suggestions
-      - pocket-suggestions
       - yelp-suggestions
       - mdn-suggestions
       - weather
       - configuration
-      - amp-mobile-suggestions
-      - fakespot-suggestions
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1908397
     data_reviews:
@@ -972,15 +1285,13 @@ suggest:
     time_unit: microsecond
     labels:
       - icon
-      - data
+      - amp
+      - wikipedia
       - amo-suggestions
-      - pocket-suggestions
       - yelp-suggestions
       - mdn-suggestions
       - weather
       - configuration
-      - amp-mobile-suggestions
-      - fakespot-suggestions
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1908397
     data_reviews:
@@ -998,14 +1309,11 @@ suggest:
     time_unit: microsecond
     labels:
       - amp
-      - ampmobile
       - wikipedia
       - amo
-      - pocket
       - yelp
       - mdn
       - weather
-      - fakespot
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1908397
     data_reviews:
@@ -1036,7 +1344,7 @@ suggest_relevance:
     notification_emails:
       - disco-team@mozilla.com
       - najiang@mozilla.com
-    expires: 147
+    expires: 153
     data_sensitivity:
       - technical
   outcome:
@@ -1056,106 +1364,9 @@ suggest_relevance:
     notification_emails:
       - disco-team@mozilla.com
       - najiang@mozilla.com
-    expires: 147
+    expires: 153
     data_sensitivity:
       - technical
-
-urlbar.impression:
-  autofill_about:
-    type: counter
-    description: >
-      Counts how many times about-page type was autofilled per engagement.
-      This metric was generated to correspond to the Legacy Telemetry
-      scalar urlbar.impression.autofill_about.
-    bugs:
-      - https://bugzil.la/1774305
-      - https://bugzil.la/1780188
-    data_reviews:
-      - https://bugzil.la/1774305
-      - https://bugzil.la/1780188
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    expires: never
-    telemetry_mirror: URLBAR_IMPRESSION_AUTOFILL_ABOUT
-    no_lint:
-      - COMMON_PREFIX
-
-  autofill_adaptive:
-    type: counter
-    description: >
-      Counts how many times adaptive history type was autofilled per
-      engagement.
-      This metric was generated to correspond to the Legacy Telemetry
-      scalar urlbar.impression.autofill_adaptive.
-    bugs:
-      - https://bugzil.la/1774305
-      - https://bugzil.la/1780188
-    data_reviews:
-      - https://bugzil.la/1774305
-      - https://bugzil.la/1780188
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    expires: never
-    telemetry_mirror: URLBAR_IMPRESSION_AUTOFILL_ADAPTIVE
-    no_lint:
-      - COMMON_PREFIX
-
-  autofill_origin:
-    type: counter
-    description: >
-      Counts how many times origin type was autofilled per engagement.
-      This metric was generated to correspond to the Legacy Telemetry
-      scalar urlbar.impression.autofill_origin.
-    bugs:
-      - https://bugzil.la/1774305
-      - https://bugzil.la/1780188
-    data_reviews:
-      - https://bugzil.la/1774305
-      - https://bugzil.la/1780188
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    expires: never
-    telemetry_mirror: URLBAR_IMPRESSION_AUTOFILL_ORIGIN
-    no_lint:
-      - COMMON_PREFIX
-
-  autofill_other:
-    type: counter
-    description: >
-      Counts how many times other type was autofilled per engagement.
-      This metric was generated to correspond to the Legacy Telemetry
-      scalar urlbar.impression.autofill_other.
-    bugs:
-      - https://bugzil.la/1774305
-      - https://bugzil.la/1780188
-    data_reviews:
-      - https://bugzil.la/1774305
-      - https://bugzil.la/1780188
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    expires: never
-    telemetry_mirror: URLBAR_IMPRESSION_AUTOFILL_OTHER
-    no_lint:
-      - COMMON_PREFIX
-
-  autofill_url:
-    type: counter
-    description: >
-      Counts how many times url type was autofilled per engagement.
-      This metric was generated to correspond to the Legacy Telemetry
-      scalar urlbar.impression.autofill_url.
-    bugs:
-      - https://bugzil.la/1774305
-      - https://bugzil.la/1780188
-    data_reviews:
-      - https://bugzil.la/1774305
-      - https://bugzil.la/1780188
-    notification_emails:
-      - fx-search-telemetry@mozilla.com
-    expires: never
-    telemetry_mirror: URLBAR_IMPRESSION_AUTOFILL_URL
-    no_lint:
-      - COMMON_PREFIX
 
 urlbar.trending:
   block:
@@ -1314,3 +1525,21 @@ urlbar.unifiedsearchbutton:
       - fx-search-telemetry@mozilla.com
     expires: never
     telemetry_mirror: URLBAR_UNIFIEDSEARCHBUTTON_PICKED
+
+urlbar.merino:
+  latency_by_response_status:
+    type: labeled_timing_distribution
+    description: >
+      Duration from when the client sends a request to Merino to when the client
+      receives a response, labeled by response status code. Labels are dynamic.
+      For non-OHTTP requests, labels are simply the numeric status code, e.g.,
+      "200". For OHTTP requests, labels are `${status}_ohttp`, e.g., "200_ohttp".
+    time_unit: millisecond
+    bugs:
+      - https://bugzil.la/1971448
+    data_reviews:
+      - https://bugzil.la/1971448
+    notification_emails:
+      - fx-search-telemetry@mozilla.com
+      - disco-team@mozilla.com
+    expires: never

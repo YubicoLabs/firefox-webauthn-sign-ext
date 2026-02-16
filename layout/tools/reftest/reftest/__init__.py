@@ -2,11 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import io
 import os
 import re
-
-import six
 
 RE_COMMENT = re.compile(r"\s+#")
 RE_HTTP = re.compile(r"HTTP\((\.\.(\/\.\.)*)\)")
@@ -60,7 +57,7 @@ CONDITIONS_JS_TO_MP = {  # Manifestparser expression grammar
 }
 
 
-class ReftestManifest(object):
+class ReftestManifest:
     """Represents a parsed reftest manifest."""
 
     def __init__(self, finder=None):
@@ -128,9 +125,9 @@ class ReftestManifest(object):
 
             for annotation in annotations:
                 key, condition = self.translate_condition_for_mozinfo(annotation)
-                test_dict[key] = "\n".join(
-                    [t for t in [test_dict.get(key, ""), condition] if t]
-                )
+                test_dict[key] = "\n".join([
+                    t for t in [test_dict.get(key, ""), condition] if t
+                ])
 
             self.tests.append(test_dict)
 
@@ -145,14 +142,15 @@ class ReftestManifest(object):
         if self.finder:
             lines = self.finder.get(path).read().splitlines()
         else:
-            with io.open(path, "r", encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 lines = fh.read().splitlines()
 
         urlprefix = ""
         defaults = []
         for i, line in enumerate(lines):
             lineno = i + 1
-            line = six.ensure_text(line)
+            if isinstance(line, bytes):
+                line = line.decode()
 
             # Entire line is a comment.
             if line.startswith("#"):
@@ -190,8 +188,8 @@ class ReftestManifest(object):
 
                 if j < len(defaults):
                     raise ValueError(
-                        "Error parsing manifest {}, line {}: "
-                        "Invalid defaults token '{}'".format(path, lineno, item)
+                        f"Error parsing manifest {path}, line {lineno}: "
+                        f"Invalid defaults token '{item}'"
                     )
 
                 if item == "url-prefix":
@@ -203,11 +201,11 @@ class ReftestManifest(object):
                     self.load(os.path.join(mdir, items[j + 1]), skip_if)
                     break
 
-                if item == "load" or item == "script":
+                if item in {"load", "script"}:
                     add_test(items[j + 1], annotations, None, parent_skip_if)
                     break
 
-                if item == "==" or item == "!=" or item == "print":
+                if item in {"==", "!=", "print"}:
                     add_test(items[j + 1], annotations, None, parent_skip_if)
                     add_test(items[j + 2], annotations, items[j + 1], parent_skip_if)
                     break

@@ -3,11 +3,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_BasicEvents_h__
-#define mozilla_BasicEvents_h__
+#ifndef mozilla_BasicEvents_h_
+#define mozilla_BasicEvents_h_
 
 #include <stdint.h>
-#include <type_traits>
 
 #include "mozilla/EventForwards.h"
 #include "mozilla/TimeStamp.h"
@@ -162,6 +161,9 @@ struct BaseEventFlags {
   // Certain mouse events can be marked as positionless to return 0 from
   // coordinate related getters.
   bool mIsPositionless : 1;
+  // Indicates if a key handler is registered to execute a command for the key
+  // combination.
+  bool mIsShortcutKey : 1;
 
   // Flags managing state of propagation between processes.
   // Note the the following flags shouldn't be referred directly.  Use utility
@@ -451,9 +453,9 @@ class WidgetEvent : public WidgetEventTime {
         break;
       case ePointerEventClass:
         mFlags.mCancelable =
-            (mMessage != ePointerEnter && mMessage != ePointerLeave &&
-             mMessage != ePointerCancel && mMessage != ePointerGotCapture &&
-             mMessage != ePointerLostCapture);
+            (mMessage != ePointerRawUpdate && mMessage != ePointerEnter &&
+             mMessage != ePointerLeave && mMessage != ePointerCancel &&
+             mMessage != ePointerGotCapture && mMessage != ePointerLostCapture);
         mFlags.mBubbles =
             (mMessage != ePointerEnter && mMessage != ePointerLeave);
         break;
@@ -770,7 +772,7 @@ class WidgetEvent : public WidgetEventTime {
   virtual aPrefix##aName* As##aName(); \
   const aPrefix##aName* As##aName() const;
 
-#include "mozilla/EventClassList.h"
+#include "mozilla/EventClassList.inc"
 
 #undef NS_EVENT_CLASS
 #undef NS_ROOT_EVENT_CLASS
@@ -928,12 +930,12 @@ class WidgetEvent : public WidgetEventTime {
       case ePointerEventClass:
         // All pointer events are composed
         mFlags.mComposed =
+            mMessage == ePointerRawUpdate || mMessage == ePointerMove ||
             mMessage == ePointerClick || mMessage == ePointerAuxClick ||
             mMessage == eContextMenu || mMessage == ePointerDown ||
-            mMessage == ePointerMove || mMessage == ePointerUp ||
-            mMessage == ePointerCancel || mMessage == ePointerOver ||
-            mMessage == ePointerOut || mMessage == ePointerGotCapture ||
-            mMessage == ePointerLostCapture;
+            mMessage == ePointerUp || mMessage == ePointerCancel ||
+            mMessage == ePointerOver || mMessage == ePointerOut ||
+            mMessage == ePointerGotCapture || mMessage == ePointerLostCapture;
         break;
       case eTouchEventClass:
         // All touch events are composed
@@ -1008,6 +1010,7 @@ class WidgetEvent : public WidgetEventTime {
         aEventTypeArg.EqualsLiteral("pointerout") ||
         aEventTypeArg.EqualsLiteral("pointerenter") ||
         aEventTypeArg.EqualsLiteral("pointerleave") ||
+        aEventTypeArg.EqualsLiteral("pointerrawupdate") ||
         aEventTypeArg.EqualsLiteral("gotpointercapture") ||
         aEventTypeArg.EqualsLiteral("lostpointercapture") ||
         // touch events
@@ -1375,4 +1378,4 @@ class InternalUIEvent : public WidgetGUIEvent {
 
 }  // namespace mozilla
 
-#endif  // mozilla_BasicEvents_h__
+#endif  // mozilla_BasicEvents_h_

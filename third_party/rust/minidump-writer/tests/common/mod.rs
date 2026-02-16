@@ -1,7 +1,9 @@
-use std::error;
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, Command, Stdio};
-use std::result;
+use std::{
+    error,
+    io::{BufRead, BufReader, Write},
+    process::{Child, Command, Stdio},
+    result,
+};
 
 #[allow(unused)]
 type Error = Box<dyn error::Error + std::marker::Send + std::marker::Sync>;
@@ -9,6 +11,15 @@ type Error = Box<dyn error::Error + std::marker::Send + std::marker::Sync>;
 pub type Result<T> = result::Result<T, Error>;
 
 fn build_command() -> Command {
+    // Anything that needs to spawn a child will need to give it permission to
+    // ptrace itself, as Yama LSM will normally only allow a parent to debug
+    // a child, not the other way around.
+    #[cfg(target_os = "linux")]
+    {
+        let rc = unsafe { libc::prctl(libc::PR_SET_PTRACER, libc::PR_SET_PTRACER_ANY) };
+        assert_eq!(rc, 0);
+    }
+
     let mut cmd;
     if let Some(binary) = std::env::var_os("TEST_HELPER") {
         cmd = Command::new(binary);
@@ -93,4 +104,41 @@ pub fn start_child_and_return(args: &[&str]) -> Child {
     cmd.stdout(Stdio::piped())
         .spawn()
         .expect("failed to execute child")
+}
+
+#[allow(unused)]
+pub fn read_minidump_soft_errors_or_panic<'a, T>(
+    dump: &minidump::Minidump<'a, T>,
+) -> serde_json::Value
+where
+    T: std::ops::Deref<Target = [u8]> + 'a,
+{
+    let contents = std::str::from_utf8(
+        dump.get_raw_stream(minidump_common::format::MINIDUMP_STREAM_TYPE::MozSoftErrors.into())
+            .expect("missing soft error stream"),
+    )
+    .expect("expected utf-8 stream");
+
+    serde_json::from_str(contents).expect("expected json")
+}
+
+#[allow(unused)]
+pub fn assert_soft_errors_in_minidump<'a, 'b, T, I>(
+    dump: &minidump::Minidump<'a, T>,
+    expected_errors: I,
+) where
+    T: std::ops::Deref<Target = [u8]> + 'a,
+    I: IntoIterator<Item = &'b serde_json::Value>,
+{
+    let actual_json = read_minidump_soft_errors_or_panic(dump);
+    let actual_errors = actual_json.as_array().unwrap();
+
+    // Ensure that every error we expect is in the actual list somewhere
+    for expected_error in expected_errors {
+        assert!(actual_errors
+            .iter()
+            .any(|actual_error| actual_error == expected_error),
+            "soft error list missing expected error `{expected_error:#?}`\nError_list: {actual_errors:#?}"
+        );
+    }
 }

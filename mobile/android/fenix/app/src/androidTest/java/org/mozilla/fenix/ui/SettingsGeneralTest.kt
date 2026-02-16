@@ -4,7 +4,9 @@
 
 package org.mozilla.fenix.ui
 
-import org.junit.Ignore
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.core.net.toUri
+import androidx.core.os.LocaleListCompat
 import org.junit.Rule
 import org.junit.Test
 import org.mozilla.fenix.FenixApplication
@@ -15,17 +17,18 @@ import org.mozilla.fenix.helpers.AppAndSystemHelper.runWithSystemLocaleChanged
 import org.mozilla.fenix.helpers.DataGenerationHelper.getStringResource
 import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.RecyclerViewIdlingResource
-import org.mozilla.fenix.helpers.TestAssetHelper.getLoremIpsumAsset
-import org.mozilla.fenix.helpers.TestAssetHelper.waitingTimeLong
+import org.mozilla.fenix.helpers.TestAssetHelper.loremIpsumAsset
 import org.mozilla.fenix.helpers.TestHelper.mDevice
+import org.mozilla.fenix.helpers.TestHelper.waitForAppWindowToBeUpdated
 import org.mozilla.fenix.helpers.TestSetup
+import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
 import org.mozilla.fenix.ui.robots.checkTextSizeOnWebsite
 import org.mozilla.fenix.ui.robots.homeScreen
+import org.mozilla.fenix.ui.robots.navigationToolbar
 import org.mozilla.fenix.ui.util.FRENCH_LANGUAGE_HEADER
 import org.mozilla.fenix.ui.util.FRENCH_SYSTEM_LOCALE_OPTION
 import org.mozilla.fenix.ui.util.FR_SETTINGS
 import org.mozilla.fenix.ui.util.ROMANIAN_LANGUAGE_HEADER
-import java.util.Locale
 
 /**
  *  Tests for verifying the General section of the Settings menu
@@ -33,14 +36,20 @@ import java.util.Locale
  */
 class SettingsGeneralTest : TestSetup() {
     @get:Rule
-    val activityIntentTestRule = HomeActivityIntentTestRule.withDefaultSettingsOverrides()
+    val composeTestRule =
+        AndroidComposeTestRule(
+            HomeActivityIntentTestRule.withDefaultSettingsOverrides(),
+        ) { it.activity }
+
+    @get:Rule
+    val memoryLeaksRule = DetectMemoryLeaksRule()
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2092697
     @Test
     fun verifyGeneralSettingsItemsTest() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
             verifySettingsToolbar()
             verifyGeneralHeading()
             verifySearchButton()
@@ -59,35 +68,42 @@ class SettingsGeneralTest : TestSetup() {
         }
     }
 
-    // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/344213
+    // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/3135005
     @SmokeTest
     @Test
     fun verifyFontSizingChangeTest() {
         // Goes through the settings and changes the default text on a webpage, then verifies if the text has changed.
-        val fenixApp = activityIntentTestRule.activity.applicationContext as FenixApplication
-        val webpage = getLoremIpsumAsset(mockWebServer).url
+        val fenixApp = composeTestRule.activity.applicationContext as FenixApplication
+        val webpage = mockWebServer.loremIpsumAsset.url
 
         // This value will represent the text size percentage the webpage will scale to. The default value is 100%.
         val textSizePercentage = 180
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAccessibilitySubMenu {
+            verifyFontSizingMenuItems(
+                composeTestRule,
+                isTheAutomaticFontSizingToggleChecked = true,
+                isTheFontSizingSliderEnabled = false,
+                isTheZoomOnAllWbsitesToggleChecked = false,
+            )
             clickFontSizingSwitch()
-            verifyEnabledMenuItems()
-            changeTextSizeSlider(textSizePercentage)
-            verifyTextSizePercentage(textSizePercentage)
+            verifyFontSizingMenuItems(
+                composeTestRule,
+                isTheAutomaticFontSizingToggleChecked = false,
+                isTheFontSizingSliderEnabled = true,
+                isTheZoomOnAllWbsitesToggleChecked = false,
+            )
+            changeTextSizeSlider(textSizePercentage, composeTestRule)
+            verifyTextSizePercentage(textSizePercentage, composeTestRule)
         }.goBack {
-        }.goBack {
-        }.openNavigationToolbar {
+        }.goBack(composeTestRule) {
+        }
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(webpage) {
             checkTextSizeOnWebsite(textSizePercentage, fenixApp.components)
-        }.openThreeDotMenu {
-        }.openSettings {
-        }.openAccessibilitySubMenu {
-            clickFontSizingSwitch()
-            verifyMenuItemsAreDisabled()
         }
     }
 
@@ -97,13 +113,15 @@ class SettingsGeneralTest : TestSetup() {
     fun setAppLanguageDifferentThanSystemLanguageTest() {
         val enLanguageHeaderText = getStringResource(R.string.preferences_language)
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
+            waitForAppWindowToBeUpdated()
         }.openLanguageSubMenu {
+            waitForAppWindowToBeUpdated()
             registerAndCleanupIdlingResources(
                 RecyclerViewIdlingResource(
-                    activityIntentTestRule.activity.findViewById(R.id.locale_list),
+                    composeTestRule.activity.findViewById(R.id.locale_list),
                     2,
                 ),
             ) {
@@ -122,9 +140,15 @@ class SettingsGeneralTest : TestSetup() {
     fun searchInLanguagesListTest() {
         val systemLocaleDefault = getStringResource(R.string.default_locale_text)
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
+            waitForAppWindowToBeUpdated()
+            registerAndCleanupIdlingResources(
+                RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.recycler_view), 1),
+            ) {
+                verifyLanguageButton()
+            }
         }.openLanguageSubMenu {
             verifyLanguageListIsDisplayed()
             openSearchBar()
@@ -137,18 +161,21 @@ class SettingsGeneralTest : TestSetup() {
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/516078
-    // Because it requires changing system prefs, this test will run only on Debug builds
-    @Ignore("Failing due to app translation bug, see: https://github.com/mozilla-mobile/fenix/issues/26729")
     @Test
     fun verifyFollowDeviceLanguageTest() {
-        val frenchLocale = Locale("fr", "FR")
+        val frenchLocale = LocaleListCompat.forLanguageTags("fr")
 
-        runWithSystemLocaleChanged(frenchLocale, activityIntentTestRule) {
-            mDevice.waitForIdle(waitingTimeLong)
-
-            homeScreen {
+        runWithSystemLocaleChanged(frenchLocale) {
+            navigationToolbar(composeTestRule) {
+            }.enterURLAndEnterToBrowser("test".toUri()) {
             }.openThreeDotMenu {
-            }.openSettings(localizedText = FR_SETTINGS) {
+            }.clickSettingsButton(localizedText = FR_SETTINGS) {
+                waitForAppWindowToBeUpdated()
+                registerAndCleanupIdlingResources(
+                    RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.recycler_view), 1),
+                ) {
+                    verifyLanguageButton(localizedText = FRENCH_LANGUAGE_HEADER)
+                }
             }.openLanguageSubMenu(localizedText = FRENCH_LANGUAGE_HEADER) {
                 verifyLanguageHeaderIsTranslated(FRENCH_LANGUAGE_HEADER)
                 verifySelectedLanguage(FRENCH_SYSTEM_LOCALE_OPTION)
@@ -159,9 +186,9 @@ class SettingsGeneralTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1360557
     @Test
     fun tabsSettingsMenuItemsTest() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
             verifyTabsButton()
             verifySettingsOptionSummary("Tabs", "Close manually")
         }.openTabsSubMenu {
@@ -192,9 +219,9 @@ class SettingsGeneralTest : TestSetup() {
     @SmokeTest
     @Test
     fun changeDefaultBrowserSetting() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
             verifyDefaultBrowserToggle(false)
             clickDefaultBrowserSwitch()
             verifyAndroidDefaultAppsMenuAppears()

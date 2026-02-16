@@ -25,8 +25,8 @@ add_setup(async function () {
       ["privacy.trackingprotection.fingerprinting.enabled", true],
       ["privacy.socialtracking.block_cookies.enabled", true],
       // Allowlist trackertest.org loaded by default in trackingPage.html
-      ["urlclassifier.trackingSkipURLs", "trackertest.org"],
-      ["urlclassifier.trackingAnnotationSkipURLs", "trackertest.org"],
+      ["urlclassifier.trackingSkipURLs", "*://trackertest.org/*"],
+      ["urlclassifier.trackingAnnotationSkipURLs", "*://trackertest.org/*"],
       // Additional denylisted hosts.
       [
         "urlclassifier.trackingAnnotationTable.testEntries",
@@ -247,7 +247,8 @@ async function runTestForCategoryAndState(category, action) {
 
 /**
  * Test mixed allow/block/replace states for the tracking protection category.
- * @param {Object} options - States to test.
+ *
+ * @param {object} options - States to test.
  * @param {boolean} options.block - Test tracker block state.
  * @param {boolean} options.allow - Test tracker allow state.
  * @param {boolean} options.replace - Test tracker replace state.

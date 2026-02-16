@@ -1,6 +1,8 @@
 [DEFAULT]
+run-if = [
+  "os != 'android'",
+]
 head = "head_bookmarks.js"
-skip-if = ["os == 'android'"]
 firefox-appdir = "browser"
 
 ["test_1016953-renaming-uncompressed.js"]
@@ -70,9 +72,9 @@ support-files = ["bookmarks_long_tag.json"]
 
 ["test_bookmarks_update.js"]
 
-["test_insert_thousands_bookmarks.js"]
-
 ["test_insertTree_fixupOrSkipInvalidEntries.js"]
+
+["test_insert_thousands_bookmarks.js"]
 
 ["test_keywords.js"]
 

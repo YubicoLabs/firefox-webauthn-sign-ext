@@ -173,13 +173,8 @@ xpcAccessible::GetId(nsAString& aID) {
     return NS_ERROR_FAILURE;
   }
 
-  RemoteAccessible* proxy = IntlGeneric()->AsRemote();
-  if (!proxy) {
-    return NS_ERROR_FAILURE;
-  }
-
   nsString id;
-  proxy->DOMNodeID(id);
+  IntlGeneric()->DOMNodeID(id);
   aID.Assign(id);
 
   return NS_OK;
@@ -638,18 +633,10 @@ xpcAccessible::ScrollToPoint(uint32_t aCoordinateType, int32_t aX, int32_t aY) {
 
 NS_IMETHODIMP
 xpcAccessible::Announce(const nsAString& aAnnouncement, uint16_t aPriority) {
-  RemoteAccessible* proxy = IntlGeneric()->AsRemote();
-  if (proxy) {
-#if defined(XP_WIN)
+  if (IntlGeneric()->IsRemote()) {
     return NS_ERROR_NOT_IMPLEMENTED;
-#else
-    nsString announcement(aAnnouncement);
-    proxy->Announce(announcement, aPriority);
-#endif
-  } else {
-    Intl()->Announce(aAnnouncement, aPriority);
   }
-
+  Intl()->Announce(aAnnouncement, aPriority);
   return NS_OK;
 }
 

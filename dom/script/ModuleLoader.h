@@ -7,10 +7,9 @@
 #ifndef mozilla_dom_ModuleLoader_h
 #define mozilla_dom_ModuleLoader_h
 
-#include "mozilla/dom/ScriptLoadContext.h"
-#include "js/loader/ModuleLoaderBase.h"
-#include "js/loader/ScriptLoadRequest.h"
 #include "ScriptLoader.h"
+#include "js/loader/ModuleLoaderBase.h"
+#include "mozilla/dom/ScriptLoadRequestType.h"
 
 class nsIURI;
 
@@ -28,6 +27,7 @@ class ModuleLoadRequest;
 namespace mozilla::dom {
 
 class ScriptLoader;
+class ScriptLoadContext;
 class SRIMetadata;
 
 //////////////////////////////////////////////////////////////
@@ -61,20 +61,22 @@ class ModuleLoader final : public JS::loader::ModuleLoaderBase {
 
   // Create a top-level module load request.
   already_AddRefed<ModuleLoadRequest> CreateTopLevel(
-      nsIURI* aURI, ReferrerPolicy aReferrerPolicy,
+      nsIURI* aURI, nsIScriptElement* aElement, ReferrerPolicy aReferrerPolicy,
       ScriptFetchOptions* aFetchOptions, const SRIMetadata& aIntegrity,
-      nsIURI* aReferrer, ScriptLoadContext* aContext);
+      nsIURI* aReferrer, ScriptLoadContext* aContext,
+      ScriptLoadRequestType aRequestType);
 
-  // Create a module load request for a static module import.
-  already_AddRefed<ModuleLoadRequest> CreateStaticImport(
-      nsIURI* aURI, JS::ModuleType aModuleType, ModuleLoadRequest* aParent,
-      const mozilla::dom::SRIMetadata& aSriMetadata) override;
+  nsIURI* GetClientReferrerURI() override;
 
-  // Create a module load request for a dynamic module import.
-  already_AddRefed<ModuleLoadRequest> CreateDynamicImport(
-      JSContext* aCx, nsIURI* aURI, JS::ModuleType aModuleType,
-      LoadedScript* aMaybeActiveScript, JS::Handle<JSString*> aSpecifier,
-      JS::Handle<JSObject*> aPromise) override;
+  already_AddRefed<ScriptFetchOptions> CreateDefaultScriptFetchOptions()
+      override;
+
+  already_AddRefed<ModuleLoadRequest> CreateRequest(
+      JSContext* aCx, nsIURI* aURI, JS::Handle<JSObject*> aModuleRequest,
+      JS::Handle<JS::Value> aHostDefined, JS::Handle<JS::Value> aPayload,
+      bool aIsDynamicImport, ScriptFetchOptions* aOptions,
+      ReferrerPolicy aReferrerPolicy, nsIURI* aBaseURL,
+      const SRIMetadata& aSriMetadata) override;
 
   static ModuleLoader* From(ModuleLoaderBase* aLoader) {
     return static_cast<ModuleLoader*>(aLoader);
@@ -84,12 +86,15 @@ class ModuleLoader final : public JS::loader::ModuleLoaderBase {
   void ExecuteInlineModule(ModuleLoadRequest* aRequest);
 
  private:
-  nsresult CompileJavaScriptModule(JSContext* aCx, JS::CompileOptions& aOptions,
-                                   ModuleLoadRequest* aRequest,
-                                   JS::MutableHandle<JSObject*> aModuleOut);
+  nsresult CompileJavaScriptOrWasmModule(
+      JSContext* aCx, JS::CompileOptions& aOptions, ModuleLoadRequest* aRequest,
+      JS::MutableHandle<JSObject*> aModuleOut);
   nsresult CompileJsonModule(JSContext* aCx, JS::CompileOptions& aOptions,
                              ModuleLoadRequest* aRequest,
                              JS::MutableHandle<JSObject*> aModuleOut);
+  nsresult CompileCssModule(JSContext* aCx, JS::CompileOptions& aOptions,
+                            ModuleLoadRequest* aRequest,
+                            JS::MutableHandle<JSObject*> aModuleOut);
 
  private:
   const Kind mKind;

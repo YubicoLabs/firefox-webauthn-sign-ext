@@ -28,11 +28,15 @@
 
 ["include:../../../../../browser/components/tests/marionette/manifest.toml"]
 
+["include:../../../../../browser/extensions/webcompat/tests/marionette/manifest.toml"]
+
 # DOM tests
 
 ["include:../../../../../dom/cache/test/marionette/manifest.toml"]
 
 ["include:../../../../../dom/indexedDB/test/marionette/manifest.toml"]
+
+["include:../../../../../dom/notification/test/marionette/manifest.toml"]
 
 ["include:../../../../../dom/quota/test/marionette/manifest.toml"]
 

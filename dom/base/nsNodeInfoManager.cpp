@@ -12,24 +12,24 @@
 
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/DebugOnly.h"
+#include "mozilla/NullPrincipal.h"
+#include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/NodeInfo.h"
 #include "mozilla/dom/NodeInfoInlines.h"
-#include "mozilla/dom/DocGroup.h"
-#include "mozilla/NullPrincipal.h"
-#include "mozilla/StaticPrefs_dom.h"
-#include "nsCOMPtr.h"
-#include "nsString.h"
 #include "nsAtom.h"
-#include "nsIPrincipal.h"
-#include "nsContentUtils.h"
-#include "nsReadableUtils.h"
-#include "nsGkAtoms.h"
-#include "nsComponentManagerUtils.h"
-#include "nsLayoutStatics.h"
-#include "nsHashKeys.h"
 #include "nsCCUncollectableMarker.h"
+#include "nsCOMPtr.h"
+#include "nsComponentManagerUtils.h"
+#include "nsContentUtils.h"
+#include "nsGkAtoms.h"
+#include "nsHashKeys.h"
+#include "nsIPrincipal.h"
+#include "nsLayoutStatics.h"
 #include "nsNameSpaceManager.h"
+#include "nsReadableUtils.h"
+#include "nsString.h"
 #include "nsWindowSizes.h"
 
 using namespace mozilla;
@@ -42,14 +42,7 @@ static const uint32_t kInitialNodeInfoHashSize = 32;
 
 nsNodeInfoManager::nsNodeInfoManager(mozilla::dom::Document* aDocument,
                                      nsIPrincipal* aPrincipal)
-    : mNodeInfoHash(kInitialNodeInfoHashSize),
-      mDocument(aDocument),
-      mNonDocumentNodeInfos(0),
-      mTextNodeInfo(nullptr),
-      mCommentNodeInfo(nullptr),
-      mDocumentNodeInfo(nullptr),
-      mRecentlyUsedNodeInfos(),
-      mArena(nullptr) {
+    : mNodeInfoHash(kInitialNodeInfoHashSize), mDocument(aDocument) {
   nsLayoutStatics::AddRef();
 
   if (aPrincipal) {
@@ -223,6 +216,16 @@ already_AddRefed<NodeInfo> nsNodeInfoManager::GetTextNodeInfo() {
   return nodeInfo.forget();
 }
 
+already_AddRefed<NodeInfo> nsNodeInfoManager::GetDocumentFragmentNodeInfo() {
+  RefPtr<NodeInfo> nodeInfo = mDocumentFragmentNodeInfo;
+  if (!nodeInfo) {
+    nodeInfo = GetNodeInfo(nsGkAtoms::documentFragmentNodeName, nullptr,
+                           kNameSpaceID_None, nsINode::DOCUMENT_FRAGMENT_NODE);
+    mDocumentFragmentNodeInfo = nodeInfo;
+  }
+  return nodeInfo.forget();
+}
+
 already_AddRefed<NodeInfo> nsNodeInfoManager::GetCommentNodeInfo() {
   RefPtr<NodeInfo> nodeInfo;
 
@@ -335,6 +338,8 @@ void nsNodeInfoManager::RemoveNodeInfo(NodeInfo* aNodeInfo) {
       mTextNodeInfo = nullptr;
     } else if (aNodeInfo == mCommentNodeInfo) {
       mCommentNodeInfo = nullptr;
+    } else if (aNodeInfo == mDocumentFragmentNodeInfo) {
+      mDocumentFragmentNodeInfo = nullptr;
     }
   }
 

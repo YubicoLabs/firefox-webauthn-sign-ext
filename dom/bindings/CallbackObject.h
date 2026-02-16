@@ -19,7 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <utility>
+
 #include "js/Exception.h"
 #include "js/RootingAPI.h"
 #include "js/Wrapper.h"
@@ -63,48 +63,15 @@ class OwningNonNull;
 
 namespace dom {
 
-#define DOM_CALLBACKOBJECT_IID                       \
-  {                                                  \
-    0xbe74c190, 0x6d76, 0x4991, {                    \
-      0x84, 0xb9, 0x65, 0x06, 0x99, 0xe6, 0x93, 0x2b \
-    }                                                \
-  }
+#define DOM_CALLBACKOBJECT_IID \
+  {0xbe74c190, 0x6d76, 0x4991, {0x84, 0xb9, 0x65, 0x06, 0x99, 0xe6, 0x93, 0x2b}}
 
-class CallbackObject : public nsISupports {
+class CallbackObjectBase {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(DOM_CALLBACKOBJECT_IID)
-
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-  NS_DECL_CYCLE_COLLECTION_SKIPPABLE_SCRIPT_HOLDER_CLASS(CallbackObject)
-
-  // The caller may pass a global object which will act as an override for the
-  // incumbent script settings object when the callback is invoked (overriding
-  // the entry point computed from aCallback). If no override is required, the
-  // caller should pass null.  |aCx| is used to capture the current
-  // stack, which is later used as an async parent when the callback
-  // is invoked.  aCx can be nullptr, in which case no stack is
-  // captured.
-  explicit CallbackObject(JSContext* aCx, JS::Handle<JSObject*> aCallback,
-                          JS::Handle<JSObject*> aCallbackGlobal,
-                          nsIGlobalObject* aIncumbentGlobal) {
-    if (aCx && JS::IsAsyncStackCaptureEnabledForRealm(aCx)) {
-      JS::Rooted<JSObject*> stack(aCx);
-      if (!JS::CaptureCurrentStack(aCx, &stack)) {
-        JS_ClearPendingException(aCx);
-      }
-      Init(aCallback, aCallbackGlobal, stack, aIncumbentGlobal);
-    } else {
-      Init(aCallback, aCallbackGlobal, nullptr, aIncumbentGlobal);
-    }
-  }
-
-  // Instead of capturing the current stack to use as an async parent when the
-  // callback is invoked, the caller can use this overload to pass in a stack
-  // for that purpose.
-  explicit CallbackObject(JSObject* aCallback, JSObject* aCallbackGlobal,
-                          JSObject* aAsyncStack,
-                          nsIGlobalObject* aIncumbentGlobal) {
-    Init(aCallback, aCallbackGlobal, aAsyncStack, aIncumbentGlobal);
+  CallbackObjectBase() = default;
+  CallbackObjectBase(JSObject* aCallback, JSObject* aCallbackGlobal,
+                     JSObject* aAsyncStack, nsIGlobalObject* aIncumbentGlobal) {
+    InitNoHold(aCallback, aCallbackGlobal, aAsyncStack, aIncumbentGlobal);
   }
 
   // This is guaranteed to be non-null from the time the CallbackObject is
@@ -177,10 +144,6 @@ class CallbackObject : public nsISupports {
   // "<functionName> (<sourceURL>:<lineNumber>)"
   void GetDescription(nsACString& aOutString);
 
-  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
-    return aMallocSizeOf(this);
-  }
-
   // Used for cycle collection optimization.  Should return true only if all our
   // outgoing edges are to known-live objects.  In that case, there's no point
   // traversing our edges to them, because we know they can't be collected
@@ -200,36 +163,27 @@ class CallbackObject : public nsISupports {
   }
 
  protected:
-  virtual ~CallbackObject() { mozilla::DropJSObjects(this); }
+  virtual ~CallbackObjectBase() = default;
 
-  explicit CallbackObject(CallbackObject* aCallbackObject) {
-    Init(aCallbackObject->mCallback, aCallbackObject->mCallbackGlobal,
-         aCallbackObject->mCreationStack, aCallbackObject->mIncumbentGlobal);
+  // Provide a way to clear this object's pointers to GC things after the
+  // callback has been run. Note that CallbackOrNull() will return null after
+  // this point. This should only be called if the object is known not to be
+  // used again, and no handles (e.g. those returned by CallbackPreserveColor)
+  // are in use.
+  virtual void Reset() {
+    ClearJSReferences();
+    mIncumbentGlobal = nullptr;
   }
 
-  bool operator==(const CallbackObject& aOther) const {
-    JSObject* wrappedThis = CallbackPreserveColor();
-    JSObject* wrappedOther = aOther.CallbackPreserveColor();
-    if (!wrappedThis || !wrappedOther) {
-      return this == &aOther;
-    }
+  friend class mozilla::PromiseJobRunnable;
 
-    JSObject* thisObj = js::UncheckedUnwrap(wrappedThis);
-    JSObject* otherObj = js::UncheckedUnwrap(wrappedOther);
-    return thisObj == otherObj;
+  inline void ClearJSReferences() {
+    mCallback = nullptr;
+    mCallbackGlobal = nullptr;
+    mCreationStack = nullptr;
+    mIncumbentJSGlobal = nullptr;
   }
 
-  class JSObjectsDropper final {
-   public:
-    explicit JSObjectsDropper(CallbackObject* aHolder) : mHolder(aHolder) {}
-
-    ~JSObjectsDropper() { mHolder->ClearJSObjects(); }
-
-   private:
-    RefPtr<CallbackObject> mHolder;
-  };
-
- private:
   inline void InitNoHold(JSObject* aCallback, JSObject* aCallbackGlobal,
                          JSObject* aCreationStack,
                          nsIGlobalObject* aIncumbentGlobal) {
@@ -250,34 +204,6 @@ class CallbackObject : public nsISupports {
     }
   }
 
-  inline void Init(JSObject* aCallback, JSObject* aCallbackGlobal,
-                   JSObject* aCreationStack,
-                   nsIGlobalObject* aIncumbentGlobal) {
-    // Set script objects before we hold, on the off chance that a GC could
-    // somehow happen in there... (which would be pretty odd, granted).
-    InitNoHold(aCallback, aCallbackGlobal, aCreationStack, aIncumbentGlobal);
-    mozilla::HoldJSObjects(this);
-  }
-
-  // Provide a way to clear this object's pointers to GC things after the
-  // callback has been run. Note that CallbackOrNull() will return null after
-  // this point. This should only be called if the object is known not to be
-  // used again, and no handles (e.g. those returned by CallbackPreserveColor)
-  // are in use.
-  void Reset() { ClearJSReferences(); }
-  friend class mozilla::PromiseJobRunnable;
-
-  inline void ClearJSReferences() {
-    mCallback = nullptr;
-    mCallbackGlobal = nullptr;
-    mCreationStack = nullptr;
-    mIncumbentJSGlobal = nullptr;
-  }
-
-  CallbackObject(const CallbackObject&) = delete;
-  CallbackObject& operator=(const CallbackObject&) = delete;
-
- protected:
   void ClearJSObjects() {
     MOZ_ASSERT_IF(mIncumbentJSGlobal, mCallback);
     if (mCallback) {
@@ -287,6 +213,187 @@ class CallbackObject : public nsISupports {
 
   // For use from subclasses that want to be usable with Rooted.
   void Trace(JSTracer* aTracer);
+
+  // mCallback is not unwrapped, so it can be a cross-compartment-wrapper.
+  // This is done to ensure that, if JS code can't call a callback f(), or get
+  // its members, directly itself, this code won't call f(), or get its members,
+  // on the code's behalf.
+  JS::Heap<JSObject*> mCallback;
+  // mCallbackGlobal is the global that we were in when we created the
+  // callback. In particular, it is guaranteed to be same-compartment with
+  // aCallback. We store it separately, because we have no way to recover the
+  // global if mCallback is a cross-compartment wrapper.
+  JS::Heap<JSObject*> mCallbackGlobal;
+  JS::Heap<JSObject*> mCreationStack;
+  // Ideally, we'd just hold a reference to the nsIGlobalObject, since that's
+  // what we need to pass to AutoIncumbentScript. Unfortunately, that doesn't
+  // hold the actual JS global alive. So we maintain an additional pointer to
+  // the JS global itself so that we can trace it.
+  //
+  // At some point we should consider trying to make native globals hold their
+  // scripted global alive, at which point we can get rid of the duplication
+  // here.
+  nsCOMPtr<nsIGlobalObject> mIncumbentGlobal;
+  JS::TenuredHeap<JSObject*> mIncumbentJSGlobal;
+};
+
+/**
+ * A class that performs whatever setup we need to safely make a
+ * call while this class is on the stack, After the constructor
+ * returns, the call is safe to make if GetContext() returns
+ * non-null.
+ */
+class MOZ_STACK_CLASS CallSetup {
+ public:
+  // If aExceptionHandling == eRethrowContentExceptions then aRealm
+  // needs to be set to the realm in which exceptions will be rethrown.
+  //
+  // If aExceptionHandling == eRethrowExceptions then aRealm may be set
+  // to the realm in which exceptions will be rethrown.  In that case
+  // they will only be rethrown if that realm's principal subsumes the
+  // principal of our (unwrapped) callback.
+  CallSetup(CallbackObjectBase* aCallback, ErrorResult& aRv,
+            const char* aExecutionReason,
+            CallbackObjectBase::ExceptionHandling aExceptionHandling,
+            JS::Realm* aRealm = nullptr, bool aIsJSImplementedWebIDL = false);
+
+  CallSetup(JS::Handle<JSObject*> aCallbackGlobal,
+            nsIGlobalObject* aIncumbentGlobal,
+            JS::Handle<JSObject*> aCreationStack, ErrorResult& aRv,
+            const char* aExecutionReason,
+            CallbackObjectBase::ExceptionHandling aExceptionHandling,
+            JS::Realm* aRealm = nullptr);
+
+  MOZ_CAN_RUN_SCRIPT ~CallSetup();
+
+  JSContext* GetContext() const { return mCx; }
+
+  // Safe to call this after the constructor has run without throwing on the
+  // ErrorResult it was handed.
+  BindingCallContext& GetCallContext() { return *mCallContext; }
+
+ private:
+  CallSetup(CallbackObjectBase* aCallback, ErrorResult& aRv,
+            const char* aExecutionReason,
+            CallbackObjectBase::ExceptionHandling aExceptionHandling,
+            JS::Realm* aRealm, bool aIsJSImplementedWebIDL,
+            CycleCollectedJSContext* aCCJS);
+  // Private delegating constructor for common initialization
+  CallSetup(ErrorResult& aRv,
+            CallbackObjectBase::ExceptionHandling aExceptionHandling,
+            JS::Realm* aRealm, bool aIsMainThread,
+            CycleCollectedJSContext* aCCJS);
+
+  // We better not get copy-constructed
+  CallSetup(const CallSetup&) = delete;
+
+  bool ShouldRethrowException(JS::Handle<JS::Value> aException);
+
+  static nsIGlobalObject* GetActiveGlobalObjectForCall(
+      JS::Handle<JSObject*> callbackOrGlobal, bool aIsMainThread,
+      bool aIsJSImplementedWebIDL, ErrorResult& aRv);
+
+  static bool CheckBeforeExecution(nsIGlobalObject* aGlobalObject,
+                                   JSObject* aCallbackOrGlobal,
+                                   bool aIsJSImplementedWebIDL,
+                                   ErrorResult& aRv);
+
+  // Perform the final setup work. If this succeeds, mCx is set and we are able
+  // to run the callback with the appropriate environment.
+  void SetupForExecution(nsIGlobalObject* aGlobalObject,
+                         nsIGlobalObject* aIncumbentGlobal,
+                         JS::Handle<JSObject*> aCallbackOrGlobal,
+                         JS::Handle<JSObject*> aCallbackGlobal,
+                         JS::Handle<JSObject*> aCreationStack,
+                         nsIPrincipal* aWebIDLCallerPrincipal,
+                         const char* aExecutionReason, ErrorResult& aRv);
+
+  // Members which can go away whenever
+  JSContext* mCx;
+
+  // Caller's realm. This will only have a sensible value if
+  // mExceptionHandling == eRethrowContentExceptions.
+  JS::Realm* mRealm;
+
+  // And now members whose construction/destruction order we need to control.
+  Maybe<AutoEntryScript> mAutoEntryScript;
+  Maybe<AutoIncumbentScript> mAutoIncumbentScript;
+
+  Maybe<JS::Rooted<JSObject*>> mRootedCallable;
+  Maybe<JS::AutoSetAsyncStackForNewCalls> mAsyncStackSetter;
+
+  // Can't construct a JSAutoRealm without a JSContext either.  Also,
+  // Put mAr after mAutoEntryScript so that we exit the realm before we
+  // pop the script settings stack. Though in practice we'll often manually
+  // order those two things.
+  Maybe<JSAutoRealm> mAr;
+
+  // Our BindingCallContext.  This is a Maybe so we can avoid constructing it
+  // until after we have a JSContext to construct it with.
+  Maybe<BindingCallContext> mCallContext;
+
+  // An ErrorResult to possibly re-throw exceptions on and whether
+  // we should re-throw them.
+  ErrorResult& mErrorResult;
+  const CallbackObjectBase::ExceptionHandling mExceptionHandling;
+  const bool mIsMainThread;
+};
+
+class CallbackObject : public nsISupports,
+                       public CallbackObjectBase,
+                       public JSHolderBase {
+ public:
+  NS_INLINE_DECL_STATIC_IID(DOM_CALLBACKOBJECT_IID)
+
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTION_SKIPPABLE_SCRIPT_HOLDER_CLASS(CallbackObject)
+
+  // The caller may pass a global object which will act as an override for the
+  // incumbent script settings object when the callback is invoked (overriding
+  // the entry point computed from aCallback). If no override is required, the
+  // caller should pass null.  |aCx| is used to capture the current
+  // stack, which is later used as an async parent when the callback
+  // is invoked.  aCx can be nullptr, in which case no stack is
+  // captured.
+  explicit CallbackObject(JSContext* aCx, JS::Handle<JSObject*> aCallback,
+                          JS::Handle<JSObject*> aCallbackGlobal,
+                          nsIGlobalObject* aIncumbentGlobal) {
+    if (aCx && JS::IsAsyncStackCaptureEnabledForRealm(aCx)) {
+      JS::Rooted<JSObject*> stack(aCx);
+      if (!JS::CaptureCurrentStack(aCx, &stack)) {
+        JS_ClearPendingException(aCx);
+      }
+      Init(aCallback, aCallbackGlobal, stack, aIncumbentGlobal);
+    } else {
+      Init(aCallback, aCallbackGlobal, nullptr, aIncumbentGlobal);
+    }
+  }
+
+  // Instead of capturing the current stack to use as an async parent when the
+  // callback is invoked, the caller can use this overload to pass in a stack
+  // for that purpose.
+  explicit CallbackObject(JSObject* aCallback, JSObject* aCallbackGlobal,
+                          JSObject* aAsyncStack,
+                          nsIGlobalObject* aIncumbentGlobal) {
+    Init(aCallback, aCallbackGlobal, aAsyncStack, aIncumbentGlobal);
+  }
+
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
+    return aMallocSizeOf(this);
+  }
+
+  void Reset() final {
+    CallbackObjectBase::Reset();
+    mozilla::DropJSObjectsWithKey(this);
+  }
+
+ protected:
+  virtual ~CallbackObject() { mozilla::DropJSObjectsWithKey(this); }
+
+  explicit CallbackObject(CallbackObject* aCallbackObject) {
+    Init(aCallbackObject->mCallback, aCallbackObject->mCallbackGlobal,
+         aCallbackObject->mCreationStack, aCallbackObject->mIncumbentGlobal);
+  }
 
   // For use from subclasses that want to be traced for a bit then possibly
   // switch to HoldJSObjects and do other slow JS-related init work we might do.
@@ -312,96 +419,40 @@ class CallbackObject : public nsISupports {
     InitNoHold(aCallback, aCallbackGlobal, nullptr, nullptr);
   }
 
-  // mCallback is not unwrapped, so it can be a cross-compartment-wrapper.
-  // This is done to ensure that, if JS code can't call a callback f(), or get
-  // its members, directly itself, this code won't call f(), or get its members,
-  // on the code's behalf.
-  JS::Heap<JSObject*> mCallback;
-  // mCallbackGlobal is the global that we were in when we created the
-  // callback. In particular, it is guaranteed to be same-compartment with
-  // aCallback. We store it separately, because we have no way to recover the
-  // global if mCallback is a cross-compartment wrapper.
-  JS::Heap<JSObject*> mCallbackGlobal;
-  JS::Heap<JSObject*> mCreationStack;
-  // Ideally, we'd just hold a reference to the nsIGlobalObject, since that's
-  // what we need to pass to AutoIncumbentScript. Unfortunately, that doesn't
-  // hold the actual JS global alive. So we maintain an additional pointer to
-  // the JS global itself so that we can trace it.
-  //
-  // At some point we should consider trying to make native globals hold their
-  // scripted global alive, at which point we can get rid of the duplication
-  // here.
-  nsCOMPtr<nsIGlobalObject> mIncumbentGlobal;
-  JS::TenuredHeap<JSObject*> mIncumbentJSGlobal;
+  bool operator==(const CallbackObject& aOther) const {
+    JSObject* wrappedThis = CallbackPreserveColor();
+    JSObject* wrappedOther = aOther.CallbackPreserveColor();
+    if (!wrappedThis || !wrappedOther) {
+      return this == &aOther;
+    }
 
-  class MOZ_STACK_CLASS CallSetup {
-    /**
-     * A class that performs whatever setup we need to safely make a
-     * call while this class is on the stack, After the constructor
-     * returns, the call is safe to make if GetContext() returns
-     * non-null.
-     */
+    JSObject* thisObj = js::UncheckedUnwrap(wrappedThis);
+    JSObject* otherObj = js::UncheckedUnwrap(wrappedOther);
+    return thisObj == otherObj;
+  }
+
+  class JSObjectsDropper final {
    public:
-    // If aExceptionHandling == eRethrowContentExceptions then aRealm
-    // needs to be set to the realm in which exceptions will be rethrown.
-    //
-    // If aExceptionHandling == eRethrowExceptions then aRealm may be set
-    // to the realm in which exceptions will be rethrown.  In that case
-    // they will only be rethrown if that realm's principal subsumes the
-    // principal of our (unwrapped) callback.
-    CallSetup(CallbackObject* aCallback, ErrorResult& aRv,
-              const char* aExecutionReason,
-              ExceptionHandling aExceptionHandling, JS::Realm* aRealm = nullptr,
-              bool aIsJSImplementedWebIDL = false);
-    MOZ_CAN_RUN_SCRIPT ~CallSetup();
+    explicit JSObjectsDropper(CallbackObject* aHolder) : mHolder(aHolder) {}
 
-    JSContext* GetContext() const { return mCx; }
-
-    // Safe to call this after the constructor has run without throwing on the
-    // ErrorResult it was handed.
-    BindingCallContext& GetCallContext() { return *mCallContext; }
+    ~JSObjectsDropper() { mHolder->ClearJSObjects(); }
 
    private:
-    // We better not get copy-constructed
-    CallSetup(const CallSetup&) = delete;
-
-    bool ShouldRethrowException(JS::Handle<JS::Value> aException);
-
-    // Members which can go away whenever
-    JSContext* mCx;
-
-    // Caller's realm. This will only have a sensible value if
-    // mExceptionHandling == eRethrowContentExceptions.
-    JS::Realm* mRealm;
-
-    // And now members whose construction/destruction order we need to control.
-    Maybe<AutoEntryScript> mAutoEntryScript;
-    Maybe<AutoIncumbentScript> mAutoIncumbentScript;
-
-    Maybe<JS::Rooted<JSObject*>> mRootedCallable;
-    // The global of mRootedCallable.
-    Maybe<JS::Rooted<JSObject*>> mRootedCallableGlobal;
-
-    // Members which are used to set the async stack.
-    Maybe<JS::Rooted<JSObject*>> mAsyncStack;
-    Maybe<JS::AutoSetAsyncStackForNewCalls> mAsyncStackSetter;
-
-    // Can't construct a JSAutoRealm without a JSContext either.  Also,
-    // Put mAr after mAutoEntryScript so that we exit the realm before we
-    // pop the script settings stack. Though in practice we'll often manually
-    // order those two things.
-    Maybe<JSAutoRealm> mAr;
-
-    // Our BindingCallContext.  This is a Maybe so we can avoid constructing it
-    // until after we have a JSContext to construct it with.
-    Maybe<BindingCallContext> mCallContext;
-
-    // An ErrorResult to possibly re-throw exceptions on and whether
-    // we should re-throw them.
-    ErrorResult& mErrorResult;
-    const ExceptionHandling mExceptionHandling;
-    const bool mIsMainThread;
+    RefPtr<CallbackObject> mHolder;
   };
+
+ private:
+  CallbackObject(const CallbackObject&) = delete;
+  CallbackObject& operator=(const CallbackObject&) = delete;
+
+  inline void Init(JSObject* aCallback, JSObject* aCallbackGlobal,
+                   JSObject* aCreationStack,
+                   nsIGlobalObject* aIncumbentGlobal) {
+    // Set script objects before we hold, on the off chance that a GC could
+    // somehow happen in there... (which would be pretty odd, granted).
+    InitNoHold(aCallback, aCallbackGlobal, aCreationStack, aIncumbentGlobal);
+    mozilla::HoldJSObjectsWithKey(this);
+  }
 };
 
 template <class WebIDLCallbackT, class XPCOMCallbackT>
@@ -548,7 +599,7 @@ class CallbackObjectHolder : CallbackObjectHolderBase {
     }
 
     nsCOMPtr<nsISupports> supp = CallbackObjectHolderBase::ToXPCOMCallback(
-        GetWebIDLCallback(), NS_GET_TEMPLATE_IID(XPCOMCallbackT));
+        GetWebIDLCallback(), NS_GET_IID(XPCOMCallbackT));
     if (supp) {
       // ToXPCOMCallback already did the right QI for us.
       return supp.forget().downcast<XPCOMCallbackT>();
@@ -581,8 +632,6 @@ class CallbackObjectHolder : CallbackObjectHolderBase {
 
   uintptr_t mPtrBits;
 };
-
-NS_DEFINE_STATIC_IID_ACCESSOR(CallbackObject, DOM_CALLBACKOBJECT_IID)
 
 template <class T, class U>
 inline void ImplCycleCollectionTraverse(

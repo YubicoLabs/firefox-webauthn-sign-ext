@@ -34,7 +34,7 @@ pub struct LifetimeEnv {
 
 impl LifetimeEnv {
     /// Format a lifetime indexing this env for use in code
-    pub fn fmt_lifetime(&self, lt: impl Borrow<Lifetime>) -> Cow<str> {
+    pub fn fmt_lifetime(&self, lt: impl Borrow<Lifetime>) -> Cow<'_, str> {
         // we use Borrow here so that this can be used in templates where there's autoborrowing
         let lt = *lt.borrow();
         if let Some(lt) = self.nodes.get(lt.0) {
@@ -48,7 +48,6 @@ impl LifetimeEnv {
 
     /// Get an iterator of all lifetimes that this must live as long as (including itself)
     /// with the first lifetime always being returned first
-
     pub fn all_shorter_lifetimes(
         &self,
         lt: impl Borrow<Lifetime>,

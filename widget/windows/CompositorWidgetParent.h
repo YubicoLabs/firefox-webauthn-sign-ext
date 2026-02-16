@@ -22,17 +22,17 @@ class Client;
 class CompositorWidgetParent final : public PCompositorWidgetParent,
                                      public WinCompositorWidget {
  public:
+  NS_INLINE_DECL_REFCOUNTING_INHERITED(CompositorWidgetParent, CompositorWidget)
+
   explicit CompositorWidgetParent(const CompositorWidgetInitData& aInitData,
                                   const layers::CompositorOptions& aOptions);
-  ~CompositorWidgetParent() override;
 
   bool Initialize(const RemoteBackbufferHandles& aRemoteHandles);
 
   bool PreRender(WidgetRenderingContext*) override;
   void PostRender(WidgetRenderingContext*) override;
   already_AddRefed<gfx::DrawTarget> StartRemoteDrawingInRegion(
-      const LayoutDeviceIntRegion& aInvalidRegion,
-      layers::BufferMode* aBufferMode) override;
+      const LayoutDeviceIntRegion& aInvalidRegion) override;
   void EndRemoteDrawingInRegion(
       gfx::DrawTarget* aDrawTarget,
       const LayoutDeviceIntRegion& aInvalidRegion) override;
@@ -66,6 +66,8 @@ class CompositorWidgetParent final : public PCompositorWidgetParent,
   void SetRootLayerTreeID(const layers::LayersId& aRootLayerTreeId) override;
 
  private:
+  ~CompositorWidgetParent() override;
+
   RefPtr<VsyncObserver> mVsyncObserver;
   Maybe<layers::LayersId> mRootLayerTreeID;
 

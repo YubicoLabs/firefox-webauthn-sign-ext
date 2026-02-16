@@ -7,8 +7,8 @@
 #include "mozilla/dom/CSSCounterStyleRule.h"
 
 #include "mozAutoDocUpdate.h"
-#include "mozilla/dom/CSSCounterStyleRuleBinding.h"
 #include "mozilla/ServoBindings.h"
+#include "mozilla/dom/CSSCounterStyleRuleBinding.h"
 #include "nsStyleUtil.h"
 
 namespace mozilla {
@@ -82,7 +82,7 @@ void CSSCounterStyleRule::SetName(const nsAString& aName) {
           mRawRule, eCSSCounterDesc_##method_, &aValue);             \
     });                                                              \
   }
-#include "nsCSSCounterDescList.h"
+#include "nsCSSCounterDescList.inc"
 #undef CSS_COUNTER_DESC
 
 /* virtual */

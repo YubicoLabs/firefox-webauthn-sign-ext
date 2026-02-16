@@ -2,33 +2,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { actionCreators as ac } from "common/Actions.mjs";
+import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 // eslint-disable-next-line no-shadow
 import { CSSTransition } from "react-transition-group";
 
-const PREF_FOLLOWED_SECTIONS = "discoverystream.sections.following";
-const PREF_BLOCKED_SECTIONS = "discoverystream.sections.blocked";
-
-/**
- * Transforms a comma-separated string of topics in user preferences
- * into a cleaned-up array.
- *
- * @param pref
- * @returns string[]
- */
-// TODO: DRY Issue: Import function from CardSections.jsx?
-const getTopics = pref => {
-  return pref
-    .split(",")
-    .map(item => item.trim())
-    .filter(item => item);
-};
-
-function SectionsMgmtPanel({ exitEventFired }) {
-  const [showPanel, setShowPanel] = useState(false); // State management with useState
-  const prefs = useSelector(state => state.Prefs.values);
+function SectionsMgmtPanel({
+  exitEventFired,
+  pocketEnabled,
+  onSubpanelToggle,
+  togglePanel,
+  showPanel,
+}) {
+  const arrowButtonRef = useRef(null);
+  const { sectionPersonalization } = useSelector(
+    state => state.DiscoveryStream
+  );
   const layoutComponents = useSelector(
     state => state.DiscoveryStream.layout[0].components
   );
@@ -50,45 +40,43 @@ function SectionsMgmtPanel({ exitEventFired }) {
     sectionsList = sections[sectionsFeedName].data.sections;
   }
 
-  const followedSectionsPref = prefs[PREF_FOLLOWED_SECTIONS] || "";
-  const blockedSectionsPref = prefs[PREF_BLOCKED_SECTIONS] || "";
-  const followedSections = getTopics(followedSectionsPref);
-  const blockedSections = getTopics(blockedSectionsPref);
+  const [sectionsState, setSectionState] = useState(sectionPersonalization); // State management with useState
 
-  const [followedSectionsState, setFollowedSectionsState] =
-    useState(followedSectionsPref); // State management with useState
-  const [blockedSectionsState, setBlockedSectionsState] =
-    useState(blockedSectionsPref); // State management with useState
-
-  let followedSectionsData = sectionsList.filter(item =>
-    followedSectionsState.includes(item.sectionKey)
+  let followedSectionsData = sectionsList.filter(
+    item => sectionsState[item.sectionKey]?.isFollowed
   );
 
-  let blockedSectionsData = sectionsList.filter(item =>
-    blockedSectionsState.includes(item.sectionKey)
+  let blockedSectionsData = sectionsList.filter(
+    item => sectionsState[item.sectionKey]?.isBlocked
   );
 
   function updateCachedData() {
     // Reset cached followed/blocked list data while panel is open
-    setFollowedSectionsState(followedSectionsPref);
-    setBlockedSectionsState(blockedSectionsPref);
+    setSectionState(sectionPersonalization);
 
-    followedSectionsData = sectionsList.filter(item =>
-      followedSectionsState.includes(item.sectionKey)
+    followedSectionsData = sectionsList.filter(
+      item => sectionsState[item.sectionKey]?.isFollowed
     );
 
-    blockedSectionsData = sectionsList.filter(item =>
-      blockedSectionsState.includes(item.sectionKey)
+    blockedSectionsData = sectionsList.filter(
+      item => sectionsState[item.sectionKey]?.isBlocked
     );
   }
 
   const onFollowClick = useCallback(
     (sectionKey, receivedRank) => {
       dispatch(
-        ac.SetPref(
-          PREF_FOLLOWED_SECTIONS,
-          [...followedSections, sectionKey].join(", ")
-        )
+        ac.AlsoToMain({
+          type: at.SECTION_PERSONALIZATION_SET,
+          data: {
+            ...sectionPersonalization,
+            [sectionKey]: {
+              isFollowed: true,
+              isBlocked: false,
+              followedAt: new Date().toISOString(),
+            },
+          },
+        })
       );
       // Telemetry Event Dispatch
       dispatch(
@@ -102,16 +90,22 @@ function SectionsMgmtPanel({ exitEventFired }) {
         })
       );
     },
-    [dispatch, followedSections]
+    [dispatch, sectionPersonalization]
   );
 
   const onBlockClick = useCallback(
     (sectionKey, receivedRank) => {
       dispatch(
-        ac.SetPref(
-          PREF_BLOCKED_SECTIONS,
-          [...blockedSections, sectionKey].join(", ")
-        )
+        ac.AlsoToMain({
+          type: at.SECTION_PERSONALIZATION_SET,
+          data: {
+            ...sectionPersonalization,
+            [sectionKey]: {
+              isFollowed: false,
+              isBlocked: true,
+            },
+          },
+        })
       );
 
       // Telemetry Event Dispatch
@@ -126,16 +120,18 @@ function SectionsMgmtPanel({ exitEventFired }) {
         })
       );
     },
-    [dispatch, blockedSections]
+    [dispatch, sectionPersonalization]
   );
 
   const onUnblockClick = useCallback(
     (sectionKey, receivedRank) => {
+      const updatedSectionData = { ...sectionPersonalization };
+      delete updatedSectionData[sectionKey];
       dispatch(
-        ac.SetPref(
-          PREF_BLOCKED_SECTIONS,
-          [...blockedSections.filter(item => item !== sectionKey)].join(", ")
-        )
+        ac.AlsoToMain({
+          type: at.SECTION_PERSONALIZATION_SET,
+          data: updatedSectionData,
+        })
       );
       // Telemetry Event Dispatch
       dispatch(
@@ -149,16 +145,18 @@ function SectionsMgmtPanel({ exitEventFired }) {
         })
       );
     },
-    [dispatch, blockedSections]
+    [dispatch, sectionPersonalization]
   );
 
   const onUnfollowClick = useCallback(
     (sectionKey, receivedRank) => {
+      const updatedSectionData = { ...sectionPersonalization };
+      delete updatedSectionData[sectionKey];
       dispatch(
-        ac.SetPref(
-          PREF_FOLLOWED_SECTIONS,
-          [...followedSections.filter(item => item !== sectionKey)].join(", ")
-        )
+        ac.AlsoToMain({
+          type: at.SECTION_PERSONALIZATION_SET,
+          data: updatedSectionData,
+        })
       );
       // Telemetry Event Dispatch
       dispatch(
@@ -172,28 +170,37 @@ function SectionsMgmtPanel({ exitEventFired }) {
         })
       );
     },
-    [dispatch, followedSections]
+    [dispatch, sectionPersonalization]
   );
 
   // Close followed/blocked topic subpanel when parent menu is closed
   useEffect(() => {
-    if (exitEventFired) {
-      setShowPanel(false);
+    if (exitEventFired && showPanel) {
+      togglePanel();
     }
-  }, [exitEventFired]);
+  }, [exitEventFired, showPanel, togglePanel]);
 
-  const togglePanel = () => {
-    setShowPanel(prevShowPanel => !prevShowPanel);
+  // Notify parent menu when subpanel opens/closes
+  useEffect(() => {
+    if (onSubpanelToggle) {
+      onSubpanelToggle(showPanel);
+    }
+  }, [showPanel, onSubpanelToggle]);
 
-    // Fire when the panel is open
-    if (!showPanel) {
+  useEffect(() => {
+    if (showPanel) {
       updateCachedData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPanel]);
+
+  const handlePanelEntered = () => {
+    arrowButtonRef.current?.focus();
   };
 
   const followedSectionsList = followedSectionsData.map(
     ({ sectionKey, title, receivedRank }) => {
-      const following = followedSections.includes(sectionKey);
+      const following = sectionPersonalization[sectionKey]?.isFollowed;
 
       return (
         <li key={sectionKey}>
@@ -235,7 +242,7 @@ function SectionsMgmtPanel({ exitEventFired }) {
 
   const blockedSectionsList = blockedSectionsData.map(
     ({ sectionKey, title, receivedRank }) => {
-      const blocked = blockedSections.includes(sectionKey);
+      const blocked = sectionPersonalization[sectionKey]?.isBlocked;
 
       return (
         <li key={sectionKey}>
@@ -276,15 +283,21 @@ function SectionsMgmtPanel({ exitEventFired }) {
       <moz-box-button
         onClick={togglePanel}
         data-l10n-id="newtab-section-manage-topics-button-v2"
+        {...(!pocketEnabled ? { disabled: true } : {})}
       ></moz-box-button>
       <CSSTransition
         in={showPanel}
         timeout={300}
         classNames="sections-mgmt-panel"
         unmountOnExit={true}
+        onEntered={handlePanelEntered}
       >
         <div className="sections-mgmt-panel">
-          <button className="arrow-button" onClick={togglePanel}>
+          <button
+            ref={arrowButtonRef}
+            className="arrow-button"
+            onClick={togglePanel}
+          >
             <h1 data-l10n-id="newtab-section-mangage-topics-title"></h1>
           </button>
           <h3 data-l10n-id="newtab-section-mangage-topics-followed-topics"></h3>

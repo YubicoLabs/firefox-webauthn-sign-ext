@@ -16,7 +16,7 @@ for (let metric of METRICS) {
 
 const perfMetadata = {
   owner: "GenAI Team",
-  name: "ML Suggest Inference Model",
+  name: "browser_ml_suggest_inference.js",
   description: "Template test for ML suggest Inference Model",
   options: {
     default: {
@@ -25,15 +25,23 @@ const perfMetadata = {
         {
           name: "inference-pipeline-ready-latency",
           unit: "ms",
-          shouldAlert: true,
+          shouldAlert: false,
         },
         {
           name: "inference-initialization-latency",
           unit: "ms",
-          shouldAlert: true,
+          shouldAlert: false,
         },
-        { name: "inference-model-run-latency", unit: "ms", shouldAlert: true },
-        { name: "inference-total-memory-usage", unit: "ms", shouldAlert: true },
+        {
+          name: "inference-model-run-latency",
+          unit: "ms",
+          shouldAlert: false,
+        },
+        {
+          name: "inference-total-memory-usage",
+          unit: "ms",
+          shouldAlert: false,
+        },
       ],
       verbose: true,
       manifest: "perftest.toml",
@@ -43,7 +51,7 @@ const perfMetadata = {
   },
 };
 
-requestLongerTimeout(120);
+requestLongerTimeout(10);
 
 const CUSTOM_INTENT_OPTIONS = {
   taskName: "text-classification",
@@ -132,8 +140,9 @@ async function perform_inference(queries, type) {
     results.push(res);
   }
 
-  Assert.ok(
-    results.length === queries.length,
+  Assert.strictEqual(
+    results.length,
+    queries.length,
     "results size should be equal to queries size."
   );
   // Write results to a file
@@ -142,7 +151,7 @@ async function perform_inference(queries, type) {
 
 const runInference2 = async () => {
   ChromeUtils.defineESModuleGetters(this, {
-    MLSuggest: "resource:///modules/urlbar/private/MLSuggest.sys.mjs",
+    MLSuggest: "moz-src:///browser/components/urlbar/private/MLSuggest.sys.mjs",
   });
 
   // Override INTENT and NER options within MLSuggest

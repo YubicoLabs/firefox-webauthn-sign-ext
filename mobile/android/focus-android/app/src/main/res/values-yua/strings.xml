@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">Ts\'o\'ok u tselik u k\'ajláayil navegación</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">U k\'ajláayo\' u navegación le ficha ts\'o\'ok u borrado.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">Kaxbil %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Ka túuxtik ti\'…</string>
@@ -52,7 +62,6 @@
   <string name="menu_settings">Máak’anbil</string>
   <string name="menu_about">Yo\'sal</string>
   <string name="menu_help">Áantaj</string>
-  <string name="menu_rights">A tojbe\'enilo\'ob</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -143,19 +152,10 @@
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Kaxant ti\' Focus Nightly</string>
   <!--
-    Content of about focus. Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
-    Argument 2 is the url for the learn-more link.
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
   -->
-  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote">&lt;p&gt;%1$s ku ts\'áaik ti\' kaambalil.&lt;/p&gt;
-&lt;p&gt;Meyajt bey jump\'éel navegador privado:
-  &lt;ul&gt;
-    &lt;li&gt;Kaxant yéetel navegar tu tojile\' ti\' le ka\'anatako\'ob&lt;/li&gt;
-    &lt;li&gt;Bloquear le rastreadores (wa actualizar configuración utia\'al u permitir le rastreadores)&lt;/li&gt;
-    &lt;li&gt;Borrar utia\'al u tselik le cookies bey xan le historial xookilo\' yéetel navegación&lt;/li&gt;
- &lt;/ul&gt;
-&lt;/p&gt;
-&lt;p&gt;%1$s ku beeta\'al tumen Mozilla. K meyaje\' leti\' u yantal jump\'éel Internet toj yéetel je\'ek\'ab.&lt;br/&gt;
-&lt;a href="%2$s"&gt;Kaanbal asab&lt;/a&gt;&lt;/p&gt;</string>
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s ku ts\'áaik ti\' kaambalil.</p>\n<p>Meyajt bey jump\'éel navegador privado:\n<ul>\n<li>Kaxant yéetel navegar tu tojile\' ti\' le ka\'anatako\'ob</li>\n<li>Bloquear le rastreadores (wa actualizar configuración utia\'al u permitir le rastreadores)</li>\n<li>Borrar utia\'al u tselik le cookies bey xan le historial xookilo\' yéetel navegación</li>\n</ul> </p>\n<p>%1$s ku beeta\'al tumen Mozilla. K meyaje\' leti\' u yantal jump\'éel Internet toj yéetel je\'ek\'ab.<br/>\n<a href=\"%2$s\">Kaanbal asab</a></p>]]></string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">Ta wóok’sal yéetel Jeets’el óol</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -207,14 +207,14 @@
   <string name="preference_switch_autocomplete_topsites">Utia\'al u yáax kúuchilo\'ob</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">Habilitar u yaantal %s autocompleto yóok\'ol 450 URLs populares ti\' le barra direcciones.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">Utia\'al u ts\'ono\'oto\'ob ku ts\'áabal</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">Habilitar utia\'al u yantal %s autocompletar u URLs favoritas.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -289,8 +289,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">Je\'ek\'abt yéetel u huella dactilar wa ts\'o\'ok a ts\'áaik atajos wa ken ts\'o\'ok u je\'ebel jump\'éel ts\'ono\'oto\' web ti\' %s.</string>
   <!--
@@ -338,9 +338,9 @@
   <string name="preference_libraries_we_use">Bibliotecas k meyajtiko\'ob</string>
   <!-- Link to Focus Crash reports list. -->
   <string name="preference_crashes">Ku lúubul</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s | Bibliotecas OSS</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">Yóok’sal le %1$s</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">U múuk’il ti’ u maan máak ich web ts’oka’anilob</string>
@@ -364,7 +364,7 @@
   <string name="search_add_manually_name_hint">U k’áaba’ ti’ u múuk’il ti’ u kaxan ba’al máak ich web</string>
   <string name="search_add_manually_string">Kaxbil nuupul uti’al meyajta’al</string>
   <string name="search_add_manually_save">Táabsaj</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">E’esajil: example.com/search/?q=%s</string>
   <string name="search_add_confirmation">Ts’óok u tsàabal túumben u múuk’il ti’ u kaxan ba’al máak ich web.</string>
   <string name="search_add_error_empty_name">Oksa’ak u k’áaba’ ti’ le u múuk’il ti’ u maan máak ich web</string>
@@ -436,19 +436,19 @@
   <string name="external_app_prompt_title">Je’ebak le nuupankil ich yaanal ba’ilo’</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">Je’el u beytal a jóok’oj ti’ %1$s uti’al a je’ik le nuupankila’ ich %2$s.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">Kaxanta’ak junp’éel ba’il tu’ux ka pàajchajak u je’ik le nuupankila’</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">Mixjunp’éel le ba’il ich a núukulila’ u je’ik le nuupankila’. Je’el u beytal a jóok’oj ti’ %1$s uti’al a kaxtik junp’éel bail tu’ux u jèebej ich %2$s.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">¿A k’áat a jóok’oj ti’ le maan ich web chen a wóok’sal wa’a?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s ts’óokij</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">Je\'ebek</string>
@@ -458,13 +458,11 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">Bienvenido ti\' %1$s</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
   <string name="onboarding_first_screen_subtitle">Séeba\'an. Pribaado. Mina\'an distracción.</string>
-  <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">Káajsik</string>
   <!--
     Onboarding second screen: Title
 
@@ -542,36 +540,6 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">Éemsa’ak Firefox</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">%1$s lela’ jun meyajil mina’an u wóojil jeba’antak, béeta’ab men Mozilla yéetel u láak’ muulmeyajilo’ob.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s ti’an ka ch’áabak yéetel u tsoolt’aanil &lt;a href="%2$s"&gt;ku ts’áabal u páajtalil men Mozilla&lt;/a&gt; yéetel u láak’ páajtalilo’ob yáanti’ob u wóoj jeba’anil.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">Ma’ u ts’áabal tojbe’enilob wa páajtalilo’ob ti’ le koonol ba’alob yáan u k’áaba’ob ich le moolayil Mozilla Foundation wa je’e ba’axak jaatsile’, mix u k’áaba’ob yéetel u yoochelo’ob Mozilla, Firefox o %1$s. Je’el u beytal u k’ajotal yaanal ba’ax &lt;a href="%2$s"&gt;waye’&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">U láak’ &lt;a href="%2$s"&gt;páajtalilo’ob&lt;/a&gt; ti’ wóoj jeba’antak bey xan xma’ boolbi’ laili’ yáanti’ob u láak’ sayab wóoj uti’al %1$s.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s laili’ ku meyajtik le toolts’ìibil uti’al ma’ meyajtak Disconnect, Inc. Bey tseelpaja’anil meyajilo’ob ku béetal tu juunalo’ob yáanal le &lt;a href="%2$s"&gt;Noj Páajtalil ti’ tu láakal ti’ GNU v3&lt;/a&gt;, je’el u beytal a kaxtik &lt;a href="%3$s"&gt;waye’&lt;/a&gt;.</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">A k’áaba’</string>
   <string name="gv_prompt_password_hint">Wóojil</string>
@@ -593,13 +561,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">Kaxt te\' linki abas kaambal</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">%1$d ti\' %2$d</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -646,13 +616,13 @@
   <string name="cookie_banner_exception_panel_switch_state_off">OFF uti\'al le ts\'ono\'oto\'</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">ON uti\'al le ts\'ono\'oto\'</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">T\'abik u xu\'ulsa\'al le banner cookies uti\'al %1$s?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">Tu\'upul u xu\'ulsa\'al le banner cookies uti\'al %1$s?</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">%1$s yaan u tselik u cookies le ts\'ono\'oto\' yéetel yaan u túumbenkuunsik le linki abas kaambal. Wa ka tselik tuláakal le cookies je\'el u páajtal u jóok\'ol wa u vaciar le carritos maano\'.</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">%1$s je\'el u páajtal u k\'aax u rechazar automáticamente solicitudes cookies.</string>
   <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_description_site_is_not_supported">Le ts\'ono\'oto\' bejla\'e\' ma\' táan u yáanta\'al tumen Cookie Banner Reduction. ¿A k\'áat wa a k\'áatik ti\' k nu\'ukulil u xak\'altik le ts\'ono\'oto\' web yéetel u ts\'áabal áantaj ti\' le k\'iino\'ob ku taalo\'obo\'?</string>
@@ -679,11 +649,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Xeen ti\' configuración Android</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. Pulse ti\' &lt;b&gt;Permisos&lt;/b&gt;</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. Pulse ti\' <b>Permisos</b>]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">Xeen ti\' configuración</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. K\'ex &lt;b&gt;%1$s&lt;/b&gt; ti\' ON</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. K\'ex <b>%1$s</b> ti\' ON]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">Cámara</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -710,20 +680,6 @@
   <string name="preference_block_autoplay_audio_only_summary">Rekomendarta\'an</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">Bloquear audio yéetel video</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">Xook</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Firefox je\'el u páajtal u instalar yéetel ejecutar xook de vez en cuando.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">Kaanbal asab</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">Le ka\'anatako\'ob yaan u p\'atik uti\'al u ts\'áaik k\'eexo\'ob</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">Péeks</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">Aktivóo</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">Ts\'o\'ok</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">Náach púusbil yéetel USB/Wi-Fi</string>
   <!-- Text Button for show biometric prompt -->
@@ -736,8 +692,7 @@
     Button for the fingerprint authentication dialog box that is shown to the user when sharing a link to the app
     while the user has biometric authentication enabled. When pressed, the user's previous session is cleared, and the shared link is opened.
   -->
-  <string name="biometric_auth_open_link_new_session">Je’ebak nuupankil ich a túumben meyajil
-</string>
+  <string name="biometric_auth_open_link_new_session">Je’ebak nuupankil ich a túumben meyajil\u0020</string>
   <!-- Description for the fingerprint authentication image. Used for accessibility purposes. -->
   <string name="biometric_auth_image_description">Wooj ti\' ts\'áalk\'ab</string>
   <!--
@@ -756,7 +711,7 @@
     Description for the prompt to enable search suggestions
     %1$s will be replaced by the app name (e.g. Firefox Focus)
   -->
-  <string name="enable_search_suggestion_description"> Utia\'al u k\'amik ba\'alo\'ob, %1$s k\'a\'abéet u túuxtik ba\'ax ka ts\'íibtik te\' barra direcciones ti\' le kisbuuts\'o\' xookilo\'.</string>
+  <string name="enable_search_suggestion_description">Utia\'al u k\'amik ba\'alo\'ob, %1$s k\'a\'abéet u túuxtik ba\'ax ka ts\'íibtik te\' barra direcciones ti\' le kisbuuts\'o\' xookilo\'.</string>
   <!-- Label used for the "NO button" for the prompt to enable search suggestions -->
   <string name="enable_search_suggestions_no">Ma’</string>
   <!-- Label used for the "YES button" for the prompt to enable search suggestions -->
@@ -771,35 +726,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">Le ts\'ono\'oto\' ku bisikuba ma\' táan u páa\'ta\'al?\n
- K\'aax u tu\'upul le protección ti\' seguimiento</string>
+  <string name="tip_disable_tracking_protection">Le ts\'ono\'oto\' ku bisikuba ma\' táan u páa\'ta\'al?\nK\'aax u tu\'upul le protección ti\' seguimiento</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">K\'amik muuk\' yéetel jump\'éel toque ti\' le lu\'umo\'ob ku meyajtiko\'ob asab%1$s Menú &gt; Ts\'áabak ti\' u yáax cha\'anil tu\'ux u chúunul meyaj</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">Je\'e tuláakal le enlace ti\' %1$s\n
-        Ts\'áa %1$s bey navegador tumen defecto
-    </string>
+  <string name="tip_set_default_browser">Je\'e tuláakal le enlace ti\' %1$s\nTs\'áa %1$s bey navegador tumen defecto</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">Autocompletar URLs uti\'al le lu\'umo\'ob ku meyajtiko\'ob asab\n
-        Pulse chowak je\'el ba\'ax URL ti\' le barra direcciones
-    </string>
+  <string name="tip_autocomplete_url">Autocompletar URLs uti\'al le lu\'umo\'ob ku meyajtiko\'ob asab\nPulse chowak je\'el ba\'ax URL ti\' le barra direcciones</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">Je\'e jump\'éel enlace ti\' jump\'éel túumben tab\n
-        Pulsa chowak je\'el ba\'ax enlace ti\' jump\'éel linki abas kaambal
-    </string>
+  <string name="tip_open_in_new_tab">Je\'e jump\'éel enlace ti\' jump\'éel túumben tab\nPulsa chowak je\'el ba\'ax enlace ti\' jump\'éel linki abas kaambal</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">Tu\'upul le consejos ti\' le pantalla Chúunul</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -829,8 +777,7 @@
   <!-- Message for Preference screen for cookie blocking for exceptions tracking protection -->
   <string name="preference_category_block_cookies">A k\'áat a k\'alik le cookies?</string>
   <!-- Title for the tab crash report screen -->
-  <string name="tab_crash_report_title">Le cha’anila’ k’aschaji
-</string>
+  <string name="tab_crash_report_title">Le cha’anila’ k’aschaji\u0020</string>
   <!-- Headline for the tab crash report screen -->
   <string name="tab_crash_report_headline">Sa\'asteni. Táan k yantal jump\'éel talamil yéetel le ju\'unil tu\'ux yaan.</string>
   <!-- Subtitle for the tab crash report screen -->
@@ -841,29 +788,29 @@
   <string name="crash_report_send_crash_label">Túuxt informe ti\' Mozilla</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">Le rastreadores bloqueados tak %s</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">Ts\'íibil</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">Puublisidaad</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">Sosial</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">Analíticas</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">Mejorada ti\' protección ti\' le seguimiento</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">Le protecciones táan OFF uti\'al le ts\'ono\'oto\'</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">Le protecciones táan ON uti\'al le ts\'ono\'oto\'</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">Le conexión jach segura</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">Le conexión ma\' táan segura</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">Rastreadores yéetel Scripts uti\'al u bloquear</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">Suut</string>
   <!--
     Top Sites
@@ -881,7 +828,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">Le oochelo\'ob ts\'o\'ok u ta\'akbesa\'alo\'ob yéetel ts\'aiko\'obo\' &lt;b&gt;ma\' yaan u&lt;/b&gt; tselik le ken a tu\'upul %1$s k\'ajláayo\'</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[Le oochelo\'ob ts\'o\'ok u ta\'akbesa\'alo\'ob yéetel ts\'aiko\'obo\' <b>ma\' yaan u</b> tselik le ken a tu\'upul %1$s k\'ajláayo\']]></string>
   <!--
     Theme Preferences
 
@@ -899,25 +846,16 @@
   <!-- The title of the error page for websites that do not support HTTPS when HTTPS-Only is turned on -->
   <string name="errorpage_httpsonly_title2">Le ts\'ono\'oto\' ma\' tu yáanta\'al HTTPS</string>
   <!--
-    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s will get replaced with the name of the app (e.g. "Firefox Focus").
-    Contains a button that will redirect the user to Privacy & Security Screen
+    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"),
+    %2$s is a URL to a support article. Contains a button that will redirect the user to Privacy & Security Screen.
   -->
-  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote">%1$s ku yilik u meyajtik jump\'éel conexión HTTPS ken u páajtal uti\'al u yantal asab seguridad.
-     &lt;a href="%2$s"&gt;Kaanbal asab&lt;/a&gt; &lt;br/&gt;&lt;br/&gt;
-     K\'ex le configuración ti\' Configuración &gt; Yojeta\'al mixba\'al &amp;amp; Seguridad &gt; Seguridad.</string>
+  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[%1$s ku yilik u meyajtik jump\'éel conexión HTTPS ken u páajtal uti\'al u yantal asab seguridad. <a href=\"%2$s\">Kaanbal asab</a> <br/><br/>\nK\'ex le configuración ti\' Configuración > Yojeta\'al mixba\'al &amp; Seguridad > Seguridad.]]></string>
   <!-- The document title and heading of the error page shown when a website has an invalid or expired SSL certificate. -->
   <string name="mozac_browser_errorpages_security_bad_cert_title">Conexión ma\' segura</string>
   <!-- The error message shown when a website has an invalid or expired SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_message">
-    Le je\'ela\' je\'el u páajtal u jump\'éel talamil yéetel u configuración le servidor, wa je\'el u páajtal u yaantal máax táan u yilik u beetik bey le servidor. &lt;br/&gt;&lt;br/&gt;
-    Wa ts\'o\'ok a conectar ti\' le servidor belal ti\' le pasado, le ba\'alo\' je\'el u páajtal u temporal.
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_message"><![CDATA[Le je\'ela\' je\'el u páajtal u jump\'éel talamil yéetel u configuración le servidor, wa je\'el u páajtal u yaantal máax táan u yilik u beetik bey le servidor. <br/><br/>\nWa ts\'o\'ok a conectar ti\' le servidor belal ti\' le pasado, le ba\'alo\' je\'el u páajtal u temporal.]]></string>
   <!-- The advanced certificate information shown when a website has an invalid SSL certificate. The %1$s will be replaced by the app name and %2$s will be replaced by website URL. It's only shown when a website has an invalid SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_techInfo">
-        &lt;label&gt;Yaan máax je\'el u páajtal u yilik u beetik bey le ts\'ono\'oto\' yéetel u seguer u beetik je\'el u yantal riesgo.&lt;/label&gt;
-         &lt;br&gt;&lt;br&gt;
-         &lt;label&gt;%1$s ma\' u k\'ubik u yóol ti\' &lt;b&gt;%2$s&lt;/b&gt; tumen ma\' k\'ajóolta\'an máax ts\'áaik u certificado, le certificado ku firmarta\'al tu juunal, wa le servidor ma\' táan u túuxtik le certificados intermedios correctos.&lt;/label&gt;
-    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_techInfo"><![CDATA[<label>Yaan máax je\'el u páajtal u yilik u beetik bey le ts\'ono\'oto\' yéetel u seguer u beetik je\'el u yantal riesgo.</label> <br><br>\n<label>%1$s ma\' u k\'ubik u yóol ti\' <b>%2$s</b> tumen ma\' k\'ajóolta\'an máax ts\'áaik u certificado, le certificado ku firmarta\'al tu juunal, wa le servidor ma\' táan u túuxtik le certificados intermedios correctos.</label>]]></string>
   <!--
     Sessions List
 
@@ -980,13 +918,13 @@
 
     Message shown to explain how to exit fullscreen mode when gesture navigation is enabled.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_gesture_short">Jíilankilo\'ob tak ka\'anal yéetel meyaj paachil uti\'al jóok\'ol</string>
   <!--
     Message shown to explain how to exit fullscreen mode when using back button navigation.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_back_button_short">Jíilankilo\'ob tak ka\'anal yéetel pulse paachil uti\'al jóok\'ol</string>
 </resources>

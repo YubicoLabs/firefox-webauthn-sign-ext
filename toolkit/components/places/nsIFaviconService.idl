@@ -7,8 +7,6 @@
 
 interface nsIURI;
 interface nsIPrincipal;
-interface mozIPlacesPendingOperation;
-interface nsIFaviconDataCallback;
 
 [scriptable, uuid(e81e0b0c-b9f1-4c2e-8f3c-b809933cf73c)]
 interface nsIFaviconService : nsISupports
@@ -121,59 +119,27 @@ interface nsIFaviconService : nsISupports
   );
 
   /**
-   * Retrieves the favicon URI associated to the given page, if any.
-   *
-   * @param aPageURI
-   *        URI of the page whose favicon URI we're looking up.
-   * @param aCallback
-   *        This callback is always invoked to notify the result of the lookup.
-   *        The aURI parameter will be the favicon URI, or null when no favicon
-   *        is associated with the page or an error occurred while fetching it.
-   *        aDataLen will be always 0, aData will be an empty array, and
-   *        aMimeType will be an empty string, regardless of whether a favicon
-   *        was found.
-   * @param [optional] aPreferredWidth
-   *        The preferred icon width, skip or pass 0 for the default value,
-   *        set through setDefaultIconURIPreferredSize.
-   *
-   * @note If a favicon specific to this page cannot be found, this will try to
-   *       fallback to the /favicon.ico for the root domain.
-   *
-   * @see nsIFaviconDataCallback in nsIFaviconService.idl.
-   */
-  void getFaviconURLForPage(in nsIURI aPageURI,
-                            in nsIFaviconDataCallback aCallback,
-                            [optional] in unsigned short aPreferredWidth);
-
-  /**
-   * Retrieves the favicon URI and data associated to the given page, if any.
+   * Retrieves the favicon URI and data URL associated to the given page, if any.
    * If the page icon is not available, it will try to return the root domain
    * icon data, when it's known.
    *
    * @param aPageURI
    *        URI of the page whose favicon URI and data we're looking up.
-   * @param aCallback
-   *        This callback is always invoked to notify the result of the lookup.  The aURI
-   *        parameter will be the favicon URI, or null when no favicon is
-   *        associated with the page or an error occurred while fetching it.  If
-   *        aURI is not null, the other parameters may contain the favicon data.
-   *        However, if no favicon data is currently associated with the favicon
-   *        URI, aDataLen will be 0, aData will be an empty array, and aMimeType
-   *        will be an empty string.
    * @param [optional] aPreferredWidth
    *        The preferred icon width, skip or pass 0 for the default value,
    *        set through setDefaultIconURIPreferredSize.
-   * @note If a favicon specific to this page cannot be found, this will try to
-   *       fallback to the /favicon.ico for the root domain.
    *
-   * @see nsIFaviconDataCallback in nsIFaviconService.idl.
+   * @return Promise that is resolved/rejected when finishing the process.
+   *         If succeeded, the promise resolved with nsIFavicon. If there is no
+   *         data in the database, this promise resolved with null. On the other
+   *         hand, rejected if the DB access fails, for example.
    */
-  void getFaviconDataForPage(in nsIURI aPageURI,
-                             in nsIFaviconDataCallback aCallback,
-                             [optional] in unsigned short aPreferredWidth);
+  [implicit_jscontext, must_use]
+  Promise getFaviconForPage(in nsIURI aPageURI, [optional]
+                            in unsigned short aPreferredWidth);
 
   /**
-   * Copies cached favicons from a page to another one.
+   * Try to copy cached favicons from a page to another one.
    *
    * @param aFromPageURI
    *        URI of the originating page.
@@ -182,57 +148,44 @@ interface nsIFaviconService : nsISupports
    * @param aFaviconLoadType
    *        Set to FAVICON_LOAD_PRIVATE if the copy is started from a private
    *        browsing window.  Set to FAVICON_LOAD_NON_PRIVATE otherwise.
-   * @param [optional] aCallback
-   *        Once we're done copying the favicon, we invoke this callback.
-   *        If a copy has been done, the callback will report one of the
-   *        favicons uri as aFaviconURI, otherwise all the params will be null.
+   * @return Promise that is resolved/rejected when finishing the process.
+   *         If succeeded to copy, the promise resolved with true. Otherwise
+   *         false. Will reject if the paramter value is illeagal or DB access
+   *         fails etc.
    */
-  void copyFavicons(in nsIURI aFromPageURI,
-                    in nsIURI aToPageURI,
-                    in unsigned long aFaviconLoadType,
-                    [optional] in nsIFaviconDataCallback aCallback);
+  [implicit_jscontext, must_use]
+  Promise tryCopyFavicons(in nsIURI aFromPageURI,
+                          in nsIURI aToPageURI,
+                          in unsigned long aFaviconLoadType);
 };
 
-[scriptable, function, uuid(c85e5c82-b70f-4621-9528-beb2aa47fb44)]
-interface nsIFaviconDataCallback : nsISupports
+[scriptable, uuid(c23c74d6-9c36-4223-a9c4-c8b95526f4d3)]
+interface nsIFavicon : nsISupports
 {
   /**
-   * Called when the required favicon's information is available.
-   *
-   * It's up to the invoking method to state if the callback is always invoked,
-   * or called on success only.  Check the method documentation to ensure that.
-   *
-   * The caller will receive the most information we can gather on the icon,
-   * but it's not guaranteed that all of them will be set.  For some method
-   * we could not know the favicon's data (it could just be too expensive to
-   * get it, or the method does not require we actually have any data).
-   * It's up to the caller to check aDataLen > 0 before using any data-related
-   * information like mime-type or data itself.
-   *
-   * @param aFaviconURI
-   *        Receives the "favicon URI" (not the "favicon link URI") associated
-   *        to the requested page.  This can be null if there is no associated
-   *        favicon URI, or the callback is notifying a failure.
-   * @param aDataLen
-   *        Size of the icon data in bytes.  Notice that a value of 0 does not
-   *        necessarily mean that we don't have an icon.
-   * @param aData
-   *        Icon data, or an empty array if aDataLen is 0.
-   * @param aMimeType
-   *        Mime type of the icon, or an empty string if aDataLen is 0.
-   * @param aWidth
-   *        Width of the icon. 0 if the width is unknown or if the icon is
-   *        vectorial.
-   *
-   * @note If you want to open a network channel to access the favicon, it's
-   *       recommended that you call the getFaviconLinkForIcon method to convert
-   *       the "favicon URI" into a "favicon link URI".
+   * Favicon location.
    */
-  void onComplete(in nsIURI aFaviconURI,
-                  in unsigned long aDataLen,
-                  [const,array,size_is(aDataLen)] in octet aData,
-                  in AUTF8String aMimeType,
-                  in unsigned short aWidth);
+  readonly attribute nsIURI uri;
+
+  /**
+   * Favicon data as Data URL.
+   */
+  readonly attribute nsIURI dataURI;
+
+  /**
+   * Favicon raw data.
+   */
+  readonly attribute Array<octet> rawData;
+
+  /**
+   * Favicon mime type.
+   */
+  readonly attribute ACString mimeType;
+
+  /**
+   * Favicon width.
+   */
+  readonly attribute unsigned short width;
 };
 
 %{C++

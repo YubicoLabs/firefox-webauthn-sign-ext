@@ -34,6 +34,8 @@ pub struct Ping<'a> {
     pub includes_info_sections: bool,
     /// Other pings that should be scheduled when this ping is sent.
     pub schedules_pings: Vec<String>,
+    /// Capabilities the uploader must have in order to uplaoad this ping.
+    pub uploader_capabilities: Vec<String>,
 }
 
 /// Collect a ping's data, assemble it into its full payload and store it on disk.
@@ -174,8 +176,36 @@ impl PingMaker {
             StorageManager.snapshot_as_json(glean.storage(), "glean_client_info", true)
         {
             let client_info_obj = client_info.as_object().unwrap(); // safe unwrap, snapshot always returns an object.
-            for (_key, value) in client_info_obj {
-                merge(&mut map, value);
+            for (_metric_type, metrics) in client_info_obj {
+                merge(&mut map, metrics);
+            }
+            let map = map.as_object_mut().unwrap(); // safe unwrap, we created the object above.
+            let mut attribution = serde_json::Map::new();
+            let mut distribution = serde_json::Map::new();
+            map.retain(|name, value| {
+                // Only works because we ensure no client_info metric categories contain '.'.
+                let mut split = name.split('.');
+                let category = split.next();
+                let name = split.next();
+                if let (Some(category), Some(name)) = (category, name) {
+                    if category == "attribution" {
+                        attribution.insert(name.into(), value.take());
+                        false
+                    } else if category == "distribution" {
+                        distribution.insert(name.into(), value.take());
+                        false
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                }
+            });
+            if !attribution.is_empty() {
+                map.insert("attribution".into(), serde_json::Value::from(attribution));
+            }
+            if !distribution.is_empty() {
+                map.insert("distribution".into(), serde_json::Value::from(distribution));
             }
         } else {
             log::warn!("Empty client info data.");
@@ -201,7 +231,6 @@ impl PingMaker {
     ///
     /// A map of header names to header values.
     /// Might be empty if there are no extra headers to send.
-    /// ```
     fn get_headers(&self, glean: &Glean) -> HeaderMap {
         let mut headers_map = HeaderMap::new();
 
@@ -256,6 +285,32 @@ impl PingMaker {
         let events_data = glean
             .event_storage()
             .snapshot_as_json(glean, ping.name(), true);
+
+        // We're adding the metric `glean.ping.uploader_capabilities` the most manual way here.
+        // This avoids creating a `StringListMetric` and further indirection.
+        // It also avoids yet another database write.
+        // It's only added if
+        // (1) There's already data in `metrics` or `events`
+        // (2) or the ping should be sent empty (`send_if_empty=true`)
+        let uploader_capabilities = ping.uploader_capabilities();
+        if !uploader_capabilities.is_empty() {
+            if metrics_data.is_none() && (ping.send_if_empty() || events_data.is_some()) {
+                metrics_data = Some(json!({}))
+            }
+
+            if let Some(map) = metrics_data.as_mut().and_then(|o| o.as_object_mut()) {
+                let lists = map
+                    .entry("string_list")
+                    .or_insert_with(|| json!({}))
+                    .as_object_mut()
+                    .unwrap();
+
+                lists.insert(
+                    "glean.ping.uploader_capabilities".to_string(),
+                    json!(uploader_capabilities),
+                );
+            }
+        }
 
         // Due to the way the experimentation identifier could link datasets that are intentionally unlinked,
         // it will not be included in pings that specifically exclude the Glean client-id, those pings that
@@ -334,6 +389,7 @@ impl PingMaker {
             headers: self.get_headers(glean),
             includes_info_sections: ping.include_info_sections(),
             schedules_pings: ping.schedules_pings().to_vec(),
+            uploader_capabilities: ping.uploader_capabilities().to_vec(),
         })
     }
 
@@ -392,6 +448,7 @@ impl PingMaker {
                 headers: Some(ping.headers.clone()),
                 body_has_info_sections: Some(ping.includes_info_sections),
                 ping_name: Some(ping.name.to_string()),
+                uploader_capabilities: Some(ping.uploader_capabilities.clone()),
             };
             file.write_all(::serde_json::to_string(&metadata)?.as_bytes())?;
         }

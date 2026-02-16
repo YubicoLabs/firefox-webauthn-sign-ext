@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 
-from six.moves import input
 from six.moves.urllib import parse as urlparse
 from wptrunner.update.base import Step, StepRunner, exit_clean, exit_unclean
 from wptrunner.update.tree import get_unique_name
@@ -55,19 +54,18 @@ def rewrite_patch(patch, strip_dir):
 
 def rewrite_message(patch):
     if patch.message.bug is not None:
-        return "\n".join(
-            [
-                patch.message.summary,
-                patch.message.body,
-                "",
-                "Upstreamed from https://bugzilla.mozilla.org/show_bug.cgi?id=%s [ci skip]"
-                % patch.message.bug,  # noqa E501
-            ]
-        )
+        return "\n".join([
+            patch.message.summary,
+            patch.message.body,
+            "",
+            "Upstreamed from https://bugzilla.mozilla.org/show_bug.cgi?id=%s [ci skip]"
+            % patch.message.bug,  # noqa E501
+        ])
 
-    return "\n".join(
-        [patch.message.full_summary, "%s\n[ci skip]\n" % patch.message.body]
-    )
+    return "\n".join([
+        patch.message.full_summary,
+        "%s\n[ci skip]\n" % patch.message.body,
+    ])
 
 
 class SyncToUpstream(Step):
@@ -94,9 +92,13 @@ class SyncToUpstream(Step):
             state.sync_tree = GitTree(root=state.sync["path"])
 
         kwargs = state.kwargs
-        with state.push(
-            ["local_tree", "sync_tree", "tests_path", "metadata_path", "sync"]
-        ):
+        with state.push([
+            "local_tree",
+            "sync_tree",
+            "tests_path",
+            "metadata_path",
+            "sync",
+        ]):
             state.token = kwargs["token"]
             runner = SyncToUpstreamRunner(self.logger, state)
             runner.run()
@@ -206,7 +208,7 @@ class SelectCommits(Step):
         while True:
             commits = state.source_commits[:]
             for i, commit in enumerate(commits):
-                print("{}:\t{}".format(i, commit.message.summary))
+                print(f"{i}:\t{commit.message.summary}")
 
             remove = input(
                 "Provide a space-separated list of any commits numbers "
@@ -228,7 +230,7 @@ class SelectCommits(Step):
             # TODO: consider printed removed commits
             print("Selected the following commits to keep:")
             for i, commit in keep_commits:
-                print("{}:\t{}".format(i, commit.message.summary))
+                print(f"{i}:\t{commit.message.summary}")
             confirm = input("Keep the above commits? y/n\n").strip().lower()
 
             if confirm == "y":
@@ -276,10 +278,8 @@ class MovePatches(Step):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".diff") as f:
                     f.write(stripped_patch.diff)
                     print(
-                        """Patch failed to apply. Diff saved in {}
-Fix this file so it applies and run with --continue""".format(
-                            f.name
-                        )
+                        f"""Patch failed to apply. Diff saved in {f.name}
+Fix this file so it applies and run with --continue"""
                     )
                     state.patch = (f.name, stripped_patch)
                     print(state.patch)

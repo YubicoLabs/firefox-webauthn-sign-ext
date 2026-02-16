@@ -17,6 +17,12 @@ const { isBrowsingContextPartOfContext } = ChromeUtils.importESModule(
   "resource://devtools/server/actors/watcher/browsing-context-helpers.sys.mjs",
   { global: "contextual" }
 );
+loader.lazyRequireGetter(
+  this,
+  "TRACER_LOG_METHODS",
+  "resource://devtools/shared/specs/tracer.js",
+  true
+);
 const { SUPPORTED_DATA } = SessionDataHelpers;
 const { TARGET_CONFIGURATION } = SUPPORTED_DATA;
 const LOG_DISABLED = -1;
@@ -74,8 +80,7 @@ const SUPPORTED_OPTIONS = {
  * (see _updateParentProcessConfiguration), and others will be set from the target actor,
  * in the content process.
  *
- * @constructor
- *
+ * @class
  */
 class TargetConfigurationActor extends Actor {
   constructor(watcherActor) {
@@ -122,7 +127,7 @@ class TargetConfigurationActor extends Actor {
    * Returns whether or not this actor should handle the flag that should be set on the
    * BrowsingContext in the parent process.
    *
-   * @returns {Boolean}
+   * @returns {boolean}
    */
   _shouldHandleConfigurationInParentProcess() {
     // Only handle parent process configuration if the watcherActor is tied to a
@@ -212,7 +217,7 @@ class TargetConfigurationActor extends Actor {
 
   /**
    *
-   * @param {Object} configuration
+   * @param {object} configuration
    * @returns Promise<Object> Applied configuration object
    */
   async updateConfiguration(configuration) {
@@ -237,7 +242,7 @@ class TargetConfigurationActor extends Actor {
 
   /**
    *
-   * @param {Object} configuration: See `updateConfiguration`
+   * @param {object} configuration: See `updateConfiguration`
    */
   _updateParentProcessConfiguration(configuration) {
     // Process "tracerOptions" for all session types, as this isn't specific to tab debugging
@@ -312,7 +317,9 @@ class TargetConfigurationActor extends Actor {
 
     this._setServiceWorkersTestingEnabled(false);
     this._setPrintSimulationEnabled(false);
-    this._setCacheDisabled(false);
+    if (this._resetCacheDisabledOnDestroy) {
+      this._setCacheDisabled(false);
+    }
     this._setTabOffline(false);
 
     // Restore the color scheme simulation only if it was explicitly updated
@@ -377,9 +384,9 @@ class TargetConfigurationActor extends Actor {
   /**
    * Set a custom user agent on the page
    *
-   * @param {String} userAgent: The user agent to set on the page. If null, will reset the
+   * @param {string} userAgent: The user agent to set on the page. If null, will reset the
    *                 user agent to its original value.
-   * @returns {Boolean} Whether the user agent was changed or not.
+   * @returns {boolean} Whether the user agent was changed or not.
    */
   _setCustomUserAgent(userAgent = "") {
     if (this._browsingContext.customUserAgent === userAgent) {
@@ -426,7 +433,7 @@ class TargetConfigurationActor extends Actor {
   /**
    * Set the touchEventsOverride on the browsing context.
    *
-   * @param {String} flag: See BrowsingContext.webidl `TouchEventsOverride` enum for values.
+   * @param {string} flag: See BrowsingContext.webidl `TouchEventsOverride` enum for values.
    */
   _setTouchEventsOverride(flag) {
     if (this._browsingContext.touchEventsOverride === flag) {
@@ -463,18 +470,20 @@ class TargetConfigurationActor extends Actor {
    * Set an orientation and an angle on the browsing context. This will be applied only
    * if Responsive Design Mode is enabled.
    *
-   * @param {Object} options
-   * @param {String} options.type: The orientation type of the rotated device.
-   * @param {Number} options.angle: The rotated angle of the device.
+   * @param {object} options
+   * @param {string} options.type: The orientation type of the rotated device.
+   * @param {number} options.angle: The rotated angle of the device.
    */
   _setRDMPaneOrientation({ type, angle }) {
-    this._browsingContext.setRDMPaneOrientation(type, angle);
+    if (this._browsingContext.inRDMPane) {
+      this._browsingContext.setOrientationOverride(type, angle);
+    }
   }
 
   /**
    * Disable or enable the cache via the browsing context.
    *
-   * @param {Boolean} disabled: The state the cache should be changed to
+   * @param {boolean} disabled: The state the cache should be changed to
    */
   _setCacheDisabled(disabled) {
     const value = disabled
@@ -482,13 +491,14 @@ class TargetConfigurationActor extends Actor {
       : Ci.nsIRequest.LOAD_NORMAL;
     if (this._browsingContext.defaultLoadFlags != value) {
       this._browsingContext.defaultLoadFlags = value;
+      this._resetCacheDisabledOnDestroy = true;
     }
   }
 
   /**
    * Set the browsing context to offline.
    *
-   * @param {Boolean} offline: Whether the network throttling is set to offline
+   * @param {boolean} offline: Whether the network throttling is set to offline
    */
   _setTabOffline(offline) {
     if (!this._browsingContext.isDiscarded) {
@@ -517,7 +527,7 @@ class TargetConfigurationActor extends Actor {
    * Note that when `options` is defined, it is meant to be enabled.
    * It may not actually be tracing yet depending on the passed options.
    *
-   * @param {Object} options
+   * @param {object} options
    */
   _setTracerOptions(options) {
     if (!options) {
@@ -538,6 +548,13 @@ class TargetConfigurationActor extends Actor {
       this.#pageMessagesPrefValue = undefined;
       return;
     }
+
+    // Only enable the MOZ_LOG's when recording to the profiler,
+    // otherwise it would pollute firefox stdout unexpectedly.
+    if (options.logMethod != TRACER_LOG_METHODS.PROFILER) {
+      return;
+    }
+
     // Enable `MOZ_LOG=console:5` via the logging.console so that all console API calls
     // are stored in the profiler when recording JS Traces via the profiler.
     //

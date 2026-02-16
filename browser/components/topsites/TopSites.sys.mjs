@@ -1,7 +1,6 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 import {
   getDomain,
   TippyTopProvider,
@@ -12,7 +11,7 @@ import {
   CUSTOM_SEARCH_SHORTCUTS,
   checkHasSearchEngine,
   getSearchProvider,
-} from "resource://gre/modules/SearchShortcuts.sys.mjs";
+} from "moz-src:///toolkit/components/search/SearchShortcuts.sys.mjs";
 
 const lazy = {};
 
@@ -24,6 +23,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
@@ -35,7 +35,6 @@ ChromeUtils.defineLazyGetter(lazy, "log", () => {
 
 export const DEFAULT_TOP_SITES = [];
 
-const FRECENCY_THRESHOLD = 100 + 1; // 1 visit (skip first-run/one-time pages)
 const MIN_FAVICON_SIZE = 96;
 const PINNED_FAVICON_PROPS_TO_MIGRATE = [
   "favicon",
@@ -72,7 +71,7 @@ const DEFAULT_SITES_EXPERIMENTS_PREF_BRANCH = "browser.topsites.experiment.";
 
 function getShortHostnameForCurrentSearch() {
   const url = lazy.NewTabUtils.shortHostname(
-    Services.search.defaultEngine.searchUrlDomain
+    lazy.SearchService.defaultEngine.searchUrlDomain
   );
   return url;
 }
@@ -603,7 +602,7 @@ class _TopSites {
     // We must wait for search services to initialize in order to access default
     // search engine properties without triggering a synchronous initialization
     try {
-      await Services.search.init();
+      await lazy.SearchService.init();
     } catch {
       // We continue anyway because we want the user to see their sponsored,
       // saved, or visited shortcut tiles even if search engines are not
@@ -619,7 +618,15 @@ class _TopSites {
       cache = await this.frecentCache.request({
         // We need to overquery due to the top 5 alexa search + default search possibly being removed
         numItems: numItems + SEARCH_FILTERS.length + 1,
-        topsiteFrecency: FRECENCY_THRESHOLD,
+        // 30 days ago, 5 visits. The threshold avoids one non-typed visit from
+        // immediately being included in recent history to mimic the original
+        // threshold which aimed to prevent first-run visits from being included in
+        // Top Sites.
+        topsiteFrecency: lazy.PlacesUtils.history.pageFrecencyThreshold(
+          30,
+          5,
+          false
+        ),
       });
     } catch (ex) {
       cache = [];
@@ -815,7 +822,7 @@ class _TopSites {
 
     // Populate the state with available search shortcuts
     let searchShortcuts = [];
-    for (const engine of await Services.search.getAppProvidedEngines()) {
+    for (const engine of await lazy.SearchService.getAppProvidedEngines()) {
       const shortcut = CUSTOM_SEARCH_SHORTCUTS.find(s =>
         engine.aliases.includes(s.keyword)
       );
@@ -1199,18 +1206,16 @@ export class FaviconProvider {
    * @param {nsIURI} uri
    *        Page to check for favicon data
    * @returns {object}
-   *        A promise of an object (possibly null) containing the data
+   *        Favicon info object. If there is no data in DB, return null.
    */
-  getFaviconInfo(uri) {
-    return new Promise(resolve =>
-      lazy.PlacesUtils.favicons.getFaviconDataForPage(
-        uri,
-        // Package up the icon data in an object if we have it; otherwise null
-        (iconUri, faviconLength, favicon, mimeType, faviconSize) =>
-          resolve(iconUri ? { iconUri, faviconSize } : null),
-        lazy.NewTabUtils.activityStreamProvider.THUMB_FAVICON_SIZE
-      )
+  async getFaviconInfo(uri) {
+    let favicon = await lazy.PlacesUtils.favicons.getFaviconForPage(
+      uri,
+      lazy.NewTabUtils.activityStreamProvider.THUMB_FAVICON_SIZE
     );
+    return favicon
+      ? { iconUri: favicon.uri, faviconSize: favicon.width }
+      : null;
   }
 
   /**
@@ -1229,7 +1234,7 @@ export class FaviconProvider {
       const iconInfo = await this.getFaviconInfo(redirectedUri);
       if (iconInfo?.faviconSize >= MIN_FAVICON_SIZE) {
         try {
-          lazy.PlacesUtils.favicons.copyFavicons(
+          await lazy.PlacesUtils.favicons.tryCopyFavicons(
             redirectedUri,
             Services.io.newURI(url),
             lazy.PlacesUtils.favicons.FAVICON_LOAD_NON_PRIVATE

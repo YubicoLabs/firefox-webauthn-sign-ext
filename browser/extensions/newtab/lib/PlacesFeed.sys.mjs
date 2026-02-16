@@ -23,13 +23,11 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
-  ExperimentAPI: "resource://nimbus/ExperimentAPI.sys.mjs",
   NewTabUtils: "resource://gre/modules/NewTabUtils.sys.mjs",
-  NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   PartnerLinkAttribution: "resource:///modules/PartnerLinkAttribution.sys.mjs",
-  pktApi: "chrome://pocket/content/pktApi.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
 });
 
 const LINK_BLOCKED_EVENT = "newtab-linkBlocked";
@@ -234,9 +232,10 @@ export class PlacesFeed {
       targetBrowser: action._target.browser,
       forceForeground: false, // This ensure we maintain user preference for how to open new tabs.
       globalHistoryOptions: {
-        triggeringSponsoredURL: action.data.sponsored_tile_id
+        triggeringSponsoredURL: action.data.is_sponsored
           ? action.data.url
           : undefined,
+        triggeringSource: "newtab",
       },
     };
 
@@ -293,89 +292,9 @@ export class PlacesFeed {
     }
   }
 
-  async saveToPocket(site, browser) {
-    const sendToPocket =
-      lazy.NimbusFeatures.pocketNewtab.getVariable("sendToPocket");
-    // An experiment to send the user directly to Pocket's signup page.
-    if (sendToPocket && !lazy.pktApi.isUserLoggedIn()) {
-      const pocketNewtabExperiment = lazy.ExperimentAPI.getExperiment({
-        featureId: "pocketNewtab",
-      });
-      const pocketSiteHost = Services.prefs.getStringPref(
-        "extensions.pocket.site"
-      ); // getpocket.com
-      let utmSource = "firefox_newtab_save_button";
-      // We want to know if the user is in a Pocket newtab related experiment.
-      let utmCampaign = pocketNewtabExperiment?.slug;
-      let utmContent = pocketNewtabExperiment?.branch?.slug;
-
-      const url = new URL(`https://${pocketSiteHost}/signup`);
-      url.searchParams.append("utm_source", utmSource);
-      if (utmCampaign && utmContent) {
-        url.searchParams.append("utm_campaign", utmCampaign);
-        url.searchParams.append("utm_content", utmContent);
-      }
-
-      const win = browser.ownerGlobal;
-      win.openTrustedLinkIn(url.href, "tab");
-      return;
-    }
-
-    const { url, title } = site;
-    try {
-      let data = await lazy.NewTabUtils.activityStreamLinks.addPocketEntry(
-        url,
-        title,
-        browser
-      );
-      if (data) {
-        this.store.dispatch(
-          ac.BroadcastToContent({
-            type: at.PLACES_SAVED_TO_POCKET,
-            data: {
-              url,
-              open_url: data.item.open_url,
-              title,
-              pocket_id: data.item.item_id,
-            },
-          })
-        );
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  /**
-   * Deletes an item from a user's saved to Pocket feed
-   * @param {int} itemID
-   *  The unique ID given by Pocket for that item; used to look the item up when deleting
-   */
-  async deleteFromPocket(itemID) {
-    try {
-      await lazy.NewTabUtils.activityStreamLinks.deletePocketEntry(itemID);
-      this.store.dispatch({ type: at.POCKET_LINK_DELETED_OR_ARCHIVED });
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  /**
-   * Archives an item from a user's saved to Pocket feed
-   * @param {int} itemID
-   *  The unique ID given by Pocket for that item; used to look the item up when archiving
-   */
-  async archiveFromPocket(itemID) {
-    try {
-      await lazy.NewTabUtils.activityStreamLinks.archivePocketEntry(itemID);
-      this.store.dispatch({ type: at.POCKET_LINK_DELETED_OR_ARCHIVED });
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
   /**
    * Sends an attribution request for Top Sites interactions.
+   *
    * @param {object} data
    *   Attribution paramters from a Top Site.
    */
@@ -392,7 +311,10 @@ export class PlacesFeed {
   }
 
   async fillSearchTopSiteTerm({ _target, data }) {
-    const searchEngine = await Services.search.getEngineByAlias(data.label);
+    // @backward-compat { version 149 }
+    // SearchService replaces Services.search in 149.
+    const searchEngine = await (Services.search ?? lazy.SearchService) // eslint-disable-line mozilla/valid-services
+      .getEngineByAlias(data.label);
     _target.browser.ownerGlobal.gURLBar.search(data.label, {
       searchEngine,
       searchModeEntry: "topsites_newtab",
@@ -400,11 +322,21 @@ export class PlacesFeed {
   }
 
   _getDefaultSearchEngine(isPrivateWindow) {
-    return Services.search[
+    // @backward-compat { version 149 }
+    // SearchService replaces Services.search in 149.
+    // eslint-disable-next-line mozilla/valid-services
+    return (Services.search ?? lazy.SearchService)[
       isPrivateWindow ? "defaultPrivateEngine" : "defaultEngine"
     ];
   }
 
+  /**
+   * @backward-compat { version 148 }
+   *
+   * This, and all newtab-specific handoff searchbar handling can be removed
+   * once 147 is released, as all handoff UI and logic will be handled by
+   * contentSearchHandoffUI and the ContentSearch JSWindowActors.
+   */
   handoffSearchToAwesomebar(action) {
     const { _target, data, meta } = action;
     const searchEngine = this._getDefaultSearchEngine(
@@ -476,7 +408,7 @@ export class PlacesFeed {
   /**
    * Add the hostnames of the given urls to the Top Sites sponsor blocklist.
    *
-   * @param {array} urls
+   * @param {Array} urls
    *   An array of the objects structured as `{ url }`
    */
   addToBlockedTopSitesSponsors(urls) {
@@ -499,7 +431,7 @@ export class PlacesFeed {
    * to send back to the ads service when requesting new topsite ads
    * from the unified ads service
    *
-   * @param {array} block_key
+   * @param {Array} block_key
    *   An array of the (string) keys
    */
   addToUnifiedAdsBlockedAdsList(keysArray) {
@@ -600,15 +532,6 @@ export class PlacesFeed {
         break;
       case at.OPEN_PRIVATE_WINDOW:
         this.openLink(action, "window", true);
-        break;
-      case at.SAVE_TO_POCKET:
-        this.saveToPocket(action.data.site, action._target.browser);
-        break;
-      case at.DELETE_FROM_POCKET:
-        this.deleteFromPocket(action.data.pocket_id);
-        break;
-      case at.ARCHIVE_FROM_POCKET:
-        this.archiveFromPocket(action.data.pocket_id);
         break;
       case at.FILL_SEARCH_TERM:
         this.fillSearchTopSiteTerm(action);

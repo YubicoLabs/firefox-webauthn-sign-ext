@@ -4,13 +4,15 @@
 
 
 :root {
-  --breakpoint-active-color: rgba(44,187,15,.2);
-  --breakpoint-active-color-hover: rgba(44,187,15,.5);
-}
-
-.theme-dark:root {
-  --breakpoint-active-color: rgba(0,255,175,.4);
-  --breakpoint-active-color-hover: rgba(0,255,175,.7);
+  --breakpoint-active-color: light-dark(rgba(44,187,15,.2), rgba(0,255,175,.4));
+  --breakpoint-active-color-hover: light-dark(rgba(44,187,15,.5), rgba(0,255,175,.7););
+  --gutter-background-color: var(--theme-sidebar-background);
+  --gutter-border-color: light-dark(var(--theme-splitter-color), var(--theme-toolbar-background));
+  --highlight-line-duration: 5000ms;
+  &[forced-colors-active] {
+    /* overriding variable in HCM so the border is actually visible (see Bug 1953376) */
+    --gutter-border-color: var(--theme-splitter-color);
+  }
 }
 
 /* We don't want the focus style to be displayed on the CodeMirror scrollbars.
@@ -96,6 +98,12 @@
   cursor: default;
 }
 
+.cm-s-mozilla .CodeMirror-gutters,
+.cm-editor .cm-gutters { /* vertical line next to line numbers */
+  border-right-color: var(--gutter-border-color);
+  background-color: var(--gutter-background-color);
+}
+
 .cm-trailingspace {
   background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH3QUXCToH00Y1UgAAACFJREFUCNdjPMDBUc/AwNDAAAFMTAwMDA0OP34wQgX/AQBYgwYEx4f9lQAAAABJRU5ErkJggg==");
   opacity: 0.75;
@@ -104,13 +112,18 @@
 }
 
 /* Search highlight style
- * cm-searching is used in Style Editor, and cm-highlight in Debugger */
+ * cm-searching is used in Style Editor, cm-highlight in Debugger and searchMatch in Netmonitor */
 .cm-searching,
-.cm-highlight {
+.cm-highlight, .cm-editor .cm-searchMatch {
   border-bottom: 1px solid var(--theme-contrast-border);
   /* Use the translucent yellow background, because we want the text selection
      background (CodeMirror-selected) to show through this. */
   background-color: var(--theme-contrast-background-alpha);
+
+  :root[forced-colors-active] & {
+    border-bottom-width: 2px;
+    color: var(--theme-contrast-color);
+  }
 }
 
 /* CodeMirror 5 search addon input */
@@ -135,6 +148,42 @@
   }
 }
 
+.cm5-search-replace-input {
+  width: 10em;
+
+  &:focus {
+    outline: var(--theme-focus-outline) !important;
+  }
+}
+
+.cm5-search-replace-hint {
+  color: var(--theme-text-color-alt);
+  margin-inline-start: 8px;
+}
+
+/* CodeMirror 5 vim addon prompt/input */
+.cm5-vim-prompt {
+  font-family: monospace;
+  white-space: pre;
+
+  /* When there's a label, add some space before the input */
+  & label input {
+    margin-inline-start: 8px;
+  }
+
+  & input:focus {
+    outline: var(--theme-focus-outline) !important;
+  }
+}
+
+.cm5-vim-prompt-description {
+  color: var(--theme-text-color-alt);
+  margin-inline-start: 8px;
+}
+
+.cm5-vim-notification-error {
+  color: var(--theme-text-color-error);
+}
 
 /* CodeMirror dialogs styling */
 
@@ -328,11 +377,17 @@
 }
 
 /* CodeMirror matchhighlight styling */
-.cm-matchhighlight, .cm-selectionMatch {
+.cm-matchhighlight, .cm-searchMatch-selected {
   outline: 1px solid var(--theme-contrast-border);
   border-radius: 2px;
   /* Override cm6 inline */
   background-color: transparent !important;
+}
+
+/* Make the outline a bit more visible in High Contrast Mode */
+:root[forced-colors-active] .cm-matchhighlight {
+  outline-width: 2px;
+  outline-offset: 2px;
 }
 
 .cm-non-printable-char {
@@ -398,6 +453,12 @@
   font-family: unset;
 }
 
+/* Remove the default selection match background, as search results might have the
+.cm-selectionMatch class after the current search term has been removed, these should not be styled`` */
+.cm-editor .cm-selectionMatch {
+  background-color: transparent;
+}
+
 .cm-editor .cm-selectionBackground {
   background: var(--theme-text-selection-background) !important;
 }
@@ -406,6 +467,7 @@
   /* We don't want forced colors on selection so we can adjust the colors as we want.
      This especially helps for the unfocused selected text */
   forced-color-adjust: none;
+  color: inherit;
 }
 
 .cm-editor .cm-line ::selection {
@@ -455,19 +517,64 @@
   vertical-align: middle;
 }
 
-.cm-editor .cm-matchingBracket {
+/* Repeat .cm-matchingBracket to get a higher specificity than the default codemirror rule */
+.cm-editor .cm-matchingBracket.cm-matchingBracket {
   /* Removing the default background color */
-  background-color: unset !important;
+  background-color: unset;
   /* Applying the same color that was set in cm5. Set the color on the parent so the
      underline set on the parent has the correct color */
   color: #0b0;
 
   :root[forced-colors-active] & {
-    background: Mark;
+    background-color: Mark;
     color: MarkText;
   }
 
   .tok-punctuation {
     color: currentColor;
   }
+}
+
+.highlight-line .CodeMirror-line,
+/* For CM6 */
+.cm-editor .cm-line.highlight-line {
+  animation-name: fade-highlight-out;
+  animation-duration: var(--highlight-line-duration);
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+@keyframes fade-highlight-out {
+
+  0%,
+  30% {
+    /* We want to use a color with some transparency so text selection is visible through it */
+    background-color: var(--theme-contrast-background-alpha);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.cm-editor .cm-panels {
+  background-color: var(--theme-toolbar-background);
+  color: var(--theme-body-color);
+}
+
+.cm-editor .cm-panels-top {
+  border-color: var(--theme-splitter-color);
+}
+
+/* Default search panel */
+.cm-search .cm-textfield {
+  width: 100%;
+  font-size: inherit;
+  background-color: transparent;
+  border-color: var(--theme-splitter-color);
+  margin: 0 !important;
+}
+
+/* Hide all other elements of the search except the text input */
+.cm-search .cm-button, .cm-search label, .cm-search button[name="close"] {
+  display: none;
 }

@@ -1,6 +1,8 @@
 [DEFAULT]
+run-if = [
+  "os != 'android'",
+]
 head = "head_favicons.js"
-skip-if = ["os == 'android'"]
 support-files = [
   "expected-favicon-animated16.png.png",
   "expected-favicon-animated16.png.libz-rs.png",
@@ -52,20 +54,15 @@ support-files = [
 
 ["test_favicons_protocols_ref.js"]
 
-["test_getFaviconDataForPage.js"]
+["test_getFaviconForPage.js"]
 
 ["test_getFaviconLinkForIcon.js"]
-
-["test_getFaviconURLForPage.js"]
 
 ["test_heavy_favicon.js"]
 
 ["test_incremental_vacuum.js"]
 
 ["test_multiple_frames.js"]
-skip-if = [
-  "os == 'mac' && os_version == '11.20' && arch == 'aarch64' && opt", # Bug 1949947
-]
 
 ["test_page-icon_protocol.js"]
 firefox-appdir = "browser"

@@ -64,20 +64,17 @@ test_artifacts/
 
 # Secrets files, e.g. tokens
 .adjust_token
+.gps_integrity_token
 .sentry_token
 .mls_token
 .nimbus
 .wallpaper_url
-.pocket_consumer_key
 fenix/app/src/**/res/values/fenix_firebase_push_credentials.xml
 
 # Python Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 venv/
-
-# Web extensions: manifest.json files are generated
-manifest.json
 
 # Xcode
 *.pbxuser
@@ -97,4 +94,3 @@ DerivedData
 *.xcuserstate
 *.xcscmblueprint
 .build
-

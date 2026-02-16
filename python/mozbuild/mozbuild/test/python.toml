@@ -57,6 +57,8 @@ subsuite = "mozbuild"
 
 ["configure/test_util.py"]
 
+["controller/test_build_output.py"]
+
 ["controller/test_ccachestats.py"]
 
 ["controller/test_clobber.py"]
@@ -73,6 +75,10 @@ subsuite = "mozbuild"
 
 ["repackaging/test_deb.py"]
 
+["repackaging/test_utils.py"]
+
+["repackaging/test_rpm.py"]
+
 ["test_artifact_cache.py"]
 
 ["test_artifacts.py"]
@@ -88,6 +94,8 @@ subsuite = "mozbuild"
 ["test_expression.py"]
 
 ["test_jarmaker.py"]
+
+["test_legacy_test.py"]
 
 ["test_licenses.py"]
 
@@ -107,6 +115,8 @@ subsuite = "mozbuild"
 
 ["test_rewrite_mozbuild.py"]
 
+["test_site_dependency_extractor.py"]
+
 ["test_telemetry.py"]
 
 ["test_telemetry_settings.py"]
@@ -116,8 +126,6 @@ subsuite = "mozbuild"
 ["test_util_fileavoidwrite.py"]
 
 ["test_vendor.py"]
-skip-if = ["true"] # Bug 1765416
-requirements = "python/mozbuild/mozbuild/test/vendor_requirements.txt"
 
 ["test_vendor_tools.py"]
 skip-if = ["os == 'win'"] # Windows doesn't have the same path seperator as linux, and we just don't need to run it there

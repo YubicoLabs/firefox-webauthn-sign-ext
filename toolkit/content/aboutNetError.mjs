@@ -2,12 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-env mozilla/remote-page */
 /* eslint-disable import/no-unassigned-import */
 
 import { NetErrorCard } from "chrome://global/content/net-error-card.mjs";
 import {
   gIsCertError,
+  isCaptive,
   gErrorCode,
   gHasSts,
   searchParams,
@@ -16,16 +16,18 @@ import {
   getFailedCertificatesAsPEMString,
   recordSecurityUITelemetry,
   getCSSClass,
+  gNoConnectivity,
+  retryThis,
+  handleNSSFailure,
+  errorHasNoUserFix,
+  COOP_MDN_DOCS,
+  COEP_MDN_DOCS,
+  HTTPS_UPGRADES_MDN_DOCS,
 } from "chrome://global/content/aboutNetErrorHelpers.mjs";
 
 const formatter = new Intl.DateTimeFormat();
 
 const HOST_NAME = getHostName();
-
-const FELT_PRIVACY_REFRESH = RPMGetBoolPref(
-  "security.certerrors.felt-privacy-v1",
-  false
-);
 
 // Used to check if we have a specific localized message for an error.
 const KNOWN_ERROR_TITLE_IDS = new Set([
@@ -34,6 +36,7 @@ const KNOWN_ERROR_TITLE_IDS = new Set([
   "deniedPortAccess-title",
   "dnsNotFound-title",
   "dns-not-found-trr-only-title2",
+  "internet-connection-offline-title",
   "fileNotFound-title",
   "fileAccessDenied-title",
   "generic-title",
@@ -55,7 +58,7 @@ const KNOWN_ERROR_TITLE_IDS = new Set([
   "unknownSocketType-title",
   "nssFailure2-title",
   "csp-xfo-error-title",
-  "corruptedContentError-title",
+  "corruptedContentErrorv2-title",
   "sslv3Used-title",
   "inadequateSecurityError-title",
   "blockedByPolicy-title",
@@ -74,11 +77,6 @@ const KNOWN_ERROR_TITLE_IDS = new Set([
 /* global KNOWN_ERROR_MESSAGE_IDS */
 const ERROR_MESSAGES_FTL = "toolkit/neterror/nsserrors.ftl";
 
-const MDN_DOCS_HEADERS = "https://developer.mozilla.org/docs/Web/HTTP/Headers/";
-const COOP_MDN_DOCS = MDN_DOCS_HEADERS + "Cross-Origin-Opener-Policy";
-const COEP_MDN_DOCS = MDN_DOCS_HEADERS + "Cross-Origin-Embedder-Policy";
-const HTTPS_UPGRADES_MDN_DOCS = "https://support.mozilla.org/kb/https-upgrades";
-
 // If the location of the favicon changes, FAVICON_CERTERRORPAGE_URL and/or
 // FAVICON_ERRORPAGE_URL in toolkit/components/places/nsFaviconService.idl
 // should also be updated.
@@ -91,10 +89,6 @@ function getDescription() {
   return searchParams.get("d");
 }
 
-function isCaptive() {
-  return searchParams.get("captive") == "true";
-}
-
 /**
  * We don't actually know what the MitM is called (since we don't
  * maintain a list), so we'll try and display the common name of the
@@ -104,11 +98,6 @@ function isCaptive() {
  */
 function getMitmName(failedCertInfo) {
   return failedCertInfo.issuerCommonName;
-}
-
-function retryThis(buttonEl) {
-  RPMSendAsyncMessage("Browser:EnableOnlineMode");
-  buttonEl.disabled = true;
 }
 
 function showPrefChangeContainer() {
@@ -385,35 +374,12 @@ function initTitleAndBodyIds(baseURL, isTRROnlyFailure) {
     // failures) are of type nssFailure2.
     case "nssFailure2": {
       learnMore.hidden = false;
-
-      const netErrorInfo = document.getNetErrorInfo();
-      void recordSecurityUITelemetry(
-        "securityUiTlserror",
-        "loadAbouttlserror",
-        netErrorInfo
-      );
-      const errorCode = netErrorInfo.errorCodeString;
-      switch (errorCode) {
-        case "SSL_ERROR_UNSUPPORTED_VERSION":
-        case "SSL_ERROR_PROTOCOL_VERSION_ALERT": {
-          const tlsNotice = document.getElementById("tlsVersionNotice");
-          tlsNotice.hidden = false;
-          document.l10n.setAttributes(tlsNotice, "cert-error-old-tls-version");
-        }
-        // fallthrough
-
-        case "SSL_ERROR_NO_CIPHERS_SUPPORTED":
-        case "SSL_ERROR_NO_CYPHER_OVERLAP":
-        case "SSL_ERROR_SSL_DISABLED":
-          RPMAddMessageListener("HasChangedCertPrefs", msg => {
-            if (msg.data.hasChangedCertPrefs) {
-              // Configuration overrides might have caused this; offer to reset.
-              showPrefChangeContainer();
-            }
-          });
-          RPMSendAsyncMessage("GetChangedCertPrefs");
+      const result = handleNSSFailure(showPrefChangeContainer);
+      if (result.versionError) {
+        const tlsNotice = document.getElementById("tlsVersionNotice");
+        tlsNotice.hidden = false;
+        document.l10n.setAttributes(tlsNotice, "cert-error-old-tls-version");
       }
-
       break;
     }
 
@@ -498,6 +464,12 @@ function initPage() {
     isTRROnlyFailure
   );
 
+  // We can handle the offline page separately.
+  if (gNoConnectivity) {
+    pageTitleId = "neterror-dns-not-found-title";
+    bodyTitleId = "internet-connection-offline-title";
+  }
+
   // bodyTitle is set to null if it has already been set in initTitleAndBodyIds
   if (!KNOWN_ERROR_TITLE_IDS.has(bodyTitleId)) {
     console.error("No strings exist for error:", gErrorCode);
@@ -506,7 +478,7 @@ function initPage() {
 
   // The TRR errors may present options that direct users to settings only available on Firefox Desktop
   if (RPMIsFirefox()) {
-    if (isTRROnlyFailure) {
+    if (isTRROnlyFailure && !gNoConnectivity) {
       pageTitleId = "neterror-dns-not-found-title";
       document.l10n.setAttributes(docTitle, pageTitleId);
       if (bodyTitle) {
@@ -520,9 +492,7 @@ function initPage() {
       // enable buttons
       let trrExceptionButton = document.getElementById("trrExceptionButton");
       trrExceptionButton.addEventListener("click", () => {
-        RPMSendQuery("Browser:AddTRRExcludedDomain", {
-          hostname: HOST_NAME,
-        }).then(() => {
+        RPMSendQuery("Browser:AddTRRExcludedDomain").then(() => {
           retryThis(trrExceptionButton);
         });
       });
@@ -562,11 +532,6 @@ function initPage() {
         descriptionTag = "neterror-dns-not-found-trr-only-could-not-connect";
       } else if (skipReason == "TRR_TIMEOUT") {
         descriptionTag = "neterror-dns-not-found-trr-only-timeout";
-      } else if (
-        skipReason == "TRR_BROWSER_IS_OFFLINE" ||
-        skipReason == "TRR_NO_CONNECTIVITY"
-      ) {
-        descriptionTag = "neterror-dns-not-found-trr-offline";
       } else if (
         skipReason == "TRR_NO_ANSWERS" ||
         skipReason == "TRR_NXDOMAIN" ||
@@ -639,7 +604,7 @@ function initPage() {
   setFocus("#netErrorButtonContainer > .try-again");
 
   if (longDesc) {
-    const parts = getNetErrorDescParts();
+    const parts = getNetErrorDescParts(gNoConnectivity);
     setNetErrorMessageFromParts(longDesc, parts);
   }
 
@@ -689,9 +654,10 @@ function setNetErrorMessageFromParts(parentElement, parts) {
  * - l10n args (if the tag is not "a", optional)
  * - href (if the tag is "a", optional)
  *
+ * @param {boolean} noConnectivity - if true, the browser has no active network interfaces
  * @returns { Array<["li" | "p" | "span" | "a", string, Record<string, string> | undefined]> }
  */
-function getNetErrorDescParts() {
+function getNetErrorDescParts(noConnectivity) {
   switch (gErrorCode) {
     case "connectionFailure":
     case "netInterrupt":
@@ -739,6 +705,14 @@ function getNetErrorDescParts() {
         ["li", "neterror-corrupted-content-contact-website"],
       ];
     case "dnsNotFound":
+      if (noConnectivity) {
+        return [
+          ["span", "neterror-dns-not-found-offline-hint-header"],
+          ["li", "neterror-dns-not-found-offline-hint-different-device"],
+          ["li", "neterror-dns-not-found-offline-hint-modem"],
+          ["li", "neterror-dns-not-found-offline-hint-reconnect"],
+        ];
+      }
       return [
         ["span", "neterror-dns-not-found-hint-header"],
         ["li", "neterror-dns-not-found-hint-try-again"],
@@ -803,11 +777,8 @@ function getNetErrorDescParts() {
       return [["span", "neterror-sslv3-used"]];
     case "unknownProtocolFound":
       return [["li", "neterror-unknown-protocol"]];
-    case "unknownSocketType":
-      return [
-        ["li", "neterror-unknown-socket-type-psm-installed"],
-        ["li", "neterror-unknown-socket-type-server-config"],
-      ];
+    case "clientSocketMisconfiguration":
+      return [["li", "neterror-unknown-socket-type-client-config"]];
     case "unsafeContentType":
       return [["li", "neterror-unsafe-content-type"]];
     case "basicHttpAuthDisabled":
@@ -848,16 +819,10 @@ function setNetErrorMessageFromCode() {
     console.warn("This error page has no error code in its security info");
   }
 
-  let hostname = HOST_NAME;
-  const { port } = document.location;
-  if (port && port != 443) {
-    hostname += ":" + port;
-  }
-
   const shortDesc = document.getElementById("errorShortDesc");
   document.l10n.setAttributes(shortDesc, "cert-error-ssl-connection-error", {
     errorMessage: errorMessage ?? errorCode ?? "",
-    hostname,
+    hostname: HOST_NAME,
   });
 }
 
@@ -1005,9 +970,6 @@ function setCertErrorDetails() {
       ];
       break;
 
-    case "SEC_ERROR_OCSP_INVALID_SIGNING_CERT": // FIXME - this would have thrown?
-      break;
-
     case "SEC_ERROR_UNKNOWN_ISSUER":
       whatToDoParts = [
         ["p", "certerror-unknown-issuer-what-can-you-do-about-it-website"],
@@ -1017,29 +979,6 @@ function setCertErrorDetails() {
         ],
       ];
       break;
-
-    // This error code currently only exists for the Symantec distrust
-    // in Firefox 63, so we add copy explaining that to the user.
-    // In case of future distrusts of that scale we might need to add
-    // additional parameters that allow us to identify the affected party
-    // without replicating the complex logic from certverifier code.
-    case "MOZILLA_PKIX_ERROR_ADDITIONAL_POLICY_CONSTRAINT_FAILED": {
-      document.l10n.setAttributes(
-        shortDesc2,
-        "cert-error-symantec-distrust-description",
-        { hostname: HOST_NAME }
-      );
-
-      // FIXME - this does nothing
-      const adminDesc = document.createElement("p");
-      document.l10n.setAttributes(
-        adminDesc,
-        "cert-error-symantec-distrust-admin"
-      );
-
-      learnMoreLink.href = baseURL + "symantec-warning";
-      break;
-    }
 
     case "MOZILLA_PKIX_ERROR_MITM_DETECTED": {
       const autoEnabledEnterpriseRoots = RPMGetBoolPref(
@@ -1181,24 +1120,18 @@ function setCertErrorDetails() {
       ];
       break;
     }
-    case "MOZILLA_PKIX_ERROR_INSUFFICIENT_CERTIFICATE_TRANSPARENCY":
-      whatToDoParts = [
-        [
-          "p",
-          "cert-error-trust-certificate-transparency-what-can-you-do-about-it",
-        ],
-      ];
-      break;
-    case "SEC_ERROR_REVOKED_CERTIFICATE":
-      whatToDoParts = [
-        [
-          "p",
-          // This string was added for the certificate transparency error case,
-          // but it applies in other cases as well, such as this one.
-          "cert-error-trust-certificate-transparency-what-can-you-do-about-it",
-        ],
-      ];
-      break;
+  }
+
+  if (errorHasNoUserFix(failedCertInfo.errorCodeString)) {
+    // "cert-error-trust-certificate-transparency-what-can-you-do-about-it" was
+    // originally added for certificate transparency errors, but it's general
+    // enough to apply in many cases.
+    whatToDoParts = [
+      [
+        "p",
+        "cert-error-trust-certificate-transparency-what-can-you-do-about-it",
+      ],
+    ];
   }
 
   if (whatToDoParts) {
@@ -1260,12 +1193,6 @@ function setTechnicalDetailsOnCertError(
     });
   }
 
-  let hostname = HOST_NAME;
-  const { port } = document.location;
-  if (port && port != 443) {
-    hostname += ":" + port;
-  }
-
   switch (failedCertInfo.overridableErrorCategory) {
     case "trust-error":
       switch (failedCertInfo.errorCodeString) {
@@ -1276,37 +1203,35 @@ function setTechnicalDetailsOnCertError(
           break;
         case "SEC_ERROR_UNKNOWN_ISSUER":
           addLabel("cert-error-trust-unknown-issuer-intro");
-          addLabel("cert-error-trust-unknown-issuer", { hostname });
+          addLabel("cert-error-trust-unknown-issuer", { hostname: HOST_NAME });
           break;
         case "SEC_ERROR_CA_CERT_INVALID":
-          addLabel("cert-error-intro", { hostname });
+          addLabel("cert-error-intro", { hostname: HOST_NAME });
           addLabel("cert-error-trust-cert-invalid");
           break;
         case "SEC_ERROR_UNTRUSTED_ISSUER":
-          addLabel("cert-error-intro", { hostname });
+          addLabel("cert-error-intro", { hostname: HOST_NAME });
           addLabel("cert-error-trust-untrusted-issuer");
           break;
         case "SEC_ERROR_CERT_SIGNATURE_ALGORITHM_DISABLED":
-          addLabel("cert-error-intro", { hostname });
+          addLabel("cert-error-intro", { hostname: HOST_NAME });
           addLabel("cert-error-trust-signature-algorithm-disabled");
           break;
         case "SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE":
-          addLabel("cert-error-intro", { hostname });
+          addLabel("cert-error-intro", { hostname: HOST_NAME });
           addLabel("cert-error-trust-expired-issuer");
           break;
         case "MOZILLA_PKIX_ERROR_SELF_SIGNED_CERT":
-          addLabel("cert-error-intro", { hostname });
+          addLabel("cert-error-intro", { hostname: HOST_NAME });
           addLabel("cert-error-trust-self-signed");
           break;
-        case "MOZILLA_PKIX_ERROR_ADDITIONAL_POLICY_CONSTRAINT_FAILED":
-          addLabel("cert-error-intro", { hostname });
-          addLabel("cert-error-trust-symantec");
-          break;
         case "MOZILLA_PKIX_ERROR_INSUFFICIENT_CERTIFICATE_TRANSPARENCY":
-          addLabel("cert-error-trust-certificate-transparency", { hostname });
+          addLabel("cert-error-trust-certificate-transparency", {
+            hostname: HOST_NAME,
+          });
           break;
         default:
-          addLabel("cert-error-intro", { hostname });
+          addLabel("cert-error-intro", { hostname: HOST_NAME });
           addLabel("cert-error-untrusted-default");
       }
       addErrorCodeLink();
@@ -1317,12 +1242,12 @@ function setTechnicalDetailsOnCertError(
       const notAfter = failedCertInfo.validNotAfter;
       if (notBefore && Date.now() < notAfter) {
         addLabel("cert-error-not-yet-valid-now", {
-          hostname,
+          hostname: HOST_NAME,
           "not-before-local-time": formatter.format(new Date(notBefore)),
         });
       } else {
         addLabel("cert-error-expired-now", {
-          hostname,
+          hostname: HOST_NAME,
           "not-after-local-time": formatter.format(new Date(notAfter)),
         });
       }
@@ -1333,11 +1258,11 @@ function setTechnicalDetailsOnCertError(
     case "domain-mismatch":
       getSubjectAltNames(failedCertInfo).then(subjectAltNames => {
         if (!subjectAltNames.length) {
-          addLabel("cert-error-domain-mismatch", { hostname });
+          addLabel("cert-error-domain-mismatch", { hostname: HOST_NAME });
         } else if (subjectAltNames.length > 1) {
           const names = subjectAltNames.join(", ");
           addLabel("cert-error-domain-mismatch-multiple", {
-            hostname,
+            hostname: HOST_NAME,
             "subject-alt-names": names,
           });
         } else {
@@ -1347,6 +1272,11 @@ function setTechnicalDetailsOnCertError(
           // let's use "www" instead.  "*.example.com" isn't going to
           // get anyone anywhere useful. bug 432491
           const okHost = altName.replace(/^\*\./, "www.");
+
+          // We can't use HOST_NAME for the comparison, as that is
+          // display-formatted and can include a port. We need the ascii host as
+          // that is what the cert's SAN value would also contain.
+          const asciiHostname = RPMGetInnermostAsciiHost();
 
           // Let's check if we want to make this a link.
           const showLink =
@@ -1363,15 +1293,15 @@ function setTechnicalDetailsOnCertError(
              * domain names are famous for having '.' characters in them,
              * which would allow spurious and possibly hostile matches.
              */
-            okHost.endsWith("." + HOST_NAME) ||
+            okHost.endsWith("." + asciiHostname) ||
             /* case #2:
              * browser.garage.maemo.org uses an invalid security certificate.
              *
              * The certificate is only valid for garage.maemo.org
              */
-            HOST_NAME.endsWith("." + okHost);
+            asciiHostname.endsWith("." + okHost);
 
-          const l10nArgs = { hostname, "alt-name": altName };
+          const l10nArgs = { hostname: HOST_NAME, "alt-name": altName };
           if (showLink) {
             // Set the link if we want it.
             const proto = document.location.protocol + "//";
@@ -1395,8 +1325,43 @@ function setTechnicalDetailsOnCertError(
       break;
   }
 
-  if (failedCertInfo.errorCodeString == "SEC_ERROR_REVOKED_CERTIFICATE") {
-    addLabel("cert-error-revoked", { hostname });
+  const nonoverridableErrorCodeToLabelMap = {
+    SEC_ERROR_BAD_DER: "cert-error-bad-der",
+    SEC_ERROR_BAD_SIGNATURE: "cert-error-bad-signature",
+    SEC_ERROR_CERT_NOT_IN_NAME_SPACE: "cert-error-cert-not-in-name-space",
+    SEC_ERROR_EXTENSION_VALUE_INVALID: "cert-error-extension-value-invalid",
+    SEC_ERROR_INADEQUATE_CERT_TYPE: "cert-error-inadequate-cert-type",
+    // NB: SEC_ERROR_INADEQUATE_KEY_USAGE intentionally uses the same error
+    // message as SEC_ERROR_INADEQUATE_CERT_TYPE
+    SEC_ERROR_INADEQUATE_KEY_USAGE: "cert-error-inadequate-cert-type",
+    SEC_ERROR_INVALID_KEY: "cert-error-invalid-key",
+    SEC_ERROR_PATH_LEN_CONSTRAINT_INVALID:
+      "cert-error-path-len-constraint-invalid",
+    SEC_ERROR_REVOKED_CERTIFICATE: "cert-error-revoked-certificate",
+    SEC_ERROR_UNKNOWN_CRITICAL_EXTENSION:
+      "cert-error-unknown-critical-extension",
+    // NB: SEC_ERROR_UNSUPPORTED_EC_POINT_FORM intentionally uses the same
+    // error message as SEC_ERROR_UNSUPPORTED_KEYALG
+    SEC_ERROR_UNSUPPORTED_EC_POINT_FORM: "cert-error-unsupported-keyalg",
+    // NB: SEC_ERROR_UNSUPPORTED_ELLIPTIC_CURVE intentionally uses the same
+    // error message as SEC_ERROR_UNSUPPORTED_KEYALG
+    SEC_ERROR_UNSUPPORTED_ELLIPTIC_CURVE: "cert-error-unsupported-keyalg",
+    SEC_ERROR_UNSUPPORTED_KEYALG: "cert-error-unsupported-keyalg",
+    SEC_ERROR_UNTRUSTED_CERT: "cert-error-untrusted-cert",
+    SEC_ERROR_UNTRUSTED_ISSUER: "cert-error-untrusted-issuer",
+    MOZILLA_PKIX_ERROR_INVALID_INTEGER_ENCODING:
+      "cert-error-invalid-integer-encoding",
+    MOZILLA_PKIX_ERROR_ISSUER_NO_LONGER_TRUSTED:
+      "cert-error-issuer-no-longer-trusted",
+    MOZILLA_PKIX_ERROR_KEY_PINNING_FAILURE: "cert-error-key-pinning-failure",
+    MOZILLA_PKIX_ERROR_SIGNATURE_ALGORITHM_MISMATCH:
+      "cert-error-signature-algorithm-mismatch",
+  };
+  if (failedCertInfo.errorCodeString in nonoverridableErrorCodeToLabelMap) {
+    addLabel(
+      nonoverridableErrorCodeToLabelMap[failedCertInfo.errorCodeString],
+      { hostname: HOST_NAME }
+    );
     addErrorCodeLink();
   }
 
@@ -1423,36 +1388,54 @@ function setFocus(selector, position = "afterbegin") {
   }
 }
 
-function shouldUseFeltPrivacyRefresh() {
-  if (!FELT_PRIVACY_REFRESH) {
-    return false;
-  }
-
-  let failedCertInfo;
+async function getErrorCode() {
   try {
-    failedCertInfo = document.getFailedCertSecurityInfo();
-  } catch {
-    return false;
+    const errorInfo = gIsCertError
+      ? document.getFailedCertSecurityInfo()
+      : document.getNetErrorInfo();
+    return errorInfo.errorCodeString;
+  } catch (e) {
+    return undefined;
   }
-
-  return NetErrorCard.ERROR_CODES.has(failedCertInfo.errorCodeString);
 }
 
-if (!shouldUseFeltPrivacyRefresh()) {
-  for (let button of document.querySelectorAll(".try-again")) {
-    button.addEventListener("click", function () {
-      retryThis(this);
-    });
-  }
-
-  initPage();
-
-  // Dispatch this event so tests can detect that we finished loading the error page.
-  document.dispatchEvent(
-    new CustomEvent("AboutNetErrorLoad", { bubbles: true })
-  );
-} else {
-  customElements.define("net-error-card", NetErrorCard);
-  document.body.classList.add("felt-privacy-body");
-  document.body.replaceChildren(document.createElement("net-error-card"));
+async function retryErrorCode() {
+  return new Promise(res => {
+    setTimeout(() => {
+      res(getErrorCode());
+    }, 100);
+  });
 }
+
+async function init() {
+  let errorCode = await getErrorCode();
+  let i = 0;
+  while (!errorCode && i < 3) {
+    i++;
+    errorCode = await retryErrorCode();
+  }
+}
+
+async function main() {
+  await init();
+  if (!NetErrorCard.isSupported()) {
+    for (let button of document.querySelectorAll(".try-again")) {
+      button.addEventListener("click", function () {
+        retryThis(this);
+      });
+    }
+
+    initPage();
+
+    // Dispatch this event so tests can detect that we finished loading the error page.
+    document.dispatchEvent(
+      new CustomEvent("AboutNetErrorLoad", { bubbles: true })
+    );
+  } else {
+    customElements.define("net-error-card", NetErrorCard);
+    document.body.classList.add("felt-privacy-body");
+    document.body.replaceChildren(document.createElement("net-error-card"));
+  }
+}
+
+main();

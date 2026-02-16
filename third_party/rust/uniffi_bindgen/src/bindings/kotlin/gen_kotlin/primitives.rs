@@ -3,17 +3,19 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::CodeType;
-use crate::backend::Literal;
-use crate::interface::{ComponentInterface, Radix, Type};
-use paste::paste;
+use crate::{
+    bail,
+    interface::{ComponentInterface, DefaultValue, Literal, Radix, Type},
+    Result,
+};
 
-fn render_literal(literal: &Literal, _ci: &ComponentInterface) -> String {
-    fn typed_number(type_: &Type, num_str: String) -> String {
+fn render_literal(literal: &Literal, _ci: &ComponentInterface) -> Result<String> {
+    fn typed_number(type_: &Type, num_str: String) -> Result<String> {
         let unwrapped_type = match type_ {
             Type::Optional { inner_type } => inner_type,
             t => t,
         };
-        match unwrapped_type {
+        Ok(match unwrapped_type {
             // Bytes, Shorts and Ints can all be inferred from the type.
             Type::Int8 | Type::Int16 | Type::Int32 => num_str,
             Type::Int64 => format!("{num_str}L"),
@@ -23,13 +25,13 @@ fn render_literal(literal: &Literal, _ci: &ComponentInterface) -> String {
 
             Type::Float32 => format!("{num_str}f"),
             Type::Float64 => num_str,
-            _ => panic!("Unexpected literal: {num_str} for type: {type_:?}"),
-        }
+            _ => bail!("Unexpected literal: {num_str} for type: {type_:?}"),
+        })
     }
 
     match literal {
-        Literal::Boolean(v) => format!("{v}"),
-        Literal::String(s) => format!("\"{s}\""),
+        Literal::Boolean(v) => Ok(format!("{v}")),
+        Literal::String(s) => Ok(format!("\"{s}\"")),
         Literal::Int(i, radix, type_) => typed_number(
             type_,
             match radix {
@@ -48,43 +50,44 @@ fn render_literal(literal: &Literal, _ci: &ComponentInterface) -> String {
         ),
         Literal::Float(string, type_) => typed_number(type_, string.clone()),
 
-        _ => unreachable!("Literal"),
+        _ => bail!("Invalid literal {literal:?}"),
     }
 }
 
 macro_rules! impl_code_type_for_primitive {
-    ($T:ty, $class_name:literal) => {
-        paste! {
-            #[derive(Debug)]
-            pub struct $T;
+    ($T:ident, $class_name:literal, $def:literal) => {
+        #[derive(Debug)]
+        pub struct $T;
 
-            impl CodeType for $T  {
-                fn type_label(&self, _ci: &ComponentInterface) -> String {
-                    format!("kotlin.{}", $class_name)
-                }
+        impl CodeType for $T {
+            fn type_label(&self, _ci: &ComponentInterface) -> String {
+                format!("kotlin.{}", $class_name)
+            }
 
-                fn canonical_name(&self) -> String {
-                    $class_name.into()
-                }
+            fn canonical_name(&self) -> String {
+                $class_name.into()
+            }
 
-                fn literal(&self, literal: &Literal, ci: &ComponentInterface) -> String {
-                    render_literal(&literal, ci)
+            fn default(&self, default: &DefaultValue, ci: &ComponentInterface) -> Result<String> {
+                match default {
+                    DefaultValue::Default => Ok($def.into()),
+                    DefaultValue::Literal(literal) => render_literal(&literal, ci),
                 }
             }
         }
     };
 }
 
-impl_code_type_for_primitive!(BooleanCodeType, "Boolean");
-impl_code_type_for_primitive!(StringCodeType, "String");
-impl_code_type_for_primitive!(BytesCodeType, "ByteArray");
-impl_code_type_for_primitive!(Int8CodeType, "Byte");
-impl_code_type_for_primitive!(Int16CodeType, "Short");
-impl_code_type_for_primitive!(Int32CodeType, "Int");
-impl_code_type_for_primitive!(Int64CodeType, "Long");
-impl_code_type_for_primitive!(UInt8CodeType, "UByte");
-impl_code_type_for_primitive!(UInt16CodeType, "UShort");
-impl_code_type_for_primitive!(UInt32CodeType, "UInt");
-impl_code_type_for_primitive!(UInt64CodeType, "ULong");
-impl_code_type_for_primitive!(Float32CodeType, "Float");
-impl_code_type_for_primitive!(Float64CodeType, "Double");
+impl_code_type_for_primitive!(BooleanCodeType, "Boolean", "false");
+impl_code_type_for_primitive!(StringCodeType, "String", "\"\"");
+impl_code_type_for_primitive!(BytesCodeType, "ByteArray", "byteArrayOf()");
+impl_code_type_for_primitive!(Int8CodeType, "Byte", "0.toByte()");
+impl_code_type_for_primitive!(Int16CodeType, "Short", "0");
+impl_code_type_for_primitive!(Int32CodeType, "Int", "0");
+impl_code_type_for_primitive!(Int64CodeType, "Long", "0L");
+impl_code_type_for_primitive!(UInt8CodeType, "UByte", "0U");
+impl_code_type_for_primitive!(UInt16CodeType, "UShort", "0U");
+impl_code_type_for_primitive!(UInt32CodeType, "UInt", "0U");
+impl_code_type_for_primitive!(UInt64CodeType, "ULong", "0UL");
+impl_code_type_for_primitive!(Float32CodeType, "Float", "0.0f");
+impl_code_type_for_primitive!(Float64CodeType, "Double", "0.0");

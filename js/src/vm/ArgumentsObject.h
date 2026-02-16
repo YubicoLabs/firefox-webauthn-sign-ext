@@ -96,7 +96,7 @@ struct ArgumentsData {
 static const unsigned ARGS_LENGTH_MAX = 500 * 1000;
 
 // Maximum number of arguments supported in jitcode. This bounds the
-// maximum number of arguments that can be supplied to a spread call
+// maximum number of arguments that can be supplied to a call, spread call,
 // or Function.prototype.apply without entering the VM. We limit the
 // number of parameters we can handle to a number that does not risk
 // us allocating too much stack, notably on Windows where there is a
@@ -209,7 +209,7 @@ class ArgumentsObject : public NativeObject {
 
  public:
   static const uint32_t RESERVED_SLOTS = 4;
-  static const gc::AllocKind FINALIZE_KIND = gc::AllocKind::OBJECT4_BACKGROUND;
+  static const gc::AllocKind FINALIZE_KIND = gc::AllocKind::OBJECT4;
 
   /* Create an arguments object for a frame that is expecting them. */
   static ArgumentsObject* createExpected(JSContext* cx, AbstractFramePtr frame);
@@ -442,15 +442,16 @@ class ArgumentsObject : public NativeObject {
     if (!data()) {  // Template arguments objects have no data.
       return 0;
     }
-    return mallocSizeOf(data()) + mallocSizeOf(maybeRareData());
+    size_t dataSize = gc::GetAllocSize(zone(), data());
+    size_t rareDataSize =
+        !maybeRareData() ? 0 : gc::GetAllocSize(zone(), maybeRareData());
+    return dataSize + rareDataSize;
   }
   size_t sizeOfData() const {
     return ArgumentsData::bytesRequired(data()->numArgs()) +
            (maybeRareData() ? RareArgumentsData::bytesRequired(initialLength())
                             : 0);
   }
-
-  static void finalize(JS::GCContext* gcx, JSObject* obj);
   static void trace(JSTracer* trc, JSObject* obj);
   static size_t objectMoved(JSObject* dst, JSObject* src);
 

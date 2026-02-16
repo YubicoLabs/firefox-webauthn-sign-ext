@@ -1,3 +1,5 @@
+use alloc::string::String;
+
 use super::Capabilities;
 use crate::{arena::Handle, proc::Alignment};
 
@@ -131,6 +133,8 @@ pub enum TypeError {
     InvalidDynamicArray(String, Handle<crate::Type>),
     #[error("The base handle {0:?} has to be a struct")]
     BindingArrayBaseTypeNotStruct(Handle<crate::Type>),
+    #[error("Binding arrays of external textures are not yet supported")]
+    BindingArrayBaseExternalTextures,
     #[error("Structure member[{index}] at {offset} overlaps the previous member")]
     MemberOverlap { index: u32, offset: u32 },
     #[error(
@@ -150,6 +154,8 @@ pub enum TypeError {
         "The base handle {0:?} has an override-expression that didn't get resolved to a constant"
     )]
     UnresolvedOverride(Handle<crate::Type>),
+    #[error("Override-sized array type {0:?} does not have a positive size")]
+    InvalidArraySize(Handle<crate::Type>),
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -167,8 +173,16 @@ pub enum WidthError {
     Abstract,
 }
 
+#[derive(Clone, Debug, thiserror::Error)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum ImmediateError {
+    #[error("The scalar type {0:?} is not supported in immediates")]
+    InvalidScalar(crate::Scalar),
+}
+
 // Only makes sense if `flags.contains(HOST_SHAREABLE)`
 type LayoutCompatibility = Result<Alignment, (Handle<crate::Type>, Disalignment)>;
+type ImmediateCompatibility = Result<(), ImmediateError>;
 
 fn check_member_layout(
     accum: &mut LayoutCompatibility,
@@ -208,9 +222,12 @@ const fn ptr_space_argument_flag(space: crate::AddressSpace) -> TypeFlags {
     use crate::AddressSpace as As;
     match space {
         As::Function | As::Private => TypeFlags::ARGUMENT,
-        As::Uniform | As::Storage { .. } | As::Handle | As::PushConstant | As::WorkGroup => {
-            TypeFlags::empty()
-        }
+        As::Uniform
+        | As::Storage { .. }
+        | As::Handle
+        | As::Immediate
+        | As::WorkGroup
+        | As::TaskPayload => TypeFlags::empty(),
     }
 }
 
@@ -219,6 +236,7 @@ pub(super) struct TypeInfo {
     pub flags: TypeFlags,
     pub uniform_layout: LayoutCompatibility,
     pub storage_layout: LayoutCompatibility,
+    pub immediates_compatibility: ImmediateCompatibility,
 }
 
 impl TypeInfo {
@@ -227,6 +245,7 @@ impl TypeInfo {
             flags: TypeFlags::empty(),
             uniform_layout: Ok(Alignment::ONE),
             storage_layout: Ok(Alignment::ONE),
+            immediates_compatibility: Ok(()),
         }
     }
 
@@ -235,6 +254,7 @@ impl TypeInfo {
             flags,
             uniform_layout: Ok(alignment),
             storage_layout: Ok(alignment),
+            immediates_compatibility: Ok(()),
         }
     }
 }
@@ -248,11 +268,24 @@ impl super::Validator {
         }
     }
 
-    pub(super) const fn check_width(&self, scalar: crate::Scalar) -> Result<(), WidthError> {
+    /// Check whether `scalar` is a permitted scalar width.
+    ///
+    /// If `scalar` is not a width allowed by the selected [`Capabilities`],
+    /// return an error explaining why.
+    ///
+    /// If `scalar` is allowed, return a [`ImmediateCompatibility`] result
+    /// that says whether `scalar` is allowed specifically in immediates.
+    ///
+    /// [`Capabilities`]: crate::valid::Capabilities
+    pub(super) const fn check_width(
+        &self,
+        scalar: crate::Scalar,
+    ) -> Result<ImmediateCompatibility, WidthError> {
+        let mut immediates_compatibility = Ok(());
         let good = match scalar.kind {
             crate::ScalarKind::Bool => scalar.width == crate::BOOL_WIDTH,
-            crate::ScalarKind::Float => {
-                if scalar.width == 8 {
+            crate::ScalarKind::Float => match scalar.width {
+                8 => {
                     if !self.capabilities.contains(Capabilities::FLOAT64) {
                         return Err(WidthError::MissingCapability {
                             name: "f64",
@@ -260,10 +293,21 @@ impl super::Validator {
                         });
                     }
                     true
-                } else {
-                    scalar.width == 4
                 }
-            }
+                2 => {
+                    if !self.capabilities.contains(Capabilities::SHADER_FLOAT16) {
+                        return Err(WidthError::MissingCapability {
+                            name: "f16",
+                            flag: "FLOAT16",
+                        });
+                    }
+
+                    immediates_compatibility = Err(ImmediateError::InvalidScalar(scalar));
+
+                    true
+                }
+                _ => scalar.width == 4,
+            },
             crate::ScalarKind::Sint => {
                 if scalar.width == 8 {
                     if !self.capabilities.contains(Capabilities::SHADER_INT64) {
@@ -295,7 +339,7 @@ impl super::Validator {
             }
         };
         if good {
-            Ok(())
+            Ok(immediates_compatibility)
         } else {
             Err(WidthError::Invalid(scalar.kind, scalar.width))
         }
@@ -315,13 +359,13 @@ impl super::Validator {
         use crate::TypeInner as Ti;
         Ok(match gctx.types[handle].inner {
             Ti::Scalar(scalar) => {
-                self.check_width(scalar)?;
+                let immediates_compatibility = self.check_width(scalar)?;
                 let shareable = if scalar.kind.is_numeric() {
                     TypeFlags::IO_SHAREABLE | TypeFlags::HOST_SHAREABLE
                 } else {
                     TypeFlags::empty()
                 };
-                TypeInfo::new(
+                let mut type_info = TypeInfo::new(
                     TypeFlags::DATA
                         | TypeFlags::SIZED
                         | TypeFlags::COPY
@@ -330,16 +374,18 @@ impl super::Validator {
                         | TypeFlags::CREATION_RESOLVED
                         | shareable,
                     Alignment::from_width(scalar.width),
-                )
+                );
+                type_info.immediates_compatibility = immediates_compatibility;
+                type_info
             }
             Ti::Vector { size, scalar } => {
-                self.check_width(scalar)?;
+                let immediates_compatibility = self.check_width(scalar)?;
                 let shareable = if scalar.kind.is_numeric() {
                     TypeFlags::IO_SHAREABLE | TypeFlags::HOST_SHAREABLE
                 } else {
                     TypeFlags::empty()
                 };
-                TypeInfo::new(
+                let mut type_info = TypeInfo::new(
                     TypeFlags::DATA
                         | TypeFlags::SIZED
                         | TypeFlags::COPY
@@ -348,7 +394,9 @@ impl super::Validator {
                         | TypeFlags::CREATION_RESOLVED
                         | shareable,
                     Alignment::from(size) * Alignment::from_width(scalar.width),
-                )
+                );
+                type_info.immediates_compatibility = immediates_compatibility;
+                type_info
             }
             Ti::Matrix {
                 columns: _,
@@ -358,8 +406,8 @@ impl super::Validator {
                 if scalar.kind != crate::ScalarKind::Float {
                     return Err(TypeError::MatrixElementNotFloat);
                 }
-                self.check_width(scalar)?;
-                TypeInfo::new(
+                let immediates_compatibility = self.check_width(scalar)?;
+                let mut type_info = TypeInfo::new(
                     TypeFlags::DATA
                         | TypeFlags::SIZED
                         | TypeFlags::COPY
@@ -368,6 +416,32 @@ impl super::Validator {
                         | TypeFlags::CONSTRUCTIBLE
                         | TypeFlags::CREATION_RESOLVED,
                     Alignment::from(rows) * Alignment::from_width(scalar.width),
+                );
+                type_info.immediates_compatibility = immediates_compatibility;
+                type_info
+            }
+            Ti::CooperativeMatrix {
+                columns: _,
+                rows: _,
+                scalar,
+                role: _,
+            } => {
+                self.require_type_capability(Capabilities::COOPERATIVE_MATRIX)?;
+                // Allow f16 (width 2) and f32 (width 4) for cooperative matrices
+                if scalar.kind != crate::ScalarKind::Float
+                    || (scalar.width != 2 && scalar.width != 4)
+                {
+                    return Err(TypeError::MatrixElementNotFloat);
+                }
+                TypeInfo::new(
+                    TypeFlags::DATA
+                        | TypeFlags::SIZED
+                        | TypeFlags::COPY
+                        | TypeFlags::HOST_SHAREABLE
+                        | TypeFlags::ARGUMENT
+                        | TypeFlags::CONSTRUCTIBLE
+                        | TypeFlags::CREATION_RESOLVED,
+                    Alignment::from_width(scalar.width),
                 )
             }
             Ti::Atomic(scalar) => {
@@ -463,7 +537,7 @@ impl super::Validator {
                 // However, some cases are trivial: All our implicit base types
                 // are DATA and SIZED, so we can never return
                 // `InvalidPointerBase` or `InvalidPointerToUnsized`.
-                self.check_width(scalar)?;
+                let _ = self.check_width(scalar)?;
 
                 // `Validator::validate_function` actually checks the address
                 // space of pointer arguments explicitly before checking the
@@ -488,6 +562,15 @@ impl super::Validator {
                     .contains(TypeFlags::DATA | TypeFlags::SIZED | TypeFlags::CREATION_RESOLVED)
                 {
                     return Err(TypeError::InvalidArrayBaseType(base));
+                }
+
+                if self.overrides_resolved {
+                    // This check only makes sense for override-sized arrays.
+                    // `ArraySize::Constant` holds a `NonZeroU32`.
+                    if let crate::ArraySize::Pending(_) = size {
+                        size.resolve(gctx)
+                            .map_err(|_| TypeError::InvalidArraySize(handle))?;
+                    }
                 }
 
                 let base_layout = self.layouter[base];
@@ -549,6 +632,7 @@ impl super::Validator {
                     flags: base_info.flags & type_info_mask,
                     uniform_layout,
                     storage_layout,
+                    immediates_compatibility: base_info.immediates_compatibility.clone(),
                 }
             }
             Ti::Struct { ref members, span } => {
@@ -629,6 +713,9 @@ impl super::Validator {
                         base_info.storage_layout,
                         handle,
                     );
+                    if base_info.immediates_compatibility.is_err() {
+                        ti.immediates_compatibility = base_info.immediates_compatibility.clone();
+                    }
 
                     // Validate rule: If a structure member itself has a structure type S,
                     // then the number of bytes between the start of that member and
@@ -693,6 +780,16 @@ impl super::Validator {
                 if arrayed && matches!(dim, crate::ImageDimension::Cube) {
                     self.require_type_capability(Capabilities::CUBE_ARRAY_TEXTURES)?;
                 }
+                if matches!(class, crate::ImageClass::External) {
+                    if dim != crate::ImageDimension::D2 || arrayed {
+                        return Err(TypeError::UnsupportedImageType {
+                            dim,
+                            arrayed,
+                            class,
+                        });
+                    }
+                    self.require_type_capability(Capabilities::TEXTURE_EXTERNAL)?;
+                }
                 TypeInfo::new(
                     TypeFlags::ARGUMENT | TypeFlags::CREATION_RESOLVED,
                     Alignment::ONE,
@@ -702,15 +799,21 @@ impl super::Validator {
                 TypeFlags::ARGUMENT | TypeFlags::CREATION_RESOLVED,
                 Alignment::ONE,
             ),
-            Ti::AccelerationStructure => {
+            Ti::AccelerationStructure { vertex_return } => {
                 self.require_type_capability(Capabilities::RAY_QUERY)?;
+                if vertex_return {
+                    self.require_type_capability(Capabilities::RAY_HIT_VERTEX_POSITION)?;
+                }
                 TypeInfo::new(
                     TypeFlags::ARGUMENT | TypeFlags::CREATION_RESOLVED,
                     Alignment::ONE,
                 )
             }
-            Ti::RayQuery => {
+            Ti::RayQuery { vertex_return } => {
                 self.require_type_capability(Capabilities::RAY_QUERY)?;
+                if vertex_return {
+                    self.require_type_capability(Capabilities::RAY_HIT_VERTEX_POSITION)?;
+                }
                 TypeInfo::new(
                     TypeFlags::DATA
                         | TypeFlags::CONSTRUCTIBLE
@@ -734,10 +837,23 @@ impl super::Validator {
 
                 if base_info.flags.contains(TypeFlags::DATA) {
                     // Currently Naga only supports binding arrays of structs for non-handle types.
+                    // `validate_global_var` relies on ray queries (which are `DATA`) being rejected here
                     match gctx.types[base].inner {
                         crate::TypeInner::Struct { .. } => {}
                         _ => return Err(TypeError::BindingArrayBaseTypeNotStruct(base)),
                     };
+                }
+                if matches!(
+                    gctx.types[base].inner,
+                    crate::TypeInner::Image {
+                        class: crate::ImageClass::External,
+                        ..
+                    }
+                ) {
+                    // Binding arrays of external textures are not yet supported.
+                    // See <https://github.com/gfx-rs/wgpu/issues/8027>. Note that
+                    // `validate_global_var` relies on this error being raised here.
+                    return Err(TypeError::BindingArrayBaseExternalTextures);
                 }
 
                 if !base_info.flags.contains(TypeFlags::CREATION_RESOLVED) {

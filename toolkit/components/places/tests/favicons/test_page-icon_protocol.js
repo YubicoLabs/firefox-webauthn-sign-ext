@@ -125,7 +125,7 @@ add_task(async function unknown_url() {
 add_task(async function invalid_url() {
   let { data, contentType } = await fetchIconForSpec("page-icon:test");
   Assert.equal(contentType, gDefaultFavicon.contentType);
-  Assert.ok(data == gDefaultFavicon.data, "Got the default favicon data");
+  Assert.equal(data, gDefaultFavicon.data, "Got the default favicon data");
 });
 
 add_task(async function subpage_url_fallback() {
@@ -157,7 +157,11 @@ add_task(async function page_with_ref() {
     "http://places.test.ref/#",
   ]) {
     await PlacesTestUtils.addVisits(url);
-    await setFaviconForPage(url, ICON_URI, false);
+    await PlacesTestUtils.setFaviconForPage(
+      url,
+      ICON_URI,
+      await PlacesTestUtils.getFaviconDataURLFromDB(ICON_URI)
+    );
     let { data, contentType } = await fetchIconForSpec("page-icon:" + url);
     Assert.equal(contentType, gFavicon.contentType);
     Assert.deepEqual(data, gFavicon.data, "Got the favicon data");

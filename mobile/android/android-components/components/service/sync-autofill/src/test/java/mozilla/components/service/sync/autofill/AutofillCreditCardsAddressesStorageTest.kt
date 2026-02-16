@@ -5,8 +5,8 @@
 package mozilla.components.service.sync.autofill
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
+import mozilla.appservices.RustComponentsInitializer
 import mozilla.components.concept.storage.CreditCard
 import mozilla.components.concept.storage.CreditCardNumber
 import mozilla.components.concept.storage.NewCreditCardFields
@@ -25,7 +25,6 @@ import org.junit.runner.RunWith
 import org.mockito.Mockito.spy
 import org.mockito.Mockito.verify
 
-@ExperimentalCoroutinesApi // for runTest
 @RunWith(AndroidJUnit4::class)
 class AutofillCreditCardsAddressesStorageTest {
 
@@ -34,6 +33,7 @@ class AutofillCreditCardsAddressesStorageTest {
 
     @Before
     fun setup() {
+        RustComponentsInitializer.init()
         // forceInsecure is set in the tests because a keystore wouldn't be configured in the test environment.
         securePrefs = SecureAbove22Preferences(testContext, "autofill", forceInsecure = true)
         storage = AutofillCreditCardsAddressesStorage(testContext, lazy { securePrefs })
@@ -66,10 +66,10 @@ class AutofillCreditCardsAddressesStorageTest {
         assertEquals(creditCardFields.expiryYear, creditCard.expiryYear)
         assertEquals(creditCardFields.cardType, creditCard.cardType)
         assertEquals(
-            CreditCard.ellipsesStart +
-                CreditCard.ellipsis + CreditCard.ellipsis + CreditCard.ellipsis + CreditCard.ellipsis +
+            CreditCard.ELLIPSES_START +
+                CreditCard.ELLIPSIS + CreditCard.ELLIPSIS + CreditCard.ELLIPSIS + CreditCard.ELLIPSIS +
                 creditCardFields.cardNumberLast4 +
-                CreditCard.ellipsesEnd,
+                CreditCard.ELLIPSES_END,
             creditCard.obfuscatedCardNumber,
         )
     }
@@ -137,6 +137,9 @@ class AutofillCreditCardsAddressesStorageTest {
         assertNotNull(savedCreditCard2)
         val savedCreditCard3 = creditCards.find { it == creditCard3 }
         assertNotNull(savedCreditCard3)
+
+        val count = storage.countAllCreditCards()
+        assertEquals(3, count)
 
         assertEquals(plaintextNumber1, storage.crypto.decrypt(key, savedCreditCard1!!.encryptedCardNumber))
         assertEquals(plaintextNumber2, storage.crypto.decrypt(key, savedCreditCard2!!.encryptedCardNumber))
@@ -318,6 +321,9 @@ class AutofillCreditCardsAddressesStorageTest {
         val address3 = storage.addAddress(addressFields3)
 
         val addresses = storage.getAllAddresses()
+
+        val count = storage.countAllAddresses()
+        assertEquals(3, count)
 
         val savedAddress1 = addresses.find { it == address1 }
         assertNotNull(savedAddress1)

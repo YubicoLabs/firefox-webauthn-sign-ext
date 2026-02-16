@@ -8,7 +8,7 @@
  */
 
 /**
- * @typedef {Object} Props
+ * @typedef {object} Props
  * @property {number} value
  * @property {React.ReactNode} label
  * @property {string} id
@@ -19,7 +19,7 @@
 "use strict";
 const {
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const {
   div,
   input,
@@ -28,7 +28,8 @@ const {
 
 /**
  * Provide a numeric range slider UI that works off of custom numeric scales.
- * @extends React.PureComponent<Props>
+ *
+ * @augments React.PureComponent<Props>
  */
 class Range extends PureComponent {
   /**

@@ -1,5 +1,4 @@
 #!/usr/bin/python3 -u
-# -*- coding: utf-8 -*-
 
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -13,7 +12,6 @@ the chromedrivers associated with Chrome for Testing. The `Canary`
 channel is specified as it is required for the Chromium-as-Release
 performance tests.
 """
-
 
 import argparse
 import errno
@@ -130,7 +128,7 @@ def fetch_chromedriver(download_url, cft_dir):
     cd_path = None
     for dirpath, _, filenames in os.walk(tmppath):
         for filename in filenames:
-            if filename == "chromedriver" or filename == "chromedriver.exe":
+            if filename in {"chromedriver", "chromedriver.exe"}:
                 cd_path = os.path.join(dirpath, filename)
                 break
         if cd_path is not None:
@@ -177,6 +175,15 @@ def get_version_from_json(data, channel):
     return data["channels"][channel]["version"].split(".")[0]
 
 
+def insert_channel_in_archive_name(filename, channel):
+    parts = filename.rsplit(".", maxsplit=2)
+    if len(parts) != 3:
+        raise ValueError(
+            f"Unexpected filename format: '{filename}'. Expected a file with two extensions (e.g., '.tar.bz2')."
+        )
+    return f"{parts[0]}-{channel.lower()}.{parts[1]}.{parts[2]}"
+
+
 def build_cft_archive(platform, channel, backup, version):
     """Download and store a chromedriver for a given platform."""
     upload_dir = os.environ.get("UPLOAD_DIR")
@@ -201,13 +208,16 @@ def build_cft_archive(platform, channel, backup, version):
         cft_chromedriver_url = get_cd_url(data, cft_platform, channel)
         revision = get_chromedriver_revision(data, channel)
         payload_version = get_version_from_json(data, channel)
-        tar_file = CHROME_FOR_TESTING_INFO[platform]["result"]
+        # For clarity, include channel in artifact name.
+        tar_file = insert_channel_in_archive_name(
+            CHROME_FOR_TESTING_INFO[platform]["result"], channel
+        )
     # Make a temporary location for the file
     tmppath = tempfile.mkdtemp()
 
     # Create the directory format expected for browsertime setup in taskgraph transform
     artifact_dir = CHROME_FOR_TESTING_INFO[platform]["dir"]
-    if backup or channel == "Stable":
+    if backup or channel in ("Stable", "Beta"):
         # need to prepend the major version to the artifact dir due to how raptor browsertime
         # ensures the correct version is used with chrome stable.
         artifact_dir = payload_version + artifact_dir

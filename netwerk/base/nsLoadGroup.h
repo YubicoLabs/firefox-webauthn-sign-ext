@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsLoadGroup_h__
-#define nsLoadGroup_h__
+#ifndef nsLoadGroup_h_
+#define nsLoadGroup_h_
 
 #include "nsILoadGroup.h"
 #include "nsILoadGroupChild.h"
@@ -119,9 +119,11 @@ class nsLoadGroup : public nsILoadGroup,
   mozilla::TimeStamp mDefaultRequestCreationTime;
   uint32_t mTimedRequests{0};
   uint32_t mCachedRequests{0};
+  uint64_t mPageSize{0};
+  uint64_t mTotalSubresourcesSize{0};
 };
 
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // nsLoadGroup_h__
+#endif  // nsLoadGroup_h_

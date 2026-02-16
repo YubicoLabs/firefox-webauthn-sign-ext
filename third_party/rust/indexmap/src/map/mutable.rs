@@ -1,8 +1,7 @@
 use core::hash::{BuildHasher, Hash};
 
 use super::{
-    Bucket, Entries, Entry, Equivalent, IndexMap, IndexedEntry, IterMut2, OccupiedEntry,
-    VacantEntry,
+    Bucket, Entry, Equivalent, IndexMap, IndexedEntry, IterMut2, OccupiedEntry, VacantEntry,
 };
 
 /// Opt-in mutable access to [`IndexMap`] keys.
@@ -10,7 +9,7 @@ use super::{
 /// These methods expose `&mut K`, mutable references to the key as it is stored
 /// in the map.
 /// You are allowed to modify the keys in the map **if the modification
-/// does not change the key’s hash and equality**.
+/// does not change the key's hash and equality**.
 ///
 /// If keys are modified erroneously, you can no longer look them up.
 /// This is sound (memory safe) but a logical error hazard (just like
@@ -32,7 +31,7 @@ pub trait MutableKeys: private::Sealed {
 
     /// Return mutable reference to key and value at an index.
     ///
-    /// Valid indices are *0 <= index < self.len()*
+    /// Valid indices are `0 <= index < self.len()`.
     ///
     /// Computes in **O(1)** time.
     fn get_index_mut2(&mut self, index: usize) -> Option<(&mut Self::Key, &mut Self::Value)>;
@@ -95,7 +94,7 @@ where
 /// These methods expose `&mut K`, mutable references to the key as it is stored
 /// in the map.
 /// You are allowed to modify the keys in the map **if the modification
-/// does not change the key’s hash and equality**.
+/// does not change the key's hash and equality**.
 ///
 /// If keys are modified erroneously, you can no longer look them up.
 /// This is sound (memory safe) but a logical error hazard (just like

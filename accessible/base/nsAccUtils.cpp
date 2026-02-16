@@ -91,6 +91,7 @@ void nsAccUtils::SetLiveContainerAttributes(AccAttributes* aAttributes,
       if (live.IsEmpty()) {
         // aria-live wasn't explicitly set. See if an aria-live value is implied
         // by an ARIA role or markup element.
+        MOZ_ASSERT(GetAccService());
         if (roleMap) {
           GetLiveAttrValue(roleMap->liveAttRule, live);
         } else if (nsStaticAtom* value = GetAccService()->MarkupAttribute(
@@ -158,7 +159,7 @@ nsStaticAtom* nsAccUtils::NormalizeARIAToken(const AttrArray* aAttrs,
 
   if (aAttr == nsGkAtoms::aria_current) {
     static AttrArray::AttrValuesArray tokens[] = {
-        nsGkAtoms::page, nsGkAtoms::step, nsGkAtoms::location_,
+        nsGkAtoms::page, nsGkAtoms::step, nsGkAtoms::location,
         nsGkAtoms::date, nsGkAtoms::time, nsGkAtoms::_true,
         nullptr};
     int32_t idx =
@@ -220,12 +221,12 @@ bool nsAccUtils::IsDOMAttrTrue(const LocalAccessible* aAccessible,
   return el && ARIAAttrValueIs(el, aAttr, nsGkAtoms::_true, eCaseMatters);
 }
 
-Accessible* nsAccUtils::TableFor(Accessible* aAcc) {
+Accessible* nsAccUtils::TableFor(const Accessible* aAcc) {
   if (!aAcc ||
       (!aAcc->IsTable() && !aAcc->IsTableRow() && !aAcc->IsTableCell())) {
     return nullptr;
   }
-  Accessible* table = aAcc;
+  Accessible* table = const_cast<Accessible*>(aAcc);
   for (; table && !table->IsTable(); table = table->Parent()) {
   }
   // We don't assert (table && table->IsTable()) here because
@@ -422,7 +423,8 @@ bool nsAccUtils::MustPrune(Accessible* aAccessible) {
   MOZ_ASSERT(aAccessible);
   roles::Role role = aAccessible->Role();
 
-  if (role == roles::SLIDER || role == roles::PROGRESSBAR) {
+  if (role == roles::SLIDER || role == roles::PROGRESSBAR ||
+      role == roles::METER) {
     // Always prune the tree for sliders and progressbars, as it doesn't make
     // sense for either to have descendants. Per the ARIA spec, children of
     // these elements are presentational. They also confuse NVDA.
@@ -455,8 +457,10 @@ void nsAccUtils::GetLiveRegionSetting(Accessible* aAcc, nsAString& aLive) {
   // by an ARIA role or markup element.
   if (const nsRoleMapEntry* roleMap = aAcc->ARIARoleMap()) {
     GetLiveAttrValue(roleMap->liveAttRule, aLive);
-  } else if (nsStaticAtom* value =
-                 GetAccService()->MarkupAttribute(aAcc, nsGkAtoms::aria_live)) {
+  } else if (nsStaticAtom* value = GetAccService()
+                                       ? GetAccService()->MarkupAttribute(
+                                             aAcc, nsGkAtoms::aria_live)
+                                       : nullptr) {
     value->ToString(aLive);
   }
 }
@@ -575,20 +579,19 @@ const nsAttrValue* nsAccUtils::GetARIAAttr(dom::Element* aElement,
   return defaults->GetAttr(aName, kNameSpaceID_None);
 }
 
-bool nsAccUtils::GetARIAElementsAttr(dom::Element* aElement, nsAtom* aName,
-                                     nsTArray<dom::Element*>& aElements) {
+Maybe<nsTArray<RefPtr<dom::Element>>> nsAccUtils::GetARIAElementsAttr(
+    dom::Element* aElement, nsAtom* aName) {
   if (aElement->HasAttr(aName)) {
-    aElement->GetExplicitlySetAttrElements(aName, aElements);
-    return true;
+    return aElement->GetExplicitlySetAttrElements(aName);
   }
 
   if (auto* element = nsGenericHTMLElement::FromNode(aElement)) {
     if (auto* internals = element->GetInternals()) {
-      return internals->GetAttrElements(aName, aElements);
+      return internals->GetAttrElements(aName);
     }
   }
 
-  return false;
+  return Nothing();
 }
 
 bool nsAccUtils::ARIAAttrValueIs(dom::Element* aElement, const nsAtom* aName,
@@ -646,4 +649,30 @@ bool nsAccUtils::IsEditableARIACombobox(const LocalAccessible* aAccessible) {
 
   return aAccessible->IsTextField() ||
          aAccessible->Elm()->State().HasState(dom::ElementState::READWRITE);
+}
+
+bool nsAccUtils::IsValidDetailsTargetForAnchor(const Accessible* aTarget,
+                                               const Accessible* aAnchor) {
+  if (aAnchor->IsAncestorOf(aTarget)) {
+    // If the anchor is a parent of the target, the target is not valid
+    // relation.
+    return false;
+  }
+
+  Accessible* nextSibling = aAnchor->NextSibling();
+  if (nextSibling && nextSibling->IsTextLeaf()) {
+    nsAutoString text;
+    nextSibling->Name(text);
+    if (nsCoreUtils::IsWhitespaceString(text)) {
+      nextSibling = nextSibling->NextSibling();
+    }
+  }
+
+  if (nextSibling == aTarget) {
+    // If the target is the next sibling of the anchor (ignoring whitespace
+    // text nodes), the target is not a valid relation.
+    return false;
+  }
+
+  return true;
 }

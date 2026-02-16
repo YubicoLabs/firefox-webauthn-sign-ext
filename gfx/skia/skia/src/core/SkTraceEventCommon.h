@@ -184,8 +184,6 @@ public:
         gUsePerfettoTrackEvents = usePerfettoTrackEvents;
         return true;
 #else // !SK_ANDROID_FRAMEWORK_USE_PERFETTO
-        // Note: please reach out to skia-android@google.com if you encounter this unexpectedly.
-        SkDebugf("Tracing Skia with Perfetto is not supported in this environment (host build?)");
         return false;
 #endif // SK_ANDROID_FRAMEWORK_USE_PERFETTO
     }
@@ -242,6 +240,10 @@ static inline void sk_noop(Args...) {}
     #define TRACE_EVENT_INSTANT0(cg, n, scope) TRACE_EMPTY(cg, n, scope)
     #define TRACE_EVENT_INSTANT1(cg, n, scope, a1n, a1v) TRACE_EMPTY(cg, n, scope, a1n, a1v)
     #define TRACE_EVENT_INSTANT2(cg, n, scope, a1n, a1v, a2n, a2v)  \
+        TRACE_EMPTY(cg, n, scope, a1n, a1v, a2n, a2v)
+    #define TRACE_EVENT_INSTANT0_ALWAYS(cg, n, scope) TRACE_EMPTY(cg, n, scope)
+    #define TRACE_EVENT_INSTANT1_ALWAYS(cg, n, scope, a1n, a1v) TRACE_EMPTY(cg, n, scope, a1n, a1v)
+    #define TRACE_EVENT_INSTANT2_ALWAYS(cg, n, scope, a1n, a1v, a2n, a2v)  \
         TRACE_EMPTY(cg, n, scope, a1n, a1v, a2n, a2v)
     #define TRACE_EVENT_OBJECT_CREATED_WITH_ID(cg, n, id) TRACE_EMPTY(cg, n, id)
     #define TRACE_EVENT_OBJECT_SNAPSHOT_WITH_ID(cg, n, id, ss) TRACE_EMPTY(cg, n, id, ss)
@@ -533,6 +535,27 @@ namespace skia_private {
     do { TRACE_EVENT_ATRACE_OR_PERFETTO(category_group, name, arg1_name, arg1_val,  \
                                         arg2_name, arg2_val); } while(0)
 
+// As above but appends the ".always" suffix
+#define TRACE_EVENT_INSTANT0_ALWAYS(category_group, name, scope) \
+    do { TRACE_EVENT_ATRACE_OR_PERFETTO_FORCEABLE(               \
+        /* force_always_trace = */ true, category_group ".always", name); } while(0)
+
+#define TRACE_EVENT_INSTANT1_ALWAYS(category_group, name, scope, arg1_name, arg1_val)          \
+    do { TRACE_EVENT_ATRACE_OR_PERFETTO_FORCEABLE(                                             \
+        /* force_always_trace = */ true, category_group ".always", name, arg1_name, arg1_val); \
+    } while(0)
+
+#define TRACE_EVENT_INSTANT2_ALWAYS(category_group, name, scope, arg1_name, arg1_val, \
+                                    arg2_name, arg2_val)                              \
+    do { TRACE_EVENT_ATRACE_OR_PERFETTO_FORCEABLE(/* force_always_trace = */ true,    \
+                                                  category_group,                     \
+                                                  name,                               \
+                                                  arg1_name,                          \
+                                                  arg1_val,                           \
+                                                  arg2_name,                          \
+                                                  arg2_val);                          \
+    } while(0)
+
 // Records the value of a counter called "name" immediately. Value
 // must be representable as a 32 bit integer.
 #define TRACE_COUNTER1(category_group, name, value)                     \
@@ -616,6 +639,20 @@ namespace skia_private {
                              arg2_name, arg2_val)                              \
   INTERNAL_TRACE_EVENT_ADD(TRACE_EVENT_PHASE_INSTANT, category_group, name,    \
                            TRACE_EVENT_FLAG_NONE | scope, arg1_name, arg1_val, \
+                           arg2_name, arg2_val)
+
+#define TRACE_EVENT_INSTANT0_ALWAYS(category_group, name, scope)            \
+  INTERNAL_TRACE_EVENT_ADD(TRACE_EVENT_PHASE_INSTANT, category_group, name, \
+                           TRACE_EVENT_FLAG_NONE | scope)
+
+#define TRACE_EVENT_INSTANT1_ALWAYS(category_group, name, scope, arg1_name, arg1_val) \
+  INTERNAL_TRACE_EVENT_ADD(TRACE_EVENT_PHASE_INSTANT, category_group, name,           \
+                           TRACE_EVENT_FLAG_NONE | scope, arg1_name, arg1_val)
+
+#define TRACE_EVENT_INSTANT2_ALWAYS(category_group, name, scope, arg1_name, arg1_val, \
+                             arg2_name, arg2_val)                                     \
+  INTERNAL_TRACE_EVENT_ADD(TRACE_EVENT_PHASE_INSTANT, category_group, name,           \
+                           TRACE_EVENT_FLAG_NONE | scope, arg1_name, arg1_val,        \
                            arg2_name, arg2_val)
 
 // Records the value of a counter called "name" immediately. Value

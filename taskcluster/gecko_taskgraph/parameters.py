@@ -21,7 +21,7 @@ gecko_parameters_schema = {
     Required("build_number"): int,
     Required("enable_always_target"): Any(bool, [str]),
     Required("files_changed"): [str],
-    Required("hg_branch"): str,
+    Required("hg_branch"): Any(None, str),
     Required("message"): str,
     Required("next_version"): Any(None, str),
     Required("optimize_strategies"): Any(None, str),
@@ -40,11 +40,9 @@ gecko_parameters_schema = {
     Required("signoff_urls"): dict,
     Required("test_manifest_loader"): str,
     Required("try_mode"): Any(None, str),
-    Required("try_options"): Any(None, dict),
     Required("try_task_config"): {
         Optional("tasks"): [str],
         Optional("browsertime"): bool,
-        Optional("chemspill-prio"): bool,
         Optional("disable-pgo"): bool,
         Optional("env"): {str: str},
         Optional("gecko-profile"): bool,
@@ -52,6 +50,21 @@ gecko_parameters_schema = {
         Optional("gecko-profile-entries"): int,
         Optional("gecko-profile-features"): str,
         Optional("gecko-profile-threads"): str,
+        Optional(
+            "github",
+            description="Github pull request triggering a code-review analysis",
+        ): {
+            Required("branch", description="Pull request branch name"): str,
+            Required(
+                "pull_head_sha", description="Pull request head commit identifier"
+            ): str,
+            Required(
+                "pull_number", description="Pull request public numerical ID"
+            ): int,
+            Required(
+                "repo_url", description="Targeted Mozilla repository on Github"
+            ): str,
+        },
         Optional(
             "new-test-config",
             description="adjust parameters, chunks, etc. to speed up the process "
@@ -72,6 +85,7 @@ gecko_parameters_schema = {
             description="Record an rr trace on supported tasks using the Pernosco debugging "
             "service.",
         ): bool,
+        Optional("priority"): Any("lowest", "very-low", "low"),
         Optional("rebuild"): int,
         Optional("tasks-regex"): {
             "include": Any(None, [str]),
@@ -89,11 +103,12 @@ gecko_parameters_schema = {
         Optional("routes"): [str],
     },
     Required("version"): str,
+    Optional("head_git_rev"): str,
 }
 
 
 def get_contents(path):
-    with open(path, "r") as fh:
+    with open(path) as fh:
         contents = fh.readline().rstrip()
     return contents
 
@@ -141,7 +156,6 @@ def get_defaults(repo_root=None):
         "signoff_urls": {},
         "test_manifest_loader": "default",
         "try_mode": None,
-        "try_options": None,
         "try_task_config": {},
         "version": get_version(),
     }

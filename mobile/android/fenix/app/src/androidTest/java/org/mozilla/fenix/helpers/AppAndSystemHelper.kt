@@ -5,25 +5,24 @@
 
 package org.mozilla.fenix.helpers
 
-import android.Manifest
 import android.app.ActivityManager
-import android.app.LocaleManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.os.LocaleList
 import android.os.storage.StorageManager
 import android.os.storage.StorageVolume
 import android.provider.Settings
 import android.util.Log
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.core.net.toUri
+import androidx.core.os.LocaleListCompat
 import androidx.test.espresso.Espresso
 import androidx.test.espresso.IdlingRegistry
 import androidx.test.espresso.IdlingResource
@@ -31,13 +30,14 @@ import androidx.test.espresso.intent.Intents.intended
 import androidx.test.espresso.intent.matcher.IntentMatchers.toPackage
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ActivityTestRule
-import androidx.test.runner.permission.PermissionRequester
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiObject
 import androidx.test.uiautomator.UiSelector
 import androidx.test.uiautomator.Until
 import junit.framework.AssertionFailedError
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import mozilla.appservices.places.BookmarkRoot
 import mozilla.components.browser.storage.sync.PlacesBookmarksStorage
 import mozilla.components.browser.storage.sync.PlacesHistoryStorage
@@ -45,15 +45,17 @@ import mozilla.components.support.locale.LocaleManager.resetToSystemDefault
 import mozilla.components.support.locale.LocaleManager.setNewLocale
 import org.junit.Assert
 import org.junit.Assert.assertEquals
-import org.mozilla.fenix.Config
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.components.PermissionStorage
 import org.mozilla.fenix.customtabs.ExternalAppBrowserActivity
+import org.mozilla.fenix.debugsettings.data.DefaultDebugSettingsRepository
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.helpers.Constants.PackageName.PIXEL_LAUNCHER
 import org.mozilla.fenix.helpers.Constants.PackageName.YOUTUBE_APP
 import org.mozilla.fenix.helpers.Constants.TAG
+import org.mozilla.fenix.helpers.MatcherHelper.assertUIObjectExists
 import org.mozilla.fenix.helpers.MatcherHelper.itemContainingText
+import org.mozilla.fenix.helpers.MatcherHelper.itemWithPackageNameAndDescription
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithResId
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithResIdContainingText
 import org.mozilla.fenix.helpers.NetworkConnectionStatusHelper.checkActiveNetworkState
@@ -73,11 +75,10 @@ import java.util.regex.Pattern
 object AppAndSystemHelper {
 
     private val bookmarksStorage = PlacesBookmarksStorage(appContext.applicationContext)
-    suspend fun bookmarks() = bookmarksStorage.getTree(BookmarkRoot.Mobile.id)?.children
+    suspend fun bookmarks() = bookmarksStorage.getTree(BookmarkRoot.Mobile.id).getOrNull()?.children
     fun getPermissionAllowID(): String {
         Log.i(TAG, "getPermissionAllowID: Trying to get the permission button resource ID based on API.")
-        return when
-            (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+        return when (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
             true -> {
                 Log.i(TAG, "getPermissionAllowID: Getting the permission button resource ID for API ${Build.VERSION.SDK_INT}.")
                 "com.android.permissioncontroller"
@@ -160,7 +161,7 @@ object AppAndSystemHelper {
                         "clearDownloadsFolder: Before cleanup: Downloads storage contains: ${files.size} file(s).",
                     )
                     // Delete all files in the folder
-                    for (file in files!!) {
+                    for (file in files) {
                         Log.i(
                             TAG,
                             "clearDownloadsFolder: Trying to delete $file from \"DOWNLOADS\" folder.",
@@ -251,72 +252,78 @@ object AppAndSystemHelper {
 
         when (enabled) {
             true -> {
-                Log.i(
-                    TAG,
-                    "setNetworkEnabled: Trying to enable the network connection.",
-                )
+                Log.i(TAG, "setNetworkEnabled: Trying to enable the network connection.")
                 mDevice.executeShellCommand("svc data enable")
-                Log.i(
-                    TAG,
-                    "setNetworkEnabled: Data network connection enable command sent.",
-                )
+                Log.i(TAG, "setNetworkEnabled: Data network connection enable command sent.")
                 mDevice.executeShellCommand("svc wifi enable")
-                Log.i(
-                    TAG,
-                    "setNetworkEnabled: Wifi network connection enable command sent.",
-                )
+                Log.i(TAG, "setNetworkEnabled: Wifi network connection enable command sent.")
 
                 // Wait for network connection to be completely enabled
                 Log.i(TAG, "setNetworkEnabled: Waiting for connection to be enabled.")
-                IdlingRegistry.getInstance().register(networkConnectedIdlingResource)
-                Espresso.onIdle {
-                    IdlingRegistry.getInstance().unregister(networkConnectedIdlingResource)
-                }
-                Log.i(TAG, "setNetworkEnabled: Network connection was enabled.")
 
-                // Register the TimerIdlingResource
-                IdlingRegistry.getInstance().register(enableNetworkTimerIdlingResource)
+                // Wait until both idling resources are idle
+                val registered = IdlingRegistry.getInstance().register(
+                    networkConnectedIdlingResource,
+                    enableNetworkTimerIdlingResource,
+                )
 
-                // Wait for the TimerIdlingResource to become idle
-                Espresso.onIdle {
-                    IdlingRegistry.getInstance().unregister(networkConnectedIdlingResource)
-                    // Check the active network state
-                    checkActiveNetworkState(enabled = true)
+                Log.i(TAG, "setNetworkEnabled: Trying to verify that the idling resources for enabling the connection are registered.")
+                if (registered) {
+                    Log.i(TAG, "setNetworkEnabled: Verified that the idling resources for enabling the connection are registered.")
+                    Espresso.onIdle {
+                        // Unregister resources after they become idle
+                        val unregistered = IdlingRegistry.getInstance().unregister(
+                            networkConnectedIdlingResource,
+                            enableNetworkTimerIdlingResource,
+                        )
+                        Log.i(TAG, "setNetworkEnabled: Trying to verify that the idling resources for enabling the connection are unregistered.")
+                        if (unregistered) {
+                            Log.i(TAG, "setNetworkEnabled: Verified that the idling resources for enabling the connection are unregistered.")
+                            Log.i(TAG, "setNetworkEnabled: Network connection was enabled.")
+                            checkActiveNetworkState(enabled = true)
+                        } else {
+                            Log.i(TAG, "setNetworkEnabled: Failed to unregister the idling resources for enabling the connection.")
+                        }
+                    }
+                } else {
+                    Log.i(TAG, "setNetworkEnabled: Failed to register idling resources for enabling the connection.")
                 }
             }
 
             false -> {
-                Log.i(
-                    TAG,
-                    "setNetworkEnabled: Trying to disable the network connection.",
-                )
+                Log.i(TAG, "setNetworkEnabled: Trying to disable the network connection.")
                 mDevice.executeShellCommand("svc data disable")
-                Log.i(
-                    TAG,
-                    "setNetworkEnabled: Data network connection disable command sent.",
-                )
+                Log.i(TAG, "setNetworkEnabled: Data network connection disable command sent.")
                 mDevice.executeShellCommand("svc wifi disable")
-                Log.i(
-                    TAG,
-                    "setNetworkEnabled: Wifi network connection disable command sent.",
-                )
+                Log.i(TAG, "setNetworkEnabled: Wifi network connection disable command sent.")
 
                 // Wait for network connection to be completely disabled
                 Log.i(TAG, "setNetworkEnabled: Waiting for connection to be disabled.")
-                IdlingRegistry.getInstance().register(networkDisconnectedIdlingResource)
-                Espresso.onIdle {
-                    IdlingRegistry.getInstance().unregister(networkDisconnectedIdlingResource)
-                }
-                Log.i(TAG, "setNetworkEnabled: Network connection was disabled.")
 
-                // Register the TimerIdlingResource
-                IdlingRegistry.getInstance().register(enableNetworkTimerIdlingResource)
+                val registered = IdlingRegistry.getInstance().register(
+                    networkDisconnectedIdlingResource,
+                    disableNetworkTimerIdlingResource,
+                )
 
-                // Wait for the TimerIdlingResource to become idle
-                Espresso.onIdle {
-                    IdlingRegistry.getInstance().unregister(disableNetworkTimerIdlingResource)
-                    // Check the active network state
-                    checkActiveNetworkState(enabled = false)
+                Log.i(TAG, "setNetworkEnabled: Trying to verify that the idling resources for disabling the connection are registered.")
+                if (registered) {
+                    Log.i(TAG, "setNetworkEnabled: Verified that the idling resources for disabling the connection are registered.")
+                    Espresso.onIdle {
+                        val unregistered = IdlingRegistry.getInstance().unregister(
+                            networkDisconnectedIdlingResource,
+                            disableNetworkTimerIdlingResource,
+                        )
+                        Log.i(TAG, "setNetworkEnabled: Trying to verify that the idling resources for disabling the connection are unregistered.")
+                        if (unregistered) {
+                            Log.i(TAG, "setNetworkEnabled: Verified that the idling resources for disabling the connection are unregistered.")
+                            Log.i(TAG, "setNetworkEnabled: Network connection was disabled.")
+                            checkActiveNetworkState(enabled = false)
+                        } else {
+                            Log.i(TAG, "setNetworkEnabled: Failed to unregister the idling resources for disabling the connection.")
+                        }
+                    }
+                } else {
+                    Log.i(TAG, "setNetworkEnabled: Failed to register idling resources for disabling the connection.")
                 }
             }
         }
@@ -375,7 +382,7 @@ object AppAndSystemHelper {
         }
     }
 
-    fun assertNativeAppOpens(appPackageName: String, url: String = "") {
+    fun assertNativeAppOpens(composeTestRule: ComposeTestRule, appPackageName: String, url: String = "") {
         if (isPackageInstalled(appPackageName)) {
             Log.i(TAG, "assertNativeAppOpens: Waiting for the device to be idle $waitingTimeShort ms.")
             mDevice.waitForIdle(waitingTimeShort)
@@ -392,7 +399,7 @@ object AppAndSystemHelper {
             forceCloseApp(appPackageName)
         } else {
             Log.i(TAG, "assertNativeAppOpens: Trying to verify the page redirect URL.")
-            BrowserRobot().verifyUrl(url)
+            BrowserRobot(composeTestRule).verifyUrl(url)
             Log.i(TAG, "assertNativeAppOpens: Verified the page redirect URL.")
         }
     }
@@ -482,16 +489,14 @@ object AppAndSystemHelper {
                     .className("android.widget.Button"),
             )
 
-        if (Build.VERSION.SDK_INT >= 23) {
-            if (whileUsingTheAppPermissionButton.waitForExists(waitingTimeShort)) {
-                Log.i(TAG, "grantSystemPermission: Trying to click the \"While using the app\" button.")
-                whileUsingTheAppPermissionButton.click()
-                Log.i(TAG, "grantSystemPermission: Clicked the \"While using the app\" button.")
-            } else if (allowPermissionButton.waitForExists(waitingTimeShort)) {
-                Log.i(TAG, "grantSystemPermission: Trying to click the \"Allow\" button.")
-                allowPermissionButton.click()
-                Log.i(TAG, "grantSystemPermission: Clicked the \"Allow\" button.")
-            }
+        if (whileUsingTheAppPermissionButton.waitForExists(waitingTimeShort)) {
+            Log.i(TAG, "grantSystemPermission: Trying to click the \"While using the app\" button.")
+            whileUsingTheAppPermissionButton.click()
+            Log.i(TAG, "grantSystemPermission: Clicked the \"While using the app\" button.")
+        } else if (allowPermissionButton.waitForExists(waitingTimeShort)) {
+            Log.i(TAG, "grantSystemPermission: Trying to click the \"Allow\" button.")
+            allowPermissionButton.click()
+            Log.i(TAG, "grantSystemPermission: Clicked the \"Allow\" button.")
         }
     }
 
@@ -503,6 +508,16 @@ object AppAndSystemHelper {
         Log.i(TAG, "denyPermission: Trying to click the negative camera system permission button.")
         itemWithResId("com.android.permissioncontroller:id/permission_deny_button").click()
         Log.i(TAG, "denyPermission: Clicked the negative camera system permission button.")
+    }
+
+    fun verifySystemPhotoAndVideoPickerExists() {
+        assertUIObjectExists(itemWithResId("com.google.android.providers.media.module:id/bottom_sheet"))
+    }
+
+    fun closeSystemPhotoAndVideoPicker() {
+        Log.i(TAG, "closeSystemPhotoAndVideoPicker: Trying to click the system photo picker close button")
+        itemWithPackageNameAndDescription("com.google.android.providers.media.module", "Cancel").click()
+        Log.i(TAG, "closeSystemPhotoAndVideoPicker: Clicked the system photo picker close button")
     }
 
     fun clickSystemHomeScreenShortcutAddButton() {
@@ -542,83 +557,30 @@ object AppAndSystemHelper {
     }
 
     /**
-     * Changes the default language of the entire device, not just the app.
+     * Changes the default language of the app, simulating a system locale change.
      * Runs the test in its testBlock.
-     * Cleans up and sets the default locale after it's done.
+     * Cleans up and sets the system default locale after it's done.
      */
-    fun runWithSystemLocaleChanged(locale: Locale, testRule: ActivityTestRule<HomeActivity>, testBlock: () -> Unit) {
-        val defaultLocale = Locale.getDefault()
-        Log.i(TAG, "runWithSystemLocaleChanged: Storing the default locale $defaultLocale.")
+    fun runWithSystemLocaleChanged(locale: LocaleListCompat, testBlock: () -> Unit) {
+        Log.i(TAG, "runWithSystemLocaleChanged: Trying to set the locale.")
+        ThreadUtils.runOnUiThread {
+            AppCompatDelegate.setApplicationLocales(locale)
+        }
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
         try {
-            Log.i(TAG, "runWithSystemLocaleChanged: Trying to set the locale.")
-            setSystemLocale(locale)
-            // We need to recreate the activity to apply the new locale
-            Log.i(TAG, "runWithSystemLocaleChanged: Recreating the activity to apply the new locale.")
-            ThreadUtils.runOnUiThread { testRule.activity.recreate() }
-            Log.i(TAG, "runWithSystemLocaleChanged: Running the test block.")
+            Log.i(TAG, "Running the test block after locale change.")
             testBlock()
-            Log.i(TAG, "runWithSystemLocaleChanged: Test block finished.")
+            Log.i(TAG, "Test block finished.")
         } catch (e: Exception) {
-            Log.i(TAG, "runWithSystemLocaleChanged: The test block has thrown an exception.${e.message}")
+            Log.i(
+                TAG,
+                "runWithSystemLocaleChanged: The test block has thrown an exception.${e.message}",
+            )
             e.printStackTrace()
             throw e
         } finally {
-            Log.i(TAG, "runWithSystemLocaleChanged final block: Trying to reset the locale to default $defaultLocale.")
-            setSystemLocale(defaultLocale)
-            // We need to recreate the activity to apply the new locale
-            Log.i(TAG, "runWithSystemLocaleChanged final block: Recreating the activity to apply the new locale.")
-            ThreadUtils.runOnUiThread { testRule.activity.recreate() }
-            Log.i(TAG, "runWithSystemLocaleChanged final block: Locale set back to default $defaultLocale.")
-        }
-    }
-
-    /**
-     * Changes the default language of the system, not just the app.
-     * We can only use this if we're running on a debug build, otherwise it will change the permission manifests in release builds.
-     */
-    private fun setSystemLocale(locale: Locale) {
-        if (Config.channel.isDebug) {
-            /* Sets permission to change device language */
-            Log.i(
-                TAG,
-                "setSystemLocale: Requesting permission to change system locale to $locale.",
-            )
-            PermissionRequester().apply {
-                addPermissions(
-                    Manifest.permission.CHANGE_CONFIGURATION,
-                )
-                requestPermissions()
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                Log.i(
-                    TAG,
-                    "setSystemLocale: Trying to change system locale to $locale on API ${Build.VERSION.SDK_INT}.",
-                )
-
-                val localeManager = appContext.getSystemService(Context.LOCALE_SERVICE) as LocaleManager
-                localeManager.applicationLocales = LocaleList(locale)
-            } else {
-                Log.i(
-                    TAG,
-                    "setSystemLocale: Trying to change system locale to $locale on API ${Build.VERSION.SDK_INT}.",
-                )
-                val activityManagerNative = Class.forName("android.app.ActivityManagerNative")
-                val am = activityManagerNative.getMethod("getDefault", *arrayOfNulls(0))
-                    .invoke(activityManagerNative, *arrayOfNulls(0))
-                val config =
-                    InstrumentationRegistry.getInstrumentation().context.resources.configuration
-                config.javaClass.getDeclaredField("locale")[config] = locale
-                config.javaClass.getDeclaredField("userSetLocale").setBoolean(config, true)
-                am.javaClass.getMethod(
-                    "updateConfiguration",
-                    Configuration::class.java,
-                ).invoke(am, config)
-            }
-            Log.i(
-                TAG,
-                "setSystemLocale: Changed system locale to $locale.",
-            )
+            ThreadUtils.runOnUiThread { AppCompatDelegate.setApplicationLocales(LocaleListCompat.getEmptyLocaleList()) }
         }
     }
 
@@ -703,24 +665,46 @@ object AppAndSystemHelper {
         Log.i(TAG, "verifyKeyboardVisibility: Verified the keyboard is visible.")
     }
 
-    fun openAppFromExternalLink(url: String) {
-        val context = InstrumentationRegistry.getInstrumentation().getTargetContext()
-        val intent = Intent().apply {
-            action = Intent.ACTION_VIEW
-            data = Uri.parse(url)
+    fun openAppFromExternalLink(
+        composeTestRule: AndroidComposeTestRule<HomeActivityIntentTestRule, HomeActivity>,
+        url: String,
+    ) {
+        val intent = Intent(Intent.ACTION_VIEW, url.toUri()).apply {
             `package` = TestHelper.packageName
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
+
         try {
-            Log.i(TAG, "openAppFromExternalLink: Trying to start the activity from an external intent.")
-            context.startActivity(intent)
-            Log.i(TAG, "openAppFromExternalLink: Activity started from an external intent.")
-        } catch (ex: ActivityNotFoundException) {
-            Log.i(TAG, "openAppFromExternalLink: Exception caught. Trying to start the activity from a null intent.")
-            intent.setPackage(null)
-            context.startActivity(intent)
-            Log.i(TAG, "openAppFromExternalLink: Started the activity from a null intent.")
+            // Case 1: The app is already running and Compose has a host activity.
+            // Launch the external intent from the existing activity so the
+            // ComposeTestRule can properly track the Compose hierarchy.
+            Log.i(TAG, "openAppFromExternalLink: Host activity exists, launching external intent from activity.")
+            composeTestRule.activity.startActivity(intent)
+        } catch (e: IllegalStateException) {
+            // Case 2: The host activity was finished (cold start scenario).
+            // ComposeTestRule no longer has an activity, so we fall back to
+            // launching the intent from the instrumentation context.
+            Log.i(TAG, "openAppFromExternalLink: No host activity found. Launching external intent from instrumentation context.")
+
+            val context = InstrumentationRegistry
+                .getInstrumentation()
+                .targetContext
+
+            try {
+                context.startActivity(intent)
+                Log.i(TAG, "openAppFromExternalLink: Activity started from instrumentation context.")
+            } catch (ex: ActivityNotFoundException) {
+                // Fallback in case the explicit package cannot handle the intent.
+                Log.i(TAG, "openAppFromExternalLink: ActivityNotFoundException caught. Retrying with null package.")
+                intent.`package` = null
+                context.startActivity(intent)
+                Log.i(TAG, "openAppFromExternalLink: Activity started with null package.")
+            }
         }
+
+        // Ensure Compose has fully settled before any UI assertions or robot actions.
+        composeTestRule.waitForIdle()
+        Log.i(TAG, "openAppFromExternalLink: Compose is idle and ready for assertions.")
     }
 
     /**
@@ -816,5 +800,9 @@ object AppAndSystemHelper {
 
         Log.i(TAG, "isNetworkConnected: Checking if network is connected: $isConnected")
         return isConnected
+    }
+
+    suspend fun disableDebugDrawer() = withContext(Dispatchers.IO) {
+        DefaultDebugSettingsRepository(context = appContext, writeScope = this).setDebugDrawerEnabled(false)
     }
 }

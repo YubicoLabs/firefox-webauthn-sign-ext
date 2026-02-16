@@ -17,8 +17,6 @@
 #include <aom/aom_decoder.h>
 #include "dav1d/dav1d.h"
 
-#include "mozilla/Telemetry.h"
-
 namespace mozilla {
 namespace image {
 class RasterImage;
@@ -97,10 +95,10 @@ class AVIFDecoderStream : public ByteStream {
  public:
   explicit AVIFDecoderStream(Vector<uint8_t>* aBuffer) { mBuffer = aBuffer; }
 
-  virtual bool ReadAt(int64_t offset, void* data, size_t size,
-                      size_t* bytes_read) override;
-  virtual bool CachedReadAt(int64_t offset, void* data, size_t size,
-                            size_t* bytes_read) override {
+  virtual nsresult ReadAt(int64_t offset, void* data, size_t size,
+                          size_t* bytes_read) override;
+  virtual nsresult CachedReadAt(int64_t offset, void* data, size_t size,
+                                size_t* bytes_read) override {
     return ReadAt(offset, data, size, bytes_read);
   };
   virtual bool Length(int64_t* size) override;
@@ -121,8 +119,7 @@ struct AVIFImage {
 class AVIFParser {
  public:
   static Mp4parseStatus Create(const Mp4parseIo* aIo, ByteStream* aBuffer,
-                               UniquePtr<AVIFParser>& aParserOut,
-                               bool aAllowSequences, bool aAnimateAVIFMajor);
+                               UniquePtr<AVIFParser>& aParserOut);
 
   ~AVIFParser();
 
@@ -137,8 +134,7 @@ class AVIFParser {
  private:
   explicit AVIFParser(const Mp4parseIo* aIo);
 
-  Mp4parseStatus Init(ByteStream* aBuffer, bool aAllowSequences,
-                      bool aAnimateAVIFMajor);
+  Mp4parseStatus Init(ByteStream* aBuffer);
 
   struct FreeAvifParser {
     void operator()(Mp4parseAvifParser* aPtr) { mp4parse_avif_free(aPtr); }

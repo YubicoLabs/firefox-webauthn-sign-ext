@@ -2,13 +2,12 @@
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
-includes: [compareArray.js, sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
+includes: [compareArray.js]
 description: |
   pending
 esid: pending
 ---*/
+
 // BigInt literals as property keys.
 {
   let o = {
@@ -200,6 +199,5 @@ esid: pending
 
   assert.sameValue(o[10].name, "10");
 }
-
 
 reportCompare(0, 0);

@@ -16,14 +16,15 @@
   <html:link rel="localization" href="browser/menubar.ftl"/>
   <html:link rel="localization" href="browser/reportBrokenSite.ftl"/>
   <html:link rel="localization" href="browser/screenshots.ftl"/>
+  <html:link rel="localization" href="preview/aiWindow.ftl"/>
   <html:link rel="localization" href="toolkit/branding/brandings.ftl"/>
   <html:link rel="localization" href="toolkit/global/textActions.ftl"/>
 </linkset>
 
 # All JS files which are needed by browser.xhtml and other top level windows to
-# support MacOS specific features *must* go into the global-scripts.inc file so
+# support MacOS specific features *must* go into the global-scripts.js file so
 # that they can be shared with browser.xhtml.
-#include global-scripts.inc
+<script src="chrome://browser/content/global-scripts.js"></script>
 
 <script src="chrome://browser/content/nonbrowser-mac.js"></script>
 

@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef ApplicationReputation_h__
-#define ApplicationReputation_h__
+#ifndef ApplicationReputation_h_
+#define ApplicationReputation_h_
 
 #include "nsIApplicationReputation.h"
 #include "nsISupports.h"
@@ -25,7 +25,7 @@ class ApplicationReputationService final
   NS_DECL_NSIAPPLICATIONREPUTATIONSERVICE
 
  public:
-  static const char* const kNonBinaryExecutables[5];
+  static const char* const kNonBinaryExecutables[6];
 #ifdef XP_WIN
   static const char* const kBinaryFileExtensions[184];
 #else
@@ -57,4 +57,4 @@ class ApplicationReputationService final
   nsresult QueryReputationInternal(nsIApplicationReputationQuery* aQuery,
                                    nsIApplicationReputationCallback* aCallback);
 };
-#endif /* ApplicationReputation_h__ */
+#endif /* ApplicationReputation_h_ */

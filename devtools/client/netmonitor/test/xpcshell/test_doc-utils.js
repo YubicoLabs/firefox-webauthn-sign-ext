@@ -9,13 +9,13 @@ function run_test() {
   const { require } = ChromeUtils.importESModule(
     "resource://devtools/shared/loader/Loader.sys.mjs"
   );
+  const { getMdnLinkParams } = ChromeUtils.importESModule(
+    "resource://devtools/shared/mdn.mjs"
+  );
+
   const MDN_URL = "https://developer.mozilla.org/docs/";
-  const GTM_PARAMS_NM =
-    "?utm_source=mozilla" +
-    "&utm_medium=devtools-netmonitor&utm_campaign=default";
-  const GTM_PARAMS_WC =
-    "?utm_source=mozilla" +
-    "&utm_medium=devtools-webconsole&utm_campaign=default";
+  const GTM_PARAMS_NM = `?${getMdnLinkParams("devtools-netmonitor")}`;
+  const GTM_PARAMS_WC = `?${getMdnLinkParams("devtools-webconsole")}`;
   const USER_DOC_URL = "https://firefox-source-docs.mozilla.org/devtools-user/";
 
   const {
@@ -29,7 +29,7 @@ function run_test() {
   info("Checking for supported headers");
   equal(
     getHeadersURL("Accept"),
-    `${MDN_URL}Web/HTTP/Headers/Accept${GTM_PARAMS_NM}`
+    `${MDN_URL}Web/HTTP/Reference/Headers/Accept${GTM_PARAMS_NM}`
   );
   info("Checking for unsupported headers");
   equal(getHeadersURL("Width"), null);
@@ -37,12 +37,12 @@ function run_test() {
   info("Checking for supported status code");
   equal(
     getHTTPStatusCodeURL("200", "webconsole"),
-    `${MDN_URL}Web/HTTP/Status/200${GTM_PARAMS_WC}`
+    `${MDN_URL}Web/HTTP/Reference/Status/200${GTM_PARAMS_WC}`
   );
   info("Checking for unsupported status code");
   equal(
     getHTTPStatusCodeURL("999", "webconsole"),
-    `${MDN_URL}Web/HTTP/Status${GTM_PARAMS_WC}`
+    `${MDN_URL}Web/HTTP/Reference/Status${GTM_PARAMS_WC}`
   );
 
   equal(

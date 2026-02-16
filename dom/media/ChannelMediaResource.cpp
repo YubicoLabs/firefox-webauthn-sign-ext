@@ -8,6 +8,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/HTMLMediaElement.h"
 #include "mozilla/net/OpaqueResponseUtils.h"
+#include "nsHttp.h"
 #include "nsIAsyncVerifyRedirectCallback.h"
 #include "nsICachingChannel.h"
 #include "nsIClassOfService.h"
@@ -15,7 +16,6 @@
 #include "nsIInputStream.h"
 #include "nsIThreadRetargetableRequest.h"
 #include "nsITimedChannel.h"
-#include "nsHttp.h"
 #include "nsNetUtil.h"
 
 static const uint32_t HTTP_PARTIAL_RESPONSE_CODE = 206;
@@ -58,14 +58,16 @@ NS_IMPL_ISUPPORTS(ChannelMediaResource::Listener, nsIRequestObserver,
                   nsIThreadRetargetableStreamListener)
 
 nsresult ChannelMediaResource::Listener::OnStartRequest(nsIRequest* aRequest) {
-  mMutex.AssertOnWritingThread();  // Writing thread is MainThread
+  AssertIsOnMainThread();
+  mLock.NoteOnMainThread();
   if (!mResource) return NS_OK;
   return mResource->OnStartRequest(aRequest, mOffset);
 }
 
 nsresult ChannelMediaResource::Listener::OnStopRequest(nsIRequest* aRequest,
                                                        nsresult aStatus) {
-  mMutex.AssertOnWritingThread();
+  AssertIsOnMainThread();
+  mLock.NoteOnMainThread();
   if (!mResource) return NS_OK;
   return mResource->OnStopRequest(aRequest, aStatus);
 }
@@ -76,7 +78,8 @@ nsresult ChannelMediaResource::Listener::OnDataAvailable(
   // This might happen off the main thread.
   RefPtr<ChannelMediaResource> res;
   {
-    MutexSingleWriterAutoLock lock(mMutex);
+    MutexAutoLock lock(mLock.Lock());
+    mLock.NoteLockHeld();
     res = mResource;
   }
   // Note Rekove() might happen at the same time to reset mResource. We check
@@ -87,7 +90,8 @@ nsresult ChannelMediaResource::Listener::OnDataAvailable(
 nsresult ChannelMediaResource::Listener::AsyncOnChannelRedirect(
     nsIChannel* aOld, nsIChannel* aNew, uint32_t aFlags,
     nsIAsyncVerifyRedirectCallback* cb) {
-  mMutex.AssertOnWritingThread();
+  AssertIsOnMainThread();
+  mLock.NoteOnMainThread();
 
   nsresult rv = NS_OK;
   if (mResource) {
@@ -113,14 +117,16 @@ nsresult ChannelMediaResource::Listener::GetInterface(const nsIID& aIID,
 }
 
 void ChannelMediaResource::Listener::Revoke() {
-  MOZ_ASSERT(NS_IsMainThread());
-  MutexSingleWriterAutoLock lock(mMutex);
+  AssertIsOnMainThread();
+  MutexAutoLock lock(mLock.Lock());
+  mLock.NoteExclusiveAccess();
+
   mResource = nullptr;
 }
 
 static bool IsPayloadCompressed(nsIHttpChannel* aChannel) {
   nsAutoCString encoding;
-  Unused << aChannel->GetResponseHeader("Content-Encoding"_ns, encoding);
+  (void)aChannel->GetResponseHeader("Content-Encoding"_ns, encoding);
   return encoding.Length() > 0;
 }
 
@@ -164,9 +170,9 @@ nsresult ChannelMediaResource::OnStartRequest(nsIRequest* aRequest,
 
   if (hc) {
     uint32_t responseStatus = 0;
-    Unused << hc->GetResponseStatus(&responseStatus);
+    (void)hc->GetResponseStatus(&responseStatus);
     bool succeeded = false;
-    Unused << hc->GetRequestSucceeded(&succeeded);
+    (void)hc->GetRequestSucceeded(&succeeded);
 
     if (!succeeded && NS_SUCCEEDED(status)) {
       // HTTP-level error (e.g. 4xx); treat this as a fatal network-level error.
@@ -196,7 +202,7 @@ nsresult ChannelMediaResource::OnStartRequest(nsIRequest* aRequest,
     }
 
     nsAutoCString ranges;
-    Unused << hc->GetResponseHeader("Accept-Ranges"_ns, ranges);
+    (void)hc->GetResponseHeader("Accept-Ranges"_ns, ranges);
     bool acceptsRanges =
         net::nsHttp::FindToken(ranges.get(), "bytes", HTTP_HEADER_VALUE_SEPS);
 
@@ -339,7 +345,7 @@ nsresult ChannelMediaResource::OnStopRequest(nsIRequest* aRequest,
   NS_ASSERTION(NS_SUCCEEDED(rv), "GetLoadFlags() failed!");
 
   if (loadFlags & nsIRequest::LOAD_BACKGROUND) {
-    Unused << NS_WARN_IF(
+    (void)NS_WARN_IF(
         NS_FAILED(ModifyLoadFlags(loadFlags & ~nsIRequest::LOAD_BACKGROUND)));
   }
 
@@ -351,6 +357,9 @@ nsresult ChannelMediaResource::OnStopRequest(nsIRequest* aRequest,
   // But don't reopen if we need to seek and we don't think we can... that would
   // cause us to just re-read the stream, which would be really bad.
   /*
+   * The conditions below were added in bug 522114 (offset 0 or seekable check)
+   * and bug 1373618 (offset != length check).
+   *
    * | length |    offset |   reopen |
    * +--------+-----------+----------+
    * |     -1 |         0 |      yes |
@@ -365,7 +374,12 @@ nsresult ChannelMediaResource::OnStopRequest(nsIRequest* aRequest,
    * +--------+-----------+----------+
    * |    > 0 | == length |       no |
    */
-  if (aStatus != NS_ERROR_PARSED_DATA_CACHED && aStatus != NS_BINDING_ABORTED) {
+  // Seek() below calls into OpenChannel(), which would fail in
+  // SetupChannelHeaders() with non-http channels.
+  nsCOMPtr<nsIHttpChannel> hc = do_QueryInterface(mChannel);
+  if (aStatus != NS_ERROR_PARSED_DATA_CACHED && aStatus != NS_BINDING_ABORTED &&
+      hc) {
+    // TODO: Move this logic to NotifyDataEnded, see bug 1464045.
     auto lengthAndOffset = mCacheStream.GetLengthAndOffset();
     int64_t length = lengthAndOffset.mLength;
     int64_t offset = lengthAndOffset.mOffset;
@@ -397,7 +411,16 @@ nsresult ChannelMediaResource::OnChannelRedirect(nsIChannel* aOld,
   // OnChannelRedirect() is followed by OnStartRequest() where we will
   // call mSuspendAgent.Delegate().
   mChannel = aNew;
-  return SetupChannelHeaders(aOffset);
+  nsresult rv = SetupChannelHeaders(aOffset);
+  if (NS_SUCCEEDED(rv)) {
+    mSuspendAgent.RevokeIfManaged(aOld);
+  } else {
+    nsCString err;
+    GetErrorName(rv, err);
+    LOG("Veto redirect: fail to set up new channel: %s", err.get());
+    mChannel = aOld;
+  }
+  return rv;
 }
 
 nsresult ChannelMediaResource::CopySegmentToCache(
@@ -455,7 +478,7 @@ int64_t ChannelMediaResource::CalculateStreamLength() const {
   }
 
   bool succeeded = false;
-  Unused << hc->GetRequestSucceeded(&succeeded);
+  (void)hc->GetRequestSucceeded(&succeeded);
   if (!succeeded) {
     return -1;
   }
@@ -472,7 +495,7 @@ int64_t ChannelMediaResource::CalculateStreamLength() const {
   }
 
   uint32_t responseStatus = 0;
-  Unused << hc->GetResponseStatus(&responseStatus);
+  (void)hc->GetResponseStatus(&responseStatus);
   if (responseStatus != HTTP_PARTIAL_RESPONSE_CODE) {
     return contentLength;
   }
@@ -750,11 +773,11 @@ nsresult ChannelMediaResource::RecreateChannel() {
   nsCOMPtr<nsILoadInfo> loadInfo = mChannel->LoadInfo();
   if (setAttrs) {
     // The function simply returns NS_OK, so we ignore the return value.
-    Unused << loadInfo->SetOriginAttributes(
+    (void)loadInfo->SetOriginAttributes(
         triggeringPrincipal->OriginAttributesRef());
   }
 
-  Unused << loadInfo->SetIsMediaRequest(true);
+  (void)loadInfo->SetIsMediaRequest(true);
 
   if (nsCOMPtr<nsITimedChannel> timedChannel = do_QueryInterface(mChannel)) {
     nsString initiatorType =
@@ -1049,6 +1072,15 @@ void ChannelSuspendAgent::Revoke() {
     mIsChannelSuspended = false;
   }
   mChannel = nullptr;
+}
+
+void ChannelSuspendAgent::RevokeIfManaged(nsIChannel* aChannel) {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (mChannel != aChannel) {
+    NS_WARNING("Not a managed channel");
+    return;
+  }
+  Revoke();
 }
 
 bool ChannelSuspendAgent::IsSuspended() {

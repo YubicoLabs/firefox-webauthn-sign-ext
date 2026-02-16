@@ -6,6 +6,7 @@
 #include <objc/objc-runtime.h>
 
 #include "nsChildView.h"
+#include "nsCocoaFeatures.h"
 #include "nsCocoaUtils.h"
 #include "nsCocoaWindow.h"
 #include "nsMenuBarX.h"
@@ -462,6 +463,13 @@ static bool RemoveProblematicMenuItems(NSMenu* aMenu) {
 nsresult nsMenuBarX::Paint() {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
 
+  if (!NSApp.active && gSomeMenuBarPainted) {
+    // Early exit if the app isn't active, and we already have a menubar.
+    // This is because we can't safely set the NSApp.mainMenu property in
+    // such a case. We early exit so we also don't invoke any side effects.
+    return NS_OK;
+  }
+
   // Don't try to optimize anything in this painting by checking
   // sLastGeckoMenuBarPainted because the menubar can be manipulated by
   // native dialogs and sheet code and other things besides this paint method.
@@ -484,7 +492,15 @@ nsresult nsMenuBarX::Paint() {
   NS_OBJC_END_TRY_ABORT_BLOCK;
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
 
-  RemoveProblematicMenuItems(mNativeMenu);
+  // If the user switches to another app and back to the last open window, we
+  // should not remove the problematic menu items again or the emoji picker
+  // would not be able to be opened again via shortcuts. This should be the only
+  // time that `sLastGeckoMenuBarPainted` is checked in this method, since other
+  // optimizations could interfere with menu manipulations by native dialogs and
+  // similar (see comment above).
+  if (nsMenuBarX::sLastGeckoMenuBarPainted != this) {
+    RemoveProblematicMenuItems(mNativeMenu);
+  }
 
   NS_OBJC_END_TRY_ABORT_BLOCK;
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
@@ -506,10 +522,23 @@ nsresult nsMenuBarX::Paint() {
 }
 
 // Dispatching the paint of the menu bar prevents crashes when macOS is actively
-// enumerating the menu items in `NSApp.mainMenu`.
+// enumerating the menu items in `NSApp.mainMenu`. Crash data indicates that
+// this is largely limited to < macOS 14, and this async call has an unwelcome
+// side effect of displaying a grey/disabled menubar sometimes when switching
+// back to the app. So we limit the async call by macOS version number.
 void nsMenuBarX::PaintAsync() {
   NS_DispatchToCurrentThread(
       NewRunnableMethod("PaintMenuBar", this, &nsMenuBarX::Paint));
+}
+
+void nsMenuBarX::PaintAsyncIfNeeded() {
+  if (nsCocoaFeatures::OnSonomaOrLater()) {
+    // Sync is safe enough on macOS 14 and beyond.
+    Paint();
+  } else {
+    // Needed for macOS 13 and earlier.
+    PaintAsync();
+  }
 }
 
 /* static */
@@ -643,8 +672,7 @@ NSMenuItem* nsMenuBarX::CreateNativeAppMenuItem(nsMenuX* aMenu,
 
   // Check collapsed rather than hidden since the app menu items are always
   // hidden in AquifyMenuBar.
-  if (menuItem->AttrValueIs(kNameSpaceID_None, nsGkAtoms::collapsed,
-                            nsGkAtoms::_true, eCaseMatters)) {
+  if (menuItem->GetBoolAttr(nsGkAtoms::collapsed)) {
     return nil;
   }
 
@@ -821,6 +849,7 @@ void nsMenuBarX::CreateApplicationMenu(nsMenuX* aMenu) {
       NSMenu* servicesMenu = [[GeckoNSMenu alloc] initWithTitle:@""];
       itemBeingAdded.submenu = servicesMenu;
       NSApp.servicesMenu = servicesMenu;
+      [servicesMenu release];
 
       [itemBeingAdded release];
       itemBeingAdded = nil;

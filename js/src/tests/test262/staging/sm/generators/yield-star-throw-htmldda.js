@@ -3,10 +3,7 @@
 
 /*---
 features:
-- IsHTMLDDA
-includes: [sm/non262-generators-shell.js, sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
+  - IsHTMLDDA
 description: |
   pending
 esid: pending
@@ -24,7 +21,7 @@ var it = g({
     next() {
         return {done: false};
     },
-    throw: createIsHTMLDDA(),
+    throw: $262.IsHTMLDDA,
     return() {
         calledReturn = true;
         return {done: false};
@@ -33,7 +30,7 @@ var it = g({
 
 it.next();
 
-assertThrowsInstanceOf(() => it.throw(""), TypeError);
+assert.throws(TypeError, () => it.throw(""));
 
 assert.sameValue(calledReturn, false);
 

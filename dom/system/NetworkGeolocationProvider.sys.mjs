@@ -17,18 +17,20 @@ const POSITION_UNAVAILABLE = 2;
 
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
-  "gLoggingEnabled",
-  "geo.provider.network.logging.enabled",
-  false
+  "gNetworkGeolocationLogLevel",
+  "geo.provider.network.loglevel",
+  "Off"
 );
 
-function LOG(aMsg) {
-  if (lazy.gLoggingEnabled) {
-    dump("*** WIFI GEO: " + aMsg + "\n");
-  }
-}
+ChromeUtils.defineLazyGetter(lazy, "log", () => {
+  let consoleOptions = {
+    maxLogLevelPref: lazy.gNetworkGeolocationLogLevel,
+    prefix: "NetworkGeolocationProvider",
+  };
+  return console.createInstance(consoleOptions);
+});
 
-function CachedRequest(loc, cellInfo, wifiList) {
+function CachedRequest(loc, wifiList) {
   this.location = loc;
 
   let wifis = new Set();
@@ -38,55 +40,7 @@ function CachedRequest(loc, cellInfo, wifiList) {
     }
   }
 
-  // Use only these values for equality
-  // (the JSON will contain additional values in future)
-  function makeCellKey(cell) {
-    return (
-      "" +
-      cell.radio +
-      ":" +
-      cell.mobileCountryCode +
-      ":" +
-      cell.mobileNetworkCode +
-      ":" +
-      cell.locationAreaCode +
-      ":" +
-      cell.cellId
-    );
-  }
-
-  let cells = new Set();
-  if (cellInfo) {
-    for (let i = 0; i < cellInfo.length; i++) {
-      cells.add(makeCellKey(cellInfo[i]));
-    }
-  }
-
-  this.hasCells = () => cells.size > 0;
-
   this.hasWifis = () => wifis.size > 0;
-
-  // if fields match
-  this.isCellEqual = function (cellInfo) {
-    if (!this.hasCells()) {
-      return false;
-    }
-
-    let len1 = cells.size;
-    let len2 = cellInfo.length;
-
-    if (len1 != len2) {
-      LOG("cells not equal len");
-      return false;
-    }
-
-    for (let i = 0; i < len2; i++) {
-      if (!cells.has(makeCellKey(cellInfo[i]))) {
-        return false;
-      }
-    }
-    return true;
-  };
 
   // if 50% of the SSIDS match
   this.isWifiApproxEqual = function (wifiList) {
@@ -106,35 +60,24 @@ function CachedRequest(loc, cellInfo, wifiList) {
   };
 
   this.isGeoip = function () {
-    return !this.hasCells() && !this.hasWifis();
-  };
-
-  this.isCellAndWifi = function () {
-    return this.hasCells() && this.hasWifis();
-  };
-
-  this.isCellOnly = function () {
-    return this.hasCells() && !this.hasWifis();
-  };
-
-  this.isWifiOnly = function () {
-    return this.hasWifis() && !this.hasCells();
+    return !this.hasWifis();
   };
 }
 
+/** @type {CachedRequest?} */
 var gCachedRequest = null;
 var gDebugCacheReasoning = ""; // for logging the caching logic
 
 // This function serves two purposes:
 // 1) do we have a cached request
-// 2) is the cached request better than what newCell and newWifiList will obtain
+// 2) is the cached request better than what newWifiList will obtain
 // If the cached request exists, and we know it to have greater accuracy
-// by the nature of its origin (wifi/cell/geoip), use its cached location.
+// by the nature of its origin (wifi/geoip), use its cached location.
 //
 // If there is more source info than the cached request had, return false
 // In other cases, MLS is known to produce better/worse accuracy based on the
 // inputs, so base the decision on that.
-function isCachedRequestMoreAccurateThanServerRequest(newCell, newWifiList) {
+function isCachedRequestMoreAccurateThanServerRequest(newWifiList) {
   gDebugCacheReasoning = "";
   let isNetworkRequestCacheEnabled = Services.prefs.getBoolPref(
     "geo.provider.network.debug.requestCache.enabled",
@@ -150,33 +93,9 @@ function isCachedRequestMoreAccurateThanServerRequest(newCell, newWifiList) {
     return false;
   }
 
-  if (!newCell && !newWifiList) {
+  if (!newWifiList) {
     gDebugCacheReasoning = "New req. is GeoIP.";
     return true;
-  }
-
-  if (
-    newCell &&
-    newWifiList &&
-    (gCachedRequest.isCellOnly() || gCachedRequest.isWifiOnly())
-  ) {
-    gDebugCacheReasoning = "New req. is cell+wifi, cache only cell or wifi.";
-    return false;
-  }
-
-  if (newCell && gCachedRequest.isWifiOnly()) {
-    // In order to know if a cell-only request should trump a wifi-only request
-    // need to know if wifi is low accuracy. >5km would be VERY low accuracy,
-    // it is worth trying the cell
-    var isHighAccuracyWifi = gCachedRequest.location.coords.accuracy < 5000;
-    gDebugCacheReasoning =
-      "Req. is cell, cache is wifi, isHigh:" + isHighAccuracyWifi;
-    return isHighAccuracyWifi;
-  }
-
-  let hasEqualCells = false;
-  if (newCell) {
-    hasEqualCells = gCachedRequest.isCellEqual(newCell);
   }
 
   let hasEqualWifis = false;
@@ -184,26 +103,11 @@ function isCachedRequestMoreAccurateThanServerRequest(newCell, newWifiList) {
     hasEqualWifis = gCachedRequest.isWifiApproxEqual(newWifiList);
   }
 
-  gDebugCacheReasoning =
-    "EqualCells:" + hasEqualCells + " EqualWifis:" + hasEqualWifis;
+  gDebugCacheReasoning = `EqualWifis: ${hasEqualWifis}`;
 
-  if (gCachedRequest.isCellOnly()) {
-    gDebugCacheReasoning += ", Cell only.";
-    if (hasEqualCells) {
-      return true;
-    }
-  } else if (gCachedRequest.isWifiOnly() && hasEqualWifis) {
+  if (gCachedRequest.hasWifis() && hasEqualWifis) {
     gDebugCacheReasoning += ", Wifi only.";
     return true;
-  } else if (gCachedRequest.isCellAndWifi()) {
-    gDebugCacheReasoning += ", Cache has Cell+Wifi.";
-    if (
-      (hasEqualCells && hasEqualWifis) ||
-      (!newWifiList && hasEqualCells) ||
-      (!newCell && hasEqualWifis)
-    ) {
-      return true;
-    }
   }
 
   return false;
@@ -243,10 +147,6 @@ export function NetworkGeolocationProvider() {
     from the Wifi subsystem.  If this timer fires, we believe the Wifi scan has
     had a problem and we no longer can use Wifi to position the user this time
     around (we will continue to be hopeful that Wifi will recover).
-
-    This timeout value is also used when Wifi scanning is disabled (see
-    isWifiScanningEnabled).  In this case, we use this timer to collect cell/ip
-    data and xhr it to the location server.
   */
   XPCOMUtils.defineLazyPreferenceGetter(
     this,
@@ -299,6 +199,7 @@ NetworkGeolocationProvider.prototype = {
   },
 
   startup() {
+    lazy.log.debug("startup called.");
     if (this.started) {
       return;
     }
@@ -316,15 +217,17 @@ NetworkGeolocationProvider.prototype = {
     }
 
     this.resetTimer();
-    LOG("startup called.");
   },
 
   watch(c) {
+    lazy.log.debug("watch called");
     this.listener = c;
+    this.notify();
+    this.resetTimer();
   },
 
   shutdown() {
-    LOG("shutdown called");
+    lazy.log.debug("shutdown called");
     if (!this.started) {
       return;
     }
@@ -370,7 +273,7 @@ NetworkGeolocationProvider.prototype = {
   },
 
   onError(code) {
-    LOG("wifi error: " + code);
+    lazy.log.debug("wifi error: " + code);
     this.sendLocationRequest(null);
   },
 
@@ -378,7 +281,7 @@ NetworkGeolocationProvider.prototype = {
     if (!this.listener) {
       return;
     }
-    LOG("onStatus called." + statusMessage);
+    lazy.log.debug("onStatus called." + statusMessage);
 
     if (statusMessage && this.listener.notifyStatus) {
       this.listener.notifyStatus(statusMessage);
@@ -395,8 +298,8 @@ NetworkGeolocationProvider.prototype = {
   },
 
   /**
-   * After wifi (and possible cell tower) data has been gathered, this method is
-   * invoked to perform the request to network geolocation provider.
+   * After wifi data has been gathered, this method is invoked to perform the
+   * request to network geolocation provider.
    * The result of each request is sent to all registered listener (@see watch)
    * by invoking its respective `update`, `notifyError` or `notifyStatus`
    * callbacks.
@@ -418,19 +321,23 @@ NetworkGeolocationProvider.prototype = {
    *                          </code>
    */
   async sendLocationRequest(wifiData) {
-    let data = { cellTowers: undefined, wifiAccessPoints: undefined };
+    let data = { wifiAccessPoints: undefined };
+    // Zero or one entry means lookup is only by our own IP address.
     if (wifiData && wifiData.length >= 2) {
       data.wifiAccessPoints = wifiData;
     }
 
     let useCached = isCachedRequestMoreAccurateThanServerRequest(
-      data.cellTowers,
       data.wifiAccessPoints
     );
 
-    LOG("Use request cache:" + useCached + " reason:" + gDebugCacheReasoning);
+    lazy.log.debug(
+      "Use request cache:" + useCached + " reason:" + gDebugCacheReasoning
+    );
 
     if (useCached) {
+      Glean.geolocation.geolocationCacheHit.NetworkGeolocationProvider.add();
+
       gCachedRequest.location.timestamp = Date.now();
       if (this.listener) {
         this.listener.update(gCachedRequest.location);
@@ -440,12 +347,20 @@ NetworkGeolocationProvider.prototype = {
 
     // From here on, do a network geolocation request //
     let url = Services.urlFormatter.formatURLPref("geo.provider.network.url");
-    LOG("Sending request");
+    let logStr = data.wifiAccessPoints ? " with wifi APs" : "";
+    lazy.log.info(
+      `Sending IP-address-based geolocation request${logStr} to network service: ${url}`
+    );
+    if (data.wifiAccessPoints) {
+      Glean.geolocation.geolocationService.network_wifi_and_ip.add();
+    } else {
+      Glean.geolocation.geolocationService.network_ip.add();
+    }
 
     let result;
     try {
-      result = await this.makeRequest(url, wifiData);
-      LOG(
+      result = await this.fetchLocation(url, wifiData);
+      lazy.log.info(
         `geo provider reported: ${result.location.lng}:${result.location.lat}`
       );
       let newLocation = new NetworkGeoPositionObject(
@@ -458,13 +373,9 @@ NetworkGeolocationProvider.prototype = {
         this.listener.update(newLocation);
       }
 
-      gCachedRequest = new CachedRequest(
-        newLocation,
-        data.cellTowers,
-        data.wifiAccessPoints
-      );
+      gCachedRequest = new CachedRequest(newLocation, data.wifiAccessPoints);
     } catch (err) {
-      LOG("Location request hit error: " + err.name);
+      lazy.log.error("Location request hit error: " + err.name);
       console.error(err);
       if (err.name == "AbortError") {
         this.onStatus(true, "xhr-timeout");
@@ -474,7 +385,7 @@ NetworkGeolocationProvider.prototype = {
     }
   },
 
-  async makeRequest(url, wifiData) {
+  async fetchLocation(url, wifiData) {
     this.onStatus(false, "xhr-start");
 
     let fetchController = new AbortController();
@@ -491,12 +402,20 @@ NetworkGeolocationProvider.prototype = {
 
     let timeoutId = lazy.setTimeout(
       () => fetchController.abort(),
-      Services.prefs.getIntPref("geo.provider.network.timeout")
+      Services.prefs.getIntPref("geo.provider.network.timeout", 60000)
     );
 
-    let req = await fetch(url, fetchOpts);
+    let response = await fetch(url, fetchOpts);
     lazy.clearTimeout(timeoutId);
-    let result = req.json();
+
+    if (!response.ok) {
+      throw new Error(
+        `The geolocation provider returned a non-ok status ${response.status}`,
+        { cause: await response.text() }
+      );
+    }
+
+    let result = response.json();
     return result;
   },
 };

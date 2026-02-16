@@ -6,8 +6,8 @@
 
 const {
   Component,
-} = require("resource://devtools/client/shared/vendor/react.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   L10N,
 } = require("resource://devtools/client/netmonitor/src/utils/l10n.js");
@@ -65,7 +65,7 @@ class ImagePreview extends Component {
     return div(
       { className: "panel-container response-image-box devtools-monospace" },
       img({
-        className: "response-image",
+        className: "response-image devtools-checkered-background",
         src: formDataURI(mimeType, encoding, text),
         onLoad: this.updateDimensions,
       }),

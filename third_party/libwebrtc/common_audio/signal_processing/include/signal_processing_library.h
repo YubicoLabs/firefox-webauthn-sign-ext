@@ -17,9 +17,8 @@
 #ifndef COMMON_AUDIO_SIGNAL_PROCESSING_INCLUDE_SIGNAL_PROCESSING_LIBRARY_H_
 #define COMMON_AUDIO_SIGNAL_PROCESSING_INCLUDE_SIGNAL_PROCESSING_LIBRARY_H_
 
+#include <stdint.h>
 #include <string.h>
-
-#include "common_audio/signal_processing/dot_product_with_scale.h"
 
 // Macros specific for the fixed point implementation
 #define WEBRTC_SPL_WORD16_MAX 32767
@@ -40,7 +39,7 @@
 #define WEBRTC_SPL_MUL_16_U16(a, b) ((int32_t)(int16_t)(a) * (uint16_t)(b))
 
 // clang-format off
-// clang-format would choose some identation
+// clang-format would choose some indentation
 // leading to presubmit error (cpplint.py)
 #ifndef WEBRTC_ARCH_ARM_V7
 // For ARMv7 platforms, these are inline functions in spl_inl_armv7.h
@@ -95,7 +94,7 @@ extern "C" {
   memcpy(v1, v2, (length) * sizeof(int16_t))
 
 // inline functions:
-#include "common_audio/signal_processing/include/spl_inl.h"
+#include "common_audio/signal_processing/include/spl_inl.h"  // IWYU pragma: keep
 
 // third party math functions
 #include "common_audio/third_party/spl_sqrt_floor/spl_sqrt_floor.h"
@@ -998,18 +997,18 @@ void WebRtcSpl_UpsampleBy2(const int16_t* in,
 /************************************************************
  * END OF RESAMPLING FUNCTIONS
  ************************************************************/
-void WebRtcSpl_AnalysisQMF(const int16_t* in_data,
+void WebRtcSpl_AnalysisQMF(const float* in_data,
                            size_t in_data_length,
-                           int16_t* low_band,
-                           int16_t* high_band,
-                           int32_t* filter_state1,
-                           int32_t* filter_state2);
-void WebRtcSpl_SynthesisQMF(const int16_t* low_band,
-                            const int16_t* high_band,
+                           float* low_band,
+                           float* high_band,
+                           float* filter_state1,
+                           float* filter_state2);
+void WebRtcSpl_SynthesisQMF(const float* low_band,
+                            const float* high_band,
                             size_t band_length,
-                            int16_t* out_data,
-                            int32_t* filter_state1,
-                            int32_t* filter_state2);
+                            float* out_data,
+                            float* filter_state1,
+                            float* filter_state2);
 
 #ifdef __cplusplus
 }
@@ -1141,7 +1140,7 @@ void WebRtcSpl_SynthesisQMF(const int16_t* low_band,
 // meaning that the first sample of `in_vector` is copied to the last sample of
 // the `out_vector`. The procedure continues until the last sample of
 // `in_vector` has been copied to the first sample of `out_vector`. This
-// creates a reversed vector. Used in e.g. prediction in iLBC.
+// creates a reversed vector.
 //
 // Input:
 //      - in_vector     : Pointer to the first sample in a int16_t vector

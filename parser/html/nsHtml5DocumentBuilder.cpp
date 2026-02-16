@@ -9,6 +9,7 @@
 #include "mozilla/dom/ScriptLoader.h"
 #include "mozilla/dom/LinkStyle.h"
 #include "nsNameSpaceManager.h"
+#include "nsNetUtil.h"
 
 using mozilla::dom::LinkStyle;
 
@@ -53,7 +54,9 @@ void nsHtml5DocumentBuilder::UpdateStyleSheet(nsIContent* aElement) {
   if (updateOrError.isOk() && updateOrError.unwrap().ShouldBlock() &&
       !mRunsToCompletion) {
     ++mPendingSheetCount;
-    mScriptLoader->AddParserBlockingScriptExecutionBlocker();
+    if (mScriptLoader) {
+      mScriptLoader->AddParserBlockingScriptExecutionBlocker();
+    }
   }
 }
 
@@ -78,15 +81,9 @@ void nsHtml5DocumentBuilder::SetDocumentMode(nsHtml5DocumentMode m) {
 
   if (errMsgId && !mDocument->IsLoadedAsData()) {
     nsCOMPtr<nsIURI> docURI = mDocument->GetDocumentURI();
-    bool isData = false;
-    docURI->SchemeIs("data", &isData);
-    bool isHttp = false;
-    docURI->SchemeIs("http", &isHttp);
-    bool isHttps = false;
-    docURI->SchemeIs("https", &isHttps);
-
     nsCOMPtr<nsIPrincipal> principal = mDocument->GetPrincipal();
-    if (principal->GetIsNullPrincipal() && !isData && !isHttp && !isHttps) {
+    if (principal->GetIsNullPrincipal() && !docURI->SchemeIs("data") &&
+        !mozilla::net::SchemeIsHttpOrHttps(docURI)) {
       // Don't normally warn for null principals. It may well be internal
       // documents for which the warning is not applicable.
       return;

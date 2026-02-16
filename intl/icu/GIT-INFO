@@ -1,5 +1,5 @@
-commit 8eca245c7484ac6cc179e3e5f7c1ea7680810f39
-Author: Rahul Pandey <rp9.next@gmail.com>
-Date:   Mon Oct 21 16:21:38 2024 +0530
+commit f1b3db8ecd39d5b3a6eff4d5641b176c7f914dfb
+Author: Peter Edberg <pedberg@unicode.org>
+Date:   Mon Jan 5 20:16:32 2026 -0800
 
-    ICU-22724 BRS_76_GA Update version number to 76.1 (No more -SNAPSHOT)
+    ICU-23290 Integrate CLDR 48.1 final1 to ICU maint-78, no data changes

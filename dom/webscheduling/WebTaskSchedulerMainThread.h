@@ -9,10 +9,9 @@
 #define mozilla_dom_WebSchedulerMainThread_h
 
 #include "WebTaskScheduler.h"
+#include "mozilla/dom/AbortFollower.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsThreadUtils.h"
-
-#include "mozilla/dom/AbortFollower.h"
 
 namespace mozilla::dom {
 class WebTaskMainThreadRunnable final : public Runnable {
@@ -32,9 +31,13 @@ class WebTaskSchedulerMainThread final : public WebTaskScheduler {
   explicit WebTaskSchedulerMainThread(nsIGlobalObject* aParent)
       : WebTaskScheduler(aParent) {}
 
+  void IncreaseNumNormalOrHighPriorityQueuesHaveTaskScheduled() override;
+  void DecreaseNumNormalOrHighPriorityQueuesHaveTaskScheduled() override;
+
  private:
-  nsresult SetTimeoutForDelayedTask(WebTask* aTask, uint64_t aDelay) override;
-  bool DispatchEventLoopRunnable() override;
+  nsresult SetTimeoutForDelayedTask(WebTask* aTask, uint64_t aDelay,
+                                    EventQueuePriority aPriority) override;
+  bool DispatchEventLoopRunnable(EventQueuePriority aPriority) override;
 
   ~WebTaskSchedulerMainThread() = default;
 };

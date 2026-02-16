@@ -5,10 +5,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/Types.h"
 #include "prlink.h"
 
-#include <drm/xf86drm.h>
+#include <xf86drm.h>
 
 #define GET_FUNC(func, lib)                                  \
     func##_fn =                                              \

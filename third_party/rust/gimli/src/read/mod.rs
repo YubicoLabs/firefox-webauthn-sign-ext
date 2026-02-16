@@ -41,7 +41,9 @@
 //!
 //! Full example programs:
 //!
-//!   * [A simple parser](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/simple.rs)
+//!   * [A simple `.debug_info` parser](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/simple.rs)
+//!
+//!   * [A simple `.debug_line` parser](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/simple_line.rs)
 //!
 //!   * [A `dwarfdump`
 //!     clone](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/dwarfdump.rs)
@@ -64,22 +66,22 @@
 //! * Basic familiarity with DWARF is assumed.
 //!
 //! * The [`Dwarf`](./struct.Dwarf.html) type contains the commonly used DWARF
-//! sections. It has methods that simplify access to debugging data that spans
-//! multiple sections. Use of this type is optional, but recommended.
+//!   sections. It has methods that simplify access to debugging data that spans
+//!   multiple sections. Use of this type is optional, but recommended.
 //!
 //! * The [`DwarfPackage`](./struct.Dwarf.html) type contains the DWARF
-//! package (DWP) sections. It has methods to find a DWARF object (DWO)
-//! within the package.
+//!   package (DWP) sections. It has methods to find a DWARF object (DWO)
+//!   within the package.
 //!
 //! * Each section gets its own type. Consider these types the entry points to
-//! the library:
+//!   the library:
 //!
 //!   * [`DebugAbbrev`](./struct.DebugAbbrev.html): The `.debug_abbrev` section.
 //!
 //!   * [`DebugAddr`](./struct.DebugAddr.html): The `.debug_addr` section.
 //!
 //!   * [`DebugAranges`](./struct.DebugAranges.html): The `.debug_aranges`
-//!   section.
+//!     section.
 //!
 //!   * [`DebugFrame`](./struct.DebugFrame.html): The `.debug_frame` section.
 //!
@@ -94,10 +96,10 @@
 //!   * [`DebugLocLists`](./struct.DebugLocLists.html): The `.debug_loclists` section.
 //!
 //!   * [`DebugPubNames`](./struct.DebugPubNames.html): The `.debug_pubnames`
-//!   section.
+//!     section.
 //!
 //!   * [`DebugPubTypes`](./struct.DebugPubTypes.html): The `.debug_pubtypes`
-//!   section.
+//!     section.
 //!
 //!   * [`DebugRanges`](./struct.DebugRanges.html): The `.debug_ranges` section.
 //!
@@ -118,15 +120,15 @@
 //!   * [`EhFrameHdr`](./struct.EhFrameHdr.html): The `.eh_frame_hdr` section.
 //!
 //! * Each section type exposes methods for accessing the debugging data encoded
-//! in that section. For example, the [`DebugInfo`](./struct.DebugInfo.html)
-//! struct has the [`units`](./struct.DebugInfo.html#method.units) method for
-//! iterating over the compilation units defined within it.
+//!   in that section. For example, the [`DebugInfo`](./struct.DebugInfo.html)
+//!   struct has the [`units`](./struct.DebugInfo.html#method.units) method for
+//!   iterating over the compilation units defined within it.
 //!
 //! * Offsets into a section are strongly typed: an offset into `.debug_info` is
-//! the [`DebugInfoOffset`](./struct.DebugInfoOffset.html) type. It cannot be
-//! used to index into the [`DebugLine`](./struct.DebugLine.html) type because
-//! `DebugLine` represents the `.debug_line` section. There are similar types
-//! for offsets relative to a compilation unit rather than a section.
+//!   the [`DebugInfoOffset`](./struct.DebugInfoOffset.html) type. It cannot be
+//!   used to index into the [`DebugLine`](./struct.DebugLine.html) type because
+//!   `DebugLine` represents the `.debug_line` section. There are similar types
+//!   for offsets relative to a compilation unit rather than a section.
 //!
 //! ## Using with `FallibleIterator`
 //!
@@ -233,6 +235,11 @@ pub use self::loclists::*;
 #[cfg(feature = "read")]
 mod lookup;
 
+#[cfg(feature = "read")]
+mod macros;
+#[cfg(feature = "read")]
+pub use self::macros::*;
+
 mod op;
 pub use self::op::*;
 
@@ -275,6 +282,7 @@ pub type EndianBuf<'input, Endian> = EndianSlice<'input, Endian>;
 
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// An I/O error occurred while reading.
     Io,
@@ -382,10 +390,17 @@ pub enum Error {
     UnsupportedTypeOperation,
     /// The shift value in an expression must be a non-negative integer.
     InvalidShiftExpression,
+    /// The size of a deref expression must not be larger than the size of an address.
+    InvalidDerefSize(u8),
     /// An unknown DW_CFA_* instruction.
     UnknownCallFrameInstruction(constants::DwCfa),
     /// The end of an address range was before the beginning.
     InvalidAddressRange,
+    /// An address calculation overflowed.
+    ///
+    /// This is returned in cases where the address is expected to be
+    /// larger than a previous address, but the calculation overflowed.
+    AddressOverflow,
     /// Encountered a call frame instruction in a context in which it is not
     /// valid.
     CfiInstructionInInvalidContext,
@@ -442,6 +457,12 @@ pub enum Error {
     UnknownIndexSection(constants::DwSect),
     /// Unknown section type in version 2 `.dwp` index.
     UnknownIndexSectionV2(constants::DwSectV2),
+    /// Invalid macinfo type in `.debug_macinfo`.
+    InvalidMacinfoType(constants::DwMacinfo),
+    /// Invalid macro type in `.debug_macro`.
+    InvalidMacroType(constants::DwMacro),
+    /// The optional `opcode_operands_table` in `.debug_macro` is currently not supported.
+    UnsupportedOpcodeOperandsTable,
 }
 
 impl fmt::Display for Error {
@@ -539,10 +560,14 @@ impl Error {
             Error::InvalidShiftExpression => {
                 "The shift value in an expression must be a non-negative integer."
             }
-            Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instructiion",
+            Error::InvalidDerefSize(_) => {
+                "The size of a deref expression must not be larger than the size of an address."
+            }
+            Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instruction",
             Error::InvalidAddressRange => {
                 "The end of an address range must not be before the beginning."
             }
+            Error::AddressOverflow => "An address calculation overflowed.",
             Error::CfiInstructionInInvalidContext => {
                 "Encountered a call frame instruction in a context in which it is not valid."
             }
@@ -591,6 +616,11 @@ impl Error {
             Error::InvalidIndexRow => "Invalid hash row in `.dwp` index.",
             Error::UnknownIndexSection(_) => "Unknown section type in `.dwp` index.",
             Error::UnknownIndexSectionV2(_) => "Unknown section type in version 2 `.dwp` index.",
+            Error::InvalidMacinfoType(_) => "Invalid macinfo type in `.debug_macinfo`.",
+            Error::InvalidMacroType(_) => "Invalid macro type in `.debug_macro`.",
+            Error::UnsupportedOpcodeOperandsTable => {
+                "The optional `opcode_operands_table` in `.debug_macro` is currently not supported."
+            }
         }
     }
 }

@@ -2,16 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
-/** @type {Lazy} */
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
   ClickHandlerParent: "resource:///actors/ClickHandlerParent.sys.mjs",
-  UrlbarUtils: "resource:///modules/UrlbarUtils.sys.mjs",
+  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
   WebNavigationFrames: "resource://gre/modules/WebNavigationFrames.sys.mjs",
 });
 
@@ -28,7 +26,7 @@ export var WebNavigationManager = {
   /** @type {Map<string, Set<callback>>} */
   listeners: new Map(),
 
-  /** @type {WeakMap<XULBrowserElement, object>} */
+  /** @type {WeakMap<MozBrowser, object>} */
   recentTabTransitionData: new WeakMap(),
 
   init() {
@@ -128,9 +126,9 @@ export var WebNavigationManager = {
    *   The data for the autocompleted item.
    * @param {object} [acData.result]
    *   The result information associated with the navigation action.
-   * @param {typeof lazy.UrlbarUtils.RESULT_TYPE} [acData.result.type]
+   * @param {Items<typeof lazy.UrlbarUtils.RESULT_TYPE>} [acData.result.type]
    *   The result type associated with the navigation action.
-   * @param {typeof lazy.UrlbarUtils.RESULT_SOURCE} [acData.result.source]
+   * @param {Items<typeof lazy.UrlbarUtils.RESULT_SOURCE>} [acData.result.source]
    *   The result source associated with the navigation action.
    */
   onURLBarUserStartNavigation(acData) {
@@ -190,7 +188,7 @@ export var WebNavigationManager = {
 
   /**
    * Keep track of a recent user interaction and cache it in a
-   * map associated to the current selected tab.
+   * map associated to a tab.
    *
    * @param {object} tabTransitionData
    * @param {boolean} [tabTransitionData.auto_bookmark]
@@ -199,17 +197,25 @@ export var WebNavigationManager = {
    * @param {boolean} [tabTransitionData.keyword]
    * @param {boolean} [tabTransitionData.link]
    * @param {boolean} [tabTransitionData.typed]
+   * @param {MozBrowser} [browser]
+   *        The browser to associate the transition data with. Defaults to the current tab.
    */
-  setRecentTabTransitionData(tabTransitionData) {
-    let window = lazy.BrowserWindowTracker.getTopWindow();
-    if (
-      window &&
-      window.gBrowser &&
-      window.gBrowser.selectedTab &&
-      window.gBrowser.selectedTab.linkedBrowser
-    ) {
-      let browser = window.gBrowser.selectedTab.linkedBrowser;
+  setRecentTabTransitionData(tabTransitionData, browser = null) {
+    if (!browser) {
+      let window = lazy.BrowserWindowTracker.getTopWindow({
+        allowFromInactiveWorkspace: true,
+      });
+      if (
+        window &&
+        window.gBrowser &&
+        window.gBrowser.selectedTab &&
+        window.gBrowser.selectedTab.linkedBrowser
+      ) {
+        browser = window.gBrowser.selectedTab.linkedBrowser;
+      }
+    }
 
+    if (browser) {
       // Get recent tab transition data to update if any.
       let prevData = this.getAndForgetRecentTabTransitionData(browser);
 
@@ -231,7 +237,7 @@ export var WebNavigationManager = {
    * collected when one of the `onCommitted`, `onHistoryStateUpdated`
    * or `onReferenceFragmentUpdated` events has been received.
    *
-   * @param {XULBrowserElement} browser
+   * @param {MozBrowser} browser
    * @returns {object}
    */
   getAndForgetRecentTabTransitionData(browser) {

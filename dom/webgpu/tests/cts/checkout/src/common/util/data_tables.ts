@@ -2,12 +2,12 @@ import { ResolveType, ZipKeysWithValues } from './types.js';
 
 export type valueof<K> = K[keyof K];
 
-export function keysOf<T extends string>(obj: { [k in T]: unknown }): readonly T[] {
+export function keysOf<T extends string>(obj: { [k in T]?: unknown }): readonly T[] {
   return Object.keys(obj) as unknown[] as T[];
 }
 
-export function numericKeysOf<T>(obj: object): readonly T[] {
-  return Object.keys(obj).map(n => Number(n)) as unknown[] as T[];
+export function numericKeysOf<T extends number>(obj: { [k in T]?: unknown }): readonly T[] {
+  return Object.keys(obj).map(n => Number(n) as T);
 }
 
 /**

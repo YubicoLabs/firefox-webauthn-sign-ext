@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <title>Custom Functions: ShadowDOM</title>
 <link rel="help" href="https://drafts.csswg.org/css-mixins-1/#using-custom-functions">
-<link rel="help" href="https://drafts.csswg.org/css-scoping-1/#css-tree-scoped-reference">
+<link rel="help" href="https://drafts.csswg.org/css-shadow-1/#css-tree-scoped-reference">
 <script src="/resources/testharness.js"></script>
 <script src="/resources/testharnessreport.js"></script>
 <script src="resources/utils.js"></script>
@@ -233,6 +233,34 @@
           #target {
             --actual: --d();
             --expected: 22px C;
+          }
+        </style>
+        <div id=target></div>
+      </template>
+    </div>
+  </template>
+</div>
+
+<div data-name="Function with same name in different scopes">
+  <template shadowrootmode=open>
+    <style>
+      @function --a() {
+        result: 24px;
+      }
+      @function --b() {
+        result: --a(); /* 24px */
+      }
+    </style>
+    <div>
+      <template shadowrootmode=open>
+        <style>
+          @function --a() {
+            result: --b(); /* Calls --b() in outer scope. */
+          }
+          #target {
+            /* Nothing is in a cycle here. */
+            --actual: --a();
+            --expected: 24px;
           }
         </style>
         <div id=target></div>

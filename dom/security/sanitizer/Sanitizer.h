@@ -7,17 +7,15 @@
 #ifndef mozilla_dom_Sanitizer_h
 #define mozilla_dom_Sanitizer_h
 
+#include "mozilla/Maybe.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/DocumentFragment.h"
 #include "mozilla/dom/SanitizerBinding.h"
 #include "mozilla/dom/SanitizerTypes.h"
-#include "nsString.h"
+#include "mozilla/dom/StaticAtomSet.h"
 #include "nsIGlobalObject.h"
 #include "nsIParserUtils.h"
-
-// XXX(Bug 1673929) This is not really needed here, but the generated
-// SanitizerBinding.cpp needs it and does not include it.
-#include "mozilla/dom/Document.h"
+#include "nsString.h"
 
 class nsISupports;
 
@@ -43,13 +41,10 @@ class Sanitizer final : public nsISupports, public nsWrapperCache {
   JSObject* WrapObject(JSContext* aCx,
                        JS::Handle<JSObject*> aGivenProto) override;
 
-  static already_AddRefed<Sanitizer> New(nsIGlobalObject* aGlobal,
-                                         const SanitizerConfig& aConfig,
-                                         ErrorResult& aRv);
-
-  static already_AddRefed<Sanitizer> New(nsIGlobalObject* aGlobal,
-                                         const SanitizerPresets aConfig,
-                                         ErrorResult& aRv);
+  static already_AddRefed<Sanitizer> GetInstance(
+      nsIGlobalObject* aGlobal,
+      const OwningSanitizerOrSanitizerConfigOrSanitizerPresets& aOptions,
+      bool aSafe, ErrorResult& aRv);
 
   // WebIDL
   static already_AddRefed<Sanitizer> Constructor(
@@ -58,71 +53,80 @@ class Sanitizer final : public nsISupports, public nsWrapperCache {
 
   void Get(SanitizerConfig& aConfig);
 
-  template <typename SanitizerElementWithAttributes>
-  void AllowElement(const SanitizerElementWithAttributes& aElement);
-  template <typename SanitizerElement>
-  void RemoveElement(const SanitizerElement& aElement);
-  template <typename SanitizerElement>
-  void ReplaceElementWithChildren(const SanitizerElement& aElement);
-  template <typename SanitizerAttribute>
-  void AllowAttribute(const SanitizerAttribute& aAttribute);
-  template <typename SanitizerAttribute>
-  void RemoveAttribute(const SanitizerAttribute& aAttribute);
-  void SetComments(bool aAllow);
-  void SetDataAttributes(bool aAllow);
-  void RemoveUnsafe();
+  bool AllowElement(
+      const StringOrSanitizerElementNamespaceWithAttributes& aElement);
+  bool RemoveElement(const StringOrSanitizerElementNamespace& aElement);
+  bool ReplaceElementWithChildren(
+      const StringOrSanitizerElementNamespace& aElement);
+  bool AllowAttribute(const StringOrSanitizerAttributeNamespace& aAttribute);
+  bool RemoveAttribute(const StringOrSanitizerAttributeNamespace& aAttribute);
+  bool SetComments(bool aAllow);
+  bool SetDataAttributes(bool aAllow);
+  bool RemoveUnsafe();
 
   /**
-   * Sanitizes a fragment in place. This assumes that the fragment
+   * Sanitizes a node in place. This assumes that the node
    * belongs but an inert document.
    *
-   * @param aFragment Fragment to be sanitized in place
-   * @return DocumentFragment
+   * @param aNode Node to be sanitized in place
    */
 
-  RefPtr<DocumentFragment> SanitizeFragment(RefPtr<DocumentFragment> aFragment,
-                                            bool aSafe, ErrorResult& aRv);
+  void Sanitize(nsINode* aNode, bool aSafe, ErrorResult& aRv);
 
  private:
   ~Sanitizer() = default;
 
-  void SetConfig(const SanitizerConfig& aConfig, ErrorResult& aRv);
+  void CanonicalizeConfiguration(const SanitizerConfig& aConfig,
+                                 bool aAllowCommentsAndDataAttributes,
+                                 ErrorResult& aRv);
+  void IsValid(ErrorResult& aRv);
 
+  void SetDefaultConfig();
+  void SetConfig(const SanitizerConfig& aConfig,
+                 bool aAllowCommentsAndDataAttributes, ErrorResult& aRv);
+
+  void MaybeMaterializeDefaultConfig();
+
+  bool RemoveElementCanonical(sanitizer::CanonicalElement&& aElement);
+  bool RemoveAttributeCanonical(sanitizer::CanonicalAttribute&& aAttribute);
+
+  template <bool IsDefaultConfig>
   void SanitizeChildren(nsINode* aNode, bool aSafe);
   void SanitizeAttributes(Element* aChild,
-                          const sanitizer::CanonicalName& aElementName,
+                          const sanitizer::CanonicalElement& aElementName,
                           bool aSafe);
+  void SanitizeDefaultConfigAttributes(Element* aChild,
+                                       StaticAtomSet* aElementAttributes,
+                                       bool aSafe);
 
-  /**
-   * Logs localized message to either content console or browser console
-   * @param aName              Localization key
-   * @param aParams            Localization parameters
-   * @param aFlags             Logging Flag (see nsIScriptError)
-   */
-  void LogLocalizedString(const char* aName, const nsTArray<nsString>& aParams,
-                          uint32_t aFlags);
+  void AssertIsValid();
 
-  /**
-   * Logs localized message to either content console or browser console
-   * @param aMessage           Message to log
-   * @param aFlags             Logging Flag (see nsIScriptError)
-   * @param aInnerWindowID     Inner Window ID (Logged on browser console if 0)
-   * @param aFromPrivateWindow If from private window
-   */
-  static void LogMessage(const nsAString& aMessage, uint32_t aFlags,
-                         uint64_t aInnerWindowID, bool aFromPrivateWindow);
+  void AssertNoLists() {
+    MOZ_ASSERT(!mElements);
+    MOZ_ASSERT(!mRemoveElements);
+    MOZ_ASSERT(!mReplaceWithChildrenElements);
+    MOZ_ASSERT(!mAttributes);
+    MOZ_ASSERT(!mRemoveAttributes);
+  }
 
   RefPtr<nsIGlobalObject> mGlobal;
 
-  sanitizer::ListSet<sanitizer::CanonicalElementWithAttributes> mElements;
-  sanitizer::ListSet<sanitizer::CanonicalName> mRemoveElements;
-  sanitizer::ListSet<sanitizer::CanonicalName> mReplaceWithChildrenElements;
+  Maybe<sanitizer::CanonicalElementMap> mElements;
+  Maybe<sanitizer::CanonicalElementSet> mRemoveElements;
+  Maybe<sanitizer::CanonicalElementSet> mReplaceWithChildrenElements;
 
-  sanitizer::ListSet<sanitizer::CanonicalName> mAttributes;
-  sanitizer::ListSet<sanitizer::CanonicalName> mRemoveAttributes;
+  Maybe<sanitizer::CanonicalAttributeSet> mAttributes;
+  Maybe<sanitizer::CanonicalAttributeSet> mRemoveAttributes;
 
   bool mComments = false;
-  bool mDataAttributes = false;
+  // mDataAttributes always exists when mAttributes exists after
+  // canonicalization. It never exists at the same time as mRemoveAttributes.
+  Maybe<bool> mDataAttributes;
+
+  // Optimization: This sanitizer has a lazy default config. None
+  // of the element lists will be used, however mComments and mDataAttributes
+  // continue to be functional.
+  bool mIsDefaultConfig = false;
 };
 }  // namespace dom
 }  // namespace mozilla

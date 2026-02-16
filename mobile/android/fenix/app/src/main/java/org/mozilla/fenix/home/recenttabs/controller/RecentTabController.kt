@@ -59,7 +59,7 @@ class DefaultRecentTabsController(
 
     override fun handleRecentTabShowAllClicked() {
         RecentTabs.showAllClicked.record(NoExtras())
-        navController.navigate(HomeFragmentDirections.actionGlobalTabsTrayFragment())
+        navController.navigate(HomeFragmentDirections.actionGlobalTabManagementFragment())
     }
 
     override fun handleRecentTabRemoved(tab: RecentTab.Tab) {

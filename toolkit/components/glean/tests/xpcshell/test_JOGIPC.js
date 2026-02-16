@@ -169,6 +169,24 @@ const METRICS = [
     false,
     JSON.stringify({ permit_non_commutative_operations_over_ipc: true }),
   ],
+  [
+    "quantity",
+    "jog_ipc",
+    "jog_unordered_quantity",
+    ["test-ping"],
+    `"ping"`,
+    false,
+    JSON.stringify({ permit_non_commutative_operations_over_ipc: true }),
+  ],
+  [
+    "dual_labeled_counter",
+    "jog_ipc",
+    "jog_dual_labeled_counter",
+    ["test-ping"],
+    `"ping"`,
+    false,
+    JSON.stringify({ ordered_categories: ["cat1", "cat2"] }),
+  ],
 ];
 
 add_task({ skip_if: () => runningInParent }, async function run_child_stuff() {
@@ -207,12 +225,12 @@ add_task({ skip_if: () => runningInParent }, async function run_child_stuff() {
   Glean.jogIpc.jogLabeledCounter.label_1.add(COUNTERS_1);
   Glean.jogIpc.jogLabeledCounter.label_2.add(COUNTERS_2);
 
-  Glean.jogIpc.jogLabeledCounterErr["1".repeat(72)].add(INVALID_COUNTERS);
+  Glean.jogIpc.jogLabeledCounterErr["1".repeat(112)].add(INVALID_COUNTERS);
 
   Glean.jogIpc.jogLabeledCounterWithLabels.label_1.add(COUNTERS_1);
   Glean.jogIpc.jogLabeledCounterWithLabels.label_2.add(COUNTERS_2);
 
-  Glean.jogIpc.jogLabeledCounterWithLabelsErr["1".repeat(72)].add(
+  Glean.jogIpc.jogLabeledCounterWithLabelsErr["1".repeat(112)].add(
     INVALID_COUNTERS
   );
 
@@ -241,6 +259,13 @@ add_task({ skip_if: () => runningInParent }, async function run_child_stuff() {
   Glean.jogIpc.jogUnorderedBool.set(true);
 
   Glean.jogIpc.jogUnorderedLabeledBool.aLabel.set(true);
+
+  Glean.jogIpc.jogUnorderedQuantity.set(42);
+
+  Glean.jogIpc.jogDualLabeledCounter.get("somekey", "cat1").add(6);
+  Glean.jogIpc.jogDualLabeledCounter.get("otherkey", "cat1").add(36);
+  Glean.jogIpc.jogDualLabeledCounter.get("otherkey", "cat2").add(216);
+  Glean.jogIpc.jogDualLabeledCounter.get("otherkey", "unexpectedcat").add(1296);
 });
 
 add_task(
@@ -373,5 +398,26 @@ add_task(
     Assert.ok(Glean.jogIpc.jogUnorderedBool.testGetValue());
 
     Assert.ok(Glean.jogIpc.jogUnorderedLabeledBool.aLabel.testGetValue());
+
+    Assert.equal(42, Glean.jogIpc.jogUnorderedQuantity.testGetValue());
+
+    Assert.equal(
+      6,
+      Glean.jogIpc.jogDualLabeledCounter.get("somekey", "cat1").testGetValue()
+    );
+    Assert.equal(
+      36,
+      Glean.jogIpc.jogDualLabeledCounter.get("otherkey", "cat1").testGetValue()
+    );
+    Assert.equal(
+      216,
+      Glean.jogIpc.jogDualLabeledCounter.get("otherkey", "cat2").testGetValue()
+    );
+    Assert.equal(
+      1296,
+      Glean.jogIpc.jogDualLabeledCounter
+        .get("otherkey", "__other__")
+        .testGetValue()
+    );
   }
 );

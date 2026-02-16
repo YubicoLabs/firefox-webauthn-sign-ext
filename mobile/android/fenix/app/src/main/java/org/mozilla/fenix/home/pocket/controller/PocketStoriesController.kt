@@ -4,28 +4,32 @@
 
 package org.mozilla.fenix.home.pocket.controller
 
+import androidx.navigation.NavController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import mozilla.components.service.pocket.PocketStory
 import mozilla.components.service.pocket.PocketStory.ContentRecommendation
 import mozilla.components.service.pocket.PocketStory.PocketRecommendedStory
-import mozilla.components.service.pocket.PocketStory.PocketSponsoredStory
 import mozilla.components.service.pocket.PocketStory.SponsoredContent
 import mozilla.components.service.pocket.ext.getCurrentFlightImpressions
 import mozilla.telemetry.glean.private.NoExtras
-import org.mozilla.fenix.BrowserDirection
-import org.mozilla.fenix.GleanMetrics.Pings
 import org.mozilla.fenix.GleanMetrics.Pocket
-import org.mozilla.fenix.HomeActivity
+import org.mozilla.fenix.GleanMetrics.StoriesLibrary
+import org.mozilla.fenix.R
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.appstate.AppAction.ContentRecommendationsAction
-import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.components.usecases.FenixBrowserUseCases
+import org.mozilla.fenix.ext.nav
+import org.mozilla.fenix.home.HomeFragmentDirections
 import org.mozilla.fenix.home.mars.MARSUseCases
 import org.mozilla.fenix.home.pocket.PocketImpression
 import org.mozilla.fenix.home.pocket.PocketRecommendedStoriesCategory
-import org.mozilla.fenix.home.pocket.view.POCKET_CATEGORIES_SELECTED_AT_A_TIME_COUNT
+import org.mozilla.fenix.home.pocket.interactor.PocketStoriesInteractor
 import org.mozilla.fenix.utils.Settings
+import java.lang.ref.WeakReference
+
+private const val POCKET_CATEGORIES_SELECTED_AT_A_TIME_COUNT = 8
 
 /**
  * Contract for how all user interactions with the Pocket stories feature are to be handled.
@@ -64,37 +68,39 @@ interface PocketStoriesController {
     fun handleStoryClicked(storyClicked: PocketStory, storyPosition: Triple<Int, Int, Int>)
 
     /**
-     * Callback for when the "Learn more" link is clicked.
-     *
-     * @param link URL clicked.
+     * Callback for when the user clicks on the "Discover more" button.
      */
-    fun handleLearnMoreClicked(link: String)
+    fun handleDiscoverMoreClicked()
 
     /**
-     * Callback for when the "Discover more" link is clicked.
-     *
-     * @param link URL clicked.
+     * @see [PocketStoriesInteractor.onDiscoverMoreScreenViewed]
      */
-    fun handleDiscoverMoreClicked(link: String)
+    fun handleDiscoverMoreScreenViewed()
 }
 
 /**
  * Default behavior for handling all user interactions with the Pocket recommended stories feature.
  *
- * @param homeActivity [HomeActivity] used to open URLs in a new tab.
+ * @param navControllerRef [NavController] used for navigation.
  * @param appStore [AppStore] from which to read the current Pocket recommendations and dispatch new actions on.
  * @param settings [Settings] used to check the application shared preferences.
+ * @param fenixBrowserUseCases [FenixBrowserUseCases] used to open the story when clicked.
  * @param marsUseCases [MARSUseCases] used for handling the sponsored content click and impression
  * recording.
  * @param viewLifecycleScope The [CoroutineScope] to use for launching coroutines.
  */
 internal class DefaultPocketStoriesController(
-    private val homeActivity: HomeActivity,
+    private val navControllerRef: WeakReference<NavController>,
     private val appStore: AppStore,
     private val settings: Settings,
+    private val fenixBrowserUseCases: FenixBrowserUseCases,
     private val marsUseCases: MARSUseCases,
     private val viewLifecycleScope: CoroutineScope,
 ) : PocketStoriesController {
+
+    private val navController: NavController
+        get() = requireNotNull(navControllerRef.get())
+
     override fun handleStoryShown(
         storyShown: PocketStory,
         storyPosition: Triple<Int, Int, Int>,
@@ -111,18 +117,6 @@ internal class DefaultPocketStoriesController(
         )
 
         when (storyShown) {
-            is PocketSponsoredStory -> {
-                Pocket.homeRecsSpocShown.record(
-                    Pocket.HomeRecsSpocShownExtra(
-                        spocId = storyShown.id.toString(),
-                        position = "${storyPosition.first}x${storyPosition.second}",
-                        timesShown = storyShown.getCurrentFlightImpressions().size.inc().toString(),
-                    ),
-                )
-                Pocket.spocShim.set(storyShown.shim.impression)
-                Pings.spoc.submit(Pings.spocReasonCodes.impression)
-            }
-
             is SponsoredContent -> {
                 Pocket.homeRecsSpocShown.record(
                     Pocket.HomeRecsSpocShownExtra(
@@ -202,11 +196,11 @@ internal class DefaultPocketStoriesController(
         storyClicked: PocketStory,
         storyPosition: Triple<Int, Int, Int>,
     ) {
-        val newTab = homeActivity.settings().enableHomepageAsNewTab.not()
-        homeActivity.openToBrowserAndLoad(
+        navController.navigate(R.id.browserFragment)
+        fenixBrowserUseCases.loadUrlOrSearch(
             searchTermOrURL = storyClicked.url,
-            newTab = newTab,
-            from = BrowserDirection.FromHome,
+            newTab = !settings.enableHomepageAsNewTab,
+            private = false,
         )
 
         when (storyClicked) {
@@ -217,18 +211,6 @@ internal class DefaultPocketStoriesController(
                         timesShown = storyClicked.timesShown.inc().toString(),
                     ),
                 )
-            }
-
-            is PocketSponsoredStory -> {
-                Pocket.homeRecsSpocClicked.record(
-                    Pocket.HomeRecsSpocClickedExtra(
-                        spocId = storyClicked.id.toString(),
-                        position = "${storyPosition.first}x${storyPosition.second}",
-                        timesShown = storyClicked.getCurrentFlightImpressions().size.inc().toString(),
-                    ),
-                )
-                Pocket.spocShim.set(storyClicked.shim.click)
-                Pings.spoc.submit(Pings.spocReasonCodes.click)
             }
 
             is ContentRecommendation -> {
@@ -252,16 +234,21 @@ internal class DefaultPocketStoriesController(
                     marsUseCases.recordInteraction(storyClicked.callbacks.clickUrl)
                 }
             }
+
+            else -> {
+                // no-op
+            }
         }
     }
 
-    override fun handleLearnMoreClicked(link: String) {
-        homeActivity.openToBrowserAndLoad(link, true, BrowserDirection.FromHome)
-        Pocket.homeRecsLearnMoreClicked.record(NoExtras())
+    override fun handleDiscoverMoreClicked() {
+        navController.nav(
+            R.id.homeFragment,
+            HomeFragmentDirections.actionHomeFragmentToStoriesFragment(),
+        )
     }
 
-    override fun handleDiscoverMoreClicked(link: String) {
-        homeActivity.openToBrowserAndLoad(link, true, BrowserDirection.FromHome)
-        Pocket.homeRecsDiscoverClicked.record(NoExtras())
+    override fun handleDiscoverMoreScreenViewed() {
+        StoriesLibrary.viewed.record(NoExtras())
     }
 }

@@ -75,7 +75,11 @@ export class UserCharacteristicsCanvasRenderingChild extends JSWindowActorChild 
         };
       }
 
-      return sha1(canvas.toDataURL("image/png", 1)).catch(stringifyError);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const hash = await sha1Uint8Array(imageData.data).catch(stringifyError);
+      const raw = btoa(String.fromCharCode.apply(null, imageData.data));
+
+      return { hash, raw };
     };
 
     const errors = [];
@@ -103,7 +107,8 @@ export class UserCharacteristicsCanvasRenderingChild extends JSWindowActorChild 
         });
         continue;
       }
-      renderings.set(name, result);
+      renderings.set(name, result.hash);
+      renderings.set(name + "Raw", result.raw);
     }
 
     // Run SW renderings
@@ -112,13 +117,14 @@ export class UserCharacteristicsCanvasRenderingChild extends JSWindowActorChild 
       const result = await runRecipe(false, recipe);
       if (result.error) {
         errors.push({
-          name: name + "software",
+          name: name + "Software",
           error: result.error,
           originalError: result.originalError,
         });
         continue;
       }
-      renderings.set(name + "software", result);
+      renderings.set(name + "Software", result.hash);
+      renderings.set(name + "SoftwareRaw", result.raw);
     }
 
     const data = new Map();
@@ -131,6 +137,18 @@ export class UserCharacteristicsCanvasRenderingChild extends JSWindowActorChild 
 
   async getDebugInfo() {
     const canvas = this.document.createElement("canvas");
+
+    if (canvas == null) {
+      throw new Error("Canvas is ${canvas}");
+    }
+
+    if (typeof canvas.getContext !== "function") {
+      // Huh? How? Why?
+      throw new Error(
+        `Canvas is ${canvas} and doesn't have getContext. TagName: ${canvas.tagName}`
+      );
+    }
+
     const ctx = canvas.getContext("2d");
 
     if (!ctx) {
@@ -360,9 +378,8 @@ ChromeUtils.defineLazyGetter(lazy, "recipes", () => {
   };
 });
 
-async function sha1(message) {
-  const msgUint8 = new TextEncoder().encode(message);
-  const hashBuffer = await crypto.subtle.digest("SHA-1", msgUint8);
+async function sha1Uint8Array(bytes) {
+  const hashBuffer = await crypto.subtle.digest("SHA-1", bytes);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
   return hashHex;

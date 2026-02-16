@@ -11,6 +11,7 @@
 #include "mozilla/ErrorResult.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/BufferSourceBindingFwd.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsWrapperCache.h"
 
@@ -23,8 +24,6 @@ class MediaRawData;
 
 namespace dom {
 
-class MaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer;
-class OwningMaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer;
 class StructuredCloneHolder;
 
 enum class EncodedAudioChunkType : uint8_t;
@@ -93,9 +92,7 @@ class EncodedAudioChunk final : public EncodedAudioChunkData,
 
   uint32_t ByteLength() const;
 
-  void CopyTo(
-      const MaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer& aDestination,
-      ErrorResult& aRv);
+  void CopyTo(const AllowSharedBufferSource& aDestination, ErrorResult& aRv);
 
   // [Serializable] implementations: {Read, Write}StructuredClone
   static JSObject* ReadStructuredClone(JSContext* aCx, nsIGlobalObject* aGlobal,

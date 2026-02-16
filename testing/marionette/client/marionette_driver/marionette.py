@@ -12,9 +12,6 @@ import time
 import traceback
 from contextlib import contextmanager
 
-import six
-from six import reraise
-
 from . import errors, transport
 from .decorators import do_process_check
 from .geckoinstance import GeckoInstance
@@ -27,7 +24,7 @@ WEB_SHADOW_ROOT_KEY = "shadow-6066-11e4-a52e-4f735466cecf"
 WEB_WINDOW_KEY = "window-fcc6-11e5-b4f8-330a88ab9d7f"
 
 
-class MouseButton(object):
+class MouseButton:
     """Enum-like class for mouse button constants."""
 
     LEFT = 0
@@ -35,7 +32,7 @@ class MouseButton(object):
     RIGHT = 2
 
 
-class ActionSequence(object):
+class ActionSequence:
     r"""API for creating and performing action sequences.
 
     Each action method adds one or more actions to a queue. When perform()
@@ -191,7 +188,7 @@ class ActionSequence(object):
         return self
 
 
-class Actions(object):
+class Actions:
     def __init__(self, marionette):
         self.marionette = marionette
 
@@ -216,7 +213,7 @@ class Actions(object):
         return ActionSequence(self.marionette, *args, **kwargs)
 
 
-class WebElement(object):
+class WebElement:
     """Represents a DOM Element."""
 
     identifiers = (WEB_ELEMENT_KEY,)
@@ -397,7 +394,7 @@ class WebElement(object):
         raise ValueError("Unrecognised web element")
 
 
-class ShadowRoot(object):
+class ShadowRoot:
     """A Class to handling Shadow Roots"""
 
     identifiers = (WEB_SHADOW_ROOT_KEY,)
@@ -452,7 +449,7 @@ class ShadowRoot(object):
         raise ValueError("Unrecognised shadow root")
 
 
-class WebFrame(object):
+class WebFrame:
     """A Class to handle frame windows"""
 
     identifiers = (WEB_FRAME_KEY,)
@@ -481,7 +478,7 @@ class WebFrame(object):
         raise ValueError("Unrecognised web frame")
 
 
-class WebWindow(object):
+class WebWindow:
     """A Class to handle top-level windows"""
 
     identifiers = (WEB_WINDOW_KEY,)
@@ -510,7 +507,7 @@ class WebWindow(object):
         raise ValueError("Unrecognised web window")
 
 
-class Alert(object):
+class Alert:
     """A class for interacting with alerts.
 
     ::
@@ -543,7 +540,7 @@ class Alert(object):
         )
 
 
-class Marionette(object):
+class Marionette:
     """Represents a Marionette connection to a browser or device."""
 
     CONTEXT_CHROME = "chrome"  # non-browser content: windows, dialogs, etc.
@@ -640,10 +637,10 @@ class Marionette(object):
     def start_binary(self, timeout):
         try:
             self.check_port_available(self.port, host=self.host)
-        except socket.error:
+        except OSError:
             _, value, tb = sys.exc_info()
-            msg = "Port {}:{} is unavailable ({})".format(self.host, self.port, value)
-            reraise(IOError, IOError(msg), tb)
+            msg = f"Port {self.host}:{self.port} is unavailable ({value})"
+            raise OSError(msg).with_traceback(tb)
 
         try:
             self.instance.start()
@@ -657,13 +654,13 @@ class Marionette(object):
                 "Process killed after {}s because no connection to Marionette "
                 "server could be established. Check gecko.log for errors"
             )
-            reraise(IOError, IOError(msg.format(timeout)), sys.exc_info()[2])
+            raise OSError(msg.format(timeout)).with_traceback(sys.exc_info()[2])
 
     def cleanup(self):
         if self.session is not None:
             try:
                 self.delete_session()
-            except (errors.MarionetteException, IOError):
+            except (OSError, errors.MarionetteException):
                 # These exceptions get thrown if the Marionette server
                 # hit an exception/died or the connection died. We can
                 # do no further server-side cleanup in this case.
@@ -729,7 +726,7 @@ class Marionette(object):
             try:
                 client.connect()
                 return True
-            except socket.error:
+            except OSError:
                 pass
             finally:
                 client.close()
@@ -739,12 +736,10 @@ class Marionette(object):
         if not connected:
             # There might have been a startup crash of the application
             if runner is not None and self.check_for_crash() > 0:
-                raise IOError("Process crashed (Exit code: {})".format(runner.wait(0)))
+                raise OSError(f"Process crashed (Exit code: {runner.wait(0)})")
 
             raise socket.timeout(
-                "Timed out waiting for connection on {0}:{1}!".format(
-                    self.host, self.port
-                )
+                f"Timed out waiting for connection on {self.host}:{self.port}!"
             )
 
     @do_process_check
@@ -767,7 +762,7 @@ class Marionette(object):
 
         try:
             msg = self.client.request(name, params)
-        except IOError:
+        except OSError:
             self.delete_session(send_request=False)
             raise
 
@@ -817,7 +812,7 @@ class Marionette(object):
         # If the application hasn't been launched by Marionette no further action can be done.
         # In such cases we simply re-throw the exception.
         if not self.instance:
-            reraise(exc_cls, exc, tb)
+            raise exc.with_traceback(tb)
 
         else:
             # Somehow the socket disconnected. Give the application some time to shutdown
@@ -850,9 +845,9 @@ class Marionette(object):
 
             message += " (Reason: {reason})"
 
-            reraise(
-                IOError, IOError(message.format(returncode=returncode, reason=exc)), tb
-            )
+            raise OSError(
+                message.format(returncode=returncode, reason=exc)
+            ).with_traceback(tb)
 
     @staticmethod
     def convert_keys(*string):
@@ -1015,15 +1010,15 @@ class Marionette(object):
             )
         pref_exists = True
         with self.using_context(self.CONTEXT_CHROME):
-            for pref, value in six.iteritems(prefs):
+            for pref, value in prefs.items():
                 if type(value) is not str:
                     value = json.dumps(value)
                 pref_exists = self.execute_script(
-                    """
+                    f"""
                 let prefInterface = Components.classes["@mozilla.org/preferences-service;1"]
                                               .getService(Components.interfaces.nsIPrefBranch);
-                let pref = '{0}';
-                let value = '{1}';
+                let pref = '{pref}';
+                let value = '{value}';
                 let type = prefInterface.getPrefType(pref);
                 switch(type) {{
                     case prefInterface.PREF_STRING:
@@ -1035,9 +1030,7 @@ class Marionette(object):
                     case prefInterface.PREF_INVALID:
                         return false;
                 }}
-                """.format(
-                        pref, value
-                    )
+                """
                 )
                 if not pref_exists:
                     break
@@ -1111,7 +1104,7 @@ class Marionette(object):
         """
         if not self.instance:
             raise errors.MarionetteException(
-                "quit() can only be called " "on Gecko instances launched by Marionette"
+                "quit() can only be called on Gecko instances launched by Marionette"
             )
 
         quit_details = {"cause": "shutdown", "forced": False}
@@ -1123,9 +1116,7 @@ class Marionette(object):
                 )
 
             if callback is not None and not callable(callback):
-                raise ValueError(
-                    "Specified callback '{}' is not callable".format(callback)
-                )
+                raise ValueError(f"Specified callback '{callback}' is not callable")
 
             # Block Marionette from accepting new connections
             self._send_message("Marionette:AcceptConnections", {"value": False})
@@ -1138,7 +1129,7 @@ class Marionette(object):
                 else:
                     quit_details = self._request_in_app_shutdown()
 
-            except IOError:
+            except OSError:
                 # A possible IOError should be ignored at this point, given that
                 # quit() could have been called inside of `using_context`,
                 # which wants to reset the context but fails sending the message.
@@ -1160,7 +1151,7 @@ class Marionette(object):
                     self.cleanup()
 
                     message = "Process still running {}s after quit request"
-                    raise IOError(message.format(self.shutdown_timeout))
+                    raise OSError(message.format(self.shutdown_timeout))
 
             finally:
                 self.is_shutting_down = False
@@ -1173,8 +1164,9 @@ class Marionette(object):
 
         if quit_details.get("cause") not in (None, "shutdown"):
             raise errors.MarionetteException(
-                "Unexpected shutdown reason '{}' for "
-                "quitting the process.".format(quit_details["cause"])
+                "Unexpected shutdown reason '{}' for quitting the process.".format(
+                    quit_details["cause"]
+                )
             )
 
         return quit_details
@@ -1213,8 +1205,7 @@ class Marionette(object):
         """
         if not self.instance:
             raise errors.MarionetteException(
-                "restart() can only be called "
-                "on Gecko instances launched by Marionette"
+                "restart() can only be called on Gecko instances launched by Marionette"
             )
 
         context = self._send_message("Marionette:GetContext", key="value")
@@ -1231,9 +1222,7 @@ class Marionette(object):
                 )
 
             if callback is not None and not callable(callback):
-                raise ValueError(
-                    "Specified callback '{}' is not callable".format(callback)
-                )
+                raise ValueError(f"Specified callback '{callback}' is not callable")
 
             # Block Marionette from accepting new connections
             self._send_message("Marionette:AcceptConnections", {"value": False})
@@ -1258,7 +1247,7 @@ class Marionette(object):
                         )
                         raise e
 
-            except IOError:
+            except OSError:
                 # A possible IOError should be ignored at this point, given that
                 # restart() could have been called inside of `using_context`,
                 # which wants to reset the context but fails sending the message.
@@ -1281,17 +1270,15 @@ class Marionette(object):
                     self._send_message("Marionette:AcceptConnections", {"value": True})
 
                     message = "Process still running {}s after restart request"
-                    reraise(exc_cls, exc_cls(message.format(timeout_restart)), tb)
+                    raise exc_cls(message.format(timeout_restart)).with_traceback(tb)
 
                 else:
                     # The process shutdown but didn't start again.
                     self.cleanup()
                     msg = "Process unexpectedly quit without restarting (exit code: {})"
-                    reraise(
-                        exc_cls,
-                        exc_cls(msg.format(self.instance.runner.returncode)),
-                        tb,
-                    )
+                    raise exc_cls(
+                        msg.format(self.instance.runner.returncode)
+                    ).with_traceback(tb)
 
             self.is_shutting_down = False
 
@@ -1312,8 +1299,9 @@ class Marionette(object):
 
         if restart_details.get("cause") not in (None, "restart"):
             raise errors.MarionetteException(
-                "Unexpected shutdown reason '{}' for "
-                "restarting the process".format(restart_details["cause"])
+                "Unexpected shutdown reason '{}' for restarting the process".format(
+                    restart_details["cause"]
+                )
             )
 
         return restart_details
@@ -1324,7 +1312,7 @@ class Marionette(object):
 
         :param relative_url: The url of a static file, relative to Marionette's www directory.
         """
-        return "{0}{1}".format(self.baseurl, relative_url)
+        return f"{self.baseurl}{relative_url}"
 
     @do_process_check
     def start_session(self, capabilities=None, process_forked=False, timeout=None):
@@ -1338,7 +1326,7 @@ class Marionette(object):
             or requriedCapabilities), and only recognises extension
             capabilities that are specific to Marionette.
         :param process_forked: If True, the existing process forked itself due
-        to an internal restart.
+            to an internal restart.
         :param timeout: Optional timeout in seconds for the server to be ready.
 
         :returns: A dictionary of the capabilities offered.
@@ -1378,7 +1366,7 @@ class Marionette(object):
             exc_type, value, tb = sys.exc_info()
             if self.instance and self.instance.runner.is_running():
                 self.instance.close()
-            reraise(exc_type, exc_type(value.message), tb)
+            raise exc_type(value.message).with_traceback(tb)
 
         self.session_id = resp["sessionId"]
         self.session = resp["capabilities"]
@@ -1566,6 +1554,35 @@ class Marionette(object):
         """
         return self._send_message("WebDriver:CloseChromeWindow")
 
+    def register_chrome_handler(self, manifestPath, entries):
+        """Register a chrome protocol handler.
+
+        :param manifestPath: Path to the chrome manifest file
+        :param entries:  Chrome entries to register.
+
+        `entries` is an array of arrays, each containing a registry entry
+        (type, namespace, path, options) as it would appar in a chrome.manifest
+        file. Only the following entry types are currently accepted:
+
+            - "content" A URL entry. Must be a 3-element array.
+            - "override" A URL override entry. Must be a 3-element array.
+            - "locale" A locale package entry. Must be a 4-element array.
+
+        :returns: id of the registered chrome handler
+        """
+        return self._send_message(
+            "Marionette:RegisterChromeHandler",
+            {
+                "manifestPath": manifestPath,
+                "entries": entries,
+            },
+            key="value",
+        )
+
+    def unregister_chrome_handler(self, id):
+        """Unregister a previous registered chrome protocol handler."""
+        self._send_message("Marionette:UnregisterChromeHandler", {"id": id})
+
     def set_context(self, context):
         """Sets the context that Marionette commands are running in.
 
@@ -1577,7 +1594,7 @@ class Marionette(object):
             marionette.set_context(marionette.CONTEXT_CHROME)
         """
         if context not in [self.CONTEXT_CHROME, self.CONTEXT_CONTENT]:
-            raise ValueError("Unknown context: {}".format(context))
+            raise ValueError(f"Unknown context: {context}")
 
         self._send_message("Marionette:SetContext", {"value": context})
 
@@ -1737,7 +1754,7 @@ class Marionette(object):
             wrapped = {WEB_FRAME_KEY: args.id}
         elif type(args) is WebWindow:
             wrapped = {WEB_WINDOW_KEY: args.id}
-        elif isinstance(args, (bool, int, float, six.string_types)) or args is None:
+        elif isinstance(args, (bool, int, float, str)) or args is None:
             wrapped = args
         return wrapped
 
@@ -1805,11 +1822,18 @@ class Marionette(object):
 
         ::
 
-            result = marionette.execute_script("return arguments[0] + arguments[1];",
-                                               script_args=(2, 3,))
+            result = marionette.execute_script(
+                "return arguments[0] + arguments[1];",
+                script_args=(
+                    2,
+                    3,
+                ),
+            )
             assert result == 5
             some_element = marionette.find_element(By.ID, "someElement")
-            sid = marionette.execute_script("return arguments[0].id;", script_args=(some_element,))
+            sid = marionette.execute_script(
+                "return arguments[0].id;", script_args=(some_element,)
+            )
             assert some_element.get_attribute("id") == sid
 
         Scripts wishing to access non-standard properties of the window
@@ -1832,7 +1856,9 @@ class Marionette(object):
         ::
 
             marionette.execute_script("global.test1 = 'foo';")
-            result = self.marionette.execute_script("return global.test1;", new_sandbox=False)
+            result = self.marionette.execute_script(
+                "return global.test1;", new_sandbox=False
+            )
             assert result == "foo"
 
         """
@@ -1994,6 +2020,18 @@ class Marionette(object):
 
         return self._send_message("WebDriver:FindElements", body)
 
+    def generate_test_report(self, message, group=None):
+        """Generates a test report to be observed by registered reporting observers
+
+        :param message: The message string to be used as the body of the generated report
+        :param group: The name of the endpoint that will receive the report
+        """
+        body = {"message": message}
+        if group is not None:
+            body["group"] = group
+
+        self._send_message("Reporting:GenerateTestReport", body)
+
     def get_active_element(self):
         el_or_ref = self._send_message("WebDriver:GetActiveElement", key="value")
         return el_or_ref
@@ -2011,8 +2049,12 @@ class Marionette(object):
 
             driver.add_cookie({"name": "foo", "value": "bar"})
             driver.add_cookie({"name": "foo", "value": "bar", "path": "/"})
-            driver.add_cookie({"name": "foo", "value": "bar", "path": "/",
-                               "secure": True})
+            driver.add_cookie({
+                "name": "foo",
+                "value": "bar",
+                "path": "/",
+                "secure": True,
+            })
         """
         self._send_message("WebDriver:AddCookie", {"cookie": cookie})
 
@@ -2109,14 +2151,14 @@ class Marionette(object):
 
         data = self._send_message("WebDriver:TakeScreenshot", body, key="value")
 
-        if format == "base64" or format == "hash":
+        if format in {"base64", "hash"}:
             return data
         elif format == "binary":
             return base64.b64decode(data.encode("ascii"))
         else:
             raise ValueError(
                 "format parameter must be either 'base64'"
-                " or 'binary', not {0}".format(repr(format))
+                f" or 'binary', not {repr(format)}"
             )
 
     @property

@@ -10,8 +10,8 @@ origin:
     SQLite is a C-language library that implements a small, fast,
     self-contained, high-reliability, full-featured, SQL database engine.
   url: https://www.sqlite.org/
-  release: version-3.49.1 (2025-02-18T13:38:58Z).
-  revision: version-3.49.1
+  release: version-3.51.2 (2026-01-09T17:27:48Z).
+  revision: version-3.51.2
   license: Public Domain
   license-file: LICENSE.md
   notes: >
@@ -28,12 +28,11 @@ vendoring:
   vendor-directory: third_party/sqlite3/src
   skip-vendoring-steps:
     - hg-add
+    - spurious-check
     - update-moz-build
   exclude:
     - "**"
   include:
-    - ext/misc/carray.h
-    - ext/misc/carray.c
     - LICENSE.md
     - VERSION
   keep:
@@ -46,12 +45,6 @@ vendoring:
     - action: move-file
       from: '{vendor_dir}/VERSION'
       to: '{vendor_dir}/VERSION.txt'
-    - action: move-file
-      from: '{vendor_dir}/ext/misc/carray.h'
-      to: '{yaml_dir}/ext/misc/carray.h'
-    - action: move-file
-      from: '{vendor_dir}/ext/misc/carray.c'
-      to: '{yaml_dir}/ext/misc/carray.c'
     - action: run-script
       script: '{yaml_dir}/vendor.sh'
       cwd: '{yaml_dir}'

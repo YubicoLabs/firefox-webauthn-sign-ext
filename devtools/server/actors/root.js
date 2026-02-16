@@ -135,11 +135,16 @@ class RootActor extends Actor {
             "dom.worker.console.dispatch_events_to_main_thread"
           )
         : true,
-      // @backward-compat { version 137 } Process Descriptor's `getWatcher()`
+      // @backward-compat { version 151 } Process Descriptor's `getWatcher()`
       // supports a new 'enableWindowGlobalThreadActors' flag to enable
       // the WindowGlobal's thread actors when debugging the whole browser.
-      // Once 137 is released, we may keep this flag to help VS.Code know
-      // which backend supports this feature or not.
+      // This was actually changed in 137, but we support it for VSCode until
+      // ESR 140 is the only ESR available.
+      //
+      // ESR 115 EOL is currently planned for March 24 2026. Do not remove
+      // this trait before that date AND make sure the extension has been
+      // updated (https://github.com/firefox-devtools/vscode-firefox-debug/issues/391).
+      // Contact Holger Benl (hbenl) for topics related to the extension.
       supportsEnableWindowGlobalThreadActors: true,
     };
   }
@@ -342,7 +347,7 @@ class RootActor extends Actor {
   /**
    * This function can receive the following option from devtools client.
    *
-   * @param {Object} option
+   * @param {object} option
    *        - iconDataURL: {boolean}
    *            When true, make data url from the icon of addon, then make possible to
    *            access by iconDataURL in the actor. The iconDataURL is useful when

@@ -234,7 +234,7 @@ add_setup(async function () {
     },
   ]);
   await SearchTestUtils.initXPCShellAddonManager();
-  await Services.search.init();
+  await SearchService.init();
 
   baseExtension = ExtensionTestUtils.loadExtension({
     manifest: {
@@ -277,9 +277,9 @@ for (const test of tests) {
       ]);
     }
 
-    let result = await Services.search.maybeSetAndOverrideDefault(extension);
+    let result = await SearchService.maybeSetAndOverrideDefault(extension);
     Assert.equal(
-      result.canChangeToAppProvided,
+      result.canChangeToConfigEngine,
       test.expected.switchToDefaultAllowed,
       "Should have returned the correct value for allowing switch to default or not."
     );
@@ -289,9 +289,9 @@ for (const test of tests) {
       "Should have returned the correct value for allowing to install the engine or not."
     );
 
-    let engine = await Services.search.getEngineByName(kOverriddenEngineName);
+    let engine = await SearchService.getEngineByName(kOverriddenEngineName);
     Assert.equal(
-      !!engine.wrappedJSObject.getAttr("overriddenBy"),
+      !!engine.getAttr("overriddenBy"),
       test.expected.overridesEngine,
       "Should have correctly overridden or not."
     );
@@ -325,10 +325,13 @@ for (const test of tests) {
 
       // As we're not testing the WebExtension manager as well,
       // set this engine as default so we can check the telemetry data.
-      let oldDefaultEngine = Services.search.defaultEngine;
-      Services.search.defaultEngine = engine;
+      let oldDefaultEngine = SearchService.defaultEngine;
+      await SearchService.setDefault(
+        engine,
+        SearchService.CHANGE_REASON.UNKNOWN
+      );
 
-      let engineInfo = Services.search.getDefaultEngineInfo();
+      let engineInfo = SearchService.getDefaultEngineInfo();
       Assert.deepEqual(
         engineInfo,
         {
@@ -341,9 +344,12 @@ for (const test of tests) {
         },
         "Should return the extended identifier and alternate submission url to telemetry"
       );
-      Services.search.defaultEngine = oldDefaultEngine;
+      await SearchService.setDefault(
+        oldDefaultEngine,
+        SearchService.CHANGE_REASON.UNKNOWN
+      );
 
-      engine.wrappedJSObject.removeExtensionOverride();
+      engine.removeExtensionOverride();
     }
   });
 }

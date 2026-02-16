@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+// @ts-nocheck - TODO - Remove this to type check this file.
+
 /**
  * @typedef {import("../../content/Utils.sys.mjs").ProgressAndStatusCallbackParams} ProgressAndStatusCallbackParams
  */
@@ -12,10 +14,11 @@ import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
 /* eslint-disable mozilla/reject-import-system-module-from-non-system */
 import {
-  getFileHandleFromOPFS,
   createFileUrl,
   Progress,
 } from "chrome://global/content/ml/Utils.sys.mjs";
+
+import { OPFS } from "chrome://global/content/ml/OPFS.sys.mjs";
 
 /**
  * Log level set by the pipeline.
@@ -76,9 +79,11 @@ let wllamaModule = null;
  */
 export class LlamaPipeline {
   wllama = null;
+  #errorFactory = null;
 
-  constructor(wllama) {
+  constructor(wllama, errorFactory) {
     this.wllama = wllama;
+    this.#errorFactory = errorFactory;
   }
 
   static async initialize(
@@ -99,23 +104,31 @@ export class LlamaPipeline {
       useMlock = true,
       kvCacheDtype = "q8_0",
       numThreadsDecoding = 0,
-    } = {}
+    } = {},
+    errorFactory
   ) {
+    let startInitTime = ChromeUtils.now();
+
+    let wasmLoadStart = ChromeUtils.now();
     if (!wllamaModule) {
       wllamaModule = await wllamaPromise;
+      ChromeUtils.addProfilerMarker(
+        "MLEngine:wllama",
+        { startTime: wasmLoadStart },
+        "Load wllama wasm module"
+      );
     }
-    let startInitTime = performance.now();
 
     const modelFilePath = (
-      await mlEngineWorker.getModelFile(
-        createFileUrl({
+      await mlEngineWorker.getModelFile({
+        url: createFileUrl({
           model: modelId,
           revision: modelRevision,
           file: modelFile,
           urlTemplate: modelHubUrlTemplate,
           rootUrl: modelHubRootUrl,
-        })
-      )
+        }),
+      })
     ).ok[2];
 
     lazy.console.debug("LlamaPipeline.initialize", { modelFilePath });
@@ -130,9 +143,7 @@ export class LlamaPipeline {
       logger: lazy.console,
     });
 
-    const blobs = [
-      await (await getFileHandleFromOPFS(modelFilePath)).getFile(),
-    ];
+    const blobs = [await (await OPFS.getFileHandle(modelFilePath)).getFile()];
 
     let options = {};
 
@@ -158,6 +169,7 @@ export class LlamaPipeline {
       options.n_threads_decoding = numThreadsDecoding;
     }
 
+    let modelLoadStart = ChromeUtils.now();
     await wllama.loadModel(blobs, {
       n_ctx: numContext,
       useCache: false,
@@ -173,11 +185,17 @@ export class LlamaPipeline {
       ...options,
     });
 
+    ChromeUtils.addProfilerMarker(
+      "MLEngine:wllama",
+      { startTime: modelLoadStart },
+      `Load model: ${modelId || modelFile}, ctx=${numContext}, threads=${numThreads}`
+    );
+
     URL.revokeObjectURL(wasmUrl);
 
-    lazy.console.debug("Init time", performance.now() - startInitTime);
+    lazy.console.debug("Init time", ChromeUtils.now() - startInitTime);
 
-    return new LlamaPipeline(wllama);
+    return new LlamaPipeline(wllama, errorFactory);
   }
 
   /**
@@ -187,9 +205,15 @@ export class LlamaPipeline {
    * @param {string | string[]} options.prompt - The input prompt or an array of chat messages.
    * @param {number} [options.nPredict=100] - The number of tokens to generate.
    * @param {boolean} [options.skipPrompt=true] - If true, skips processing the prompt tokens.
+   * @param {int} [options.stopTokens=[]] - List of custom token IDs for stopping the generation.
+   * @param {int} [options.useCache=false] - If true, it skips re-evaluating the conversation history.
+   *                                         Specifically, if a new prompt shares the same prefix as a previous prompt,
+   *                                         the cached computation (kv-cache) for that prefix will be reused, avoiding redundant computation.
    * @param {float} [options.temp=0] - The sampling temperature.
    * @param {float} [options.topP=0] - The top probabilities to use for top-p sampling.
    * @param {int} [options.topK=0] - The top-k tokens to use for top-k sampling.
+   * @param {object} [options.extraWllamaSamplingConfig={}] - Additional sampling settings. For details, refer to
+   *                                                    github.com/ngxson/wllama/blob/2.2.1/src/wllama.ts#L118
    * @param {string|null} [requestId=null] - An optional identifier for tracking the request.
    * @param {?function(ProgressAndStatusCallbackParams):void|null} [inferenceProgressCallback=null] - A callback function to track inference progress.
    *        It receives an object containing:
@@ -208,16 +232,19 @@ export class LlamaPipeline {
       prompt,
       nPredict = 100,
       skipPrompt = true,
+      stopTokens = [],
+      useCache = false,
       temp = 0,
       topP = 0,
       topK = 0,
+      ...extraWllamaSamplingConfig
     } = {},
     requestId = null,
     inferenceProgressCallback = null,
     port = null
   ) {
     try {
-      let startTime = performance.now();
+      let startTime = ChromeUtils.now();
       let endPromptTime;
       let isPromptDone = false;
       let startPromptTime = startTime;
@@ -229,6 +256,7 @@ export class LlamaPipeline {
         temp,
         top_p: topP,
         top_k: topK,
+        ...extraWllamaSamplingConfig,
       };
 
       let promptTokens = null;
@@ -238,7 +266,13 @@ export class LlamaPipeline {
       }
 
       if (!skipPrompt && (port || inferenceProgressCallback)) {
+        let tokenizeStart = ChromeUtils.now();
         promptTokens = await this.wllama.tokenize(prompt, true);
+        ChromeUtils.addProfilerMarker(
+          "MLEngine:wllama",
+          { startTime: tokenizeStart },
+          `Tokenize prompt: ${promptTokens.length} tokens`
+        );
         port?.postMessage({
           tokens: promptTokens,
           ok: true,
@@ -259,16 +293,19 @@ export class LlamaPipeline {
         });
       }
 
+      let generatedTokenCount = 0;
+      let tokenStart = ChromeUtils.now();
       const output = await this.wllama.createCompletion(
         promptTokens || prompt,
         {
           nPredict,
           sampling: configSampling,
-          useCache: false,
+          useCache,
+          stopTokens,
           onNewToken: (token, piece, _currentText) => {
             if (!isPromptDone) {
               isPromptDone = true;
-              endPromptTime = performance.now();
+              endPromptTime = ChromeUtils.now();
               startDecodingTime = endPromptTime;
             }
 
@@ -292,13 +329,24 @@ export class LlamaPipeline {
               type: Progress.ProgressType.INFERENCE,
               statusText: Progress.ProgressStatusText.IN_PROGRESS,
             });
+
+            ChromeUtils.addProfilerMarker(
+              "MLEngine:wllama",
+              { startTime: tokenStart },
+              "Generate token"
+            );
+            tokenStart = ChromeUtils.now();
+
+            generatedTokenCount++;
           },
         }
       );
 
-      const endTime = performance.now();
-      lazy.console.debug("Decoding time", endTime - startDecodingTime);
-      lazy.console.debug("Prompt time", endPromptTime - startPromptTime);
+      const endTime = ChromeUtils.now();
+      const promptTime = endPromptTime - startPromptTime;
+      const decodingTime = endTime - startDecodingTime;
+      lazy.console.debug("Decoding time", decodingTime);
+      lazy.console.debug("Prompt time", promptTime);
       lazy.console.debug("Overall time", endTime - startTime);
       lazy.console.debug("Generated", output);
 
@@ -315,9 +363,16 @@ export class LlamaPipeline {
         statusText: Progress.ProgressStatusText.DONE,
       });
 
-      return output;
+      ChromeUtils.addProfilerMarker(
+        "MLEngine:wllama",
+        { startTime: startPromptTime },
+        `Prompt generation (${generatedTokenCount} tokens generated)`
+      );
+
+      return { done: true, finalOutput: output, ok: true, metrics: [] };
     } catch (error) {
-      port?.postMessage({ done: true, ok: false, error });
+      const backendError = this.#errorFactory(error);
+      port?.postMessage({ done: true, ok: false, error: backendError });
 
       inferenceProgressCallback?.({
         ok: false,
@@ -330,7 +385,13 @@ export class LlamaPipeline {
         statusText: Progress.ProgressStatusText.DONE,
       });
 
-      throw error;
+      ChromeUtils.addProfilerMarker(
+        "MLEngine:wllama",
+        null,
+        `Prompt error ${error}`
+      );
+
+      throw backendError;
     }
   }
 }

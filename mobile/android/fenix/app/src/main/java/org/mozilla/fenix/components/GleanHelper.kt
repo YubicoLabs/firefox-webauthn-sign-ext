@@ -41,6 +41,7 @@ fun initializeGlean(applicationContext: Context, logger: Logger, isTelemetryUplo
         channel = BuildConfig.BUILD_TYPE,
         httpClient = ConceptFetchHttpUploader(
             lazy(LazyThreadSafetyMode.NONE) { client },
+            supportsOhttp = true,
         ),
         enableEventTimestamps = FxNimbus.features.glean.value().enableEventTimestamps,
         delayPingLifetimeIo = FxNimbus.features.glean.value().delayPingLifetimeIo,
@@ -54,7 +55,7 @@ fun initializeGlean(applicationContext: Context, logger: Logger, isTelemetryUplo
     Glean.registerPings(Pings)
 
     // Set the metric configuration from Nimbus.
-    Glean.applyServerKnobsConfig(FxNimbus.features.glean.value().metricsEnabled.toString())
+    Glean.applyServerKnobsConfig(FxNimbus.features.glean.value().gleanMetricConfiguration.toJSONObject().toString())
 
     Glean.initialize(
         applicationContext = applicationContext,

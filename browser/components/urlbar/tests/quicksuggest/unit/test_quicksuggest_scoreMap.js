@@ -25,7 +25,8 @@ const { DEFAULT_SUGGESTION_SCORE } = UrlbarProviderQuickSuggest;
 
 const REMOTE_SETTINGS_RECORDS = [
   {
-    type: "data",
+    collection: QuickSuggestTestUtils.RS_COLLECTION.AMP,
+    type: QuickSuggestTestUtils.RS_TYPE.AMP,
     attachment: [
       // sponsored without score
       QuickSuggestTestUtils.ampRemoteSettings({
@@ -51,6 +52,12 @@ const REMOTE_SETTINGS_RECORDS = [
         url: "https://example.com/sponsored-with-score",
         title: "Sponsored with score",
       }),
+    ],
+  },
+  {
+    collection: QuickSuggestTestUtils.RS_COLLECTION.OTHER,
+    type: QuickSuggestTestUtils.RS_TYPE.WIKIPEDIA,
+    attachment: [
       // nonsponsored without score
       QuickSuggestTestUtils.wikipediaRemoteSettings({
         score: undefined,
@@ -95,10 +102,11 @@ const REMOTE_SETTINGS_RECORDS = [
 const ADM_RECORD = REMOTE_SETTINGS_RECORDS[0];
 const SPONSORED_WITHOUT_SCORE = ADM_RECORD.attachment[0];
 const SPONSORED_WITH_SCORE = ADM_RECORD.attachment[1];
-const NONSPONSORED_WITHOUT_SCORE = ADM_RECORD.attachment[2];
-const NONSPONSORED_WITH_SCORE = ADM_RECORD.attachment[3];
+const WIKIPEDIA_RECORD = REMOTE_SETTINGS_RECORDS[1];
+const NONSPONSORED_WITHOUT_SCORE = WIKIPEDIA_RECORD.attachment[0];
+const NONSPONSORED_WITH_SCORE = WIKIPEDIA_RECORD.attachment[1];
 
-const ADDON_RECORD = REMOTE_SETTINGS_RECORDS[1];
+const ADDON_RECORD = REMOTE_SETTINGS_RECORDS[2];
 const ADDON_WITH_SCORE = ADDON_RECORD.attachment[0];
 
 const MERINO_SPONSORED_SUGGESTION = {
@@ -134,8 +142,11 @@ const MERINO_ADDON_SUGGESTION = {
   },
 };
 
-const MERINO_UNKNOWN_SUGGESTION = {
-  provider: "some_unknown_provider",
+// A unmanaged Merino suggestion is a suggestion that isn't managed by a
+// `SuggestFeature`. Suggestions from the "top_picks" Merino provider are the
+// only recognized unmanaged suggestions.
+const MERINO_UNMANAGED_SUGGESTION = {
+  provider: "top_picks",
   score: DEFAULT_SUGGESTION_SCORE,
   keywords: ["test"],
   url: "https://example.com/merino-unknown",
@@ -149,8 +160,9 @@ add_setup(async function init() {
     remoteSettingsRecords: REMOTE_SETTINGS_RECORDS,
     merinoSuggestions: [],
     prefs: [
+      ["suggest.quicksuggest.all", true],
       ["suggest.quicksuggest.sponsored", true],
-      ["suggest.quicksuggest.nonsponsored", true],
+      ["quicksuggest.ampTopPickCharThreshold", 0],
     ],
   });
 });
@@ -181,7 +193,7 @@ add_task(
       scoreMap: {
         adm_nonsponsored: score,
       },
-      expectedFeatureName: "OfflineWikipediaSuggestions",
+      expectedFeatureName: "WikipediaSuggestions",
       expectedScore: score,
       expectedResult: makeExpectedWikipediaResult({
         keyword,
@@ -221,7 +233,7 @@ add_task(
         adm_nonsponsored: score,
         adm_sponsored: score / 2,
       },
-      expectedFeatureName: "OfflineWikipediaSuggestions",
+      expectedFeatureName: "WikipediaSuggestions",
       expectedScore: score,
       expectedResult: makeExpectedWikipediaResult({
         keyword,
@@ -256,7 +268,7 @@ add_task(async function sponsoredWith_nonsponsoredWith_nonsponsoredWins() {
     scoreMap: {
       adm_nonsponsored: score,
     },
-    expectedFeatureName: "OfflineWikipediaSuggestions",
+    expectedFeatureName: "WikipediaSuggestions",
     expectedScore: score,
     expectedResult: makeExpectedWikipediaResult({
       keyword,
@@ -292,7 +304,7 @@ add_task(async function sponsoredWith_nonsponsoredWith_nonsponsoredWins_both() {
       adm_nonsponsored: score,
       adm_sponsored: score / 2,
     },
-    expectedFeatureName: "OfflineWikipediaSuggestions",
+    expectedFeatureName: "WikipediaSuggestions",
     expectedScore: score,
     expectedResult: makeExpectedWikipediaResult({
       keyword,
@@ -459,12 +471,12 @@ add_task(async function merino_sponsored_addon_addonWins() {
   await QuickSuggestTestUtils.setRemoteSettingsRecords(REMOTE_SETTINGS_RECORDS);
 });
 
-add_task(async function merino_sponsored_unknown_sponsoredWins() {
+add_task(async function merino_sponsored_unmanaged_sponsoredWins() {
   await QuickSuggestTestUtils.setRemoteSettingsRecords([]);
 
   MerinoTestUtils.server.response.body.suggestions = [
     MERINO_SPONSORED_SUGGESTION,
-    MERINO_UNKNOWN_SUGGESTION,
+    MERINO_UNMANAGED_SUGGESTION,
   ];
 
   let score = 10 * DEFAULT_SUGGESTION_SCORE;
@@ -487,24 +499,24 @@ add_task(async function merino_sponsored_unknown_sponsoredWins() {
   await QuickSuggestTestUtils.setRemoteSettingsRecords(REMOTE_SETTINGS_RECORDS);
 });
 
-add_task(async function merino_sponsored_unknown_unknownWins() {
+add_task(async function merino_sponsored_unmanaged_unmanagedWins() {
   await QuickSuggestTestUtils.setRemoteSettingsRecords([]);
 
   MerinoTestUtils.server.response.body.suggestions = [
     MERINO_SPONSORED_SUGGESTION,
-    MERINO_UNKNOWN_SUGGESTION,
+    MERINO_UNMANAGED_SUGGESTION,
   ];
 
   let score = 10 * DEFAULT_SUGGESTION_SCORE;
   await doTest({
     keyword: "test",
     scoreMap: {
-      [MERINO_UNKNOWN_SUGGESTION.provider]: score,
+      [MERINO_UNMANAGED_SUGGESTION.provider]: score,
     },
     expectedFeatureName: null,
     expectedScore: score,
     expectedResult: makeExpectedDefaultMerinoResult({
-      suggestion: MERINO_UNKNOWN_SUGGESTION,
+      suggestion: MERINO_UNMANAGED_SUGGESTION,
     }),
   });
 
@@ -542,7 +554,7 @@ add_task(async function stringValue() {
  * @param {string} options.expectedFeatureName
  *   The name of the `BaseFeature` instance that is expected to create the
  *   `UrlbarResult` that's shown. If the suggestion is intentionally from an
- *   unknown Merino provider and therefore the quick suggest provider is
+ *   unmanaged Merino provider and therefore the quick suggest provider is
  *   expected to create a default result for it, set this to null.
  * @param {UrlbarResultstring} options.expectedResult
  *   The `UrlbarResult` that's expected to be shown.
@@ -626,6 +638,9 @@ function makeExpectedAmpResult({
     blockId: suggestion.id,
     advertiser: suggestion.advertiser,
     icon: suggestion.icon,
+    // Expect index -1 for amp results because we test
+    // without the search suggestions provider.
+    suggestedIndex: -1,
   });
 }
 
@@ -665,7 +680,6 @@ function makeExpectedDefaultMerinoResult({ suggestion }) {
       isSponsored: !!suggestion.is_sponsored,
       title: suggestion.title,
       url: suggestion.url,
-      displayUrl: suggestion.url.replace(/^https:\/\//, ""),
       icon: suggestion.icon,
       descriptionL10n: suggestion.is_sponsored
         ? { id: "urlbar-result-action-sponsored" }

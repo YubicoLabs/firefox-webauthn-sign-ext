@@ -1,4 +1,3 @@
-// |reftest| shell-option(--enable-iterator-helpers) skip-if(!this.hasOwnProperty('Iterator')||!xulRuntime.shell) -- iterator-helpers is not enabled unconditionally, requires shell-options
 // Copyright (C) 2024 Mozilla Corporation. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
@@ -12,10 +11,7 @@ info: |
     f. Let innerIterator be GetIteratorFlattenable(mapped).
     g. IfAbruptCloseIterator(innerIterator, iterated).
 features:
-- iterator-helpers
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
+  - iterator-helpers
 ---*/
 class InvalidIterable {
   [Symbol.iterator]() {
@@ -51,7 +47,7 @@ for (const value of nonIterables) {
   const mapped = iter.flatMap(x => value);
 
   assert.sameValue(iter.closed, false);
-  assertThrowsInstanceOf(() => mapped.next(), TypeError);
+  assert.throws(TypeError, () => mapped.next());
   assert.sameValue(iter.closed, true);
 }
 

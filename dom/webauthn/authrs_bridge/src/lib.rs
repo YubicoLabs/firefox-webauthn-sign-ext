@@ -15,9 +15,9 @@ use authenticator::{
         AuthenticationExtensionsClientInputs, AuthenticationExtensionsPRFInputs,
         AuthenticationExtensionsPRFOutputs, AuthenticationExtensionsPRFValues,
         AuthenticationExtensionsSignInputs, AuthenticationExtensionsSignSignInputs,
-        AuthenticatorAttachment, PublicKeyCredentialDescriptor, PublicKeyCredentialParameters,
-        PublicKeyCredentialUserEntity, RelyingParty, ResidentKeyRequirement,
-        UserVerificationRequirement,
+        AuthenticatorAttachment, CredentialProtectionPolicy, PublicKeyCredentialDescriptor,
+        PublicKeyCredentialParameters, PublicKeyCredentialUserEntity, RelyingParty,
+        ResidentKeyRequirement, UserVerificationRequirement,
     },
     ctap2::{
         commands::{get_info::AuthenticatorVersion, PinUvAuthResult},
@@ -190,6 +190,11 @@ impl WebAuthnRegisterResult {
         Ok(out)
     }
 
+    xpcom_method!(get_attestation_consent_prompt_shown => GetAttestationConsentPromptShown() -> bool);
+    fn get_attestation_consent_prompt_shown(&self) -> Result<bool, nsresult> {
+        Ok(false)
+    }
+
     xpcom_method!(get_credential_id => GetCredentialId() -> ThinVec<u8>);
     fn get_credential_id(&self) -> Result<ThinVec<u8>, nsresult> {
         let Some(credential_data) = &self.result.borrow().att_obj.auth_data.credential_data else {
@@ -219,6 +224,11 @@ impl WebAuthnRegisterResult {
             return Err(NS_ERROR_NOT_AVAILABLE);
         };
         Ok(hmac_create_secret)
+    }
+
+    xpcom_method!(get_large_blob_supported => GetLargeBlobSupported() -> bool);
+    fn get_large_blob_supported(&self) -> Result<bool, nsresult> {
+        Err(NS_ERROR_NOT_AVAILABLE)
     }
 
     xpcom_method!(get_prf_enabled => GetPrfEnabled() -> bool);
@@ -479,6 +489,16 @@ impl WebAuthnSignResult {
     xpcom_method!(set_used_app_id => SetUsedAppId(aUsedAppId: bool));
     fn set_used_app_id(&self, _used_app_id: bool) -> Result<(), nsresult> {
         Err(NS_ERROR_NOT_IMPLEMENTED)
+    }
+
+    xpcom_method!(get_large_blob_value => GetLargeBlobValue() -> ThinVec<u8>);
+    fn get_large_blob_value(&self) -> Result<ThinVec<u8>, nsresult> {
+        Err(NS_ERROR_NOT_AVAILABLE)
+    }
+
+    xpcom_method!(get_large_blob_written => GetLargeBlobWritten() -> bool);
+    fn get_large_blob_written(&self) -> Result<bool, nsresult> {
+        Err(NS_ERROR_NOT_AVAILABLE)
     }
 
     xpcom_method!(get_prf_maybe => GetPrfMaybe() -> bool);
@@ -800,7 +820,9 @@ impl AuthrsService {
         if static_prefs::pref!("security.webauth.webauthn_enable_usbtoken") {
             Ok(false)
         } else if static_prefs::pref!("security.webauth.webauthn_enable_softtoken") {
-            Ok(self.test_token_manager.has_platform_authenticator())
+            Ok(self
+                .test_token_manager
+                .has_user_verifying_platform_authenticator())
         } else {
             Err(NS_ERROR_NOT_AVAILABLE)
         }
@@ -891,6 +913,30 @@ impl AuthrsService {
             if authenticator_attachment.eq("platform") {
                 return Err(NS_ERROR_FAILURE);
             }
+        }
+
+        let mut credential_protection_policy = None;
+        let mut enforce_credential_protection_policy = None;
+        let mut cred_protect_policy_value = nsCString::new();
+        let mut enforce_cred_protect_value = false;
+        if unsafe { args.GetCredentialProtectionPolicy(&mut *cred_protect_policy_value) }
+            .to_result()
+            .is_ok()
+        {
+            unsafe { args.GetEnforceCredentialProtectionPolicy(&mut enforce_cred_protect_value) }
+                .to_result()?;
+            credential_protection_policy = if cred_protect_policy_value
+                .eq("userVerificationOptional")
+            {
+                Some(CredentialProtectionPolicy::UserVerificationOptional)
+            } else if cred_protect_policy_value.eq("userVerificationOptionalWithCredentialIDList") {
+                Some(CredentialProtectionPolicy::UserVerificationOptionalWithCredentialIDList)
+            } else if cred_protect_policy_value.eq("userVerificationRequired") {
+                Some(CredentialProtectionPolicy::UserVerificationRequired)
+            } else {
+                return Err(NS_ERROR_FAILURE);
+            };
+            enforce_credential_protection_policy = Some(enforce_cred_protect_value);
         }
 
         let mut cred_props = false;
@@ -991,6 +1037,8 @@ impl AuthrsService {
             user_verification_req,
             resident_key_req,
             extensions: AuthenticationExtensionsClientInputs {
+                credential_protection_policy,
+                enforce_credential_protection_policy,
                 cred_props: cred_props.then_some(true),
                 hmac_create_secret,
                 min_pin_length: min_pin_length.then_some(true),
@@ -1591,7 +1639,7 @@ impl AuthrsService {
             hasResidentKey: bool,
             hasUserVerification: bool,
             isUserConsenting: bool,
-            isUserVerified: bool) -> u64
+            isUserVerified: bool) -> nsACString
     );
     fn add_virtual_authenticator(
         &self,
@@ -1601,7 +1649,7 @@ impl AuthrsService {
         has_user_verification: bool,
         is_user_consenting: bool,
         is_user_verified: bool,
-    ) -> Result<u64, nsresult> {
+    ) -> Result<nsCString, nsresult> {
         let protocol = match protocol.to_string().as_str() {
             "ctap1/u2f" => AuthenticatorVersion::U2F_V2,
             "ctap2" => AuthenticatorVersion::FIDO_2_0,
@@ -1613,25 +1661,27 @@ impl AuthrsService {
             "usb" | "nfc" | "ble" | "smart-card" | "hybrid" | "internal" => (),
             _ => return Err(NS_ERROR_INVALID_ARG),
         };
-        self.test_token_manager.add_virtual_authenticator(
-            protocol,
-            transport,
-            has_resident_key,
-            has_user_verification,
-            is_user_consenting,
-            is_user_verified,
-        )
+        self.test_token_manager
+            .add_virtual_authenticator(
+                protocol,
+                transport,
+                has_resident_key,
+                has_user_verification,
+                is_user_consenting,
+                is_user_verified,
+            )
+            .map(nsCString::from)
     }
 
-    xpcom_method!(remove_virtual_authenticator => RemoveVirtualAuthenticator(authenticatorId: u64));
-    fn remove_virtual_authenticator(&self, authenticator_id: u64) -> Result<(), nsresult> {
+    xpcom_method!(remove_virtual_authenticator => RemoveVirtualAuthenticator(authenticatorId: *const nsACString));
+    fn remove_virtual_authenticator(&self, authenticator_id: &nsACString) -> Result<(), nsresult> {
         self.test_token_manager
-            .remove_virtual_authenticator(authenticator_id)
+            .remove_virtual_authenticator(&authenticator_id.to_utf8())
     }
 
     xpcom_method!(
         add_credential => AddCredential(
-            authenticatorId: u64,
+            authenticatorId: *const nsACString,
             credentialId: *const nsACString,
             isResidentCredential: bool,
             rpId: *const nsACString,
@@ -1641,7 +1691,7 @@ impl AuthrsService {
     );
     fn add_credential(
         &self,
-        authenticator_id: u64,
+        authenticator_id: &nsACString,
         credential_id: &nsACString,
         is_resident_credential: bool,
         rp_id: &nsACString,
@@ -1659,7 +1709,7 @@ impl AuthrsService {
             .decode(user_handle)
             .or(Err(NS_ERROR_INVALID_ARG))?;
         self.test_token_manager.add_credential(
-            authenticator_id,
+            &authenticator_id.to_utf8(),
             &credential_id,
             &private_key,
             &user_handle,
@@ -1669,41 +1719,42 @@ impl AuthrsService {
         )
     }
 
-    xpcom_method!(get_credentials => GetCredentials(authenticatorId: u64) -> ThinVec<Option<RefPtr<nsICredentialParameters>>>);
+    xpcom_method!(get_credentials => GetCredentials(authenticatorId: *const nsACString) -> ThinVec<Option<RefPtr<nsICredentialParameters>>>);
     fn get_credentials(
         &self,
-        authenticator_id: u64,
+        authenticator_id: &nsACString,
     ) -> Result<ThinVec<Option<RefPtr<nsICredentialParameters>>>, nsresult> {
-        self.test_token_manager.get_credentials(authenticator_id)
+        self.test_token_manager
+            .get_credentials(&authenticator_id.to_utf8())
     }
 
-    xpcom_method!(remove_credential => RemoveCredential(authenticatorId: u64, credentialId: *const nsACString));
+    xpcom_method!(remove_credential => RemoveCredential(authenticatorId: *const nsACString, credentialId: *const nsACString));
     fn remove_credential(
         &self,
-        authenticator_id: u64,
+        authenticator_id: &nsACString,
         credential_id: &nsACString,
     ) -> Result<(), nsresult> {
         let credential_id = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .decode(credential_id)
             .or(Err(NS_ERROR_INVALID_ARG))?;
         self.test_token_manager
-            .remove_credential(authenticator_id, credential_id.as_ref())
+            .remove_credential(&authenticator_id.to_utf8(), credential_id.as_ref())
     }
 
-    xpcom_method!(remove_all_credentials => RemoveAllCredentials(authenticatorId: u64));
-    fn remove_all_credentials(&self, authenticator_id: u64) -> Result<(), nsresult> {
+    xpcom_method!(remove_all_credentials => RemoveAllCredentials(authenticatorId: *const nsACString));
+    fn remove_all_credentials(&self, authenticator_id: &nsACString) -> Result<(), nsresult> {
         self.test_token_manager
-            .remove_all_credentials(authenticator_id)
+            .remove_all_credentials(&authenticator_id.to_utf8())
     }
 
-    xpcom_method!(set_user_verified => SetUserVerified(authenticatorId: u64, isUserVerified: bool));
+    xpcom_method!(set_user_verified => SetUserVerified(authenticatorId: *const nsACString, isUserVerified: bool));
     fn set_user_verified(
         &self,
-        authenticator_id: u64,
+        authenticator_id: &nsACString,
         is_user_verified: bool,
     ) -> Result<(), nsresult> {
         self.test_token_manager
-            .set_user_verified(authenticator_id, is_user_verified)
+            .set_user_verified(&authenticator_id.to_utf8(), is_user_verified)
     }
 
     xpcom_method!(listen => Listen());

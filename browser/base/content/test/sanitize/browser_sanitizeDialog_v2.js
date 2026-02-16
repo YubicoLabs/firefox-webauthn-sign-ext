@@ -47,11 +47,11 @@ async function promiseHistoryClearedState(aURIs, aShouldBeCleared) {
 /**
  * Ensures that the given pref is the expected value.
  *
- * @param {String} aPrefName
+ * @param {string} aPrefName
  *        The pref's sub-branch under the privacy branch
- * @param {Boolean} aExpectedVal
+ * @param {boolean} aExpectedVal
  *        The pref's expected value
- * @param {String} aMsg
+ * @param {string} aMsg
  *        Passed to is()
  */
 function boolPrefIs(aPrefName, aExpectedVal, aMsg) {
@@ -150,9 +150,6 @@ add_setup(async function () {
     await blankSlate();
     await PlacesTestUtils.promiseAsyncUpdates();
   });
-  await SpecialPowers.pushPrefEnv({
-    set: [["privacy.sanitize.useOldClearHistoryDialog", false]],
-  });
 
   // open preferences to trigger an updateSites()
   await openPreferencesViaOpenPreferencesAPI("privacy", { leaveOpen: true });
@@ -188,7 +185,7 @@ function visitTimeForMinutesAgo(aMinutesAgo) {
  * Opens dialog in the provided context and selects the checkboxes
  * as sent in the parameters
  *
- * @param {Object} context the dialog is opened in, timespan to select,
+ * @param {object} context the dialog is opened in, timespan to select,
  *  if browsingHistoryAndDownloads, cookiesAndStorage, cache or siteSettings
  *  are checked
  */
@@ -301,26 +298,30 @@ add_task(async function test_pref_remembering() {
   dh.open();
   await dh.promiseClosed;
 
-  // test rememebering prefs from the clear history context
-  // since clear history and clear site data have seperate remembering
-  // of prefs
-  dh = new ClearHistoryDialogHelper({ mode: "clearHistory" });
-  dh.onload = function () {
-    this.checkPrefCheckbox("cookiesAndStorage", true);
-    this.checkPrefCheckbox("siteSettings", false);
-    this.checkPrefCheckbox("cache", false);
+  if (!settingsRedesignHistoryEnabled()) {
+    // test rememebering prefs from the clear history context
+    // since clear history and clear site data have seperate remembering
+    // of prefs
+    dh = new ClearHistoryDialogHelper({ mode: "clearHistory" });
+    dh.onload = function () {
+      this.checkPrefCheckbox("cookiesAndStorage", true);
+      this.checkPrefCheckbox("siteSettings", false);
+      this.checkPrefCheckbox("cache", false);
 
-    this.acceptDialog();
-  };
-  dh.open();
-  await dh.promiseClosed;
+      this.acceptDialog();
+    };
+    dh.open();
+    await dh.promiseClosed;
+  }
 
   // validate if prefs are remembered across both clear history and browser
   dh = new ClearHistoryDialogHelper({ mode: "browser" });
   dh.onload = function () {
     this.validateCheckbox("cookiesAndStorage", true);
     this.validateCheckbox("siteSettings", false);
-    this.validateCheckbox("cache", false);
+    if (!settingsRedesignHistoryEnabled()) {
+      this.validateCheckbox("cache", false);
+    }
 
     this.cancelDialog();
   };
@@ -767,233 +768,113 @@ add_task(async function test_clear_on_shutdown() {
   await SiteDataTestUtils.clear();
 });
 
-add_task(async function testEntryPointTelemetry() {
-  Services.fog.testResetFOG();
+if (!settingsRedesignHistoryEnabled()) {
+  add_task(async function testClearHistoryCheckboxStatesAfterMigration() {
+    await SpecialPowers.pushPrefEnv({
+      set: [
+        ["privacy.cpd.history", false],
+        ["privacy.cpd.formdata", true],
+        ["privacy.cpd.cookies", true],
+        ["privacy.cpd.offlineApps", false],
+        ["privacy.cpd.sessions", false],
+        ["privacy.cpd.siteSettings", false],
+        ["privacy.cpd.cache", true],
+        // Set cookiesAndStorage to verify that the pref is flipped in the test
+        ["privacy.clearHistory.cookiesAndStorage", false],
+        // We set the old migrate pref to false to simulate a user who has not migrated to the new dialog.
+        // we should follow the user's old prefs with "cpd." prefix in this case.
+        ["privacy.sanitize.cpd.hasMigratedToNewPrefs2", false],
+        ["privacy.sanitize.cpd.hasMigratedToNewPrefs3", false],
+      ],
+    });
 
-  // Telemetry count we expect for each context
-  const EXPECTED_CONTEXT_COUNTS = {
-    browser: 3,
-    clearHistory: 2,
-    clearSiteData: 1,
-  };
+    let dh = new ClearHistoryDialogHelper({ mode: "clearHistory" });
+    dh.onload = function () {
+      this.validateCheckbox("cookiesAndStorage", true);
+      this.validateCheckbox("browsingHistoryAndDownloads", false);
+      this.validateCheckbox("formdata", true);
+      this.validateCheckbox("cache", true);
+      this.validateCheckbox("siteSettings", false);
 
-  for (let key in EXPECTED_CONTEXT_COUNTS) {
-    let count = 0;
-
-    for (let i = 0; i < EXPECTED_CONTEXT_COUNTS[key]; i++) {
-      await performActionsOnDialog({ context: key });
-    }
-
-    let contextTelemetry = Glean.privacySanitize.dialogOpen.testGetValue();
-    for (let object of contextTelemetry) {
-      if (object.extra.context == key) {
-        count += 1;
-      }
-    }
+      this.checkPrefCheckbox("siteSettings", true);
+      this.checkPrefCheckbox("cookiesAndStorage", false);
+      this.acceptDialog();
+    };
+    dh.open();
+    await dh.promiseClosed;
 
     is(
-      count,
-      EXPECTED_CONTEXT_COUNTS[key],
-      `There should be ${EXPECTED_CONTEXT_COUNTS[key]} opens from ${key} context`
+      Services.prefs.getBoolPref("privacy.sanitize.cpd.hasMigratedToNewPrefs3"),
+      true,
+      "Migration is complete for cpd branch"
     );
-  }
-});
 
-add_task(async function testTimespanTelemetry() {
-  Services.fog.testResetFOG();
+    // make sure the migration doesn't run again
+    dh = new ClearHistoryDialogHelper({ mode: "clearHistory" });
+    dh.onload = function () {
+      this.validateCheckbox("siteSettings", true);
+      this.validateCheckbox("cookiesAndStorage", false);
+      this.cancelDialog();
+    };
+    dh.open();
+    await dh.promiseClosed;
+  });
 
-  // Expected timespan selections from telemetry
-  const EXPECTED_TIMESPANS = [
-    Sanitizer.TIMESPAN_HOUR,
-    Sanitizer.TIMESPAN_2HOURS,
-    Sanitizer.TIMESPAN_4HOURS,
-    Sanitizer.TIMESPAN_EVERYTHING,
-  ];
+  add_task(async function testClearHistoryCheckboxStatesAfterMigration3() {
+    await SpecialPowers.pushPrefEnv({
+      set: [
+        ["privacy.cpd.history", false],
+        ["privacy.cpd.formdata", true],
+        ["privacy.cpd.cookies", true],
+        ["privacy.cpd.offlineApps", false],
+        ["privacy.cpd.sessions", false],
+        ["privacy.cpd.siteSettings", true],
+        ["privacy.cpd.cache", true],
+        // Verify that prefs not in not touched in migration from v2
+        ["privacy.clearHistory.cookiesAndStorage", false],
+        ["privacy.clearHistory.siteSettings", false],
+        ["privacy.clearHistory.cache", false],
+        // Verify that formData and browsingHistoryAndDownloads inherit this value
+        ["privacy.clearHistory.historyFormDataAndDownloads", true],
+        // migrate from v2 to v3, dont redo the v1 to v2 migration
+        ["privacy.sanitize.cpd.hasMigratedToNewPrefs2", true],
+        ["privacy.sanitize.cpd.hasMigratedToNewPrefs3", false],
+      ],
+    });
 
-  for (let timespan of EXPECTED_TIMESPANS) {
-    await performActionsOnDialog({ timespan });
-  }
+    let dh = new ClearHistoryDialogHelper({ mode: "clearHistory" });
+    dh.onload = function () {
+      // migration to v3 shouldn't modify these values
+      this.validateCheckbox("cookiesAndStorage", false);
+      this.validateCheckbox("siteSettings", false);
+      this.validateCheckbox("cache", false);
 
-  for (let index in EXPECTED_TIMESPANS) {
+      // migration to v3 should set them initially to true from historyFormDataAndDownloads pref
+      this.validateCheckbox("browsingHistoryAndDownloads", true);
+      this.validateCheckbox("formdata", true);
+
+      // flip two prefs to open to verify migration doesn't happen again and checkboxes retain their value
+      this.checkPrefCheckbox("siteSettings", true);
+      this.checkPrefCheckbox("browsingHistoryAndDownloads", false);
+      this.acceptDialog();
+    };
+    dh.open();
+    await dh.promiseClosed;
+
     is(
-      Glean.privacySanitize.clearingTimeSpanSelected.testGetValue()[index].extra
-        .time_span,
-      EXPECTED_TIMESPANS[index].toString(),
-      `Selected timespan should be ${EXPECTED_TIMESPANS[index]}`
+      Services.prefs.getBoolPref("privacy.sanitize.cpd.hasMigratedToNewPrefs3"),
+      true,
+      "Migration is complete for cpd branch"
     );
-  }
-});
 
-add_task(async function testLoadtimeTelemetry() {
-  Services.fog.testResetFOG();
-
-  // loadtime metric is collected everytime that the dialog is opened
-  // expected number of times dialog will be opened for the test for each context
-  let EXPECTED_CONTEXT_COUNTS = {
-    browser: 2,
-    clearHistory: 3,
-    clearSiteData: 2,
-  };
-
-  // open dialog based on expected_context_counts
-  for (let context in EXPECTED_CONTEXT_COUNTS) {
-    for (let i = 0; i < EXPECTED_CONTEXT_COUNTS[context]; i++) {
-      await performActionsOnDialog({ context });
-    }
-  }
-
-  let loadTimeDistribution = Glean.privacySanitize.loadTime.testGetValue();
-
-  let expectedNumberOfCounts = Object.entries(EXPECTED_CONTEXT_COUNTS).reduce(
-    (acc, [, value]) => acc + value,
-    0
-  );
-  // No guarantees from timers means no guarantees on buckets.
-  // But we can guarantee it's only two samples.
-  is(
-    Object.entries(loadTimeDistribution.values).reduce(
-      (acc, [, count]) => acc + count,
-      0
-    ),
-    expectedNumberOfCounts,
-    `Only ${expectedNumberOfCounts} buckets with samples`
-  );
-});
-
-add_task(async function testClearingOptionsTelemetry() {
-  Services.fog.testResetFOG();
-
-  let expectedObject = {
-    context: "clearSiteData",
-    history_and_downloads: "true",
-    cookies_and_storage: "false",
-    cache: "true",
-    site_settings: "true",
-    form_data: "false",
-  };
-
-  await performActionsOnDialog({
-    context: "clearSiteData",
-    browsingHistoryAndDownloads: true,
-    cookiesAndStorage: false,
-    cache: true,
-    siteSettings: true,
-    formData: false,
+    // make sure the migration doesn't run again
+    dh = new ClearHistoryDialogHelper({ mode: "clearHistory" });
+    dh.onload = function () {
+      this.validateCheckbox("siteSettings", true);
+      this.validateCheckbox("browsingHistoryAndDownloads", false);
+      this.cancelDialog();
+    };
+    dh.open();
+    await dh.promiseClosed;
   });
-
-  let telemetryObject = Glean.privacySanitize.clear.testGetValue();
-  Assert.equal(
-    telemetryObject.length,
-    1,
-    "There should be only 1 telemetry object recorded"
-  );
-
-  Assert.deepEqual(
-    expectedObject,
-    telemetryObject[0].extra,
-    `Expected ${telemetryObject} to be the same as ${expectedObject}`
-  );
-});
-
-add_task(async function testClearHistoryCheckboxStatesAfterMigration() {
-  await SpecialPowers.pushPrefEnv({
-    set: [
-      ["privacy.cpd.history", false],
-      ["privacy.cpd.formdata", true],
-      ["privacy.cpd.cookies", true],
-      ["privacy.cpd.offlineApps", false],
-      ["privacy.cpd.sessions", false],
-      ["privacy.cpd.siteSettings", false],
-      ["privacy.cpd.cache", true],
-      // Set cookiesAndStorage to verify that the pref is flipped in the test
-      ["privacy.clearHistory.cookiesAndStorage", false],
-      // We set the old migrate pref to false to simulate a user who has not migrated to the new dialog.
-      // we should follow the user's old prefs with "cpd." prefix in this case.
-      ["privacy.sanitize.cpd.hasMigratedToNewPrefs2", false],
-      ["privacy.sanitize.cpd.hasMigratedToNewPrefs3", false],
-    ],
-  });
-
-  let dh = new ClearHistoryDialogHelper({ mode: "clearHistory" });
-  dh.onload = function () {
-    this.validateCheckbox("cookiesAndStorage", true);
-    this.validateCheckbox("browsingHistoryAndDownloads", false);
-    this.validateCheckbox("formdata", true);
-    this.validateCheckbox("cache", true);
-    this.validateCheckbox("siteSettings", false);
-
-    this.checkPrefCheckbox("siteSettings", true);
-    this.checkPrefCheckbox("cookiesAndStorage", false);
-    this.acceptDialog();
-  };
-  dh.open();
-  await dh.promiseClosed;
-
-  is(
-    Services.prefs.getBoolPref("privacy.sanitize.cpd.hasMigratedToNewPrefs3"),
-    true,
-    "Migration is complete for cpd branch"
-  );
-
-  // make sure the migration doesn't run again
-  dh = new ClearHistoryDialogHelper({ mode: "clearHistory" });
-  dh.onload = function () {
-    this.validateCheckbox("siteSettings", true);
-    this.validateCheckbox("cookiesAndStorage", false);
-    this.cancelDialog();
-  };
-  dh.open();
-  await dh.promiseClosed;
-});
-
-add_task(async function testClearHistoryCheckboxStatesAfterMigration3() {
-  await SpecialPowers.pushPrefEnv({
-    set: [
-      ["privacy.cpd.history", false],
-      ["privacy.cpd.formdata", true],
-      ["privacy.cpd.cookies", true],
-      ["privacy.cpd.offlineApps", false],
-      ["privacy.cpd.sessions", false],
-      ["privacy.cpd.siteSettings", false],
-      ["privacy.cpd.cache", true],
-      // Set cookiesAndStorage to verify that the pref is flipped in the test
-      ["privacy.clearHistory.cookiesAndStorage", false],
-      ["privacy.clearHistory.historyFormDataAndDownloads", false],
-      ["privacy.sanitize.cpd.hasMigratedToNewPrefs2", true],
-      ["privacy.sanitize.cpd.hasMigratedToNewPrefs3", false],
-    ],
-  });
-
-  let dh = new ClearHistoryDialogHelper({ mode: "clearHistory" });
-  dh.onload = function () {
-    this.validateCheckbox("cookiesAndStorage", true);
-    this.validateCheckbox("browsingHistoryAndDownloads", false);
-    // Formdata should flip to false since it should follow privacy.clearHistory.historyFormDataAndDownloads
-    // based on the new migration
-    this.validateCheckbox("formdata", false);
-    this.validateCheckbox("cache", true);
-    this.validateCheckbox("siteSettings", false);
-
-    this.checkPrefCheckbox("siteSettings", true);
-    this.checkPrefCheckbox("cookiesAndStorage", false);
-    this.acceptDialog();
-  };
-  dh.open();
-  await dh.promiseClosed;
-
-  is(
-    Services.prefs.getBoolPref("privacy.sanitize.cpd.hasMigratedToNewPrefs3"),
-    true,
-    "Migration is complete for cpd branch"
-  );
-
-  // make sure the migration doesn't run again
-  dh = new ClearHistoryDialogHelper({ mode: "clearHistory" });
-  dh.onload = function () {
-    this.validateCheckbox("siteSettings", true);
-    this.validateCheckbox("cookiesAndStorage", false);
-    this.cancelDialog();
-  };
-  dh.open();
-  await dh.promiseClosed;
-});
+}

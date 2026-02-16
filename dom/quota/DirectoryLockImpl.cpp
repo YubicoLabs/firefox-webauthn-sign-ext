@@ -6,12 +6,12 @@
 
 #include "DirectoryLockImpl.h"
 
-#include "nsError.h"
-#include "nsString.h"
-#include "nsThreadUtils.h"
 #include "mozilla/ReverseIterator.h"
 #include "mozilla/dom/quota/QuotaCommon.h"
 #include "mozilla/dom/quota/QuotaManager.h"
+#include "nsError.h"
+#include "nsString.h"
+#include "nsThreadUtils.h"
 
 namespace mozilla::dom::quota {
 
@@ -33,14 +33,14 @@ const uint32_t kAcquireTimeoutMs = 30000;
 DirectoryLockImpl::DirectoryLockImpl(
     MovingNotNull<RefPtr<QuotaManager>> aQuotaManager,
     const PersistenceScope& aPersistenceScope, const OriginScope& aOriginScope,
-    const Nullable<Client::Type>& aClientType, const bool aExclusive,
+    const ClientStorageScope& aClientStorageScope, const bool aExclusive,
     const bool aInternal,
     const ShouldUpdateLockIdTableFlag aShouldUpdateLockIdTableFlag,
     const DirectoryLockCategory aCategory)
     : mQuotaManager(std::move(aQuotaManager)),
       mPersistenceScope(aPersistenceScope),
       mOriginScope(aOriginScope),
-      mClientType(aClientType),
+      mClientStorageScope(aClientStorageScope),
       mId(mQuotaManager->GenerateDirectoryLockId()),
       mExclusive(aExclusive),
       mInternal(aInternal),
@@ -54,8 +54,9 @@ DirectoryLockImpl::DirectoryLockImpl(
   MOZ_ASSERT_IF(!aInternal,
                 aPersistenceScope.GetValue() != PERSISTENCE_TYPE_INVALID);
   MOZ_ASSERT_IF(!aInternal, aOriginScope.IsOrigin());
-  MOZ_ASSERT_IF(!aInternal, !aClientType.IsNull());
-  MOZ_ASSERT_IF(!aInternal, aClientType.Value() < Client::TypeMax());
+  MOZ_ASSERT_IF(!aInternal, aClientStorageScope.IsClient());
+  MOZ_ASSERT_IF(!aInternal,
+                aClientStorageScope.GetClientType() < Client::TypeMax());
 }
 
 DirectoryLockImpl::~DirectoryLockImpl() {
@@ -67,8 +68,16 @@ bool DirectoryLockImpl::MustWait() const {
   AssertIsOnOwningThread();
   MOZ_ASSERT(!mRegistered);
 
-  for (const DirectoryLockImpl* const existingLock :
-       mQuotaManager->mDirectoryLocks) {
+  // Shared locks never block other shared locks, so when acquiring a shared
+  // lock, we only need to consider existing exclusive locks. This reduces the
+  // cost of traversal when many locks are active. Exclusive locks must still
+  // consider all existing locks (both shared and exclusive). See also
+  // DirectoryLockImpl::MustWaitFor.
+  const auto& existingLocks = mExclusive
+                                  ? mQuotaManager->mDirectoryLocks
+                                  : mQuotaManager->mExclusiveDirectoryLocks;
+
+  for (const DirectoryLockImpl* const existingLock : existingLocks) {
     if (MustWaitFor(*existingLock)) {
       return true;
     }
@@ -199,10 +208,17 @@ void DirectoryLockImpl::Log() const {
   }
   QM_LOG(("  mOriginScope: %s", originScope.get()));
 
-  const auto clientType = mClientType.IsNull()
-                              ? nsAutoCString{"null"_ns}
-                              : Client::TypeToText(mClientType.Value());
-  QM_LOG(("  mClientType: %s", clientType.get()));
+  nsCString clientStorageScope;
+  if (mClientStorageScope.IsNull()) {
+    clientStorageScope.AssignLiteral("null");
+  } else if (mClientStorageScope.IsClient()) {
+    clientStorageScope.Assign(
+        Client::TypeToText(mClientStorageScope.GetClientType()));
+  } else {
+    MOZ_ASSERT(mClientStorageScope.IsMetadata());
+    clientStorageScope.AssignLiteral("metadata");
+  }
+  QM_LOG(("  mClientStorageScope: %s", clientStorageScope.get()));
 
   nsCString blockedOnString;
   for (auto blockedOn : mBlockedOn) {
@@ -245,9 +261,9 @@ bool DirectoryLockImpl::Overlaps(const DirectoryLockImpl& aLock) const {
     return false;
   }
 
-  // If the client types don't overlap, the op can proceed.
-  if (!aLock.mClientType.IsNull() && !mClientType.IsNull() &&
-      aLock.mClientType.Value() != mClientType.Value()) {
+  // If the client storage scopes don't overlap, the op can proceed.
+  match = aLock.mClientStorageScope.Matches(mClientStorageScope);
+  if (!match) {
     return false;
   }
 
@@ -260,6 +276,9 @@ bool DirectoryLockImpl::MustWaitFor(const DirectoryLockImpl& aLock) const {
   AssertIsOnOwningThread();
 
   // Waiting is never required if the ops in comparison represent shared locks.
+  // Note that this condition is also used to optimize traversal in MustWait
+  // and LocksMustWaitForInternal. If this logic changes, that optimization
+  // must be revisited to ensure correctness.
   if (!aLock.mExclusive && !mExclusive) {
     return false;
   }
@@ -304,9 +323,17 @@ nsTArray<T> DirectoryLockImpl::LocksMustWaitForInternal() const {
 
   nsTArray<T> locks;
 
+  // Shared locks never block other shared locks, so when acquiring a shared
+  // lock, we only need to consider existing exclusive locks. This reduces the
+  // cost of traversal when many locks are active. Exclusive locks must still
+  // consider all existing locks (both shared and exclusive). See also
+  // DirectoryLockImpl::MustWaitFor.
+  const auto& existingLocks = mExclusive
+                                  ? mQuotaManager->mDirectoryLocks
+                                  : mQuotaManager->mExclusiveDirectoryLocks;
+
   // XXX It is probably unnecessary to iterate this in reverse order.
-  for (DirectoryLockImpl* const existingLock :
-       Reversed(mQuotaManager->mDirectoryLocks)) {
+  for (DirectoryLockImpl* const existingLock : Reversed(existingLocks)) {
     if (MustWaitFor(*existingLock)) {
       if constexpr (std::is_same_v<T, NotNull<DirectoryLockImpl*>>) {
         locks.AppendElement(WrapNotNull(existingLock));
@@ -361,7 +388,7 @@ void DirectoryLockImpl::AcquireInternal(PrepareInfo&& aPrepareInfo) {
         lock->Log();
       },
       this, kAcquireTimeoutMs, nsITimer::TYPE_ONE_SHOT,
-      "quota::DirectoryLockImpl::AcquireInternal"));
+      "quota::DirectoryLockImpl::AcquireInternal"_ns));
 
   if (!mExclusive || !mInternal) {
     return;

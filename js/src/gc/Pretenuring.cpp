@@ -84,7 +84,7 @@ size_t PretenuringNursery::doPretenuring(GCRuntime* gc, JS::GCReason reason,
   // Zero allocation counts.
   totalAllocCount_ = 0;
   for (ZonesIter zone(gc, SkipAtoms); !zone.done(); zone.next()) {
-    for (auto& count : zone->pretenuring.nurseryAllocCounts) {
+    for (auto& count : zone->pretenuring.nurseryPromotedCounts) {
       count = 0;
     }
   }
@@ -261,7 +261,9 @@ void PretenuringNursery::updateTotalAllocCounts(AllocSite* site) {
   JS::TraceKind kind = site->traceKind();
   totalAllocCount_ += site->nurseryAllocCount;
   PretenuringZone& zone = site->zone()->pretenuring;
-  zone.nurseryAllocCount(kind) += site->nurseryAllocCount;
+  size_t i = size_t(kind);
+  MOZ_ASSERT(i < std::size(zone.nurseryPromotedCounts));
+  zone.nurseryPromotedCounts[i] += site->nurseryPromotedCount;
 }
 
 bool AllocSite::invalidateScript(GCRuntime* gc) {
@@ -492,7 +494,7 @@ void AllocSite::printInfo(bool hasPromotionRate, double promotionRate,
   // Location and bytecode op (not present for catch-all sites).
   char location[21] = {'\0'};
   char opName[13] = {'\0'};
-  if (hasScript()) {
+  if (hasScript() && pcOffset() != EnvSitePCOffset) {
     uint32_t line = PCToLineNumber(script(), script()->offsetToPC(pcOffset()));
     const char* scriptName = FindBaseName(script()->filename());
     SprintfLiteral(location, "%s:%u", scriptName, line);

@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">Kentitanhasti jirinhantskuechani</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">Jirinhantskata ampe kéntitanhasti ya.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">%1$s Jirinhantsï</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Kwankurhini…</string>
@@ -47,12 +57,11 @@
   <!-- Menu item: Add the current site as a shortcut on the Home screen -->
   <string name="menu_add_to_shortcuts">Jurhikutakuecharhu kuparata</string>
   <!-- Menu item: Remove the current site as a shortcut from the Home screen -->
-  <string name="menu_remove_from_shortcuts">Jurhikutakuaecharhu kentita </string>
+  <string name="menu_remove_from_shortcuts">Jurhikutakuaecharhu kentita</string>
   <!-- Menu item: Shows information about features and changes that are new to this version -->
   <string name="menu_settings">Pérakurhikwaecha</string>
   <string name="menu_about">Áamkuri</string>
   <string name="menu_help">Jahroap\'erakwa</string>
-  <string name="menu_rights">Sésikwaecha</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -81,6 +90,7 @@
     sharing an URL.
   -->
   <string name="share_dialog_title">Ixusï kwankurhini</string>
+  <string name="notification_erase_title_android_14">Jirinhantskwa ampe mirikurhini?</string>
   <string name="notification_erase_text">Jirinhantskwa ampe mirikurhini</string>
   <!-- Notification action to open Focus and resume the current browsing session. -->
   <string name="notification_action_open">Inchani</string>
@@ -135,7 +145,7 @@
     Focus Nightly is hard coded since we can't use variables in this context.
     Do not translate or transliterate Focus Nightly.
   -->
-  <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Focus Nightlyrhu jirinhantsi </string>
+  <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Focus Nightlyrhu jirinhantsi</string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">Kwatakwa &amp; Jískakwa</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -187,14 +197,14 @@
   <string name="preference_switch_autocomplete_topsites">Erakukuhikwaecha</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">Apakerani jimpoka %s karakurintaaka kari 450 URLs miyurakuarhu.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">Eranharhikukuaechani kúparhatani</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">Ampakerani jimpoka %s karanharhikuntaaka chari URLs erakukataecha.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -268,8 +278,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">Jajkieri mitintskua jimpo mita enkari jurhikutarakua kuparataka o enka eranharhikukua %s xarhanharini jauaka.</string>
   <!--
@@ -310,10 +320,10 @@
   <!-- In-app link (in settings) to Focus licensing information. -->
   <string name="preference_licensing_info">Tsirimerakuaeri ampe</string>
   <!-- Link to Focus licensing information from other libraries that we use. -->
-  <string name="preference_libraries_we_use">Materu tsirimerariecha </string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <string name="preference_libraries_we_use">Materu tsirimerariecha</string>
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s |OSS tsirimerariecha</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">Ankueri %1$s</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">Jirinhatarantskwaecha jatsïrakurhikataecha</string>
@@ -337,7 +347,7 @@
   <string name="search_add_manually_name_hint">Jirinhatarantskwaeri jakakurhikwani jirinhant\'ani</string>
   <string name="search_add_manually_string">Kuturhutapakwani marhuatani</string>
   <string name="search_add_manually_save">Patsani</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">Éska í: éskaí.com/search/?q=%s</string>
   <string name="search_add_confirmation">Jimpanhi jirinhatarantskwa kúparhakukata.</string>
   <string name="search_add_error_empty_name">Jirinhatarantskwaeri jakankurhikwani karanharhitani</string>
@@ -409,19 +419,19 @@
   <string name="external_app_prompt_title">Máteru úratarakwarhu mítani</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">Úakari wéntani %1$s ka íni eranharhikwa mítani %2$s.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">Úratarakwani jirinhant\'ani énka uaka íni mítani</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">Áamku ma úratarakwa úa mítani íni eranharhikwa. Úakari wént\'ani %1$s ka jirinhant\'ani %2$s úratarakwa énka úaka.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">Xipatinku Jirinhantskwarhu Wéntari?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s k\'amakukata</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">Mítani</string>
@@ -429,13 +439,11 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">Maruata je %1$s</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
   <string name="onboarding_first_screen_subtitle">Jano je.</string>
-  <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">Wenakuni</string>
   <!--
     Onboarding second screen: Title
 
@@ -511,36 +519,6 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">Firefox jatsïrakurhini</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">%1$s úratarakwa maesti énkari úaka k\'ánkurhini Mozilla ústi máteruecha jinkoni.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s úakari pitsikurhini jimpoka &lt;a href="%2$s"&gt; úkata jarasti &lt;/a&gt;Mozillaeri jinkoni ka máterueri úratarakuaecha.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">Áamkuri tsïrimerakata jaki Mozilla jimpo eska na jinteka Mozilla, Firefox o %1$s jakankurhikwaecha o mitintskwaecha, Sánteru ampe &lt;a href="%2$s"&gt;ixu exentakari&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">Sánteru ampe marhuatakuaeri %1$s exentakari máteru úricha&lt;a href="%2$s"&gt;jinkoni &lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s kwarhukperatiechani maruatasïnti énka Disconnect, Inc. táchani únka ixu &lt;a href="%2$s"&gt;GNU mítikata jaka 3&lt;/a&gt;, ka úakari exeni &lt;a href="%3$s"&gt;ixu&lt;/a&gt;.</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">Jakankurhikwa</string>
   <string name="gv_prompt_password_hint">Mítintskwa</string>
@@ -562,13 +540,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">Eranharhikukwarhu exent\'ani</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">%1$d ankuri %2$d</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -615,9 +595,9 @@
   <string name="cookie_banner_exception_panel_switch_state_off">PATAKATA ini eranharhikukuarhu</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">ETSKUKATA ini eranharhikukuarhu</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">Etskuntaari exepakuaeri ayankperata %1$s jimpo?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">Patari exepakuaeri ayankperata %1$s jimpo?</string>
   <!-- Text for cancel button indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_site_is_not_supported_cancel_button">Áamkutaru</string>
@@ -630,11 +610,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Android pekurhintskuecha</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. Puchastsïku &lt;b&gt;jiankukuecha&lt;/b&gt;</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. Puchastsïku <b>jiankukuecha</b>]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">Pékurhintskuarhu niarani</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. Mojtaku &lt;b&gt;%1$s&lt;/b&gt; ETSKUNI</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. Mojtaku <b>%1$s</b> ETSKUNI]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">Pitani</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -661,20 +641,6 @@
   <string name="preference_block_autoplay_audio_only_summary">Mintsinharikua</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">Kustakua kuarhukuni</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">Jurenkurikua</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Menhechani firefox jatsïraati jurenkuarikua ampe.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">Sánteru mítini</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">Uratarakua mikurintaati jimpoka jimpankikurintaati</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">Kéntitani</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">Etskukata</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">Jayarakata</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">USB/Wi-Fi weratini ampakerant\'ani</string>
   <!-- Text Button for show biometric prompt -->
@@ -719,15 +685,15 @@
   <string name="tip_disable_tracking_protection">Eranharhikwa nántarkuni úxaki?\nTsek\'u Kwatakwa Estakwaeri p\'atani</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">Yámu miyukwaechani mítani %1$s rhu\n %1$s Pékurhintsï</string>
+  <string name="tip_set_default_browser">Yámu miyukwaechani mítani %1$s rhu\n%1$s Pékurhintsï</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">Miyukwani jimpanhi eranharhikwarhu mítani \n Nákintaru ma miyukwani puchanharhiku</string>
+  <string name="tip_open_in_new_tab">Miyukwani jimpanhi eranharhikwarhu mítani \nNákintaru ma miyukwani puchanharhiku</string>
   <!-- Label for the snackbar when a user opens a new tab -->
   <string name="new_tab_opened_snackbar">Mitakurhisti jimpanhi eranharhikwa</string>
   <!-- Label for the button in the snackbar that switches to the newly opened tab -->
@@ -748,29 +714,29 @@
   <string name="crash_report_send_crash_label">Mozillani ayankuni íni xerekurhikwa</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">Estakukuecha kuarhukukata jarastiksï %s jimpo</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">Jatakata</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">Ayankperakuecha</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">Wanhacharhu</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">Erakuni</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">Sesimintu kuatakua</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">PATANHASTI kuatakuechani ini eranharhikukuarhu</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">ETSKUNHASTI kuatakuechani ini eranharhikukuarhu</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">Kuatakata inchaparhatanhasti</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">Aamku kuatakata inchaparhatanhasti</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">Estakuecha ka maruatatarakuechani kuarhukuni</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">Kuanhatsïntani</string>
   <!--
     Top Sites
@@ -788,7 +754,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">Patsakurhikataecha &lt;b&gt;áamku kéntitanhaa&lt;/b&gt; énkari miatskuani %1$s kéntitaka</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[Patsakurhikataecha <b>áamku kéntitanhaa</b> énkari miatskuani %1$s kéntitaka]]></string>
   <!--
     Theme Preferences
 

@@ -5,12 +5,12 @@
 
 #include "WebGLParent.h"
 
+#include "HostWebGLContext.h"
+#include "ImageContainer.h"
 #include "WebGLChild.h"
+#include "WebGLMethodDispatcher.h"
 #include "mozilla/layers/SharedSurfacesParent.h"
 #include "mozilla/layers/TextureClientSharedSurface.h"
-#include "ImageContainer.h"
-#include "HostWebGLContext.h"
-#include "WebGLMethodDispatcher.h"
 
 namespace mozilla::dom {
 
@@ -411,17 +411,6 @@ IPCResult WebGLParent::RecvGetSamplerParameter(ObjectId id, GLenum pname,
   }
 
   *ret = mHost->GetSamplerParameter(id, pname);
-  return IPC_OK();
-}
-
-IPCResult WebGLParent::RecvGetShaderPrecisionFormat(
-    GLenum shaderType, GLenum precisionType,
-    Maybe<webgl::ShaderPrecisionFormat>* const ret) {
-  if (!mHost) {
-    return IPC_FAIL(this, "HostWebGLContext is not initialized.");
-  }
-
-  *ret = mHost->GetShaderPrecisionFormat(shaderType, precisionType);
   return IPC_OK();
 }
 

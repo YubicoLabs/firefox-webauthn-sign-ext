@@ -14,7 +14,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
 // We use a list of prefs for display to make sure we only show prefs that
 // are useful for support and won't compromise the user's privacy.  Note that
 // entries are *prefixes*: for example, "accessibility." applies to all prefs
-// under the "accessibility.*" branch.
+// under the "accessibility.*" branch.  To exclude entries, add them to
+// PREF_REGEXES_NOT_TO_DISPLAY or PREFS_UNIMPORTANT_LOCKED.
 const PREFS_FOR_DISPLAY = [
   "accessibility.",
   "apz.",
@@ -40,6 +41,7 @@ const PREFS_FOR_DISPLAY = [
   "browser.places.",
   "browser.privatebrowsing.",
   "browser.search.context.loadInBackground",
+  "browser.search.lastEngineIgnored",
   "browser.search.lastSettingsCorruptTime",
   "browser.search.log",
   "browser.search.openintab",
@@ -52,19 +54,19 @@ const PREFS_FOR_DISPLAY = [
   "browser.startup.homepage",
   "browser.startup.page",
   "browser.tabs.",
+  "browser.theme.",
   "browser.toolbars.",
   "browser.urlbar.",
   "browser.zoom.",
   "doh-rollout.",
   "dom.",
+  "extensions.backgroundServiceWorker.enabled",
   "extensions.checkCompatibility",
   "extensions.eventPages.enabled",
   "extensions.formautofill.",
   "extensions.lastAppVersion",
-  "extensions.manifestV3.enabled",
   "extensions.quarantinedDomains.enabled",
   "extensions.InstallTrigger.enabled",
-  "extensions.InstallTriggerImpl.enabled",
   "fission.autostart",
   "font.",
   "general.autoScroll",
@@ -77,7 +79,7 @@ const PREFS_FOR_DISPLAY = [
   "javascript.",
   "keyword.",
   "layers.",
-  "layout.css.dpi",
+  "layout.css.",
   "layout.display-list.",
   "layout.frame_rate",
   "media.",
@@ -133,10 +135,11 @@ PREFS_GETTERS[Ci.nsIPrefBranch.PREF_BOOL] = (prefs, name) =>
   prefs.getBoolPref(name);
 
 // List of unimportant locked prefs (won't be shown on the troubleshooting
-// session)
+// session). You only need to add prefs here if they are matched by
+// PREFS_FOR_DISPLAY yet not by PREF_REGEXES_NOT_TO_DISPLAY.
 const PREFS_UNIMPORTANT_LOCKED = [
   "dom.postMessage.sharedArrayBuffer.bypassCOOP_COEP.insecure.enabled",
-  "extensions.backgroundServiceWorkerEnabled.enabled",
+  "extensions.backgroundServiceWorker.enabled",
   "privacy.restrict3rdpartystorage.url_decorations",
 ];
 
@@ -450,27 +453,6 @@ var dataProviders = {
     done(data);
   },
 
-  async experimentalFeatures(done) {
-    if (AppConstants.MOZ_BUILD_APP != "browser") {
-      done();
-      return;
-    }
-    let { FeatureGate } = ChromeUtils.importESModule(
-      "resource://featuregates/FeatureGate.sys.mjs"
-    );
-
-    let gates = await FeatureGate.all();
-    done(
-      gates.map(gate => {
-        return [
-          gate.title,
-          gate.preference,
-          Services.prefs.getBoolPref(gate.preference),
-        ];
-      })
-    );
-  },
-
   async legacyUserStylesheets(done) {
     if (AppConstants.platform == "android") {
       done({ active: false, types: [] });
@@ -530,9 +512,30 @@ var dataProviders = {
   },
 
   places: async function places(done) {
-    const data = AppConstants.MOZ_PLACES
-      ? await lazy.PlacesDBUtils.getEntitiesStatsAndCounts()
-      : [];
+    const data = {};
+
+    if (AppConstants.MOZ_PLACES) {
+      data.prefs = await lazy.PlacesDBUtils.getEntitiesStatsAndCounts();
+
+      data.lastMaintenanceDate =
+        Services.prefs.getIntPref("places.database.lastMaintenance", 0) * 1000;
+      data.lastVacuumDate =
+        Services.prefs.getIntPref("storage.vacuum.last.places.sqlite", 0) *
+        1000;
+
+      try {
+        const corruptFilePath = PathUtils.join(
+          PathUtils.profileDir,
+          "places.sqlite.corrupt"
+        );
+        const fileInfo = await IOUtils.stat(corruptFilePath);
+        data.lastIntegrityCorruptionDate = fileInfo.lastModified;
+      } catch (e) {
+        // Set 0 if failed such the file not found error.
+        data.lastIntegrityCorruptionDate = 0;
+      }
+    }
+
     done(data);
   },
 
@@ -660,7 +663,6 @@ var dataProviders = {
         adapterDriverDate2: "driverDate2",
         isGPU2Active: null,
 
-        D2DEnabled: "direct2DEnabled",
         DWriteEnabled: "directWriteEnabled",
         DWriteVersion: "directWriteVersion",
         cleartypeParameters: "clearTypeParameters",
@@ -673,10 +675,6 @@ var dataProviders = {
         try {
           data[gfxInfoProps[prop] || prop] = gfxInfo[prop];
         } catch (e) {}
-      }
-
-      if ("direct2DEnabled" in data && !data.direct2DEnabled) {
-        data.direct2DEnabledMessage = statusMsgForFeature("DIRECT2D");
       }
     }
 
@@ -1020,8 +1018,8 @@ var dataProviders = {
       ChromeUtils.importESModule(
         "resource://normandy/lib/PreferenceRollouts.sys.mjs"
       );
-    const { ExperimentManager } = ChromeUtils.importESModule(
-      "resource://nimbus/lib/ExperimentManager.sys.mjs"
+    const { ExperimentAPI } = ChromeUtils.importESModule(
+      "resource://nimbus/ExperimentAPI.sys.mjs"
     );
 
     // Get Normandy data in parallel, and sort each group by slug.
@@ -1036,12 +1034,12 @@ var dataProviders = {
         NormandyAddonStudies.getAllActive(),
         NormandyPreferenceRollouts.getAllActive(),
         NormandyPreferenceStudies.getAllActive(),
-        ExperimentManager.store
+        ExperimentAPI.manager.store
           .ready()
-          .then(() => ExperimentManager.store.getAllActiveExperiments()),
-        ExperimentManager.store
+          .then(() => ExperimentAPI.manager.store.getAllActiveExperiments()),
+        ExperimentAPI.manager.store
           .ready()
-          .then(() => ExperimentManager.store.getAllActiveRollouts()),
+          .then(() => ExperimentAPI.manager.store.getAllActiveRollouts()),
       ].map(promise =>
         promise
           .catch(error => {

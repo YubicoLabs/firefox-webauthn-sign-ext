@@ -11,8 +11,13 @@ ChromeUtils.defineESModuleGetters(this, {
   AppConstants: "resource://gre/modules/AppConstants.sys.mjs",
   UpdateService: "resource://gre/modules/UpdateService.sys.mjs",
   ActionsProviderQuickActions:
-    "resource:///modules/ActionsProviderQuickActions.sys.mjs",
+    "moz-src:///browser/components/urlbar/ActionsProviderQuickActions.sys.mjs",
 });
+
+Services.scriptloader.loadSubScript(
+  "chrome://mochitests/content/browser/browser/components/urlbar/tests/browser-tips/head.js",
+  this
+);
 
 const DUMMY_PAGE =
   "https://example.com/browser/browser/base/content/test/general/dummy_page.html";
@@ -46,6 +51,7 @@ const onboardingLabelShown = win =>
 add_setup(async function setup() {
   await SpecialPowers.pushPrefEnv({
     set: [
+      ["test.wait300msAfterTabSwitch", true],
       ["browser.urlbar.quickactions.enabled", true],
       ["browser.urlbar.scotchBonnet.enableOverride", true],
     ],
@@ -56,9 +62,15 @@ add_setup(async function setup() {
     label: "quickactions-downloads2",
     onPick: () => testActionCalled++,
   });
+  ActionsProviderQuickActions.addAction("othertestaction", {
+    commands: ["othertestaction"],
+    label: "quickactions-downloads2",
+    onPick: () => {},
+  });
 
   registerCleanupFunction(() => {
     ActionsProviderQuickActions.removeAction("testaction");
+    ActionsProviderQuickActions.removeAction("othertestaction");
   });
 });
 
@@ -125,6 +137,7 @@ add_task(async function test_viewsource() {
     "view-source:https://example.com/"
   );
   EventUtils.synthesizeKey("KEY_Tab", {}, window);
+  EventUtils.synthesizeKey("KEY_Tab", {}, window);
   assertAccessibilityWhenSelected("viewsource");
   EventUtils.synthesizeKey("KEY_Enter", {}, window);
   const viewSourceTab = await onLoad;
@@ -136,14 +149,45 @@ add_task(async function test_viewsource() {
   });
 
   Assert.equal(
-    hasQuickActions(window),
-    false,
+    window.document.querySelector(
+      `.urlbarView-action-btn[data-action=viewsource]`
+    ),
+    null,
     "Result for quick actions is hidden"
   );
 
   // Clean up.
   BrowserTestUtils.removeTab(viewSourceTab);
   BrowserTestUtils.removeTab(tab);
+});
+
+add_task(async function testAfterTabSwitch() {
+  let tab1 = gBrowser.selectedTab;
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window,
+    value: "testaction",
+  });
+  await assertAction("testaction");
+
+  let tab2 = await BrowserTestUtils.openNewForegroundTab({
+    gBrowser,
+    opening: "https://example.com",
+    waitForLoad: true,
+  });
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window,
+    value: "othertestaction",
+  });
+  await assertAction("othertestaction");
+
+  await BrowserTestUtils.switchTab(gBrowser, tab1);
+  info("Testing if quick action in tab 1 still works.");
+  EventUtils.synthesizeKey("KEY_Tab", {}, window);
+  assertAccessibilityWhenSelected("testaction");
+  EventUtils.synthesizeKey("KEY_Enter", {}, window);
+  Assert.equal(testActionCalled, 2, "Test action was called");
+
+  BrowserTestUtils.removeTab(tab2);
 });
 
 async function doAlertDialogTest({ input, dialogContentURI }) {
@@ -167,6 +211,20 @@ async function doAlertDialogTest({ input, dialogContentURI }) {
 }
 
 add_task(async function test_refresh() {
+  // Refresh should be disabled because we are not in a named profile yet
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window,
+    value: "refresh",
+  });
+  Assert.equal(
+    UrlbarTestUtils.getResultCount(window),
+    1,
+    "We did not match anything"
+  );
+
+  // Make this a named profile so we can refresh
+  makeProfileResettable();
+
   await doAlertDialogTest({
     input: "refresh",
     dialogContentURI: "chrome://global/content/resetProfile.xhtml",
@@ -174,15 +232,9 @@ add_task(async function test_refresh() {
 });
 
 add_task(async function test_clear() {
-  let useOldClearHistoryDialog = Services.prefs.getBoolPref(
-    "privacy.sanitize.useOldClearHistoryDialog"
-  );
-  let dialogURL = useOldClearHistoryDialog
-    ? "chrome://browser/content/sanitize.xhtml"
-    : "chrome://browser/content/sanitize_v2.xhtml";
   await doAlertDialogTest({
     input: "clear",
-    dialogContentURI: dialogURL,
+    dialogContentURI: "chrome://browser/content/sanitize_v2.xhtml",
   });
 });
 

@@ -11,7 +11,7 @@ use std::{
 
 use neqo_common::qtrace;
 
-use crate::recovery::RecoveryToken;
+use crate::recovery;
 
 #[derive(Debug, Clone)]
 /// There's a little bit of different behavior for resetting idle timeout. See
@@ -24,7 +24,9 @@ enum IdleTimeoutState {
 
 #[derive(Debug, Clone)]
 /// There's a little bit of different behavior for resetting idle timeout. See
-/// -transport 10.2 ("Idle Timeout").
+/// -transport 10.1 ("Idle Timeout").
+///
+/// <https://datatracker.ietf.org/doc/html/rfc9000#section-10.1>
 pub struct IdleTimeout {
     timeout: Duration,
     state: IdleTimeoutState,
@@ -57,10 +59,18 @@ impl IdleTimeout {
         t
     }
 
-    pub fn on_packet_sent(&mut self, now: Instant) {
+    pub const fn on_packet_sent(&mut self, now: Instant) {
         // Only reset idle timeout if we've received a packet since the last
         // time we reset the timeout here.
         match self.state {
+            // > An endpoint also restarts its idle timer when sending an
+            // > ack-eliciting packet if no other ack-eliciting packets have
+            // > been sent since last receiving and processing a packet.
+            //
+            // <https://datatracker.ietf.org/doc/html/rfc9000#section-10.1>
+            //
+            // Conversely, given that a packet has been sent since last
+            // receival, don't reset idle timer.
             IdleTimeoutState::AckElicitingPacketSent(_) => {}
             IdleTimeoutState::Init | IdleTimeoutState::PacketReceived(_) => {
                 self.state = IdleTimeoutState::AckElicitingPacketSent(now);
@@ -112,22 +122,22 @@ impl IdleTimeout {
         &mut self,
         now: Instant,
         pto: Duration,
-        tokens: &mut Vec<RecoveryToken>,
+        tokens: &mut recovery::Tokens,
     ) -> bool {
         if !self.keep_alive_outstanding && now >= self.keep_alive_timeout(now, pto) {
             self.keep_alive_outstanding = true;
-            tokens.push(RecoveryToken::KeepAlive);
+            tokens.push(recovery::Token::KeepAlive);
             true
         } else {
             false
         }
     }
 
-    pub fn lost_keep_alive(&mut self) {
+    pub const fn lost_keep_alive(&mut self) {
         self.keep_alive_outstanding = false;
     }
 
-    pub fn ack_keep_alive(&mut self) {
+    pub const fn ack_keep_alive(&mut self) {
         self.keep_alive_outstanding = false;
     }
 }

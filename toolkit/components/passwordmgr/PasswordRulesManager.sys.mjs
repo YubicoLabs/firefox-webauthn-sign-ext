@@ -18,14 +18,11 @@ ChromeUtils.defineLazyGetter(lazy, "log", () => {
   return logger.log.bind(logger);
 });
 
-const IMPROVED_PASSWORD_GENERATION_HISTOGRAM =
-  "PWMGR_NUM_IMPROVED_GENERATED_PASSWORDS";
-
 /**
  * Handles interactions between PasswordRulesParser and the "password-rules" Remote Settings collection
  *
  * @class PasswordRulesManagerParent
- * @extends {JSWindowActorParent}
+ * @augments {JSWindowActorParent}
  */
 export class PasswordRulesManagerParent extends JSWindowActorParent {
   /**
@@ -45,6 +42,7 @@ export class PasswordRulesManagerParent extends JSWindowActorParent {
 
   /**
    * Generates a password based on rules from the origin parameters.
+   *
    * @param {nsIURI} uri
    * @return {string} password
    * @memberof PasswordRulesManagerParent
@@ -72,9 +70,9 @@ export class PasswordRulesManagerParent extends JSWindowActorParent {
         currentRecord["password-rules"]
       );
       let mapOfRules = lazy.Logic.transformRulesToMap(currentRules);
-      Services.telemetry
-        .getHistogramById(IMPROVED_PASSWORD_GENERATION_HISTOGRAM)
-        .add(isCustomRule);
+      Glean.pwmgr.numImprovedGeneratedPasswords[
+        isCustomRule ? "true" : "false"
+      ].add();
       return lazy.PasswordGenerator.generatePassword({
         rules: mapOfRules,
         inputMaxLength,
@@ -83,9 +81,9 @@ export class PasswordRulesManagerParent extends JSWindowActorParent {
     lazy.log(
       `No password rules for specified origin, generating standard password.`
     );
-    Services.telemetry
-      .getHistogramById(IMPROVED_PASSWORD_GENERATION_HISTOGRAM)
-      .add(isCustomRule);
+    Glean.pwmgr.numImprovedGeneratedPasswords[
+      isCustomRule ? "true" : "false"
+    ].add();
     return lazy.PasswordGenerator.generatePassword({ inputMaxLength });
   }
 }

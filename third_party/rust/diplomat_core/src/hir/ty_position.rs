@@ -1,9 +1,14 @@
 use super::lifetimes::{Lifetime, Lifetimes, MaybeStatic};
 use super::{
-    Borrow, LinkedLifetimes, MaybeOwn, Mutability, OutStructId, ReturnableStructPath, StructId,
-    StructPath, TypeContext, TypeId,
+    Borrow, Callback, CallbackInstantiationFunctionality, LinkedLifetimes, MaybeOwn, Mutability,
+    NoCallback, NoTraitPath, OutStructId, ReturnableStructPath, StructDef, StructId, StructPath,
+    TraitId, TraitPath, TypeContext, TypeDef, TypeId,
 };
 use core::fmt::Debug;
+
+/// Most of the HIR traits are for its own internal ontology,
+/// not for public implementation
+pub trait Sealed {}
 
 /// Abstraction over where a type can appear in a function signature.
 ///
@@ -87,8 +92,12 @@ use core::fmt::Debug;
 /// Therefore, this trait allows be extremely precise about making invalid states
 /// unrepresentable, while also reducing duplicated code.
 ///
-pub trait TyPosition: Debug + Copy {
-    const IS_OUT_ONLY: bool;
+pub trait TyPosition: Debug + Copy + Sealed
+where
+    for<'tcx> TypeDef<'tcx>: From<&'tcx StructDef<Self>>,
+{
+    const IN_OUT_STATUS: InputOrOutput;
+    type CallbackInstantiation: Debug + CallbackInstantiationFunctionality + Clone;
 
     /// Type representing how we can point to opaques, which must always be behind a pointer.
     ///
@@ -97,46 +106,138 @@ pub trait TyPosition: Debug + Copy {
     ///
     /// On the other hand, types represented by [`Everywhere`] can only contain
     /// borrowes, so the associated type for that impl is [`Borrow`].
-    type OpaqueOwnership: Debug + OpaqueOwner;
+    type OpaqueOwnership: Debug + OpaqueOwner + Clone;
 
-    type StructId: Debug;
+    type StructId: Debug + Copy + Into<TypeId>;
 
-    type StructPath: Debug + StructPathLike;
+    type StructPath: Debug + StructPathLike + Clone;
+
+    type TraitPath: Debug + TraitIdGetter + Clone;
+
+    fn wrap_struct_def<'tcx>(def: &'tcx StructDef<Self>) -> TypeDef<'tcx>;
+    fn build_callback(cb: Callback) -> Self::CallbackInstantiation;
+    fn build_trait_path(trait_path: TraitPath) -> Self::TraitPath;
+
+    fn resolve_struct(tcx: &TypeContext, id: Self::StructId) -> &StructDef<Self>;
+
+    fn get_fields<'tcx>(
+        def: &'tcx StructDef<Self>,
+    ) -> impl Iterator<Item = &'tcx crate::hir::StructField<Self>> {
+        def.fields.iter()
+    }
 }
 
-/// One of two types implementing [`TyPosition`], representing types that can be
+/// Directionality of the type
+#[non_exhaustive]
+pub enum InputOrOutput {
+    Input,
+    Output,
+    InputOutput,
+}
+
+pub trait TraitIdGetter: Sealed {
+    fn id(&self) -> TraitId;
+}
+
+/// One of 3 types implementing [`TyPosition`], representing types that can be
 /// used as both input and output to functions.
 ///
-/// The complement of this type is [`OutputOnly`].
+/// The restricted versions of this type are [`OutputOnly`] and [`InputOnly`].
 #[derive(Debug, Copy, Clone)]
 #[non_exhaustive]
 pub struct Everywhere;
 
-/// One of two types implementing [`TyPosition`], representing types that can
+/// One of 3 types implementing [`TyPosition`], representing types that can
 /// only be used as return types in functions.
 ///
-/// The complement of this type is [`Everywhere`].
+/// The directional opposite of this type is [`InputOnly`].
 #[derive(Debug, Copy, Clone)]
 #[non_exhaustive]
 pub struct OutputOnly;
 
+/// One of 3 types implementing [`TyPosition`], representing types that can
+/// only be used as input types in functions.
+///
+/// The directional opposite of this type is [`OutputOnly`].
+#[derive(Debug, Copy, Clone)]
+#[non_exhaustive]
+pub struct InputOnly;
+
+impl Sealed for Everywhere {}
+impl Sealed for OutputOnly {}
+impl Sealed for InputOnly {}
+
 impl TyPosition for Everywhere {
-    const IS_OUT_ONLY: bool = false;
+    const IN_OUT_STATUS: InputOrOutput = InputOrOutput::InputOutput;
     type OpaqueOwnership = Borrow;
     type StructId = StructId;
     type StructPath = StructPath;
+    type CallbackInstantiation = NoCallback;
+    type TraitPath = NoTraitPath;
+
+    fn wrap_struct_def<'tcx>(def: &'tcx StructDef<Self>) -> TypeDef<'tcx> {
+        TypeDef::Struct(def)
+    }
+    fn build_callback(_cb: Callback) -> Self::CallbackInstantiation {
+        panic!("Callbacks must be input-only");
+    }
+    fn build_trait_path(_trait_path: TraitPath) -> Self::TraitPath {
+        panic!("Traits must be input-only");
+    }
+
+    fn resolve_struct(tcx: &TypeContext, id: StructId) -> &StructDef<Self> {
+        tcx.resolve_struct(id)
+    }
 }
 
 impl TyPosition for OutputOnly {
-    const IS_OUT_ONLY: bool = true;
+    const IN_OUT_STATUS: InputOrOutput = InputOrOutput::Output;
     type OpaqueOwnership = MaybeOwn;
     type StructId = OutStructId;
     type StructPath = ReturnableStructPath;
+    type CallbackInstantiation = NoCallback;
+    type TraitPath = NoTraitPath;
+
+    fn wrap_struct_def<'tcx>(def: &'tcx StructDef<Self>) -> TypeDef<'tcx> {
+        TypeDef::OutStruct(def)
+    }
+    fn build_callback(_cb: Callback) -> Self::CallbackInstantiation {
+        panic!("Callbacks must be input-only");
+    }
+    fn build_trait_path(_trait_path: TraitPath) -> Self::TraitPath {
+        panic!("Traits must be input-only");
+    }
+    fn resolve_struct(tcx: &TypeContext, id: OutStructId) -> &StructDef<Self> {
+        tcx.resolve_out_struct(id)
+    }
 }
 
-pub trait StructPathLike {
+impl TyPosition for InputOnly {
+    const IN_OUT_STATUS: InputOrOutput = InputOrOutput::Input;
+    type OpaqueOwnership = Borrow;
+    type StructId = StructId;
+    type StructPath = StructPath;
+    type CallbackInstantiation = Callback;
+    type TraitPath = TraitPath;
+
+    fn wrap_struct_def<'tcx>(_def: &'tcx StructDef<Self>) -> TypeDef<'tcx> {
+        panic!("Input-only structs are not currently supported");
+    }
+    fn build_callback(cb: Callback) -> Self::CallbackInstantiation {
+        cb
+    }
+    fn build_trait_path(trait_path: TraitPath) -> Self::TraitPath {
+        trait_path
+    }
+    fn resolve_struct(_: &TypeContext, _: StructId) -> &StructDef<Self> {
+        panic!("Type Context does not store InputOnly structdefs");
+    }
+}
+
+pub trait StructPathLike: Sealed {
     fn lifetimes(&self) -> &Lifetimes;
     fn id(&self) -> TypeId;
+    fn owner(&self) -> MaybeOwn;
 
     /// Get a map of lifetimes used on this path to lifetimes as named in the def site. See [`LinkedLifetimes`]
     /// for more information.
@@ -146,12 +247,19 @@ pub trait StructPathLike {
     ) -> LinkedLifetimes<'def, 'tcx>;
 }
 
+impl Sealed for StructPath {}
+impl Sealed for ReturnableStructPath {}
+
 impl StructPathLike for StructPath {
     fn lifetimes(&self) -> &Lifetimes {
         &self.lifetimes
     }
     fn id(&self) -> TypeId {
         self.tcx_id.into()
+    }
+
+    fn owner(&self) -> MaybeOwn {
+        self.owner
     }
 
     fn link_lifetimes<'def, 'tcx>(
@@ -175,6 +283,10 @@ impl StructPathLike for ReturnableStructPath {
         }
     }
 
+    fn owner(&self) -> MaybeOwn {
+        MaybeOwn::Own
+    }
+
     fn link_lifetimes<'def, 'tcx>(
         &'def self,
         tcx: &'tcx TypeContext,
@@ -185,13 +297,29 @@ impl StructPathLike for ReturnableStructPath {
         }
     }
 }
+
+impl Sealed for TraitPath {}
+impl Sealed for NoTraitPath {}
+
+impl TraitIdGetter for TraitPath {
+    fn id(&self) -> TraitId {
+        self.tcx_id
+    }
+}
+
+impl TraitIdGetter for NoTraitPath {
+    fn id(&self) -> TraitId {
+        panic!("Trait path not allowed here, no trait ID valid");
+    }
+}
+
 /// Abstraction over how a type can hold a pointer to an opaque.
 ///
 /// This trait is designed as a helper abstraction for the `OpaqueOwnership`
 /// associated type in the [`TyPosition`] trait. As such, only has two implementing
 /// types: [`MaybeOwn`] and [`Borrow`] for the [`OutputOnly`] and [`Everywhere`]
 /// implementations of [`TyPosition`] respectively.
-pub trait OpaqueOwner {
+pub trait OpaqueOwner: Sealed {
     /// Return the mutability of this owner
     fn mutability(&self) -> Option<Mutability>;
 
@@ -200,6 +328,9 @@ pub trait OpaqueOwner {
     /// Return the lifetime of the borrow, if any.
     fn lifetime(&self) -> Option<MaybeStatic<Lifetime>>;
 }
+
+impl Sealed for MaybeOwn {}
+impl Sealed for Borrow {}
 
 impl OpaqueOwner for MaybeOwn {
     fn mutability(&self) -> Option<Mutability> {

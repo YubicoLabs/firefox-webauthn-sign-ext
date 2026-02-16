@@ -4,7 +4,9 @@
 
 #include "ClearDataCallback.h"
 #include "mozilla/glean/AntitrackingBouncetrackingprotectionMetrics.h"
+#include "nsContentUtils.h"
 #include "nsIBounceTrackingProtection.h"
+#include "nsIObserverService.h"
 #include "nsIURIClassifier.h"
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
 #include "nsNetCID.h"
@@ -90,10 +92,9 @@ NS_IMETHODIMP ClearDataCallback::OnDataDeleted(uint32_t aFailedFlags) {
   if (aFailedFlags) {
     mPromise->Reject(aFailedFlags, __func__);
   } else {
-    MOZ_LOG(gBounceTrackingProtectionLog, LogLevel::Debug,
-            ("%s: Cleared host: %s, bounceTime: %" PRIu64, __FUNCTION__,
-             PromiseFlatCString(mEntry->SiteHostRef()).get(),
-             mEntry->TimeStampRef()));
+    MOZ_LOG_FMT(gBounceTrackingProtectionLog, LogLevel::Debug,
+                "{}: Cleared host: {}, bounceTime: {}", __FUNCTION__,
+                mEntry->SiteHostRef(), mEntry->TimeStampRef());
 
     mEntry->PurgeTimeRef() = PR_Now();
     mPromise->Resolve(mEntry, __func__);
@@ -190,6 +191,9 @@ void ClearDataCallback::RecordPurgeEventTelemetry(bool aSuccess) {
       .bounceTime = Some(mEntry->TimeStampRef() / PR_USEC_PER_SEC),
       .isDryRun = Some(StaticPrefs::privacy_bounceTrackingProtection_mode() ==
                        nsIBounceTrackingProtection::MODE_ENABLED_DRY_RUN),
+      .requireStatefulBounces =
+          Some(StaticPrefs::
+                   privacy_bounceTrackingProtection_requireStatefulBounces()),
       .siteHost = Some(nsAutoCString(mEntry->SiteHostRef())),
       .success = Some(aSuccess),
   };

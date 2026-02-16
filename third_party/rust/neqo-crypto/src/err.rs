@@ -4,29 +4,31 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(dead_code)]
-
 use std::{os::raw::c_char, str::Utf8Error};
 
 use crate::ssl::{SECStatus, SECSuccess};
 
 include!(concat!(env!("OUT_DIR"), "/nspr_error.rs"));
+#[expect(non_snake_case, dead_code, reason = "Code is bindgen-generated.")]
 mod codes {
-    #![allow(non_snake_case)]
     include!(concat!(env!("OUT_DIR"), "/nss_secerr.rs"));
     include!(concat!(env!("OUT_DIR"), "/nss_sslerr.rs"));
 }
 pub use codes::{SECErrorCodes as sec, SSLErrorCodes as ssl};
+use thiserror::Error;
+
+#[expect(dead_code, reason = "Code is bindgen-generated.")]
 pub mod nspr {
     include!(concat!(env!("OUT_DIR"), "/nspr_err.rs"));
 }
 
+#[expect(dead_code, reason = "Some constants are not used.")]
 pub mod mozpkix {
     // These are manually extracted from the many bindings generated
     // by bindgen when provided with the simple header:
     // #include "mozpkix/pkixnss.h"
 
-    #[allow(non_camel_case_types)]
+    #[expect(non_camel_case_types, reason = "Code is bindgen-generated.")]
     pub type mozilla_pkix_ErrorCode = ::std::os::raw::c_int;
     pub const MOZILLA_PKIX_ERROR_KEY_PINNING_FAILURE: mozilla_pkix_ErrorCode = -16384;
     pub const MOZILLA_PKIX_ERROR_CA_CERT_USED_AS_END_ENTITY: mozilla_pkix_ErrorCode = -16383;
@@ -50,29 +52,51 @@ pub mod mozpkix {
 
 pub type Res<T> = Result<T, Error>;
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Error)]
 pub enum Error {
-    AeadError,
+    #[error("Certificate decoding error")]
+    CertificateDecoding,
+    #[error("Certificate encoding error")]
+    CertificateEncoding,
+    #[error("Certificate loading error")]
     CertificateLoading,
-    CipherInitFailure,
+    #[error("Cipher initialization error")]
+    CipherInit,
+    #[error("Failed to create SSL socket")]
     CreateSslSocket,
+    #[error("ECH error, retry needed")]
     EchRetry(Vec<u8>),
-    HkdfError,
-    InternalError,
+    #[error("HKDF error")]
+    Hkdf,
+    #[error("Internal error")]
+    Internal,
+    #[error("Integer overflow")]
     IntegerOverflow,
+    #[error("Invalid ALPN")]
+    InvalidAlpn,
+    #[error("Invalid epoch")]
     InvalidEpoch,
+    #[error("Invalid certificate compression ID")]
+    InvalidCertificateCompressionID,
+    #[error("Mixed handshake method")]
     MixedHandshakeMethod,
+    #[error("No data available")]
     NoDataAvailable,
-    NssError {
+    #[error("NSS error: {name} ({code}): {desc}")]
+    Nss {
         name: String,
         code: PRErrorCode,
         desc: String,
     },
-    OverrunError,
-    SelfEncryptFailure,
-    StringError,
-    TimeTravelError,
+    #[error("Self encryption error")]
+    SelfEncrypt,
+    #[error("String conversion error")]
+    String,
+    #[error("Time travel detected")]
+    TimeTravel,
+    #[error("Unsupported cipher")]
     UnsupportedCipher,
+    #[error("Unsupported version")]
     UnsupportedVersion,
 }
 
@@ -82,38 +106,19 @@ impl Error {
     }
 }
 
-impl std::error::Error for Error {
-    #[must_use]
-    fn cause(&self) -> Option<&dyn std::error::Error> {
-        None
-    }
-    #[must_use]
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
-    }
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Error: {self:?}")
-    }
-}
-
 impl From<std::num::TryFromIntError> for Error {
-    #[must_use]
     fn from(_: std::num::TryFromIntError) -> Self {
         Self::IntegerOverflow
     }
 }
 impl From<std::ffi::NulError> for Error {
-    #[must_use]
     fn from(_: std::ffi::NulError) -> Self {
-        Self::InternalError
+        Self::Internal
     }
 }
 impl From<Utf8Error> for Error {
     fn from(_: Utf8Error) -> Self {
-        Self::StringError
+        Self::String
     }
 }
 impl From<PRErrorCode> for Error {
@@ -123,7 +128,7 @@ impl From<PRErrorCode> for Error {
             || unsafe { PR_ErrorToString(code, PR_LANGUAGE_I_DEFAULT) },
             "...",
         );
-        Self::NssError { name, code, desc }
+        Self::Nss { name, code, desc }
     }
 }
 
@@ -152,12 +157,13 @@ pub fn secstatus_to_res(rv: SECStatus) -> Res<()> {
 
 pub const fn is_blocked(result: &Res<()>) -> bool {
     match result {
-        Err(Error::NssError { code, .. }) => *code == nspr::PR_WOULD_BLOCK_ERROR,
+        Err(Error::Nss { code, .. }) => *code == nspr::PR_WOULD_BLOCK_ERROR,
         _ => false,
     }
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use test_fixture::fixture_init;
 
@@ -193,7 +199,7 @@ mod tests {
         let r = secstatus_to_res(SECFailure);
         assert!(r.is_err());
         match r.unwrap_err() {
-            Error::NssError { name, code, desc } => {
+            Error::Nss { name, code, desc } => {
                 assert_eq!(name, "SSL_ERROR_BAD_MAC_READ");
                 assert_eq!(code, -12273);
                 assert_eq!(
@@ -211,7 +217,7 @@ mod tests {
         let r = secstatus_to_res(SECFailure);
         assert!(r.is_err());
         match r.unwrap_err() {
-            Error::NssError { name, code, .. } => {
+            Error::Nss { name, code, .. } => {
                 assert_eq!(name, "UNKNOWN_ERROR");
                 assert_eq!(code, 0);
                 // Note that we don't test |desc| here because that comes from
@@ -228,12 +234,26 @@ mod tests {
         assert!(r.is_err());
         assert!(is_blocked(&r));
         match r.unwrap_err() {
-            Error::NssError { name, code, desc } => {
+            Error::Nss { name, code, desc } => {
                 assert_eq!(name, "PR_WOULD_BLOCK_ERROR");
                 assert_eq!(code, -5998);
                 assert_eq!(desc, "The operation would have blocked");
             }
             _ => panic!("bad error type"),
         }
+    }
+
+    #[test]
+    #[expect(invalid_from_utf8, reason = "Testing error conversion.")]
+    fn error_from_std_errors() {
+        use std::ffi::CString;
+        assert_eq!(
+            Error::from(CString::new("a\0b").unwrap_err()),
+            Error::Internal
+        );
+        assert_eq!(
+            Error::from(std::str::from_utf8(&[0xff]).unwrap_err()),
+            Error::String
+        );
     }
 }

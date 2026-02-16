@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsPlacesIndexes_h__
-#define nsPlacesIndexes_h__
+#ifndef nsPlacesIndexes_h_
+#define nsPlacesIndexes_h_
 
 #define CREATE_PLACES_IDX(__name, __table, __columns, __type)                  \
   nsLiteralCString("CREATE " __type " INDEX IF NOT EXISTS " __table "_" __name \
@@ -115,4 +115,22 @@
   CREATE_PLACES_IDX("referrerindex", "moz_places_metadata", \
                     "referrer_place_id", "")
 
-#endif  // nsPlacesIndexes_h__
+// moz_newtab_story
+#define CREATE_IDX_MOZ_NEWTAB_STORY_CLICK_TIMESTAMP                          \
+  CREATE_PLACES_IDX("newtab_click_timestampindex", "moz_newtab_story_click", \
+                    "timestamp_s", "")
+
+#define CREATE_IDX_MOZ_NEWTAB_IMPRESSION_TIMESTAMP      \
+  CREATE_PLACES_IDX("newtab_impression_timestampindex", \
+                    "moz_newtab_story_impression", "timestamp_s", "")
+
+// moz_newtab_shortcuts
+#define CREATE_IDX_MOZ_NEWTAB_SHORTCUTS_TIMESTAMP                         \
+  CREATE_PLACES_IDX("timestampindex", "moz_newtab_shortcuts_interaction", \
+                    "timestamp_s", "")
+
+#define CREATE_IDX_MOZ_NEWTAB_SHORTCUTS_PLACEID                         \
+  CREATE_PLACES_IDX("placeidindex", "moz_newtab_shortcuts_interaction", \
+                    "place_id", "")
+
+#endif  // nsPlacesIndexes_h_

@@ -8,17 +8,16 @@
 objects and methods for parsing and serializing Talos results
 see https://wiki.mozilla.org/Buildbot/Talos/DataFormat
 """
+
 import csv
 import json
 import os
 import re
 
-import six
-
 from talos import filter, output, utils
 
 
-class TalosResults(object):
+class TalosResults:
     """Container class for Talos results"""
 
     def __init__(self):
@@ -59,7 +58,7 @@ class TalosResults(object):
             raise e
 
 
-class TestResults(object):
+class TestResults:
     """container object for all test results across cycles"""
 
     def __init__(self, test_config, global_counters=None, framework=None):
@@ -111,7 +110,7 @@ class TestResults(object):
             self.all_counter_results.append(counter_results)
 
 
-class Results(object):
+class Results:
     def filter(self, testname, filters):
         """
         filter the results set;
@@ -283,7 +282,7 @@ class PageloaderResults(Results):
         return page
 
 
-class BrowserLogResults(object):
+class BrowserLogResults:
     """parse the results from the browser log output"""
 
     # tokens for the report types
@@ -478,7 +477,7 @@ class BrowserLogResults(object):
                 # data is counters
                 header = row
                 continue
-            values = dict(six.moves.zip(header, row))
+            values = dict(zip(header, row))
 
             # Format for talos
             thread = values["thread"]
@@ -510,21 +509,19 @@ class BrowserLogResults(object):
                     # other data is counters
                     header = row
                     continue
-                values = dict(six.moves.zip(header, row))
+                values = dict(zip(header, row))
                 for i, mainthread_counter in enumerate(mainthread_counters):
                     if int(values[mainthread_counter_keys[i]]) > 0:
-                        counter_results.setdefault(mainthread_counter, []).append(
-                            [
-                                int(values[mainthread_counter_keys[i]]),
-                                values["filename"],
-                            ]
-                        )
+                        counter_results.setdefault(mainthread_counter, []).append([
+                            int(values[mainthread_counter_keys[i]]),
+                            values["filename"],
+                        ])
 
         if session_store_counter in counter_results.keys():
             filename = "etl_output_session_restore_stats.csv"
             # This file is a csv but it only contains one field, so we'll just
             # obtain the value by converting the second line in the file.
-            with open(filename, "r") as contents:
+            with open(filename) as contents:
                 lines = contents.read().splitlines()
                 if len(lines) > 1:
                     value = float(lines[1].strip())

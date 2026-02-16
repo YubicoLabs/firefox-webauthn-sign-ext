@@ -4,19 +4,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/Assertions.h"
-#include "nsPresContext.h"
-#include "nsContentUtils.h"
-#include "nsDocShell.h"
-#include "nsError.h"
+#include "mozilla/EventDispatcher.h"
+
 #include <new>
-#include "nsIContent.h"
-#include "nsIContentInlines.h"
-#include "mozilla/dom/Document.h"
-#include "nsINode.h"
-#include "nsIScriptObjectPrincipal.h"
-#include "nsPIDOMWindow.h"
-#include "nsRefreshDriver.h"
+
 #include "AnimationEvent.h"
 #include "BeforeUnloadEvent.h"
 #include "ClipboardEvent.h"
@@ -25,27 +16,37 @@
 #include "DeviceMotionEvent.h"
 #include "DragEvent.h"
 #include "KeyboardEvent.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ContentEvents.h"
+#include "mozilla/EventListenerManager.h"
+#include "mozilla/MiscEvents.h"
+#include "mozilla/MouseEvents.h"
+#include "mozilla/ProfilerLabels.h"
+#include "mozilla/ProfilerMarkers.h"
+#include "mozilla/ScopeExit.h"
+#include "mozilla/TextEvents.h"
+#include "mozilla/TouchEvents.h"
+#include "mozilla/dom/BrowserParent.h"
 #include "mozilla/dom/CloseEvent.h"
 #include "mozilla/dom/CustomEvent.h"
 #include "mozilla/dom/DeviceOrientationEvent.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/EventTarget.h"
 #include "mozilla/dom/FocusEvent.h"
 #include "mozilla/dom/HashChangeEvent.h"
 #include "mozilla/dom/InputEvent.h"
 #include "mozilla/dom/MessageEvent.h"
 #include "mozilla/dom/MouseScrollEvent.h"
-#include "mozilla/dom/MutationEvent.h"
 #include "mozilla/dom/NotifyPaintEvent.h"
 #include "mozilla/dom/PageTransitionEvent.h"
 #include "mozilla/dom/PerformanceEventTiming.h"
 #include "mozilla/dom/PerformanceMainThread.h"
 #include "mozilla/dom/PointerEvent.h"
 #include "mozilla/dom/RootedDictionary.h"
+#include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/ScrollAreaEvent.h"
 #include "mozilla/dom/SimpleGestureEvent.h"
-#include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/StorageEvent.h"
 #include "mozilla/dom/TextEvent.h"
 #include "mozilla/dom/TimeEvent.h"
@@ -54,19 +55,17 @@
 #include "mozilla/dom/WheelEvent.h"
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/XULCommandEvent.h"
-#include "mozilla/EventDispatcher.h"
-#include "mozilla/EventListenerManager.h"
-#include "mozilla/InternalMutationEvent.h"
 #include "mozilla/ipc/MessageChannel.h"
-#include "mozilla/MiscEvents.h"
-#include "mozilla/MouseEvents.h"
-#include "mozilla/ProfilerLabels.h"
-#include "mozilla/ProfilerMarkers.h"
-#include "mozilla/ScopeExit.h"
-#include "mozilla/Telemetry.h"
-#include "mozilla/TextEvents.h"
-#include "mozilla/TouchEvents.h"
-#include "mozilla/Unused.h"
+#include "nsContentUtils.h"
+#include "nsDocShell.h"
+#include "nsError.h"
+#include "nsIContent.h"
+#include "nsIContentInlines.h"
+#include "nsINode.h"
+#include "nsIScriptObjectPrincipal.h"
+#include "nsPIDOMWindow.h"
+#include "nsPresContext.h"
+#include "nsRefreshDriver.h"
 
 namespace mozilla {
 
@@ -459,7 +458,7 @@ void EventTargetChainItem::PreHandleEvent(EventChainVisitor& aVisitor) {
   }
   aVisitor.mItemFlags = mItemFlags;
   aVisitor.mItemData = mItemData;
-  Unused << mTarget->PreHandleEvent(aVisitor);
+  (void)mTarget->PreHandleEvent(aVisitor);
   MOZ_ASSERT(mItemFlags == aVisitor.mItemFlags);
   MOZ_ASSERT(mItemData == aVisitor.mItemData);
 }
@@ -754,16 +753,15 @@ EventTargetChainItem* EventTargetChainItemForChromeTarget(
 }
 
 static bool ShouldClearTargets(WidgetEvent* aEvent) {
-  if (nsIContent* finalTarget =
-          nsIContent::FromEventTargetOrNull(aEvent->mTarget)) {
-    if (finalTarget->SubtreeRoot()->IsShadowRoot()) {
+  if (auto* finalTarget = nsIContent::FromEventTargetOrNull(aEvent->mTarget)) {
+    if (finalTarget->IsInShadowTree()) {
       return true;
     }
   }
 
-  if (nsIContent* finalRelatedTarget =
+  if (auto* finalRelatedTarget =
           nsIContent::FromEventTargetOrNull(aEvent->mRelatedTarget)) {
-    if (finalRelatedTarget->SubtreeRoot()->IsShadowRoot()) {
+    if (finalRelatedTarget->IsInShadowTree()) {
       return true;
     }
   }
@@ -795,6 +793,77 @@ static void DescribeEventTargetForProfilerMarker(const EventTarget* aTarget,
     // Probably something that inherits from DOMEventTargetHelper.
   }
 }
+
+/**
+ * https://w3c.github.io/touch-events/#cancelability
+ * https://w3c.github.io/uievents/#cancelability-of-wheel-events
+ */
+static bool IsUncancelableIfOnlyPassiveListeners(const WidgetEvent* aEvent) {
+  if (!aEvent->IsTrusted() || !aEvent->mFlags.mCancelable) {
+    return false;
+  }
+
+  switch (aEvent->mMessage) {
+    case eTouchStart:
+    case eTouchEnd:
+    case eTouchMove:
+    case eWheel:
+    case eLegacyMouseLineOrPageScroll:
+    case eLegacyMousePixelScroll:
+      break;
+    default:
+      return false;
+  }
+
+  // There might be non-passive listeners in the remote document
+  // So return false if we are in the parent process with remote target
+  nsCOMPtr<nsIContent> target =
+      nsIContent::FromEventTargetOrNull(aEvent->mOriginalTarget);
+  return !(XRE_IsParentProcess() && BrowserParent::GetFrom(target));
+}
+
+struct DOMEventMarker : public BaseMarkerType<DOMEventMarker> {
+  static constexpr const char* Name = "DOMEvent";
+
+  using MS = MarkerSchema;
+  static constexpr MS::PayloadField PayloadFields[] = {
+      {
+          "target",
+          MS::InputType::CString,
+          "Event Target",
+          MS::Format::String,
+      },
+      {"latency", MS::InputType::TimeDuration, "Latency", MS::Format::Duration,
+       MS::PayloadFlags::None},
+      {
+          "eventType",
+          MS::InputType::String,
+          "Event Type",
+          MS::Format::String,
+      }};
+
+  static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
+                                               MS::Location::MarkerTable,
+                                               MS::Location::TimelineOverview};
+  static constexpr const char* TableLabel =
+      "{marker.data.eventType} - {marker.data.target}";
+  static constexpr const char* TooltipLabel =
+      "{marker.data.eventType} - DOMEvent";
+  static constexpr const char* ChartLabel = "{marker.data.eventType}";
+
+  static constexpr bool IsStackBased = true;
+
+  static void StreamJSONMarkerData(baseprofiler::SpliceableJSONWriter& aWriter,
+                                   const nsCString& aTarget,
+                                   const TimeDuration& aLatency,
+                                   const ProfilerString16View& aEventType) {
+    aWriter.StringProperty("eventType", NS_ConvertUTF16toUTF8(aEventType));
+    if (!aTarget.IsEmpty()) {
+      aWriter.StringProperty("target", aTarget);
+    }
+    aWriter.DoubleProperty("latency", aLatency.ToMilliseconds());
+  }
+};
 
 /* static */
 nsresult EventDispatcher::Dispatch(EventTarget* aTarget,
@@ -990,6 +1059,7 @@ nsresult EventDispatcher::Dispatch(EventTarget* aTarget,
   nsCOMPtr<EventTarget> targetForPreVisitor = aEvent->mTarget;
   EventChainPreVisitor preVisitor(aPresContext, aEvent, aDOMEvent, status,
                                   isInAnon, targetForPreVisitor);
+  preVisitor.mMaybeUncancelable = IsUncancelableIfOnlyPassiveListeners(aEvent);
   targetEtci->GetEventTargetParent(preVisitor);
 
   if (preVisitor.mWantsActivationBehavior) {
@@ -1010,6 +1080,14 @@ nsresult EventDispatcher::Dispatch(EventTarget* aTarget,
 
     clearTargets = ShouldClearTargets(aEvent);
   } else {
+    if (preVisitor.mMaybeUncancelable && preVisitor.mMayHaveListenerManager) {
+      if (EventListenerManager* const manager =
+              targetEtci->CurrentTarget()->GetExistingListenerManager()) {
+        preVisitor.mMaybeUncancelable =
+            !manager->HasNonPassiveListenersFor(aEvent);
+      }
+    }
+
     // At least the original target can handle the event.
     // Setting the retarget to the |target| simplifies retargeting code.
     nsCOMPtr<EventTarget> t = aEvent->mTarget;
@@ -1066,18 +1144,13 @@ nsresult EventDispatcher::Dispatch(EventTarget* aTarget,
         activationTargetItemIndex.emplace(chain.Length() - 1);
       }
 
-      if (preVisitor.mCanHandle) {
-        preVisitor.mTargetInKnownToBeHandledScope = preVisitor.mEvent->mTarget;
-        topEtci = parentEtci;
-      } else {
+      if (!preVisitor.mCanHandle) {
         bool ignoreBecauseOfShadowDOM = preVisitor.mIgnoreBecauseOfShadowDOM;
         nsCOMPtr<nsINode> disabledTarget =
             nsINode::FromEventTargetOrNull(parentTarget);
         parentEtci = MayRetargetToChromeIfCanNotHandleEvent(
             chain, preVisitor, parentEtci, topEtci, disabledTarget);
         if (parentEtci && preVisitor.mCanHandle) {
-          preVisitor.mTargetInKnownToBeHandledScope =
-              preVisitor.mEvent->mTarget;
           EventTargetChainItem* item =
               EventTargetChainItem::GetFirstCanHandleEventTarget(chain);
           if (!ignoreBecauseOfShadowDOM) {
@@ -1085,10 +1158,22 @@ nsresult EventDispatcher::Dispatch(EventTarget* aTarget,
             // shouldn't treat the target to be in the event path at all.
             item->SetNewTarget(parentTarget);
           }
-          topEtci = parentEtci;
-          continue;
         }
+      }
+
+      if (parentEtci && preVisitor.mCanHandle) {
+        preVisitor.mTargetInKnownToBeHandledScope = preVisitor.mEvent->mTarget;
+        topEtci = parentEtci;
+      } else {
         break;
+      }
+
+      if (preVisitor.mMaybeUncancelable && preVisitor.mMayHaveListenerManager) {
+        if (EventListenerManager* const manager =
+                parentEtci->CurrentTarget()->GetExistingListenerManager()) {
+          preVisitor.mMaybeUncancelable =
+              !manager->HasNonPassiveListenersFor(aEvent);
+        }
       }
     }
 
@@ -1098,6 +1183,10 @@ nsresult EventDispatcher::Dispatch(EventTarget* aTarget,
     }
 
     if (NS_SUCCEEDED(rv)) {
+      if (preVisitor.mMaybeUncancelable) {
+        aEvent->mFlags.mCancelable = false;
+      }
+
       if (aTargets) {
         aTargets->Clear();
         uint32_t numTargets = chain.Length();
@@ -1158,57 +1247,15 @@ nsresult EventDispatcher::Dispatch(EventTarget* aTarget,
             }
           }
 
-          struct DOMEventMarker {
-            static constexpr Span<const char> MarkerTypeName() {
-              return MakeStringSpan("DOMEvent");
-            }
-            static void StreamJSONMarkerData(
-                baseprofiler::SpliceableJSONWriter& aWriter,
-                const ProfilerString16View& aEventType,
-                const nsCString& aTarget, const TimeStamp& aStartTime,
-                const TimeStamp& aEventTimeStamp) {
-              aWriter.StringProperty("eventType",
-                                     NS_ConvertUTF16toUTF8(aEventType));
-              if (!aTarget.IsEmpty()) {
-                aWriter.StringProperty("target", aTarget);
-              }
-              // This is the event processing latency, which is the time from
-              // when the event was created, to when it was started to be
-              // processed. Note that the computation of this latency is
-              // deferred until serialization time, at the expense of some extra
-              // memory.
-              aWriter.DoubleProperty(
-                  "latency", (aStartTime - aEventTimeStamp).ToMilliseconds());
-            }
-            static MarkerSchema MarkerTypeDisplay() {
-              using MS = MarkerSchema;
-              MS schema{MS::Location::MarkerChart, MS::Location::MarkerTable,
-                        MS::Location::TimelineOverview};
-              schema.SetChartLabel("{marker.data.eventType}");
-              schema.SetTooltipLabel("{marker.data.eventType} - DOMEvent");
-              schema.SetTableLabel(
-                  "{marker.data.eventType} - {marker.data.target}");
-              schema.AddKeyLabelFormatSearchable("target", "Event Target",
-                                                 MS::Format::String,
-                                                 MS::Searchable::Searchable);
-              schema.AddKeyLabelFormat("latency", "Latency",
-                                       MS::Format::Duration);
-              schema.AddKeyLabelFormatSearchable("eventType", "Event Type",
-                                                 MS::Format::String,
-                                                 MS::Searchable::Searchable);
-              return schema;
-            }
-          };
-
           nsAutoCString target;
           DescribeEventTargetForProfilerMarker(aEvent->mTarget, target);
 
           auto startTime = TimeStamp::Now();
+          auto latency = startTime - aEvent->mTimeStamp;
           profiler_add_marker("DOMEvent", geckoprofiler::category::DOM,
                               {MarkerTiming::IntervalStart(startTime),
                                MarkerInnerWindowId(innerWindowId)},
-                              DOMEventMarker{}, typeStr, target, startTime,
-                              aEvent->mTimeStamp);
+                              DOMEventMarker{}, target, latency, typeStr);
 
           EventTargetChainItem::HandleEventTargetChain(chain, postVisitor,
                                                        aCallback, cd);
@@ -1216,7 +1263,7 @@ nsresult EventDispatcher::Dispatch(EventTarget* aTarget,
           profiler_add_marker(
               "DOMEvent", geckoprofiler::category::DOM,
               {MarkerTiming::IntervalEnd(), std::move(innerWindowId)},
-              DOMEventMarker{}, typeStr, target, startTime, aEvent->mTimeStamp);
+              DOMEventMarker{}, target, latency, typeStr);
         } else {
           EventTargetChainItem::HandleEventTargetChain(chain, postVisitor,
                                                        aCallback, cd);
@@ -1269,7 +1316,7 @@ nsresult EventDispatcher::Dispatch(EventTarget* aTarget,
   aEvent->mFlags.mDispatchedAtLeastOnce = true;
 
   if (eventTimingEntry) {
-    eventTimingEntry->FinalizeEventTiming(aEvent->mTarget);
+    eventTimingEntry->FinalizeEventTiming(aEvent);
   }
   // https://dom.spec.whatwg.org/#concept-event-dispatch
   // step 10. If clearTargets, then:
@@ -1374,9 +1421,6 @@ nsresult EventDispatcher::DispatchDOMEvent(EventTarget* aTarget,
     const nsAString& aEventType, CallerType aCallerType) {
   if (aEvent) {
     switch (aEvent->mClass) {
-      case eMutationEventClass:
-        return NS_NewDOMMutationEvent(aOwner, aPresContext,
-                                      aEvent->AsMutationEvent());
       case eGUIEventClass:
       case eScrollPortEventClass:
       case eUIEventClass:
@@ -1460,10 +1504,6 @@ nsresult EventDispatcher::DispatchDOMEvent(EventTarget* aTarget,
       return NS_NewDOMCompositionEvent(aOwner, aPresContext, nullptr);
     }
     return NS_NewDOMTextEvent(aOwner, aPresContext, nullptr);
-  }
-  if (aEventType.LowerCaseEqualsLiteral("mutationevent") ||
-      aEventType.LowerCaseEqualsLiteral("mutationevents")) {
-    return NS_NewDOMMutationEvent(aOwner, aPresContext, nullptr);
   }
   if (aEventType.LowerCaseEqualsLiteral("deviceorientationevent")) {
     DeviceOrientationEventInit init;

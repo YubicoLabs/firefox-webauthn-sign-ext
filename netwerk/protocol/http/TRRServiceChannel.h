@@ -14,6 +14,7 @@
 #include "nsIProtocolProxyCallback.h"
 #include "nsIProxiedChannel.h"
 #include "nsIStreamListener.h"
+#include "nsITransport.h"
 #include "nsWeakReference.h"
 
 class nsDNSPrefetch;
@@ -45,7 +46,7 @@ class TRRServiceChannel : public HttpBaseChannel,
   NS_DECL_NSITRANSPORTEVENTSINK
   NS_DECL_NSIPROXIEDCHANNEL
   NS_DECL_NSIPROTOCOLPROXYCALLBACK
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_TRRSERVICECHANNEL_IID)
+  NS_INLINE_DECL_STATIC_IID(NS_TRRSERVICECHANNEL_IID)
 
   // nsIRequest
   NS_IMETHOD SetCanceledReason(const nsACString& aReason) override;
@@ -76,6 +77,15 @@ class TRRServiceChannel : public HttpBaseChannel,
 
   NS_IMETHOD SetNotificationCallbacks(
       nsIInterfaceRequestor* aCallbacks) override;
+  NS_IMETHOD GetDecompressDictionary(
+      DictionaryCacheEntry** aDictionary) override {
+    *aDictionary = nullptr;
+    return NS_OK;
+  }
+  NS_IMETHOD SetDecompressDictionary(
+      DictionaryCacheEntry* aDictionary) override {
+    return NS_OK;
+  }
   // nsISupportsPriority
   NS_IMETHOD SetPriority(int32_t value) override;
   // nsIClassOfService
@@ -103,13 +113,6 @@ class TRRServiceChannel : public HttpBaseChannel,
                                const nsACString& aStatusText) override {
     return NS_OK;
   }
-
-  [[nodiscard]] nsresult OnPush(uint32_t aPushedStreamId,
-                                const nsACString& aUrl,
-                                const nsACString& aRequestString,
-                                HttpTransactionShell* aTransaction);
-  void SetPushedStreamTransactionAndId(
-      HttpTransactionShell* aTransWithPushedStream, uint32_t aPushedStreamId);
 
   // nsITimedChannel
   NS_IMETHOD GetDomainLookupStart(
@@ -167,16 +170,12 @@ class TRRServiceChannel : public HttpBaseChannel,
 
   nsCOMPtr<nsIRequest> mTransactionPump;
   RefPtr<HttpTransactionShell> mTransaction;
-  uint32_t mPushedStreamId{0};
-  RefPtr<HttpTransactionShell> mTransWithPushedStream;
   DataMutex<nsCOMPtr<nsICancelable>> mProxyRequest;
   nsCOMPtr<nsIEventTarget> mCurrentEventTarget;
 
   friend class HttpAsyncAborter<TRRServiceChannel>;
   friend class nsHttpHandler;
 };
-
-NS_DEFINE_STATIC_IID_ACCESSOR(TRRServiceChannel, NS_TRRSERVICECHANNEL_IID)
 
 }  // namespace mozilla::net
 

@@ -108,22 +108,34 @@ class IdentifierMapEntry : public PLDHashEntryHdr {
 
   enum { ALLOW_MEMMOVE = false };
 
+  bool IsEmpty();
+
   void AddNameElement(nsINode* aDocument, Element* aElement);
   void RemoveNameElement(Element* aElement);
-  bool IsEmpty();
   nsBaseContentList* GetNameContentList() { return mNameContentList; }
   bool HasNameElement() const;
+
+  void AddDocumentNameElement(Document* aDocument,
+                              nsGenericHTMLElement* aElement);
+  void RemoveDocumentNameElement(nsGenericHTMLElement* aElement);
+  bool HasDocumentNameElement() const;
+  nsBaseContentList* GetDocumentNameContentList() {
+    return mDocumentNameContentList;
+  }
 
   /**
    * Returns the element if we know the element associated with this
    * id. Otherwise returns null.
    */
-  Element* GetIdElement() const { return mIdContentList->SafeElementAt(0); }
+  Element* GetIdElement() const {
+    auto span = mIdContentList.AsSpan();
+    return span.IsEmpty() ? nullptr : span[0];
+  }
 
   /**
    * Returns the list of all elements associated with this id.
    */
-  const nsTArray<Element*>& GetIdElements() const { return mIdContentList; }
+  Span<Element* const> GetIdElements() const { return mIdContentList.AsSpan(); }
 
   /**
    * If this entry has a non-null image element set (using SetImageElement),
@@ -221,6 +233,8 @@ class IdentifierMapEntry : public PLDHashEntryHdr {
   OwningAtomOrString mKey;
   dom::TreeOrderedArray<Element*> mIdContentList;
   RefPtr<nsBaseContentList> mNameContentList;
+  // The content list for the document named getter.
+  RefPtr<nsBaseContentList> mDocumentNameContentList;
   UniquePtr<nsTHashtable<ChangeCallbackEntry> > mChangeCallbacks;
   RefPtr<Element> mImageElement;
 };

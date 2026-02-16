@@ -5,7 +5,6 @@
 browser.jar:
 % skin browser classic/1.0 %skin/classic/browser/
 #include ../shared/jar.inc.mn
-  skin/classic/browser/sanitizeDialog.css
   skin/classic/browser/browser.css
   skin/classic/browser/contextmenu.css            (../shared/contextmenu.css)
   skin/classic/browser/monitor-base.png
@@ -21,16 +20,3 @@ browser.jar:
   skin/classic/browser/preferences/alwaysAsk.png               (preferences/alwaysAsk.png)
   skin/classic/browser/preferences/application.png             (preferences/application.png)
   skin/classic/browser/preferences/saveFile.png                (preferences/saveFile.png)
-  skin/classic/browser/preferences/applications.css            (preferences/applications.css)
-  skin/classic/browser/window-controls/close.svg                 (window-controls/close.svg)
-  skin/classic/browser/window-controls/close-highcontrast.svg    (window-controls/close-highcontrast.svg)
-  skin/classic/browser/window-controls/close-themes.svg          (window-controls/close-themes.svg)
-  skin/classic/browser/window-controls/maximize.svg              (window-controls/maximize.svg)
-  skin/classic/browser/window-controls/maximize-highcontrast.svg (window-controls/maximize-highcontrast.svg)
-  skin/classic/browser/window-controls/maximize-themes.svg       (window-controls/maximize-themes.svg)
-  skin/classic/browser/window-controls/minimize.svg              (window-controls/minimize.svg)
-  skin/classic/browser/window-controls/minimize-highcontrast.svg (window-controls/minimize-highcontrast.svg)
-  skin/classic/browser/window-controls/minimize-themes.svg       (window-controls/minimize-themes.svg)
-  skin/classic/browser/window-controls/restore.svg               (window-controls/restore.svg)
-  skin/classic/browser/window-controls/restore-highcontrast.svg  (window-controls/restore-highcontrast.svg)
-  skin/classic/browser/window-controls/restore-themes.svg        (window-controls/restore-themes.svg)

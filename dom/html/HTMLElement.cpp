@@ -59,9 +59,8 @@ void HTMLElement::GetEventTargetParent(EventChainPreVisitor& aVisitor) {
 }
 
 nsINode* HTMLElement::GetScopeChainParent() const {
-  if (IsFormAssociatedCustomElements()) {
-    auto* form = GetFormInternal();
-    if (form) {
+  if (IsFormAssociatedCustomElement()) {
+    if (auto* form = GetFormInternal()) {
       return form;
     }
   }
@@ -364,7 +363,7 @@ void HTMLElement::SetFormInternal(HTMLFormElement* aForm, bool aBindToTree) {
 HTMLFormElement* HTMLElement::GetFormInternal() const {
   ElementInternals* internals = GetElementInternals();
   MOZ_ASSERT(internals);
-  return internals->GetForm();
+  return internals->GetFormInternal();
 }
 
 void HTMLElement::SetFieldSetInternal(HTMLFieldSetElement* aFieldset) {

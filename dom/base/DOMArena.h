@@ -4,12 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
-#ifndef DOM_Arena_h___
-#define DOM_Arena_h___
-#include "nsISupportsImpl.h"
-#include "mozmemory.h"
-
+#ifndef DOM_Arena_h_
+#define DOM_Arena_h_
 #include "mozilla/mozalloc_oom.h"  // for mozalloc_handle_oom
+#include "mozmemory.h"
+#include "nsISupportsImpl.h"
+#include "nsString.h"
 
 #define NS_DECL_DOMARENA_DESTROY void Destroy(void);
 
@@ -34,10 +34,13 @@ namespace mozilla::dom {
 class DOMArena {
  public:
   friend class DocGroup;
-  DOMArena() {
+  explicit DOMArena(const nsACString& aLabel) {
+    nsCString label = PromiseFlatCString("DOMArena "_ns + aLabel);
+
     arena_params_t params;
     params.mMaxDirtyIncreaseOverride = 7;
     params.mFlags = ARENA_FLAG_THREAD_MAIN_THREAD_ONLY;
+    params.mLabel = label.get();
     mArenaId = moz_create_arena_with_params(&params);
   }
 

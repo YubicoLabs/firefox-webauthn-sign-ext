@@ -1,4 +1,3 @@
-// |reftest| shell-option(--enable-iterator-helpers) skip-if(!this.hasOwnProperty('Iterator')||!xulRuntime.shell) -- iterator-helpers is not enabled unconditionally, requires shell-options
 // Copyright (C) 2024 Mozilla Corporation. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
@@ -9,10 +8,7 @@ description: |
 info: |
   Iterator Helpers Proposal 2.1.5.2
 features:
-- iterator-helpers
-includes: [sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
+  - iterator-helpers
 ---*/
 const iteratorWhereNextTakesValue = Object.setPrototypeOf({
   next: function(value) {

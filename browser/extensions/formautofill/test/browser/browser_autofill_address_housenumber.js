@@ -27,6 +27,23 @@ const TEST_PROFILE_DE2 = {
   "postal-code": "90002",
 };
 
+const TEST_PROFILE_ES = {
+  email: "address_es@mozilla.org",
+  organization: "Mozilla",
+  country: "ES",
+  "street-address": "Calle de Montalbán, 1\n1er piso",
+  "postal-code": "28014",
+  "address-level1": "Madrid",
+};
+
+const TEST_PROFILE_NL = {
+  email: "address_nl@mozilla.org",
+  organization: "Mozilla",
+  country: "NL",
+  "street-address": "Noordeinde 68B",
+  "postal-code": "2514 GL",
+};
+
 add_autofill_heuristic_tests([
   {
     description: "Test autofill with house number",
@@ -274,6 +291,187 @@ add_autofill_heuristic_tests([
             fieldName: "postal-code",
             autofill: TEST_PROFILE_CA["postal-code"],
           },
+        ],
+      },
+    ],
+  },
+  {
+    description:
+      "Test autofill with the house number field being recognized in alternative field name",
+    // house number field is recognized as both cc-number and house-number
+    fixtureData: `<form>
+      <input id="email" autocomplete="email">
+      <input id="address-line1" autocomplete="address-line1">
+      <label for="delivery-houseNumber">Numero civico*</label>
+      <input id="delivery-houseNumber" name="delivery-houseNumber">
+      <label for="delivery-line2">Indirizzo aggiuntivo</label>
+      <input id="delivery-line2" name="delivery-line2">
+      <input id="postal-code" autocomplete="postal-code">
+    </form>`,
+    profile: TEST_PROFILE_CA,
+    expectedResult: [
+      {
+        default: {
+          reason: "autocomplete",
+        },
+        fields: [
+          { fieldName: "email", autofill: TEST_PROFILE_CA.email },
+          { fieldName: "address-line1", autofill: "Main St" },
+          {
+            fieldName: "address-housenumber",
+            autofill: "160",
+            reason: "update-heuristic",
+          },
+          {
+            fieldName: "address-line2",
+            autofill: "Apartment 306",
+            reason: "update-heuristic",
+          },
+          {
+            fieldName: "postal-code",
+            autofill: TEST_PROFILE_CA["postal-code"],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    description:
+      "Test autofill with a field initially identified as credit card number",
+    fixtureData: `<form>
+      <input id="email" autocomplete="email">
+      <label for="house">Dirección y número</label>
+      <input id="house" name="delivery-houseNumber">
+      <label for="line2">Datos adicionales</label>
+      <input id="line2" name="delivery-line2">
+      <input id="postal-code" autocomplete="postal-code">
+      <label for="pro">Provincia</label>
+      <select id="pro">
+        <option value="aa">Almería
+        <option value="bb">Barcelona
+        <option value="cc">Cádiz
+        <option value="mm">Madrid
+      </select>
+    </form>`,
+    profile: TEST_PROFILE_ES,
+    expectedResult: [
+      {
+        default: {
+          reason: "autocomplete",
+        },
+        fields: [
+          { fieldName: "email", autofill: TEST_PROFILE_ES.email },
+          {
+            fieldName: "address-line1",
+            autofill: "Calle de Montalbán, 1",
+            reason: "update-heuristic",
+          },
+          {
+            fieldName: "address-line2",
+            autofill: "1er piso",
+            reason: "regex-heuristic",
+          },
+          {
+            fieldName: "postal-code",
+            autofill: TEST_PROFILE_ES["postal-code"],
+          },
+          {
+            fieldName: "address-level1",
+            autofill: "mm",
+            reason: "regex-heuristic",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    description: "Test autofill with field with house number suffix",
+    fixtureData: `<form>
+      <input id="email">
+      <label for="organization">Organization</label>
+      <input id="organization">
+      <label for="housenumber">Huisnummer</label>
+      <input id="housenumber">
+      <label for="toevoeging">Toevoeging</label>
+      <input id="toevoeging">
+    </form>`,
+    profile: TEST_PROFILE_NL,
+    expectedResult: [
+      {
+        default: {
+          reason: "regex-heuristic",
+        },
+        fields: [
+          { fieldName: "email", autofill: TEST_PROFILE_NL.email },
+          { fieldName: "organization", autofill: TEST_PROFILE_NL.organization },
+          {
+            fieldName: "address-housenumber",
+            autofill: "68",
+            reason: "update-heuristic-alternate",
+          },
+          { fieldName: "address-extra-housesuffix", autofill: "B" },
+        ],
+      },
+    ],
+  },
+  {
+    description:
+      "Test autofill with field with house number suffix where no suffix is available",
+    fixtureData: `<form>
+      <input id="email">
+      <label for="organization">Organization</label>
+      <input id="organization">
+      <label for="housenumber">Huisnummer</label>
+      <input id="housenumber">
+      <label for="toevoeging">Toevoeging</label>
+      <input id="toevoeging">
+    </form>`,
+    profile: TEST_PROFILE_CA,
+    expectedResult: [
+      {
+        default: {
+          reason: "regex-heuristic",
+        },
+        fields: [
+          { fieldName: "email", autofill: TEST_PROFILE_CA.email },
+          { fieldName: "organization", autofill: TEST_PROFILE_CA.organization },
+          {
+            fieldName: "address-housenumber",
+            autofill: "160",
+            reason: "update-heuristic-alternate",
+          },
+          { fieldName: "address-extra-housesuffix", autofill: "" },
+        ],
+      },
+    ],
+  },
+  {
+    description:
+      "Test autofill with field with house number suffix but there is no suffix field",
+    fixtureData: `<form>
+      <input id="email">
+      <label for="organization">Organization</label>
+      <input id="organization">
+      <label for="housenumber">Huisnummer</label>
+      <input id="housenumber">
+      <label for="straat">Straat</label>
+      <input id="straat">
+    </form>`,
+    profile: TEST_PROFILE_NL,
+    expectedResult: [
+      {
+        default: {
+          reason: "regex-heuristic",
+        },
+        fields: [
+          { fieldName: "email", autofill: TEST_PROFILE_NL.email },
+          { fieldName: "organization", autofill: TEST_PROFILE_NL.organization },
+          {
+            fieldName: "address-housenumber",
+            autofill: "68B",
+            reason: "update-heuristic-alternate",
+          },
+          { fieldName: "street-address", autofill: "Noordeinde" },
         ],
       },
     ],

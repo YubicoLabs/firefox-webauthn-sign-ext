@@ -3,8 +3,8 @@
 // still warn for anything that's not used by either, though.
 #![cfg_attr(not(feature = "vtab"), allow(dead_code))]
 use crate::ffi;
+use std::ffi::{c_char, c_int, CStr};
 use std::marker::PhantomData;
-use std::os::raw::{c_char, c_int};
 use std::ptr::NonNull;
 
 // Space to hold this string must be obtained
@@ -81,8 +81,8 @@ impl SqliteMallocString {
     }
 
     #[inline]
-    pub(crate) fn as_cstr(&self) -> &std::ffi::CStr {
-        unsafe { std::ffi::CStr::from_ptr(self.as_ptr()) }
+    pub(crate) fn as_cstr(&self) -> &CStr {
+        unsafe { CStr::from_ptr(self.as_ptr()) }
     }
 
     #[inline]
@@ -103,7 +103,7 @@ impl SqliteMallocString {
     /// fails, we call `handle_alloc_error` which aborts the program after
     /// calling a global hook.
     ///
-    /// This means it's safe to use in extern "C" functions even outside of
+    /// This means it's safe to use in extern "C" functions even outside
     /// `catch_unwind`.
     pub(crate) fn from_str(s: &str) -> Self {
         let s = if s.as_bytes().contains(&0) {
@@ -161,18 +161,6 @@ impl Drop for SqliteMallocString {
     #[inline]
     fn drop(&mut self) {
         unsafe { ffi::sqlite3_free(self.ptr.as_ptr().cast()) };
-    }
-}
-
-impl std::fmt::Debug for SqliteMallocString {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.to_string_lossy().fmt(f)
-    }
-}
-
-impl std::fmt::Display for SqliteMallocString {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.to_string_lossy().fmt(f)
     }
 }
 
@@ -235,5 +223,11 @@ mod test {
                 let _ = SqliteMallocString::from_raw(s1).unwrap();
             }
         }
+    }
+
+    #[test]
+    fn test_alloc() {
+        let err = alloc("error");
+        unsafe { ffi::sqlite3_free(err.cast()) };
     }
 }

@@ -7,12 +7,19 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  ActionsProviderQuickActions:
+    "moz-src:///browser/components/urlbar/ActionsProviderQuickActions.sys.mjs",
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
   DevToolsShim: "chrome://devtools-startup/content/DevToolsShim.sys.mjs",
   ResetProfile: "resource://gre/modules/ResetProfile.sys.mjs",
-  ActionsProviderQuickActions:
-    "resource:///modules/ActionsProviderQuickActions.sys.mjs",
+  ScreenshotsUtils: "resource:///modules/ScreenshotsUtils.sys.mjs",
+  TranslationsParent: "resource://gre/actors/TranslationsParent.sys.mjs",
+  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
 });
+
+ChromeUtils.defineLazyGetter(lazy, "logger", () =>
+  lazy.UrlbarUtils.getLogger({ prefix: "QuickActions" })
+);
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
@@ -21,19 +28,15 @@ if (AppConstants.MOZ_UPDATER) {
     lazy,
     "AUS",
     "@mozilla.org/updates/update-service;1",
-    "nsIApplicationUpdateService"
+    Ci.nsIApplicationUpdateService
   );
 }
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "SCREENSHOT_BROWSER_COMPONENT",
-  "screenshots.browser.component.enabled",
-  false
-);
 
 let openUrlFun = url => () => openUrl(url);
 let openUrl = url => {
-  let window = lazy.BrowserWindowTracker.getTopWindow();
+  let window = lazy.BrowserWindowTracker.getTopWindow({
+    allowFromInactiveWorkspace: true,
+  });
 
   if (url.startsWith("about:")) {
     window.switchToTabHavingURI(Services.io.newURI(url), true, {
@@ -50,23 +53,40 @@ let openUrl = url => {
 
 let openAddonsUrl = url => {
   return () => {
-    let window = lazy.BrowserWindowTracker.getTopWindow();
+    // bug 1983835 - should this only look for windows on the current
+    // workspace?
+    let window = lazy.BrowserWindowTracker.getTopWindow({
+      allowFromInactiveWorkspace: true,
+    });
     window.BrowserAddonUI.openAddonsMgr(url, { selectTabByViewId: true });
   };
 };
 
+// bug 1983835 - should this only look for windows on the current
+// workspace?
 let currentBrowser = () =>
-  lazy.BrowserWindowTracker.getTopWindow()?.gBrowser.selectedBrowser;
+  lazy.BrowserWindowTracker.getTopWindow({ allowFromInactiveWorkspace: true })
+    ?.gBrowser.selectedBrowser;
+// bug 1983835 - should this only look for windows on the current
+// workspace?
 let currentTab = () =>
-  lazy.BrowserWindowTracker.getTopWindow()?.gBrowser.selectedTab;
+  lazy.BrowserWindowTracker.getTopWindow({ allowFromInactiveWorkspace: true })
+    ?.gBrowser.selectedTab;
 
 ChromeUtils.defineLazyGetter(lazy, "gFluentStrings", function () {
-  return new Localization(["branding/brand.ftl", "browser/browser.ftl"], true);
+  return new Localization(
+    [
+      "branding/brand.ftl",
+      "browser/browser.ftl",
+      "toolkit/branding/brandings.ftl",
+    ],
+    true
+  );
 });
 
 const DEFAULT_ACTIONS = {
   addons: {
-    l10nCommands: ["quickactions-cmd-addons2", "quickactions-addons"],
+    l10nCommands: ["quickactions-cmd-addons3"],
     icon: "chrome://mozapps/skin/extensions/category-extensions.svg",
     label: "quickactions-addons",
     onPick: openAddonsUrl("addons://discover/"),
@@ -76,19 +96,21 @@ const DEFAULT_ACTIONS = {
     icon: "chrome://browser/skin/bookmark.svg",
     label: "quickactions-bookmarks2",
     onPick: () => {
-      lazy.BrowserWindowTracker.getTopWindow().top.PlacesCommandHook.showPlacesOrganizer(
-        "BookmarksToolbar"
-      );
+      lazy.BrowserWindowTracker.getTopWindow({
+        allowFromInactiveWorkspace: true,
+      }).top.PlacesCommandHook.showPlacesOrganizer("BookmarksToolbar");
     },
   },
   clear: {
     l10nCommands: [
-      "quickactions-cmd-clearhistory",
-      "quickactions-clearhistory",
+      "quickactions-cmd-clearrecenthistory",
+      "quickactions-clearrecenthistory",
     ],
-    label: "quickactions-clearhistory",
+    label: "quickactions-clearrecenthistory",
     onPick: () => {
-      lazy.BrowserWindowTracker.getTopWindow()
+      lazy.BrowserWindowTracker.getTopWindow({
+        allowFromInactiveWorkspace: true,
+      })
         .document.getElementById("Tools:Sanitize")
         .doCommand();
     },
@@ -100,13 +122,31 @@ const DEFAULT_ACTIONS = {
     onPick: openUrlFun("about:downloads"),
   },
   extensions: {
-    l10nCommands: ["quickactions-cmd-extensions"],
+    l10nCommands: ["quickactions-cmd-extensions2"],
     icon: "chrome://mozapps/skin/extensions/category-extensions.svg",
     label: "quickactions-extensions",
     onPick: openAddonsUrl("addons://list/extension"),
   },
+  help: {
+    l10nCommands: ["quickactions-cmd-help"],
+    icon: "chrome://global/skin/icons/help.svg",
+    label: "quickactions-help",
+    onPick: openUrlFun(
+      "https://support.mozilla.org/products/firefox?as=u&utm_source=inproduct"
+    ),
+  },
+  firefoxview: {
+    l10nCommands: ["quickactions-cmd-firefoxview"],
+    icon: "chrome://browser/skin/firefox-view.svg",
+    label: "quickactions-firefoxview",
+    onPick: () => {
+      lazy.BrowserWindowTracker.getTopWindow({
+        allowFromInactiveWorkspace: true,
+      }).FirefoxViewHandler.openTab();
+    },
+  },
   inspect: {
-    l10nCommands: ["quickactions-cmd-inspector"],
+    l10nCommands: ["quickactions-cmd-inspector2"],
     icon: "chrome://devtools/skin/images/open-inspector.svg",
     label: "quickactions-inspector2",
     isVisible: () => {
@@ -131,18 +171,17 @@ const DEFAULT_ACTIONS = {
     label: "quickactions-logins2",
     onPick: openUrlFun("about:logins"),
   },
-  plugins: {
-    l10nCommands: ["quickactions-cmd-plugins"],
-    icon: "chrome://mozapps/skin/extensions/category-extensions.svg",
-    label: "quickactions-plugins",
-    onPick: openAddonsUrl("addons://list/plugin"),
-  },
   print: {
     l10nCommands: ["quickactions-cmd-print"],
     label: "quickactions-print2",
     icon: "chrome://global/skin/icons/print.svg",
+    isVisible: () => {
+      return Services.prefs.getBoolPref("print.enabled");
+    },
     onPick: () => {
-      lazy.BrowserWindowTracker.getTopWindow()
+      lazy.BrowserWindowTracker.getTopWindow({
+        allowFromInactiveWorkspace: true,
+      })
         .document.getElementById("cmd_print")
         .doCommand();
     },
@@ -152,7 +191,9 @@ const DEFAULT_ACTIONS = {
     label: "quickactions-private2",
     icon: "chrome://global/skin/icons/indicator-private-browsing.svg",
     onPick: () => {
-      lazy.BrowserWindowTracker.getTopWindow().OpenBrowserWindow({
+      lazy.BrowserWindowTracker.getTopWindow({
+        allowFromInactiveWorkspace: true,
+      }).OpenBrowserWindow({
         private: true,
       });
     },
@@ -160,9 +201,12 @@ const DEFAULT_ACTIONS = {
   refresh: {
     l10nCommands: ["quickactions-cmd-refresh"],
     label: "quickactions-refresh",
+    isVisible: () => lazy.ResetProfile.resetSupported(),
     onPick: () => {
       lazy.ResetProfile.openConfirmationDialog(
-        lazy.BrowserWindowTracker.getTopWindow()
+        lazy.BrowserWindowTracker.getTopWindow({
+          allowFromInactiveWorkspace: true,
+        })
       );
     },
   },
@@ -172,14 +216,19 @@ const DEFAULT_ACTIONS = {
     onPick: restartBrowser,
   },
   savepdf: {
-    l10nCommands: ["quickactions-cmd-savepdf"],
+    l10nCommands: ["quickactions-cmd-savepdf2"],
     label: "quickactions-savepdf",
     icon: "chrome://global/skin/icons/print.svg",
+    isVisible: () => {
+      return Services.prefs.getBoolPref("print.enabled");
+    },
     onPick: () => {
       // This writes over the users last used printer which we
       // should not do. Refactor to launch the print preview with
       // custom settings.
-      let win = lazy.BrowserWindowTracker.getTopWindow();
+      let win = lazy.BrowserWindowTracker.getTopWindow({
+        allowFromInactiveWorkspace: true,
+      });
       Cc["@mozilla.org/gfx/printsettings-service;1"]
         .getService(Ci.nsIPrintSettingsService)
         .maybeSaveLastUsedPrinterNameToPrefs(
@@ -192,40 +241,69 @@ const DEFAULT_ACTIONS = {
     },
   },
   screenshot: {
-    l10nCommands: ["quickactions-cmd-screenshot"],
+    l10nCommands: ["quickactions-cmd-screenshot2"],
     label: "quickactions-screenshot3",
     icon: "chrome://browser/skin/screenshot.svg",
     isVisible: () => {
-      return !lazy.BrowserWindowTracker.getTopWindow().gScreenshots.shouldScreenshotsButtonBeDisabled();
+      return lazy.ScreenshotsUtils.screenshotsEnabled;
     },
     onPick: () => {
-      if (lazy.SCREENSHOT_BROWSER_COMPONENT) {
-        Services.obs.notifyObservers(
-          lazy.BrowserWindowTracker.getTopWindow(),
-          "menuitem-screenshot",
-          "QuickActions"
-        );
-      } else {
-        Services.obs.notifyObservers(
-          null,
-          "menuitem-screenshot-extension",
-          "quickaction"
-        );
-      }
+      Services.obs.notifyObservers(
+        lazy.BrowserWindowTracker.getTopWindow({
+          allowFromInactiveWorkspace: true,
+        }),
+        "menuitem-screenshot",
+        "QuickActions"
+      );
       return { focusContent: true };
     },
   },
   settings: {
-    l10nCommands: ["quickactions-cmd-settings"],
+    l10nCommands: ["quickactions-cmd-settings2"],
     icon: "chrome://global/skin/icons/settings.svg",
     label: "quickactions-settings2",
     onPick: openUrlFun("about:preferences"),
   },
   themes: {
-    l10nCommands: ["quickactions-cmd-themes"],
+    l10nCommands: ["quickactions-cmd-themes2"],
     icon: "chrome://mozapps/skin/extensions/category-extensions.svg",
     label: "quickactions-themes",
     onPick: openAddonsUrl("addons://list/theme"),
+  },
+  translate: {
+    l10nCommands: ["quickactions-cmd-translate"],
+    icon: "chrome://browser/skin/translations.svg",
+    label: "quickactions-translate",
+    isVisible: () => {
+      return (
+        lazy.TranslationsParent.AIFeature.isEnabled &&
+        Services.prefs.getBoolPref(
+          "browser.translations.quickAction.enabled",
+          false
+        )
+      );
+    },
+    onPick: async () => {
+      let url = "about:translations";
+      let targetLanguage;
+
+      try {
+        targetLanguage =
+          await lazy.TranslationsParent.getTopPreferredSupportedToLang();
+      } catch (error) {
+        lazy.logger.error(error);
+      }
+
+      if (targetLanguage) {
+        const urlObj = new URL(url);
+        const params = new URLSearchParams();
+        params.set("trg", targetLanguage);
+        urlObj.hash = params.toString();
+        url = urlObj.href;
+      }
+
+      return openUrl(url);
+    },
   },
   update: {
     l10nCommands: ["quickactions-cmd-update"],
@@ -241,7 +319,7 @@ const DEFAULT_ACTIONS = {
     onPick: restartBrowser,
   },
   viewsource: {
-    l10nCommands: ["quickactions-cmd-viewsource"],
+    l10nCommands: ["quickactions-cmd-viewsource2"],
     icon: "chrome://global/skin/icons/settings.svg",
     label: "quickactions-viewsource2",
     isVisible: () => currentBrowser()?.currentURI.scheme !== "view-source",
@@ -251,7 +329,8 @@ const DEFAULT_ACTIONS = {
 
 function openInspector() {
   lazy.DevToolsShim.showToolboxForTab(
-    lazy.BrowserWindowTracker.getTopWindow().gBrowser.selectedTab,
+    lazy.BrowserWindowTracker.getTopWindow({ allowFromInactiveWorkspace: true })
+      .gBrowser.selectedTab,
     { toolId: "inspector" }
   );
 }

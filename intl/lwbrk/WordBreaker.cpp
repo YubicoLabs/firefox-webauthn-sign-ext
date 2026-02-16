@@ -3,22 +3,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/intl/WordBreaker.h"
+
+#include "icu4x/WordSegmenter.hpp"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/intl/UnicodeProperties.h"
-#include "mozilla/intl/WordBreaker.h"
+#include "mozilla/StaticPrefs_intl.h"
 #include "mozilla/StaticPrefs_layout.h"
 #include "nsComplexBreaker.h"
 #include "nsTArray.h"
+#include "nsUnicharUtils.h"
 #include "nsUnicodeProperties.h"
-
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
-#  include "ICU4XDataProvider.h"
-#  include "ICU4XWordBreakIteratorUtf16.hpp"
-#  include "ICU4XWordSegmenter.hpp"
-#  include "mozilla/intl/ICU4XGeckoDataProvider.h"
-#  include "mozilla/StaticPrefs_intl.h"
-#  include "nsUnicharUtils.h"
-#endif
 
 using mozilla::intl::Script;
 using mozilla::intl::UnicodeProperties;
@@ -99,18 +94,14 @@ WordRange WordBreaker::FindWord(const nsAString& aText, uint32_t aPos,
 
   WordRange range{0, len.value()};
 
-#if defined(MOZ_ICU4X) && defined(JS_HAS_INTL_API)
   if (StaticPrefs::intl_icu4x_segmenter_enabled()) {
-    auto result =
-        capi::ICU4XWordSegmenter_create_auto(mozilla::intl::GetDataProvider());
-    MOZ_ASSERT(result.is_ok);
-    ICU4XWordSegmenter segmenter(result.ok);
-    ICU4XWordBreakIteratorUtf16 iterator = segmenter.segment_utf16(
+    auto segmenter = icu4x::WordSegmenter::create_auto();
+    auto iterator = segmenter->segment16(
         std::u16string_view(aText.BeginReading(), aText.Length()));
 
     uint32_t previousPos = 0;
     while (true) {
-      const int32_t nextPos = iterator.next();
+      const int32_t nextPos = iterator->next();
       if (nextPos < 0) {
         range.mBegin = previousPos;
         range.mEnd = len.value();
@@ -148,7 +139,6 @@ WordRange WordBreaker::FindWord(const nsAString& aText, uint32_t aPos,
 
     return range;
   }
-#endif
 
   WordBreakClass c = GetClass(aText[aPos]);
 

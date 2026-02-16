@@ -14,7 +14,7 @@ class BitReader {
   explicit BitReader(const MediaByteBuffer* aBuffer);
   BitReader(const MediaByteBuffer* aBuffer, size_t aBits);
   BitReader(const uint8_t* aBuffer, size_t aBits);
-  ~BitReader();
+  ~BitReader() = default;
   uint32_t ReadBits(size_t aNum);
   bool ReadBit() { return ReadBits(1) != 0; }
   uint32_t ReadU32() { return ReadBits(32); }
@@ -30,6 +30,12 @@ class BitReader {
   // Read unsigned integer Little Endian Base 128 coded.
   // Limited to unsigned 64 bits.
   CheckedUint64 ReadULEB128();
+
+  // Advance bits and return the actual number of bits forwarded. Unlike
+  // ReadBits, which can only read up to 32 bits, this function does not limit
+  // how many bits it can advance. If fewer bits are available than requested,
+  // it will only advance the available bits.
+  size_t AdvanceBits(size_t aNum);
 
   // Return the number of bits parsed so far;
   size_t BitCount() const;

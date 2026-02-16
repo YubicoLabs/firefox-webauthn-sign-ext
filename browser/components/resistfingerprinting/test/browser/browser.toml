@@ -1,5 +1,4 @@
 [DEFAULT]
-prefs = ["privacy.resistFingerprinting.testing.setTZtoUTC=false"]
 tags = "resistfingerprinting"
 support-files = [
   "coop_header.sjs",
@@ -11,6 +10,8 @@ support-files = [
   "file_workerNetInfo.js",
   "file_workerPerformance.js",
   "head.js",
+  "file_efficientcanvascompare_iframer.html",
+  "file_efficientcanvascompare_iframee.html",
   "file_canvascompare_aboutblank_iframee.html",
   "file_canvascompare_aboutblank_iframer.html",
   "file_canvascompare_aboutblank_popupmaker.html",
@@ -58,7 +59,7 @@ support-files = [
 
 ["browser_block_mozAddonManager.js"]
 
-["browser_bug1369357_site_specific_zoom_level.js"]
+["browser_bug1975753_site_specific_zoom_level.js"]
 https_first_disabled = true
 
 ["browser_canvas_iframes.js"]
@@ -81,6 +82,8 @@ https_first_disabled = true
 
 ["browser_canvascompare_popups_data.js"]
 
+["browser_color_scheme.js"]
+
 ["browser_cross_origin_isolated_animation_api.js"]
 
 ["browser_cross_origin_isolated_performance_api.js"]
@@ -90,17 +93,15 @@ https_first_disabled = true
 ["browser_dynamical_window_rounding.js"]
 https_first_disabled = true
 skip-if = [
-  "os == 'mac' && os_version == '10.15' && processor == 'x86_64'", # Bug 1775698
-  "os == 'mac' && os_version == '11.20' && arch == 'aarch64' && opt", # Bug 1775698
+  "os == 'mac' && os_version == '10.15' && arch == 'x86_64'", # Bug 1775698
   "os == 'mac' && os_version == '15.30' && arch == 'aarch64' && opt", # Bug 1775698
 ]
+
+["browser_efficientcanvascompare_iframes.js"]
 
 ["browser_exslt_time_precision.js"]
 
 ["browser_exslt_timezone_load.js"]
-skip-if = [
-  "os == 'win' && os_version == '11.26100'", # Bug 1952711
-]
 
 ["browser_hwconcurrency_etp_iframes.js"]
 
@@ -125,6 +126,9 @@ skip-if = [
 ["browser_hwconcurrency_popups_blob.js"]
 
 ["browser_hwconcurrency_popups_blob_noopener.js"]
+skip-if = [
+  "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && debug",
+]
 
 ["browser_hwconcurrency_popups_data.js"]
 
@@ -163,5 +167,3 @@ https_first_disabled = true
 ["browser_spoofing_keyboard_event.js"]
 
 ["browser_timezone.js"]
-
-["browser_color_scheme.js"]

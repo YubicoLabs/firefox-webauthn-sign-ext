@@ -8,17 +8,22 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  AboutNewTabResourceMapping:
+    "resource:///modules/AboutNewTabResourceMapping.sys.mjs",
   ActivityStream: "resource://newtab/lib/ActivityStream.sys.mjs",
-  AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
-  AddonManagerPrivate: "resource://gre/modules/AddonManager.sys.mjs",
+  NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   ObjectUtils: "resource://gre/modules/ObjectUtils.sys.mjs",
+  ProfileAge: "resource://gre/modules/ProfileAge.sys.mjs",
+  TelemetryReportingPolicy:
+    "resource://gre/modules/TelemetryReportingPolicy.sys.mjs",
 });
 
 const ABOUT_URL = "about:newtab";
 const PREF_ACTIVITY_STREAM_DEBUG = "browser.newtabpage.activity-stream.debug";
-const TOPIC_APP_QUIT = "quit-application-granted";
-const BROWSER_READY_NOTIFICATION = "sessionstore-windows-restored";
-const BUILTIN_ADDON_ID = "newtab@mozilla.org";
+// AboutHomeStartupCache needs us in "quit-application", so stay alive longer.
+// TODO: We could better have a shared async shutdown blocker?
+const TOPIC_APP_QUIT = "profile-before-change";
+const TRAINHOP_NIMBUS_FEATURE = "newtabTrainhop";
 
 export const AboutNewTab = {
   QueryInterface: ChromeUtils.generateQI([
@@ -44,6 +49,10 @@ export const AboutNewTab = {
    * init - Initializes an instance of Activity Stream if one doesn't exist already.
    */
   init() {
+    if (this.initialized) {
+      return;
+    }
+
     Services.obs.addObserver(this, TOPIC_APP_QUIT);
     if (!AppConstants.RELEASE_OR_BETA) {
       XPCOMUtils.defineLazyPreferenceGetter(
@@ -67,18 +76,18 @@ export const AboutNewTab = {
       }
     );
 
+    // Make sure to register newtab resource mapping as early as possible
+    // on startup.
+    lazy.AboutNewTabResourceMapping.init();
+
     // More initialization happens here
     this.toggleActivityStream(true);
     this.initialized = true;
 
-    Services.obs.addObserver(this, BROWSER_READY_NOTIFICATION);
-  },
-
-  async uninstallAddon() {
-    let addon = await lazy.AddonManager.getAddonByID(BUILTIN_ADDON_ID);
-    if (addon) {
-      addon.uninstall();
-    }
+    Services.obs.addObserver(
+      this,
+      lazy.TelemetryReportingPolicy.TELEMETRY_TOU_ACCEPTED_OR_INELIGIBLE
+    );
   },
 
   /**
@@ -86,10 +95,10 @@ export const AboutNewTab = {
    *
    * This will only act if there is a change of state and if not overridden.
    *
-   * @returns {Boolean} Returns if there has been a state change
+   * @returns {boolean} Returns if there has been a state change
    *
-   * @param {Boolean}   stateEnabled    activity stream enabled state to set to
-   * @param {Boolean}   forceState      force state change
+   * @param {boolean}   stateEnabled    activity stream enabled state to set to
+   * @param {boolean}   forceState      force state change
    */
   toggleActivityStream(stateEnabled, forceState = false) {
     if (
@@ -157,25 +166,56 @@ export const AboutNewTab = {
       return;
     }
 
-    if (AppConstants.BROWSER_NEWTAB_AS_ADDON) {
-      let addonPolicy = WebExtensionPolicy.getByID(BUILTIN_ADDON_ID);
-      if (!addonPolicy) {
-        // If this is the first time that the build flag was set to true, we
-        // might not yet have refreshed the addon database cache yet, in which
-        // case the addonPolicy will be null. In that case, we'll wait for the
-        // database to be ready before proceeding.
-        await lazy.AddonManagerPrivate.databaseReady;
-      } else {
-        await addonPolicy.readyPromise;
-      }
-    } else {
-      // We may have had the built-in addon installed in the past. Since the
-      // flag is false, let's go ahead and remove it. We don't need to await on
-      // this since the extension should be inert if the build flag is false.
-      this.uninstallAddon();
+    // We want to block newtab startup on two things:
+    //  - The built-in addon has reported that it has finished
+    //    initializing
+    //  - The TRAINHOP_NIMBUS_FEATURE feature is up-to-date and ready to
+    //    read.
+    //
+    // That way, when the various feeds initialize, they can be certain that
+    // the addon has finished registering its resources, and that the
+    // trainhopConfig value computed in PrefsFeed is ready to be read.
+
+    const nimbusFeature = lazy.NimbusFeatures[TRAINHOP_NIMBUS_FEATURE];
+    const trainhopFeatureReady = nimbusFeature.ready();
+
+    let redirector = Cc[
+      "@mozilla.org/network/protocol/about;1?what=newtab"
+    ].getService(Ci.nsIAboutModule).wrappedJSObject;
+
+    const addonInitted = redirector.promiseBuiltInAddonInitialized;
+
+    // The ProfileAge function itself returns a Promise, which resolves to the
+    // underlying accessor, and the created getter on that accessor also returns
+    // a Promise. This construct gives us a Promise that ultimately resolves
+    // to the created timestamp.
+    const profileCreatedAccessorReady = lazy
+      .ProfileAge()
+      .then(accessor => accessor.created);
+
+    const [createdTimestamp] = await Promise.all([
+      profileCreatedAccessorReady,
+      trainhopFeatureReady,
+      addonInitted,
+    ]);
+    const createdInstant = createdTimestamp
+      ? Temporal.Instant.fromEpochMilliseconds(createdTimestamp)
+      : null;
+
+    lazy.AboutNewTabResourceMapping.scheduleUpdateTrainhopAddonState();
+
+    try {
+      this.activityStream = new lazy.ActivityStream(createdInstant);
+      Glean.newtab.activityStreamCtorSuccess.set(true);
+    } catch (error) {
+      // Send Activity Stream loading failure telemetry
+      // This probe will help to monitor if ActivityStream failure has crossed
+      // a threshold and send alert. See Bug 1965278
+      Glean.newtab.activityStreamCtorSuccess.set(false);
+      console.error(error);
+      throw error;
     }
 
-    this.activityStream = new lazy.ActivityStream();
     try {
       this.activityStream.init();
       this._subscribeToActivityStream();
@@ -221,6 +261,16 @@ export const AboutNewTab = {
       this.activityStream.uninit();
       this.activityStream = null;
     }
+    try {
+      Services.obs.removeObserver(this, TOPIC_APP_QUIT);
+      Services.obs.removeObserver(
+        this,
+        lazy.TelemetryReportingPolicy.TELEMETRY_TOU_ACCEPTED_OR_INELIGIBLE
+      );
+    } catch (e) {
+      // If init failed before registering these observers, removeObserver may throw.
+      // Safe to ignore during shutdown.
+    }
 
     this.initialized = false;
   },
@@ -256,14 +306,15 @@ export const AboutNewTab = {
   observe(subject, topic) {
     switch (topic) {
       case TOPIC_APP_QUIT: {
-        // We defer to this to the next tick of the event loop since the
-        // AboutHomeStartupCache might want to read from the ActivityStream
-        // store during TOPIC_APP_QUIT.
-        Services.tm.dispatchToMainThread(() => this.uninit());
+        this.uninit();
         break;
       }
-      case BROWSER_READY_NOTIFICATION: {
-        Services.obs.removeObserver(this, BROWSER_READY_NOTIFICATION);
+      case lazy.TelemetryReportingPolicy.TELEMETRY_TOU_ACCEPTED_OR_INELIGIBLE: {
+        Services.obs.removeObserver(
+          this,
+          lazy.TelemetryReportingPolicy.TELEMETRY_TOU_ACCEPTED_OR_INELIGIBLE
+        );
+
         // Avoid running synchronously during this event that's used for timing
         Services.tm.dispatchToMainThread(() => this.onBrowserReady());
         break;

@@ -43,6 +43,14 @@ and should have a comment explaining why it cannot be automatically moved to
 moz-src:///.
 """.strip()
 
+NEWTAB_WARNING = """
+WARNING: Some files in browser/extensions/newtab/ cannot be automatically
+updated for moz-src. You should manually replace the relevant imports
+with the ImportHelper.import() method as needed.
+
+The affected files are:
+""".strip()
+
 excluded_from_convert_re = list(
     map(
         re.compile,
@@ -72,6 +80,14 @@ def is_excluded_from_convert(path):
     return False
 
 
+NEWTAB_NORM = os.path.normpath("browser/extensions/newtab/")
+
+
+def is_path_newtab_extension(path):
+    """Returns true if the path is in browser/extensions/newtab/"""
+    return os.path.normpath(path).startswith(NEWTAB_NORM)
+
+
 def extract_info_from_mozbuild(command_context, paths):
     mozbuilds_for_fixing = set()
     urlmap = dict()
@@ -94,6 +110,17 @@ def extract_info_from_mozbuild(command_context, paths):
             module_name = os.path.basename(module_path)
             keystr = "/".join(key.split(".")) + "/" if key else ""
             resource_suffix = "modules/" + keystr + module_name
+            # Handle aliases for modules in services/.
+            if module_path.startswith("services/common/"):
+                urlmap["resource://services-common/" + module_name] = newurl
+            elif module_path.startswith("services/crypto/"):
+                urlmap["resource://services-crypto/" + module_name] = newurl
+            elif module_path.startswith("services/settings/"):
+                urlmap["resource://services-settings/" + module_name] = newurl
+            elif module_path.startswith("services/sync/"):
+                urlmap["resource://services-sync/" + module_name] = newurl
+
+            # Handle standard resource URLs.
             if is_browser:
                 urlmap["resource:///" + resource_suffix] = newurl
             else:
@@ -104,7 +131,7 @@ def extract_info_from_mozbuild(command_context, paths):
     return mozbuilds_for_fixing, urlmap
 
 
-extra_js_modules_re = re.compile('EXTRA_JS_MODULES(["\\.\\w/\\[\\]]*) [+=]+')
+extra_js_modules_re = re.compile('EXTRA_JS_MODULES(["\\.\\w/\\[\\]-]*) [+=]+')
 
 
 def rewrite_mozbuilds(mozbuilds):
@@ -170,7 +197,7 @@ async def find_and_replace_refs(urlmap):
                 matching_file = matching_file.strip()
                 if not matching_file:
                     continue
-                _log.log(logging.INFO, "Rewriting {}".format(matching_file))
+                _log.log(logging.INFO, f"Rewriting {matching_file}")
                 affected_files.add(matching_file)
                 task = tg.create_task(
                     asyncio.to_thread(
@@ -254,9 +281,7 @@ def use_moz_src(command_context, paths):
     rewrite_mozbuilds(mozbuilds_for_fixing)
 
     if len(updated_files) > 0:
-        _log.log(
-            logging.INFO, "Formatting {} affected files...".format(len(updated_files))
-        )
+        _log.log(logging.INFO, f"Formatting {len(updated_files)} affected files...")
         command_context._mach_context.commands.dispatch(
             "lint",
             command_context._mach_context,
@@ -264,6 +289,12 @@ def use_moz_src(command_context, paths):
             paths=updated_files,
             fix=True,
         )
+        newtab_files = list(filter(is_path_newtab_extension, updated_files))
+        if len(newtab_files) > 0:
+            _log.log(
+                logging.ERROR,
+                NEWTAB_WARNING + "\n  {}".format("\n  ".join(newtab_files)),
+            )
 
     _log.log(
         logging.INFO, "Done. Make sure to test the result before submitting patches."

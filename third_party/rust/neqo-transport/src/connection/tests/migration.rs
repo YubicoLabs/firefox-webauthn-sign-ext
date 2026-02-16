@@ -4,6 +4,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(
+    clippy::allow_attributes,
+    clippy::unwrap_in_result,
+    reason = "OK in tests."
+)]
+
 use std::{
     cell::RefCell,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
@@ -24,16 +30,16 @@ use super::{
     CountingConnectionIdGenerator,
 };
 use crate::{
-    cid::LOCAL_ACTIVE_CID_LIMIT,
+    cid::ConnectionIdManager,
     connection::tests::{
         assert_path_challenge_min_len, connect, send_something_paced, send_with_extra,
     },
-    frame::FRAME_TYPE_NEW_CONNECTION_ID,
-    packet::PacketBuilder,
-    path::MAX_PATH_PROBES,
+    frame::FrameType,
+    packet,
+    path::Path,
     pmtud::Pmtud,
     stats::FrameStats,
-    tparams::{self, PreferredAddress, TransportParameter},
+    tparams::{PreferredAddress, TransportParameter, TransportParameterId},
     CloseReason, ConnectionId, ConnectionIdDecoder as _, ConnectionIdGenerator, ConnectionIdRef,
     ConnectionParameters, EmptyConnectionIdGenerator, Error, MIN_INITIAL_PACKET_SIZE,
 };
@@ -158,7 +164,7 @@ fn rebind(
 
     // The client should process the ACK and go idle.
     let delay = client.process(Some(s4_reb), now).callback();
-    assert_eq!(delay, ConnectionParameters::default().get_idle_timeout());
+    assert_eq!(delay, ConnectionParameters::DEFAULT_IDLE_TIMEOUT);
 
     let client_uses_zero_len_cid = client
         .paths
@@ -174,7 +180,7 @@ fn rebind(
         match server.process_output(now) {
             Output::Callback(t) => {
                 total_delay += t;
-                if total_delay == ConnectionParameters::default().get_idle_timeout() {
+                if total_delay == ConnectionParameters::DEFAULT_IDLE_TIMEOUT {
                     // Server should only hit the idle timeout here when the client uses a zero-len
                     // CID.
                     assert!(client_uses_zero_len_cid);
@@ -492,7 +498,7 @@ fn migrate_immediate_fail() {
     assert_path_challenge_min_len(&client, &probe, now);
 
     // -1 because first PATH_CHALLENGE already sent above
-    for _ in 0..MAX_PATH_PROBES * 2 - 1 {
+    for _ in 0..Path::MAX_PROBES * 2 - 1 {
         let cb = client.process_output(now).callback();
         assert_ne!(cb, Duration::new(0, 0));
         now += cb;
@@ -572,7 +578,7 @@ fn migrate_same_fail() {
     assert_path_challenge_min_len(&client, &probe, now);
 
     // -1 because first PATH_CHALLENGE already sent above
-    for _ in 0..MAX_PATH_PROBES * 2 - 1 {
+    for _ in 0..Path::MAX_PROBES * 2 - 1 {
         let cb = client.process_output(now).callback();
         assert_ne!(cb, Duration::new(0, 0));
         now += cb;
@@ -611,7 +617,7 @@ fn migrate_same_fail() {
 
 /// This gets the connection ID from a datagram using the default
 /// connection ID generator/decoder.
-pub fn get_cid(d: &Datagram) -> ConnectionIdRef {
+pub fn get_cid(d: &Datagram) -> ConnectionIdRef<'_> {
     let gen = CountingConnectionIdGenerator::default();
     assert_eq!(d[0] & 0x80, 0); // Only support short packets for now.
     gen.decode_cid(&mut Decoder::from(&d[1..])).unwrap()
@@ -704,6 +710,10 @@ fn migration_client_empty_cid() {
 /// Returns the packet containing `HANDSHAKE_DONE` from the server.
 fn fast_handshake(client: &mut Connection, server: &mut Connection) -> Option<Datagram> {
     let dgram = client.process_output(now()).dgram();
+    let dgram2 = client.process_output(now()).dgram();
+    server.process_input(dgram.unwrap(), now());
+    let dgram = server.process(dgram2, now()).dgram();
+    let dgram = client.process(dgram, now()).dgram();
     let dgram = server.process(dgram, now()).dgram();
     client.process_input(dgram.unwrap(), now());
     assert!(maybe_authenticate(client));
@@ -900,7 +910,7 @@ fn preferred_address_server_empty_cid() {
 
     server
         .set_local_tparam(
-            tparams::PREFERRED_ADDRESS,
+            TransportParameterId::PreferredAddress,
             TransportParameter::Bytes(SAMPLE_PREFERRED_ADDRESS.to_vec()),
         )
         .unwrap();
@@ -908,8 +918,8 @@ fn preferred_address_server_empty_cid() {
     connect_fail(
         &mut client,
         &mut server,
-        Error::TransportParameterError,
-        Error::PeerError(Error::TransportParameterError.code()),
+        Error::TransportParameter,
+        Error::Peer(Error::TransportParameter.code()),
     );
 }
 
@@ -921,7 +931,7 @@ fn preferred_address_client() {
 
     client
         .set_local_tparam(
-            tparams::PREFERRED_ADDRESS,
+            TransportParameterId::PreferredAddress,
             TransportParameter::Bytes(SAMPLE_PREFERRED_ADDRESS.to_vec()),
         )
         .unwrap();
@@ -929,8 +939,8 @@ fn preferred_address_client() {
     connect_fail(
         &mut client,
         &mut server,
-        Error::PeerError(Error::TransportParameterError.code()),
-        Error::TransportParameterError,
+        Error::Peer(Error::TransportParameter.code()),
+        Error::TransportParameter,
     );
 }
 
@@ -1037,7 +1047,7 @@ struct RetireAll {
 }
 
 impl crate::connection::test_internal::FrameWriter for RetireAll {
-    fn write_frames(&mut self, builder: &mut PacketBuilder) {
+    fn write_frames(&mut self, builder: &mut packet::Builder<&mut Vec<u8>>) {
         // Use a sequence number that is large enough that all existing values
         // will be lower (so they get retired).  As the code doesn't care about
         // gaps in sequence numbers, this is safe, even though the gap might
@@ -1045,11 +1055,11 @@ impl crate::connection::test_internal::FrameWriter for RetireAll {
         const SEQNO: u64 = 100;
         let cid = self.cid_gen.borrow_mut().generate_cid().unwrap();
         builder
-            .encode_varint(FRAME_TYPE_NEW_CONNECTION_ID)
+            .encode_varint(FrameType::NewConnectionId)
             .encode_varint(SEQNO)
             .encode_varint(SEQNO) // Retire Prior To
             .encode_vec(1, &cid)
-            .encode(&[0x7f; 16]);
+            .encode([0x7f; 16]);
     }
 }
 
@@ -1083,7 +1093,7 @@ fn retire_all() {
     );
     assert_eq!(
         client.stats().frame_tx.retire_connection_id,
-        retire_cid_before + LOCAL_ACTIVE_CID_LIMIT
+        retire_cid_before + ConnectionIdManager::ACTIVE_LIMIT
     );
 
     assert_ne!(get_cid(&retire), original_cid);
@@ -1199,7 +1209,7 @@ fn retire_prior_to_migration_success() {
 struct GarbageWriter {}
 
 impl crate::connection::test_internal::FrameWriter for GarbageWriter {
-    fn write_frames(&mut self, builder: &mut PacketBuilder) {
+    fn write_frames(&mut self, builder: &mut packet::Builder<&mut Vec<u8>>) {
         // Not a valid frame type.
         builder.encode_varint(u32::MAX);
     }

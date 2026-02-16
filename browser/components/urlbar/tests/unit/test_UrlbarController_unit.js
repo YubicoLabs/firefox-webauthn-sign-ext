@@ -52,13 +52,13 @@ add_setup(function () {
   controller = UrlbarTestUtils.newMockController({
     manager: fPM,
   });
-  controller.addQueryListener(generalListener);
+  controller.addListener(generalListener);
 });
 
 add_task(function test_constructor_throws() {
   Assert.throws(
     () => new UrlbarController(),
-    /Missing options: input/,
+    /options is undefined/,
     "Should throw if the input was not supplied"
   );
   Assert.throws(
@@ -112,6 +112,22 @@ add_task(function test_constructor_throws() {
     "Should throw if input.isPrivate is not set"
   );
 
+  Assert.throws(
+    () =>
+      new UrlbarController({
+        input: {
+          isPrivate: false,
+          window: {
+            location: {
+              href: AppConstants.BROWSER_CHROME_URL,
+            },
+          },
+        },
+      }),
+    /input needs a non-empty 'sapName' property/,
+    "Should throw if input.sapName is not set"
+  );
+
   new UrlbarController({
     input: {
       isPrivate: false,
@@ -120,6 +136,9 @@ add_task(function test_constructor_throws() {
           href: AppConstants.BROWSER_CHROME_URL,
         },
       },
+      get sapName() {
+        return "urlbar";
+      },
     },
   });
   Assert.ok(true, "Correct call should not throw");
@@ -127,19 +146,19 @@ add_task(function test_constructor_throws() {
 
 add_task(function test_add_and_remove_listeners() {
   Assert.throws(
-    () => controller.addQueryListener(null),
+    () => controller.addListener(null),
     /Expected listener to be an object/,
     "Should throw for a null listener"
   );
   Assert.throws(
-    () => controller.addQueryListener(123),
+    () => controller.addListener(123),
     /Expected listener to be an object/,
     "Should throw for a non-object listener"
   );
 
   const listener = {};
 
-  controller.addQueryListener(listener);
+  controller.addListener(listener);
 
   Assert.ok(
     controller._listeners.has(listener),
@@ -147,9 +166,9 @@ add_task(function test_add_and_remove_listeners() {
   );
 
   // Adding a non-existent listener shouldn't throw.
-  controller.removeQueryListener(123);
+  controller.removeListener(123);
 
-  controller.removeQueryListener(listener);
+  controller.removeListener(listener);
 
   Assert.ok(
     !controller._listeners.has(listener),
@@ -169,8 +188,8 @@ add_task(function test__notify() {
     onFake: sandbox.stub(),
   };
 
-  controller.addQueryListener(listener1);
-  controller.addQueryListener(listener2);
+  controller.addListener(listener1);
+  controller.addListener(listener2);
 
   const param = "1234";
 
@@ -197,8 +216,8 @@ add_task(function test__notify() {
     "Should have called the first listener with the correct argument"
   );
 
-  controller.removeQueryListener(listener2);
-  controller.removeQueryListener(listener1);
+  controller.removeListener(listener2);
+  controller.removeListener(listener1);
 
   // This should succeed without errors.
   controller.notify("onNewFake");
@@ -344,7 +363,7 @@ add_task(async function test_notifications_order() {
       },
     }
   );
-  controller.addQueryListener(collectingListener);
+  controller.addListener(collectingListener);
   controller.startQuery(context);
   Assert.deepEqual(
     ["onQueryStarted"],

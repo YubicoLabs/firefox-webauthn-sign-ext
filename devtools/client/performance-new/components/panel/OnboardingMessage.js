@@ -8,7 +8,7 @@
  */
 
 /**
- * @typedef {Object} State
+ * @typedef {object} State
  * @property {boolean} isOnboardingEnabled
  */
 
@@ -21,7 +21,7 @@
 const {
   PureComponent,
   createFactory,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const {
   b,
   button,
@@ -40,7 +40,8 @@ const ONBOARDING_PREF = "devtools.performance.new-panel-onboarding";
 /**
  * This component provides a temporary onboarding message for users migrating
  * from the old DevTools performance panel.
- * @extends {React.PureComponent<Props>}
+ *
+ * @augments {React.PureComponent<Props>}
  */
 class OnboardingMessage extends PureComponent {
   /**

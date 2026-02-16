@@ -8,10 +8,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Environment
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.NotificationManagerCompat
 import mozilla.components.browser.engine.gecko.cookiebanners.GeckoCookieBannersStorage
+import mozilla.components.browser.engine.gecko.util.EngineDownloadDelegate
 import mozilla.components.browser.icons.BrowserIcons
 import mozilla.components.browser.state.engine.EngineMiddleware
 import mozilla.components.browser.state.store.BrowserStore
@@ -22,17 +24,26 @@ import mozilla.components.feature.app.links.AppLinksInterceptor
 import mozilla.components.feature.app.links.AppLinksUseCases
 import mozilla.components.feature.contextmenu.ContextMenuUseCases
 import mozilla.components.feature.customtabs.store.CustomTabsServiceStore
+import mozilla.components.feature.downloads.DateTimeProvider
+import mozilla.components.feature.downloads.DefaultDateTimeProvider
+import mozilla.components.feature.downloads.DefaultFileSizeFormatter
+import mozilla.components.feature.downloads.DownloadEstimator
 import mozilla.components.feature.downloads.DownloadMiddleware
 import mozilla.components.feature.downloads.DownloadsUseCases
+import mozilla.components.feature.downloads.FileSizeFormatter
 import mozilla.components.feature.media.MediaSessionFeature
 import mozilla.components.feature.media.middleware.RecordingDevicesMiddleware
 import mozilla.components.feature.prompts.PromptMiddleware
 import mozilla.components.feature.prompts.file.FileUploadsDirCleaner
 import mozilla.components.feature.prompts.file.FileUploadsDirCleanerMiddleware
+import mozilla.components.feature.search.SearchApplicationName
+import mozilla.components.feature.search.SearchDeviceType
+import mozilla.components.feature.search.SearchUpdateChannel
 import mozilla.components.feature.search.SearchUseCases
 import mozilla.components.feature.search.middleware.AdsTelemetryMiddleware
 import mozilla.components.feature.search.middleware.SearchMiddleware
 import mozilla.components.feature.search.region.RegionMiddleware
+import mozilla.components.feature.search.storage.SearchEngineSelectorConfig
 import mozilla.components.feature.search.telemetry.ads.AdsTelemetry
 import mozilla.components.feature.search.telemetry.incontent.InContentTelemetry
 import mozilla.components.feature.session.SessionUseCases
@@ -54,7 +65,13 @@ import mozilla.components.service.location.LocationService
 import mozilla.components.service.location.MozillaLocationService
 import mozilla.components.service.nimbus.NimbusApi
 import mozilla.components.support.base.android.NotificationsDelegate
+import mozilla.components.support.base.worker.Frequency
+import mozilla.components.support.ktx.android.content.appVersionName
 import mozilla.components.support.locale.LocaleManager
+import mozilla.components.support.remotesettings.DefaultRemoteSettingsSyncScheduler
+import mozilla.components.support.remotesettings.RemoteSettingsServer
+import mozilla.components.support.remotesettings.RemoteSettingsService
+import mozilla.components.support.remotesettings.into
 import org.mozilla.focus.activity.MainActivity
 import org.mozilla.focus.browser.BlockedTrackersMiddleware
 import org.mozilla.focus.cfr.CfrMiddleware
@@ -65,8 +82,10 @@ import org.mozilla.focus.engine.ClientWrapper
 import org.mozilla.focus.engine.SanityCheckMiddleware
 import org.mozilla.focus.experiments.createNimbus
 import org.mozilla.focus.ext.components
+import org.mozilla.focus.ext.isTablet
 import org.mozilla.focus.ext.settings
 import org.mozilla.focus.media.MediaSessionService
+import org.mozilla.focus.nimbus.FocusNimbus
 import org.mozilla.focus.search.SearchFilterMiddleware
 import org.mozilla.focus.search.SearchMigration
 import org.mozilla.focus.state.AppState
@@ -82,6 +101,7 @@ import org.mozilla.focus.telemetry.startuptelemetry.StartupStateProvider
 import org.mozilla.focus.topsites.DefaultTopSitesStorage
 import org.mozilla.focus.utils.Settings
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 /**
  * Helper object for lazily initializing components.
@@ -119,22 +139,38 @@ class Components(
         FileUploadsDirCleaner { context.cacheDir }
     }
 
+    val remoteSettingsSyncScheduler by lazy {
+        DefaultRemoteSettingsSyncScheduler(
+            context,
+            Frequency(24, TimeUnit.HOURS),
+        )
+    }
+
     val engineDefaultSettings by lazy {
         DefaultSettings(
             requestInterceptor = AppContentInterceptor(context),
-            trackingProtectionPolicy = settings.createTrackingProtectionPolicy(),
+            trackingProtectionPolicy = EngineProvider.createTrackingProtectionPolicy(context),
             javascriptEnabled = !settings.shouldBlockJavaScript(),
             remoteDebuggingEnabled = settings.shouldEnableRemoteDebugging(),
             webFontsEnabled = !settings.shouldBlockWebFonts(),
             httpsOnlyMode = settings.getHttpsOnlyMode(),
             preferredColorScheme = settings.getPreferredColorScheme(),
             cookieBannerHandlingModePrivateBrowsing = settings.getCurrentCookieBannerOptionFromSharePref().mode,
+            certificateTransparencyMode = FocusNimbus.features.pki.value().certificateTransparencyMode,
+            downloadDelegate = EngineDownloadDelegate(
+                context = context,
+                downloadLocationGetter = {
+                    Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS,
+                    ).absolutePath
+                },
+            ),
         )
     }
 
     val engine: Engine by lazy {
         engineOverride ?: EngineProvider.createEngine(context, engineDefaultSettings).apply {
-            this@Components.settings.setupSafeBrowsing(this)
+            EngineProvider.setupSafeBrowsing(this, this@Components.settings.shouldUseSafeBrowsing())
             WebCompatFeature.install(this)
             WebCompatReporterFeature.install(this, "focus-geckoview")
         }
@@ -161,19 +197,27 @@ class Components(
         BrowserStore(
             middleware = listOf(
                 TelemetryMiddleware(),
-                DownloadMiddleware(context, DownloadService::class.java),
+                DownloadMiddleware(
+                    applicationContext = context,
+                    downloadServiceClass = DownloadService::class.java,
+                    deleteFileFromStorage = { false },
+                ),
                 SanityCheckMiddleware(),
                 // We are currently using the default location service. We should consider using
                 // an actual implementation:
                 // https://github.com/mozilla-mobile/focus-android/issues/4781
                 RegionMiddleware(context, locationService),
-                SearchMiddleware(context, migration = SearchMigration(context)),
+                SearchMiddleware(
+                    context,
+                    migration = SearchMigration(context),
+                    searchEngineSelectorConfig = getSearchEngineSelectorConfig(context),
+                ),
                 SearchFilterMiddleware(),
                 PromptMiddleware(),
                 AdsTelemetryMiddleware(adsTelemetry),
                 BlockedTrackersMiddleware(context),
                 RecordingDevicesMiddleware(context, notificationsDelegate),
-                CfrMiddleware(context),
+                CfrMiddleware(appStore, settings),
                 FileUploadsDirCleanerMiddleware(fileUploadsDirCleaner),
             ) + EngineMiddleware.create(
                 engine,
@@ -210,7 +254,7 @@ class Components(
 
     val contextMenuUseCases: ContextMenuUseCases by lazy { ContextMenuUseCases(store) }
 
-    val downloadsUseCases: DownloadsUseCases by lazy { DownloadsUseCases(store) }
+    val downloadsUseCases: DownloadsUseCases by lazy { DownloadsUseCases(store, context.applicationContext) }
 
     val appLinksUseCases: AppLinksUseCases by lazy { AppLinksUseCases(context.applicationContext) }
 
@@ -228,8 +272,20 @@ class Components(
         )
     }
 
+    val remoteSettingsService by lazy {
+        RemoteSettingsService(
+            context,
+            if (context.settings.useProductionRemoteSettingsServer) {
+                RemoteSettingsServer.Prod.into()
+            } else {
+                RemoteSettingsServer.Stage.into()
+            },
+            channel = BuildConfig.BUILD_TYPE,
+        )
+    }
+
     val experiments: NimbusApi by lazy {
-        createNimbus(context, BuildConfig.NIMBUS_ENDPOINT)
+        createNimbus(context, BuildConfig.NIMBUS_ENDPOINT, remoteSettingsService.remoteSettingsService)
     }
 
     val adsTelemetry: AdsTelemetry by lazy { AdsTelemetry() }
@@ -245,12 +301,17 @@ class Components(
     val appLinksInterceptor by lazy {
         AppLinksInterceptor(
             context,
-            interceptLinkClicks = true,
             launchInApp = {
                 context.settings.openLinksInExternalApp
             },
         )
     }
+
+    val fileSizeFormatter: FileSizeFormatter by lazy { DefaultFileSizeFormatter(context.applicationContext) }
+
+    val dateTimeProvider: DateTimeProvider by lazy { DefaultDateTimeProvider() }
+
+    val downloadEstimator: DownloadEstimator by lazy { DownloadEstimator(dateTimeProvider = dateTimeProvider) }
 }
 
 private fun createCrashReporter(context: Context): CrashReporter {
@@ -302,7 +363,14 @@ private fun createCrashReporter(context: Context): CrashReporter {
     return CrashReporter(
         context = context,
         services = services,
-        telemetryServices = listOf(GleanCrashReporterService(context)),
+        telemetryServices = listOf(
+            GleanCrashReporterService(
+                context,
+                appChannel = org.mozilla.geckoview.BuildConfig.MOZ_UPDATE_CHANNEL,
+                appVersion = org.mozilla.geckoview.BuildConfig.MOZ_APP_VERSION,
+                appBuildId = org.mozilla.geckoview.BuildConfig.MOZ_APP_BUILDID,
+            ),
+        ),
         promptConfiguration = CrashReporter.PromptConfiguration(
             appName = context.resources.getString(R.string.app_name),
         ),
@@ -319,6 +387,40 @@ private fun getLocaleTag(context: Context): String {
     } else {
         Locale.getDefault().toLanguageTag()
     }
+}
+
+/**
+ * Gets a [SearchEngineSelectorConfig] for the app and device.
+ */
+private fun getSearchEngineSelectorConfig(context: Context): SearchEngineSelectorConfig? {
+    if (!context.settings.useRemoteSearchConfiguration) {
+        return null
+    }
+
+    val updateChannel = when (BuildConfig.BUILD_TYPE) {
+        "debug" -> SearchUpdateChannel.DEFAULT
+        "nightly", "benchmark" -> SearchUpdateChannel.NIGHTLY
+        "beta" -> SearchUpdateChannel.BETA
+        "release" -> SearchUpdateChannel.RELEASE
+        else -> {
+            throw IllegalStateException("Unknown build type: ${BuildConfig.BUILD_TYPE}")
+        }
+    }
+
+    val deviceType = if (context.isTablet()) {
+        SearchDeviceType.TABLET
+    } else {
+        SearchDeviceType.SMARTPHONE
+    }
+
+    return SearchEngineSelectorConfig(
+        appName = SearchApplicationName.FOCUS_ANDROID,
+        appVersion = context.appVersionName,
+        deviceType = deviceType,
+        experiment = "",
+        updateChannel = updateChannel,
+        service = context.components.remoteSettingsService,
+    )
 }
 
 /**

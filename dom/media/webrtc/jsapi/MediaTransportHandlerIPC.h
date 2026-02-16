@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef _MTRANSPORTHANDLER_IPC_H__
-#define _MTRANSPORTHANDLER_IPC_H__
+#ifndef MTRANSPORTHANDLER_IPC_H_
+#define MTRANSPORTHANDLER_IPC_H_
 
 #include "jsapi/MediaTransportHandler.h"
 #include "mozilla/dom/PMediaTransportChild.h"
@@ -16,7 +16,7 @@ class MediaTransportChild;
 // talk to mtransport on another process.
 class MediaTransportHandlerIPC final : public MediaTransportHandler {
  public:
-  explicit MediaTransportHandlerIPC(nsISerialEventTarget* aCallbackThread);
+  explicit MediaTransportHandlerIPC();
   void Initialize() override;
   RefPtr<IceLogPromise> GetIceLog(const nsCString& aPattern) override;
   void ClearIceLog() override;
@@ -89,8 +89,9 @@ class MediaTransportHandlerIPC final : public MediaTransportHandler {
   // API call we get, instead of creating another promise each time.
   typedef MozPromise<bool, nsCString, false> InitPromise;
   RefPtr<InitPromise> mInitPromise;
+  nsCOMPtr<nsISerialEventTarget> mThread;
 };
 
 }  // namespace mozilla
 
-#endif  //_MTRANSPORTHANDLER_IPC_H__
+#endif  // MTRANSPORTHANDLER_IPC_H_

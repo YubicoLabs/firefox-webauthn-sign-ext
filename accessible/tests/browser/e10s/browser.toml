@@ -2,6 +2,7 @@
 subsuite = "a11y"
 support-files = [
   "head.js",
+  "doc_language.html",
   "doc_treeupdate_ariadialog.html",
   "doc_treeupdate_ariaowns.html",
   "doc_treeupdate_imagemap.html",
@@ -15,15 +16,20 @@ support-files = [
   "!/accessible/tests/mochitest/letters.gif",
   "!/accessible/tests/mochitest/moz.png",
 ]
+prefs = [
+  # Required for the commandfor tests
+  "dom.element.commandfor.enabled=true",
+  # Required for the eval in invokeContentTask in shared-head.js
+  "security.allow_eval_with_system_principal=true"
+]
 
 ["browser_aria_activedescendant.js"]
 
 # Caching tests
+
 ["browser_caching_actions.js"]
 
 ["browser_caching_attributes.js"]
-
-["browser_caching_description.js"]
 
 ["browser_caching_document_props.js"]
 https_first_disabled = true
@@ -33,19 +39,15 @@ https_first_disabled = true
 ["browser_caching_hyperlink.js"]
 
 ["browser_caching_innerHTML.js"]
-skip-if = ["os != 'win'"]
+skip-if = [
+  "os != 'win'",
+]
 
 ["browser_caching_interfaces.js"]
 
 ["browser_caching_large_update.js"]
 
-["browser_caching_name.js"]
-
 ["browser_caching_position.js"]
-
-["browser_caching_relations.js"]
-
-["browser_caching_relations_002.js"]
 
 ["browser_caching_states.js"]
 
@@ -58,8 +60,6 @@ skip-if = ["os != 'win'"]
 ["browser_caching_value.js"]
 
 # Events tests
-["browser_events_announcement.js"]
-skip-if = ["os == 'win'"] # Bug 1288839
 
 ["browser_events_caretmove.js"]
 
@@ -80,6 +80,7 @@ skip-if = ["os == 'win'"] # Bug 1288839
 ["browser_obj_group_002.js"]
 
 # Tree update tests
+
 ["browser_treeupdate_ariadialog.js"]
 
 ["browser_treeupdate_ariaowns.js"]

@@ -9,8 +9,8 @@ const {
   createRef,
   Component,
   cloneElement,
-} = require("resource://devtools/client/shared/vendor/react.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   ul,
   li,
@@ -195,7 +195,7 @@ class List extends Component {
   /**
    * Sets the passed in item to be the current item.
    *
-   * @param {null|Number} index
+   * @param {null | number} index
    *        The index of the item in to be set as current, or undefined to unset the
    *        current item.
    */

@@ -8,8 +8,6 @@
 
 #include <utility>
 
-#include "nsDebug.h"
-#include "nsString.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/NotNull.h"
 #include "mozilla/RefPtr.h"
@@ -20,6 +18,8 @@
 #include "mozilla/dom/quota/OriginScope.h"
 #include "mozilla/dom/quota/PersistenceScope.h"
 #include "mozilla/dom/quota/QuotaManager.h"
+#include "nsDebug.h"
+#include "nsString.h"
 
 namespace mozilla::dom::quota {
 
@@ -42,7 +42,7 @@ RefPtr<ClientDirectoryLock> UniversalDirectoryLock::SpecializeForClient(
   RefPtr<ClientDirectoryLock> lock = ClientDirectoryLock::Create(
       mQuotaManager, PersistenceScope::CreateFromValue(aPersistenceType),
       OriginScope::FromOrigin(aOriginMetadata),
-      Nullable<Client::Type>(aClientType),
+      ClientStorageScope::CreateFromClient(aClientType),
       /* aExclusive */ false, mInternal, ShouldUpdateLockIdTableFlag::Yes,
       mCategory);
   if (NS_WARN_IF(!Overlaps(*lock))) {
@@ -78,13 +78,14 @@ RefPtr<ClientDirectoryLock> UniversalDirectoryLock::SpecializeForClient(
 RefPtr<UniversalDirectoryLock> UniversalDirectoryLock::CreateInternal(
     MovingNotNull<RefPtr<QuotaManager>> aQuotaManager,
     const PersistenceScope& aPersistenceScope, const OriginScope& aOriginScope,
-    const Nullable<Client::Type>& aClientType, bool aExclusive,
+    const ClientStorageScope& aClientStorageScope, bool aExclusive,
     DirectoryLockCategory aCategory) {
   MOZ_ASSERT_IF(aOriginScope.IsOrigin(), !aOriginScope.GetOrigin().IsEmpty());
 
   return MakeRefPtr<UniversalDirectoryLock>(
-      std::move(aQuotaManager), aPersistenceScope, aOriginScope, aClientType,
-      aExclusive, true, ShouldUpdateLockIdTableFlag::Yes, aCategory);
+      std::move(aQuotaManager), aPersistenceScope, aOriginScope,
+      aClientStorageScope, aExclusive, true, ShouldUpdateLockIdTableFlag::Yes,
+      aCategory);
 }
 
 }  // namespace mozilla::dom::quota

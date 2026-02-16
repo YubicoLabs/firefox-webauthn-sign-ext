@@ -8,7 +8,6 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "mozilla/UniquePtr.h"
 #include "mozilla/WeakPtr.h"
 
 #include "nsISupports.h"
@@ -106,6 +105,7 @@ class nsMenuBarX : public nsMenuParentX,
   void SetSystemHelpMenu();
   nsresult Paint();
   void PaintAsync();
+  void PaintAsyncIfNeeded();
   void ForceUpdateNativeMenuAt(const nsAString& aIndexString);
   void ForceNativeMenuReload();  // used for testing
   static void ResetNativeApplicationMenu();
@@ -117,6 +117,7 @@ class nsMenuBarX : public nsMenuParentX,
   // nsMenuParentX
   void MenuChildChangedVisibility(const MenuChild& aChild,
                                   bool aIsVisible) override;
+  size_t NestingDepth() override { return 0; }
 
  protected:
   virtual ~nsMenuBarX();

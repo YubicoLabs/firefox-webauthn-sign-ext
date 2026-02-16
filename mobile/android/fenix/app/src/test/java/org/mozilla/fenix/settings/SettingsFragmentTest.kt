@@ -4,49 +4,39 @@
 
 package org.mozilla.fenix.settings
 
-import androidx.core.app.NotificationManagerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.preference.Preference
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.mockkStatic
-import io.mockk.unmockkObject
-import io.mockk.unmockkStatic
 import io.mockk.verify
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
-import mozilla.components.browser.state.state.SearchState
-import mozilla.components.browser.state.state.selectedOrDefaultSearchEngine
+import kotlinx.coroutines.test.runTest
 import mozilla.components.concept.fetch.Client
 import mozilla.components.service.fxa.manager.FxaAccountManager
+import mozilla.components.service.fxrelay.eligibility.Eligible
+import mozilla.components.service.fxrelay.eligibility.Ineligible
+import mozilla.components.service.fxrelay.eligibility.RelayEligibilityStore
+import mozilla.components.service.fxrelay.eligibility.RelayState
 import mozilla.components.support.test.robolectric.testContext
-import mozilla.components.support.test.rule.MainCoroutineRule
-import mozilla.components.support.test.rule.runTestOnMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.Config
-import org.mozilla.fenix.FeatureFlags
 import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.getPreferenceKey
 import org.mozilla.fenix.ext.settings
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
 import org.mozilla.fenix.utils.Settings
 import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
 import java.io.IOException
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class SettingsFragmentTest {
-
-    @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
     private val settingsFragment = SettingsFragment()
 
     @Before
@@ -63,16 +53,15 @@ class SettingsFragmentTest {
         every { testContext.components.analytics } returns mockk(relaxed = true)
         every { testContext.components.backgroundServices } returns mockk(relaxed = true)
 
-        mockkObject(FeatureFlags)
-
         val activity = Robolectric.buildActivity(FragmentActivity::class.java).create().get()
         activity.supportFragmentManager.beginTransaction()
             .add(settingsFragment, "test")
             .commitNow()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // advanceUntilIdle
     @Test
-    fun `Add-on collection override pref is visible if debug menu active and feature is enabled`() = runTestOnMain {
+    fun `Add-on collection override pref is visible if debug menu active and feature is enabled`() = runTest {
         val settingsFragment = SettingsFragment()
         val activity = Robolectric.buildActivity(FragmentActivity::class.java).create().get()
 
@@ -82,24 +71,29 @@ class SettingsFragmentTest {
 
         advanceUntilIdle()
 
-        every { FeatureFlags.customExtensionCollectionFeature } returns true
-
         val preferenceAmoCollectionOverride = settingsFragment.findPreference<Preference>(
             settingsFragment.getPreferenceKey(R.string.pref_key_override_amo_collection),
         )
 
-        settingsFragment.setupAmoCollectionOverridePreference(mockk(relaxed = true))
+        settingsFragment.setupAmoCollectionOverridePreference(
+            mockk(relaxed = true),
+            true,
+        )
         assertNotNull(preferenceAmoCollectionOverride)
         assertFalse(preferenceAmoCollectionOverride!!.isVisible)
 
         val settings: Settings = mockk(relaxed = true)
         every { settings.showSecretDebugMenuThisSession } returns true
-        settingsFragment.setupAmoCollectionOverridePreference(settings)
+        settingsFragment.setupAmoCollectionOverridePreference(
+            settings,
+            true,
+        )
         assertTrue(preferenceAmoCollectionOverride.isVisible)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // advanceUntilIdle
     @Test
-    fun `Install add-on from file pref is visible if debug menu active and feature is enabled`() = runTestOnMain {
+    fun `Install add-on from file pref is visible if debug menu active and feature is enabled`() = runTest {
         val settingsFragment = SettingsFragment()
         val activity = Robolectric.buildActivity(FragmentActivity::class.java).create().get()
 
@@ -122,11 +116,11 @@ class SettingsFragmentTest {
         every { settings.showSecretDebugMenuThisSession } returns true
         settingsFragment.setupInstallAddonFromFilePreference(settings)
         assertTrue(preference.isVisible)
-        unmockkObject(Config)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // advanceUntilIdle
     @Test
-    fun `Add-on collection override pref is visible if already configured and feature is enabled`() = runTestOnMain {
+    fun `Add-on collection override pref is visible if already configured and feature is enabled`() = runTest {
         val settingsFragment = SettingsFragment()
         val activity = Robolectric.buildActivity(FragmentActivity::class.java).create().get()
 
@@ -136,13 +130,14 @@ class SettingsFragmentTest {
 
         advanceUntilIdle()
 
-        every { FeatureFlags.customExtensionCollectionFeature } returns true
-
         val preferenceAmoCollectionOverride = settingsFragment.findPreference<Preference>(
             settingsFragment.getPreferenceKey(R.string.pref_key_override_amo_collection),
         )
 
-        settingsFragment.setupAmoCollectionOverridePreference(mockk(relaxed = true))
+        settingsFragment.setupAmoCollectionOverridePreference(
+            mockk(relaxed = true),
+            true,
+        )
         assertNotNull(preferenceAmoCollectionOverride)
         assertFalse(preferenceAmoCollectionOverride!!.isVisible)
 
@@ -150,16 +145,23 @@ class SettingsFragmentTest {
         every { settings.showSecretDebugMenuThisSession } returns false
 
         every { settings.amoCollectionOverrideConfigured() } returns false
-        settingsFragment.setupAmoCollectionOverridePreference(settings)
+        settingsFragment.setupAmoCollectionOverridePreference(
+            settings,
+            true,
+        )
         assertFalse(preferenceAmoCollectionOverride.isVisible)
 
         every { settings.amoCollectionOverrideConfigured() } returns true
-        settingsFragment.setupAmoCollectionOverridePreference(settings)
+        settingsFragment.setupAmoCollectionOverridePreference(
+            settings,
+            true,
+        )
         assertTrue(preferenceAmoCollectionOverride.isVisible)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // advanceUntilIdle
     @Test
-    fun `Add-on collection override pref is not visible if feature is disabled`() = runTestOnMain {
+    fun `Add-on collection override pref is not visible if feature is disabled`() = runTest {
         val settingsFragment = SettingsFragment()
         val activity = Robolectric.buildActivity(FragmentActivity::class.java).create().get()
 
@@ -169,20 +171,24 @@ class SettingsFragmentTest {
 
         advanceUntilIdle()
 
-        every { FeatureFlags.customExtensionCollectionFeature } returns false
-
         val preferenceAmoCollectionOverride = settingsFragment.findPreference<Preference>(
             settingsFragment.getPreferenceKey(R.string.pref_key_override_amo_collection),
         )
 
         val settings: Settings = mockk(relaxed = true)
-        settingsFragment.setupAmoCollectionOverridePreference(settings)
+        settingsFragment.setupAmoCollectionOverridePreference(
+            settings,
+            false,
+        )
         assertNotNull(preferenceAmoCollectionOverride)
         assertFalse(preferenceAmoCollectionOverride!!.isVisible)
 
         every { settings.showSecretDebugMenuThisSession } returns true
         every { settings.amoCollectionOverrideConfigured() } returns true
-        settingsFragment.setupAmoCollectionOverridePreference(settings)
+        settingsFragment.setupAmoCollectionOverridePreference(
+            settings,
+            false,
+        )
         assertFalse(preferenceAmoCollectionOverride.isVisible)
     }
 
@@ -192,14 +198,12 @@ class SettingsFragmentTest {
             R.string.pref_key_notifications,
         )
         val summary = testContext.getString(R.string.notifications_not_allowed_summary)
-        mockkStatic(NotificationManagerCompat::class)
-        every { NotificationManagerCompat.from(any()).areNotificationsEnabled() } returns false
+
         assertTrue(notificationPreference.summary.isNullOrEmpty())
 
-        settingsFragment.setupNotificationPreference()
+        settingsFragment.setupNotificationPreference(false)
 
         assertEquals(summary, notificationPreference.summary)
-        unmockkStatic(NotificationManagerCompat::class)
     }
 
     @Test
@@ -208,14 +212,12 @@ class SettingsFragmentTest {
             R.string.pref_key_notifications,
         )
         val summary = testContext.getString(R.string.notifications_allowed_summary)
-        mockkStatic(NotificationManagerCompat::class)
-        every { NotificationManagerCompat.from(any()).areNotificationsEnabled() } returns true
+
         assertTrue(notificationPreference.summary.isNullOrEmpty())
 
-        settingsFragment.setupNotificationPreference()
+        settingsFragment.setupNotificationPreference(true)
 
         assertEquals(summary, notificationPreference.summary)
-        unmockkStatic(NotificationManagerCompat::class)
     }
 
     @Test
@@ -230,7 +232,7 @@ class SettingsFragmentTest {
         val summary =
             testContext.getString(R.string.opening_screen_after_four_hours_of_inactivity_summary)
 
-        settingsFragment.setupHomepagePreference()
+        settingsFragment.setupHomepagePreference(testContext.settings())
 
         assertEquals(summary, homepagePreference.summary)
     }
@@ -246,7 +248,7 @@ class SettingsFragmentTest {
         assertTrue(homepagePreference.summary.isNullOrEmpty())
         val summary = testContext.getString(R.string.opening_screen_last_tab_summary)
 
-        settingsFragment.setupHomepagePreference()
+        settingsFragment.setupHomepagePreference(testContext.settings())
 
         assertEquals(summary, homepagePreference.summary)
     }
@@ -262,7 +264,7 @@ class SettingsFragmentTest {
         assertTrue(homepagePreference.summary.isNullOrEmpty())
         val summary = testContext.getString(R.string.opening_screen_homepage_summary)
 
-        settingsFragment.setupHomepagePreference()
+        settingsFragment.setupHomepagePreference(testContext.settings())
 
         assertEquals(summary, homepagePreference.summary)
     }
@@ -273,14 +275,10 @@ class SettingsFragmentTest {
         val searchPreference = settingsFragment.requirePreference<Preference>(
             R.string.pref_key_search_settings,
         )
-        mockkStatic("mozilla.components.browser.state.state.SearchStateKt")
-        every { testContext.components.core.store.state.search } returns mockk(relaxed = true)
-        every { any<SearchState>().selectedOrDefaultSearchEngine } returns mockk {
-            every { name } returns searchEngineName
-        }
+
         assertTrue(searchPreference.summary.isNullOrEmpty())
 
-        settingsFragment.setupSearchPreference()
+        settingsFragment.setupSearchPreference(searchEngineName)
 
         assertEquals(searchEngineName, searchPreference.summary)
     }
@@ -297,7 +295,7 @@ class SettingsFragmentTest {
         assertTrue(trackingProtectionPreference.summary.isNullOrEmpty())
         val summary = testContext.getString(R.string.tracking_protection_custom)
 
-        settingsFragment.setupTrackingProtectionPreference()
+        settingsFragment.setupTrackingProtectionPreference(testContext.settings())
 
         assertEquals(summary, trackingProtectionPreference.summary)
     }
@@ -314,7 +312,7 @@ class SettingsFragmentTest {
         assertTrue(trackingProtectionPreference.summary.isNullOrEmpty())
         val summary = testContext.getString(R.string.tracking_protection_strict)
 
-        settingsFragment.setupTrackingProtectionPreference()
+        settingsFragment.setupTrackingProtectionPreference(testContext.settings())
 
         assertEquals(summary, trackingProtectionPreference.summary)
     }
@@ -331,7 +329,7 @@ class SettingsFragmentTest {
         assertTrue(trackingProtectionPreference.summary.isNullOrEmpty())
         val summary = testContext.getString(R.string.tracking_protection_standard)
 
-        settingsFragment.setupTrackingProtectionPreference()
+        settingsFragment.setupTrackingProtectionPreference(testContext.settings())
 
         assertEquals(summary, trackingProtectionPreference.summary)
     }
@@ -345,7 +343,7 @@ class SettingsFragmentTest {
         assertTrue(trackingProtectionPreference.summary.isNullOrEmpty())
         val summary = testContext.getString(R.string.tracking_protection_off)
 
-        settingsFragment.setupTrackingProtectionPreference()
+        settingsFragment.setupTrackingProtectionPreference(testContext.settings())
 
         assertEquals(summary, trackingProtectionPreference.summary)
     }
@@ -361,7 +359,7 @@ class SettingsFragmentTest {
         assertTrue(httpsOnlyPreference.summary.isNullOrEmpty())
         val summary = testContext.getString(R.string.preferences_https_only_on_private)
 
-        settingsFragment.setupHttpsOnlyPreferences()
+        settingsFragment.setupHttpsOnlyPreferences(testContext.settings())
 
         assertEquals(summary, httpsOnlyPreference.summary)
     }
@@ -377,7 +375,7 @@ class SettingsFragmentTest {
         assertTrue(httpsOnlyPreference.summary.isNullOrEmpty())
         val summary = testContext.getString(R.string.preferences_https_only_on_all)
 
-        settingsFragment.setupHttpsOnlyPreferences()
+        settingsFragment.setupHttpsOnlyPreferences(testContext.settings())
 
         assertEquals(summary, httpsOnlyPreference.summary)
     }
@@ -391,7 +389,7 @@ class SettingsFragmentTest {
         assertTrue(httpsOnlyPreference.summary.isNullOrEmpty())
         val summary = testContext.getString(R.string.preferences_https_only_off)
 
-        settingsFragment.setupHttpsOnlyPreferences()
+        settingsFragment.setupHttpsOnlyPreferences(testContext.settings())
 
         assertEquals(summary, httpsOnlyPreference.summary)
     }
@@ -416,8 +414,55 @@ class SettingsFragmentTest {
         verify { accountManager.unregister(settingsFragment.accountObserver) }
     }
 
-    @After
-    fun tearDown() {
-        unmockkObject(FeatureFlags)
+    @Test
+    fun `GIVEN email mask feature is available for the user WHEN relay eligibility is Eligible THEN preference is visible`() {
+        val preference = settingsFragment.requirePreference<Preference>(
+            R.string.pref_key_email_masks,
+        )
+        every { testContext.settings().isEmailMaskFeatureEnabled } returns true
+        every { testContext.components.relayEligibilityStore } returns RelayEligibilityStore(RelayState(Eligible.Premium))
+
+        settingsFragment.setupEmailMaskPreference(testContext.settings(), testContext.components)
+
+        assertTrue(preference.isVisible)
+    }
+
+    @Test
+    fun `GIVEN email mask feature is available for the user WHEN relay eligibility is Ineligible THEN preference is hidden`() {
+        val preference = settingsFragment.requirePreference<Preference>(
+            R.string.pref_key_email_masks,
+        )
+        every { testContext.settings().isEmailMaskFeatureEnabled } returns true
+        every { testContext.components.relayEligibilityStore } returns RelayEligibilityStore(RelayState(Ineligible.FirefoxAccountNotLoggedIn))
+
+        settingsFragment.setupEmailMaskPreference(testContext.settings(), testContext.components)
+
+        assertFalse(preference.isVisible)
+    }
+
+    @Test
+    fun `GIVEN email mask feature is not available for the user WHEN relay eligibility is Eligible THEN preference is hidden`() {
+        val preference = settingsFragment.requirePreference<Preference>(
+            R.string.pref_key_email_masks,
+        )
+        every { testContext.settings().isEmailMaskFeatureEnabled } returns false
+        every { testContext.components.relayEligibilityStore } returns RelayEligibilityStore(RelayState(Eligible.Premium))
+
+        settingsFragment.setupEmailMaskPreference(testContext.settings(), testContext.components)
+
+        assertFalse(preference.isVisible)
+    }
+
+    @Test
+    fun `GIVEN email mask feature is not available for the user WHEN relay eligibility is Ineligible THEN preference is hidden`() {
+        val preference = settingsFragment.requirePreference<Preference>(
+            R.string.pref_key_email_masks,
+        )
+        every { testContext.settings().isEmailMaskFeatureEnabled } returns false
+        every { testContext.components.relayEligibilityStore } returns RelayEligibilityStore(RelayState(Ineligible.FirefoxAccountNotLoggedIn))
+
+        settingsFragment.setupEmailMaskPreference(testContext.settings(), testContext.components)
+
+        assertFalse(preference.isVisible)
     }
 }

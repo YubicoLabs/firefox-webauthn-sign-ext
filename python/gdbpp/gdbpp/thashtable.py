@@ -50,7 +50,7 @@ def walk_template_to_given_base(value, desired_tag_prefix):
 @GeckoPrettyPrinter("nsRefPtrHashtable", "^nsRefPtrHashtable<.*>$")
 @GeckoPrettyPrinter("nsBaseHashtable", "^nsBaseHashtable<.*>$")
 @GeckoPrettyPrinter("nsTHashtable", "^nsTHashtable<.*>$")
-class thashtable_printer(object):
+class thashtable_printer:
     def __init__(self, outer_value):
         self.outermost_type = outer_value.type
 
@@ -90,7 +90,7 @@ class thashtable_printer(object):
             if f.is_base_class:
                 continue
             # ...just to skip the fields we know exist...
-            if f.name == "mKeyHash" or f.name == "mData":
+            if f.name in {"mKeyHash", "mData"}:
                 continue
             # ...and assume the first one we find is the key.
             self.key_field_name = f.name

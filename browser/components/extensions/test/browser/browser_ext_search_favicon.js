@@ -14,8 +14,11 @@ const { SearchTestUtils } = ChromeUtils.importESModule(
 const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
 );
-const { AppProvidedSearchEngine } = ChromeUtils.importESModule(
-  "resource://gre/modules/AppProvidedSearchEngine.sys.mjs"
+const { AppProvidedConfigEngine } = ChromeUtils.importESModule(
+  "moz-src:///toolkit/components/search/ConfigSearchEngine.sys.mjs"
+);
+const { SearchService } = ChromeUtils.importESModule(
+  "moz-src:///toolkit/components/search/SearchService.sys.mjs"
 );
 
 AddonTestUtils.initMochitest(this);
@@ -26,7 +29,8 @@ SearchTestUtils.init(this);
 const FAKE_ICON_DATA = "RmFrZSBpY29uIGRhdGE=";
 
 // Base64-encoded "HTTP icon data".
-const HTTP_ICON_DATA = "SFRUUCBpY29uIGRhdGE=";
+const HTTP_ICON_DATA =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVQI12P4//8/AAX+Av7czFnnAAAAAElFTkSuQmCC";
 const HTTP_ICON_URL = "http://example.org/ico.png";
 
 const IMAGE_DATA_URI =
@@ -37,6 +41,7 @@ add_setup(async () => {
     hosts: ["example.org"],
   });
   server.registerPathHandler("/ico.png", (request, response) => {
+    response.setHeader("Content-Type", "image/png");
     response.write(atob(HTTP_ICON_DATA));
   });
 
@@ -47,7 +52,7 @@ add_setup(async () => {
   let createdBlobURLs = [];
 
   sinon
-    .stub(AppProvidedSearchEngine.prototype, "getIconURL")
+    .stub(AppProvidedConfigEngine.prototype, "getIconURL")
     .callsFake(async () => {
       let response = await fetch(IMAGE_DATA_URI);
 
@@ -67,13 +72,12 @@ add_setup(async () => {
 async function promiseEngineIconLoaded(engineName) {
   await TestUtils.topicObserved(
     "browser-search-engine-modified",
-    (engine, verb) => {
-      engine.QueryInterface(Ci.nsISearchEngine);
-      return verb == "engine-icon-changed" && engine.name == engineName;
-    }
+    (subject, verb) =>
+      verb == "engine-icon-changed" &&
+      subject.wrappedJSObject.name == engineName
   );
   Assert.ok(
-    await Services.search.getEngineByName(engineName).getIconURL(),
+    await SearchService.getEngineByName(engineName).getIconURL(),
     "Should have a valid icon URL"
   );
 }

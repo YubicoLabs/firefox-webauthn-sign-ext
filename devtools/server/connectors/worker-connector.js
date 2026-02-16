@@ -16,13 +16,13 @@ loader.lazyRequireGetter(
 /**
  * Start a DevTools server in a worker and add it as a child server for a given active connection.
  *
- * @params {DevToolsConnection} connection
- * @params {WorkerDebugger} dbg: The WorkerDebugger we want to create a target actor for.
- * @params {String} forwardingPrefix: The prefix that will be used to forward messages
- *                  to the DevToolsServer on the worker thread.
- * @params {Object} options: An option object that will be passed with the "connect" packet.
- * @params {Object} options.sessionData: The sessionData object that will be passed to the
- *                  worker target actor.
+ * @param {DevToolsConnection} connection
+ * @param {WorkerDebugger} dbg: The WorkerDebugger we want to create a target actor for.
+ * @param {string} forwardingPrefix: The prefix that will be used to forward messages
+ *                 to the DevToolsServer on the worker thread.
+ * @param {object} options: An option object that will be passed with the "connect" packet.
+ * @param {object} options.sessionData: The sessionData object that will be passed to the
+ *                 worker target actor.
  */
 function connectToWorker(connection, dbg, forwardingPrefix, options) {
   return new Promise((resolve, reject) => {
@@ -33,7 +33,9 @@ function connectToWorker(connection, dbg, forwardingPrefix, options) {
 
     // Step 1: Ensure the worker debugger is initialized.
     if (!dbg.isInitialized) {
-      dbg.initialize("resource://devtools/server/startup/worker.js");
+      dbg.initialize(
+        "resource://devtools/server/startup/shared-worker-initializer.js"
+      );
 
       // Create a listener for rpc requests from the worker debugger. Only do
       // this once, when the worker debugger is first initialized, rather than

@@ -28,6 +28,11 @@ class LoginLine extends MozLitElement {
     };
   }
 
+  static lineTypeIdMap = {
+    password: "contextual-manager-check-icon-password",
+    username: "contextual-manager-check-icon-username",
+  };
+
   #canCopy() {
     return this.lineType !== "origin";
   }
@@ -98,7 +103,7 @@ class LoginLine extends MozLitElement {
               this.alert,
               () =>
                 html` <img
-                  data-l10n-id="alert-icon"
+                  data-l10n-id="contextual-manager-alert-icon"
                   class="alert-icon"
                   src="chrome://global/skin/icons/warning-fill-12.svg"
                 />`
@@ -109,7 +114,7 @@ class LoginLine extends MozLitElement {
               this.favIcon,
               () =>
                 html` <img
-                  data-l10n-id="website-icon"
+                  data-l10n-id="contextual-manager-website-icon"
                   class="fav-icon"
                   src=${this.favIcon}
                 />`
@@ -117,7 +122,7 @@ class LoginLine extends MozLitElement {
             <input
               class="input-field"
               id="login-line-input"
-              value=${this.value}
+              .value=${this.value}
               type=${this.inputType}
               readonly
             />
@@ -127,12 +132,15 @@ class LoginLine extends MozLitElement {
           return html`
             <div class="copy-container">
               <img
-                data-l10n-id="copy-icon"
+                data-l10n-id="contextual-manager-copy-icon"
+                aria-labelledby="contextual-manager-copy-icon"
                 class="copy-icon"
                 src="chrome://global/skin/icons/edit-copy.svg"
               />
               <img
-                data-l10n-id="check-icon"
+                data-l10n-id=${ifDefined(
+                  LoginLine.lineTypeIdMap[this.lineType]
+                )}
                 class="check-icon"
                 src="chrome://global/skin/icons/check-filled.svg"
               />
@@ -172,15 +180,15 @@ class ConcealedLoginLine extends MozLitElement {
   }
 
   get #revealBtnLabel() {
-    return !this.visible ? "show-password-button" : "hide-password-button";
+    return !this.visible
+      ? "contextual-manager-show-password-button"
+      : "contextual-manager-hide-password-button";
   }
 
   #revealIconSrc() {
     return this.visible
-      ? /* eslint-disable-next-line mozilla/no-browser-refs-in-toolkit */
-        "chrome://browser/content/aboutlogins/icons/password-hide.svg"
-      : /* eslint-disable-next-line mozilla/no-browser-refs-in-toolkit */
-        "chrome://browser/content/aboutlogins/icons/password.svg";
+      ? "chrome://global/skin/icons/eye-slash.svg"
+      : "chrome://global/skin/icons/eye.svg";
   }
 
   async #onRevealButtonClick() {
@@ -188,13 +196,17 @@ class ConcealedLoginLine extends MozLitElement {
     if (!isAuthorized) {
       return;
     }
-    this.revealBtn.setAttribute("data-l10n-id", this.#revealBtnLabel);
+
+    const l10nAriaId = this.#revealBtnLabel;
+    this.revealBtn.setAttribute("data-l10n-id", l10nAriaId);
+    this.revealBtn.setAttribute("aria-labelledby", l10nAriaId);
   }
 
   render() {
     const dataL10nId = this.alert
-      ? "password-login-line-with-alert"
-      : "password-login-line";
+      ? "contextual-manager-password-login-line-with-alert"
+      : "contextual-manager-password-login-line";
+    const l10nAriaId = this.#revealBtnLabel;
     return html` <link
         rel="stylesheet"
         href="chrome://global/content/megalist/components/login-line/login-line.css"
@@ -217,7 +229,9 @@ class ConcealedLoginLine extends MozLitElement {
           role="option"
           class="reveal-button"
           type="icon ghost"
-          data-l10n-id=${this.#revealBtnLabel}
+          tabindex="-1"
+          data-l10n-id=${l10nAriaId}
+          aria-labelledby=${l10nAriaId}
           iconSrc=${this.#revealIconSrc()}
           @keypress=${async e => {
             if (e.code === "Enter") {

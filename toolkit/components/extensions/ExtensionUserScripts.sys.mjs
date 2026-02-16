@@ -6,10 +6,9 @@
 
 import { ExtensionUtils } from "resource://gre/modules/ExtensionUtils.sys.mjs";
 import { ExtensionTaskScheduler } from "resource://gre/modules/ExtensionTaskScheduler.sys.mjs";
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   KeyValueService: "resource://gre/modules/kvstore.sys.mjs",
 });
 
@@ -80,7 +79,6 @@ class Store {
    *
    * @param {string} [fromKey]
    * @param {string} [toKey]
-   * @returns {Promise<Array<[string, *]>>}
    */
   async getAllEntries(fromKey, toKey) {
     await this.lazyInit();

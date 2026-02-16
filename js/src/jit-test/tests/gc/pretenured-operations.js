@@ -39,6 +39,24 @@ check(() => { return Array(150); });
 check(() => { return new Array(); });
 check(() => { return new Array(150); });
 
+// Lambda objects.
+check(() => { return () => 0 });
+function f() {
+  let x = 1;
+  check(() => { return () => x });
+  x = 2;
+}
+f();
+
 // DOM Allocations
 let fdo = new FakeDOMObject();
 check(() => { return fdo.doBar(); })
+
+// Scripted constructors
+class C {}
+class D extends C {}
+let boundC = C.bind({},1,2);
+
+check(() => { return new C() });
+check(() => { return new D() });
+check(() => { return new boundC() });

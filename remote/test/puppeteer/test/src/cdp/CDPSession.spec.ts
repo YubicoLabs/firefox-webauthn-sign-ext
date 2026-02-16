@@ -76,8 +76,7 @@ describe('Target.createCDPSession', function () {
       waitEvent(client, 'Network.requestWillBeSent'),
       page.goto(server.EMPTY_PAGE),
     ]);
-    expect(events.size).toBe(1);
-    expect(events).toContain('Network');
+    expect(Array.from(events).sort()).toEqual(['Network']);
   });
 
   it('should enable and disable domains independently', async () => {
@@ -154,7 +153,7 @@ describe('Target.createCDPSession', function () {
           timeout: 50,
         },
       ),
-    ).rejects.toThrowError(
+    ).rejects.toThrow(
       /Increase the 'protocolTimeout' setting in launch\/connect calls for a higher timeout if needed./gi,
     );
   });
@@ -164,5 +163,23 @@ describe('Target.createCDPSession', function () {
 
     const client = await page.createCDPSession();
     expect(client.connection()).toBeTruthy();
+  });
+
+  it('should keep the underlying connection after being detached', async () => {
+    const {page} = await getTestState();
+
+    const client = await page.createCDPSession();
+    const connection = client.connection();
+    await client.detach();
+    expect(client.connection()).toBe(connection);
+  });
+
+  it('should expose detached state', async () => {
+    const {page} = await getTestState();
+
+    const client = await page.createCDPSession();
+    expect(client.detached).toBe(false);
+    await client.detach();
+    expect(client.detached).toBe(true);
   });
 });

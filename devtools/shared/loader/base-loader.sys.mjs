@@ -17,7 +17,7 @@ XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "resProto",
   "@mozilla.org/network/protocol;1?name=resource",
-  "nsIResProtocolHandler"
+  Ci.nsIResProtocolHandler
 );
 
 ChromeUtils.defineESModuleGetters(
@@ -29,7 +29,7 @@ ChromeUtils.defineESModuleGetters(
 );
 
 const VENDOR_URI = "resource://devtools/client/shared/vendor/";
-const REACT_ESM_MODULES = [
+const REACT_ESM_MODULES = new Set([
   VENDOR_URI + "react-dev.js",
   VENDOR_URI + "react.js",
   VENDOR_URI + "react-dom-dev.js",
@@ -40,8 +40,7 @@ const REACT_ESM_MODULES = [
   VENDOR_URI + "react-prop-types-dev.js",
   VENDOR_URI + "react-prop-types.js",
   VENDOR_URI + "react-test-renderer.js",
-  VENDOR_URI + "react-test-renderer-shallow.js",
-];
+]);
 
 // Define some shortcuts.
 function* getOwnIdentifiers(x) {
@@ -108,10 +107,6 @@ function join(base, ...paths) {
 //    throw exception if omitted.
 // - `prototype`: Ancestor for the sandbox that will be created. Defaults to
 //    `{}`.
-// - `invisibleToDebugger`: True, if the sandbox is part of the debugger
-//    implementation and should not be tracked by debugger API.
-// For more details see:
-// @see https://searchfox.org/mozilla-central/rev/0948667bc62415d48abff27e1405fb4ab4d65d75/js/xpconnect/idl/xpccomponents.idl#127-245
 function Sandbox(options) {
   // Normalize options and rename to match `Cu.Sandbox` expectations.
   const sandboxOptions = {
@@ -130,6 +125,7 @@ function Sandbox(options) {
       "crypto",
       "ChromeUtils",
       "CSS",
+      "CSSPositionTryDescriptors",
       "CSSRule",
       "CustomStateSet",
       "DOMParser",
@@ -145,6 +141,9 @@ function Sandbox(options) {
       "Node",
       "TextDecoder",
       "TextEncoder",
+      "TrustedHTML",
+      "TrustedScript",
+      "TrustedScriptURL",
       "URL",
       "URLSearchParams",
       "Window",
@@ -153,8 +152,6 @@ function Sandbox(options) {
 
     sandboxName: options.name,
     sandboxPrototype: "prototype" in options ? options.prototype : {},
-    invisibleToDebugger:
-      "invisibleToDebugger" in options ? options.invisibleToDebugger : false,
     freshCompartment: options.freshCompartment || false,
   };
 
@@ -348,17 +345,10 @@ export function Require(loader, requirer) {
     // Load all react modules as ES Modules, in the Browser Loader global.
     // For this we have to ensure using ChromeUtils.importESModule with `global:"current"`,
     // but executed from the Loader global scope. `syncImport` does that.
-    //
-    // Also all these modules but the react-dom-factories should have their "default"
-    // imported.
-    let importDefault = false;
-    if (REACT_ESM_MODULES.includes(uri)) {
+    if (REACT_ESM_MODULES.has(uri)) {
       // All CommonJS modules are still importing the .js/CommonJS version,
       // but we hack these require() call to load the ESM version.
       uri = uri.replace(/.js$/, ".mjs");
-      if (!uri.includes("react-dom-factories")) {
-        importDefault = true;
-      }
     }
 
     let module = null;
@@ -367,12 +357,10 @@ export function Require(loader, requirer) {
       module = modules[uri];
     } else if (isESMURI(uri)) {
       module = modules[uri] = Module(requirement, uri);
-      module.exports = ChromeUtils.importESModule(uri, {
+      const rv = ChromeUtils.importESModule(uri, {
         global: "contextual",
       });
-      if (importDefault) {
-        module.exports = module.exports.default;
-      }
+      module.exports = rv.default || rv;
     } else if (isJSONURI(uri)) {
       let data;
 
@@ -519,8 +507,6 @@ export function unload(loader, reason) {
 //   from. Map is also exposed under `globals` property of the returned loader
 //   so it can be extended further later. Defaults to `{}`.
 // - `sandboxName`: String, name of the sandbox displayed in about:memory.
-// - `invisibleToDebugger`: Boolean. Should be true when loading debugger
-//   modules, in order to ignore them from the Debugger API.
 // - `sandboxPrototype`: Object used to define globals on all module's
 //   sandboxes.
 // - `requireHook`: Optional function used to replace native require function
@@ -575,7 +561,6 @@ export function Loader(options) {
     // global objects.
     sharedGlobal = Sandbox({
       name: options.sandboxName || "DevTools",
-      invisibleToDebugger: options.invisibleToDebugger || false,
       prototype: options.sandboxPrototype || globals,
       freshCompartment: options.freshCompartment,
     });
@@ -609,11 +594,6 @@ export function Loader(options) {
     supportAMDModules: {
       enumerable: false,
       value: options.supportAMDModules || false,
-    },
-    // Whether the modules loaded should be ignored by the debugger
-    invisibleToDebugger: {
-      enumerable: false,
-      value: options.invisibleToDebugger || false,
     },
     requireHook: {
       enumerable: false,

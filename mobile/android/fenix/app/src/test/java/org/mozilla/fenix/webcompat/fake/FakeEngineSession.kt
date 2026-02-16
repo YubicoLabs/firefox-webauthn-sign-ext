@@ -30,12 +30,21 @@ internal class FakeEngineSession(
         onResult(JSONObject(jsonString))
     }
 
+    override fun sendMoreWebCompatInfo(
+        info: JSONObject,
+        onResult: () -> Unit,
+        onException: (Throwable) -> Unit,
+    ) {
+        onResult()
+    }
+
     override fun loadUrl(
         url: String,
         parent: EngineSession?,
         flags: LoadUrlFlags,
         additionalHeaders: Map<String, String>?,
         originalInput: String?,
+        textDirectiveUserActivation: Boolean,
     ) {}
 
     override fun loadData(data: String, mimeType: String, encoding: String) {}
@@ -55,6 +64,8 @@ internal class FakeEngineSession(
     override fun goToHistoryIndex(index: Int) {}
 
     override fun restoreState(state: EngineSessionState): Boolean { return false }
+
+    override fun flushSessionState() {}
 
     override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
 

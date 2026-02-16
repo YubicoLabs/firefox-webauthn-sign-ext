@@ -13,6 +13,7 @@
 #include "gfxFontConstants.h"
 #include "gfxPlatformMac.h"
 #include "nsCSSColorUtils.h"
+#include "nsAppShell.h"
 #include "mozilla/FontPropertyTypes.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/StaticPrefs_widget.h"
@@ -22,6 +23,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import <Carbon/Carbon.h>
+#import <Accessibility/Accessibility.h>
 #import <AppKit/NSColor.h>
 
 // This must be included last:
@@ -47,16 +49,10 @@ void nsLookAndFeel::EnsureInit() {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK
 
   mInitialized = true;
-  NSWindow* window =
-      [[NSWindow alloc] initWithContentRect:NSZeroRect
-                                  styleMask:NSWindowStyleMaskTitled
-                                    backing:NSBackingStoreBuffered
-                                      defer:NO];
-  auto release = MakeScopeExit([&] { [window release]; });
-
-  mRtl = window.windowTitlebarLayoutDirection ==
-         NSUserInterfaceLayoutDirectionRightToLeft;
-  mTitlebarHeight = std::ceil(window.frame.size.height);
+  // Ensure GeckoNSApplication is instantiated before creating a window,
+  // otherwise we might instantiate the wrong application class, causing
+  // exceptions to be thrown elsewhere.
+  [GeckoNSApplication sharedApplication];
 
   RecordTelemetry();
 
@@ -263,7 +259,6 @@ nsresult nsLookAndFeel::NativeGetColor(ColorID aID, ColorScheme aScheme,
                                             : NS_RGB(0xF0, 0xF0, 0xF0);
       break;
     case ColorID::Threedlightshadow:
-    case ColorID::Buttonborder:
     case ColorID::MozDisabledfield:
       aColor = aScheme == ColorScheme::Dark ? *GenericDarkColor(aID)
                                             : NS_RGB(0xDA, 0xDA, 0xDA);
@@ -320,7 +315,6 @@ nsresult nsLookAndFeel::NativeGetColor(ColorID aID, ColorScheme aScheme,
       break;
     case ColorID::MozColheader:
     case ColorID::MozColheaderhover:
-    case ColorID::MozEventreerow:
       // Background color of even list rows.
       aColor =
           GetColorFromNSColor(NSColor.controlAlternatingRowBackgroundColors[0]);
@@ -360,6 +354,10 @@ nsresult nsLookAndFeel::NativeGetColor(ColorID aID, ColorScheme aScheme,
     case ColorID::MozAutofillBackground:
     case ColorID::TargetTextBackground:
     case ColorID::TargetTextForeground:
+    case ColorID::Buttonborder:
+    case ColorID::MozButtonhoverborder:
+    case ColorID::MozButtonactiveborder:
+    case ColorID::MozButtondisabledborder:
       aColor = GetStandinForNativeColor(aID, aScheme);
       return NS_OK;
     default:
@@ -381,6 +379,13 @@ static bool SystemWantsDarkTheme() {
   return [aquaOrDarkAqua isEqualToString:NSAppearanceNameDarkAqua];
 }
 
+static bool PrefersNonBlinkingTextInsertionIndicator() {
+  if (@available(macOS 15.0, *)) {
+    return AXPrefersNonBlinkingTextInsertionIndicator();
+  }
+  return false;
+}
+
 nsresult nsLookAndFeel::NativeGetInt(IntID aID, int32_t& aResult) {
   NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
@@ -395,7 +400,7 @@ nsresult nsLookAndFeel::NativeGetInt(IntID aID, int32_t& aResult) {
       aResult = 3;
       break;
     case IntID::CaretBlinkTime:
-      aResult = 567;
+      aResult = PrefersNonBlinkingTextInsertionIndicator() ? -1 : 567;
       break;
     case IntID::CaretWidth:
       aResult = 1;
@@ -453,13 +458,8 @@ nsresult nsLookAndFeel::NativeGetInt(IntID aID, int32_t& aResult) {
     case IntID::MacBigSurTheme:
       aResult = nsCocoaFeatures::OnBigSurOrLater();
       break;
-    case IntID::MacRTL:
-      EnsureInit();
-      aResult = mRtl;
-      break;
-    case IntID::MacTitlebarHeight:
-      EnsureInit();
-      aResult = mTitlebarHeight;
+    case IntID::MacTahoeTheme:
+      aResult = nsCocoaFeatures::OnTahoeOrLater();
       break;
     case IntID::AlertNotificationOrigin:
       aResult = NS_ALERT_TOP;
@@ -516,6 +516,9 @@ nsresult nsLookAndFeel::NativeGetInt(IntID aID, int32_t& aResult) {
       break;
     case IntID::FullKeyboardAccess:
       aResult = NSApp.isFullKeyboardAccessEnabled;
+      break;
+    case IntID::NativeMenubar:
+      aResult = 1;
       break;
     default:
       aResult = 0;
@@ -603,6 +606,15 @@ nsresult nsLookAndFeel::GetKeyboardLayoutImpl(nsACString& aLayout) {
 
 - (instancetype)init {
   self = [super init];
+
+  if (@available(macOS 15.0, *)) {
+    [NSNotificationCenter.defaultCenter
+        addObserver:self
+           selector:@selector(cachedValuesChanged)
+               name:
+                   AXPrefersNonBlinkingTextInsertionIndicatorDidChangeNotification
+             object:nil];
+  }
 
   [NSNotificationCenter.defaultCenter
       addObserver:self

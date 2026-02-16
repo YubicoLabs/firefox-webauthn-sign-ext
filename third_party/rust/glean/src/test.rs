@@ -3,23 +3,35 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use std::io::Read;
-use std::sync::{Arc, Barrier, Mutex};
-use std::thread::{self, ThreadId};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::RecvTimeoutError;
 use flate2::read::GzDecoder;
-use glean_core::glean_test_get_experimentation_id;
+use glean_core::{glean_test_get_experimentation_id, DynamicLabelType, LabeledCounter};
 use serde_json::Value as JsonValue;
 
 use crate::private::PingType;
-use crate::private::{BooleanMetric, CounterMetric, EventMetric, StringMetric, TextMetric};
+use crate::private::{
+    BooleanMetric, CounterMetric, DualLabeledCounterMetric, EventMetric, StringMetric, TextMetric,
+};
 
 use super::*;
 use crate::common_test::{lock_test, new_glean, GLOBAL_APPLICATION_ID};
 
 fn new_test_ping(name: &str) -> PingType {
-    PingType::new(name, true, true, true, true, true, vec![], vec![], true)
+    PingType::new(
+        name,
+        true,
+        true,
+        true,
+        true,
+        true,
+        vec![],
+        vec![],
+        true,
+        vec![],
+    )
 }
 
 #[test]
@@ -34,7 +46,8 @@ fn send_a_ping() {
         sender: crossbeam_channel::Sender<net::PingUploadRequest>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -49,6 +62,7 @@ fn send_a_ping() {
         .with_uploader(FakeUploader { sender: s })
         .build();
 
+    glean_core::glean_set_test_mode(true);
     let _t = new_glean(Some(cfg), true);
 
     // Define a new ping and submit it.
@@ -75,7 +89,8 @@ fn send_a_ping_without_info_sections() {
         sender: crossbeam_channel::Sender<net::PingUploadRequest>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -90,6 +105,7 @@ fn send_a_ping_without_info_sections() {
         .with_uploader(FakeUploader { sender: s })
         .build();
 
+    glean_core::glean_set_test_mode(true);
     let _t = new_glean(Some(cfg), true);
 
     // Define a new ping and submit it.
@@ -104,6 +120,7 @@ fn send_a_ping_without_info_sections() {
         vec![],
         vec![],
         true,
+        vec![],
     );
     custom_ping.submit(None);
 
@@ -240,7 +257,8 @@ fn sending_of_foreground_background_pings() {
         sender: crossbeam_channel::Sender<String>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.url).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -255,6 +273,7 @@ fn sending_of_foreground_background_pings() {
         .with_uploader(FakeUploader { sender: s })
         .build();
 
+    glean_core::glean_set_test_mode(true);
     let _t = new_glean(Some(cfg), true);
 
     // Simulate becoming active.
@@ -308,7 +327,8 @@ fn sending_of_startup_baseline_ping() {
         sender: crossbeam_channel::Sender<String>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.url).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -337,6 +357,8 @@ fn sending_of_startup_baseline_ping() {
 fn no_dirty_baseline_on_clean_shutdowns() {
     let _lock = lock_test();
 
+    glean_core::glean_set_test_mode(true);
+
     // Create an instance of Glean, wait for init and then flip the dirty
     // bit to true.
     let data_dir = new_glean(None, true);
@@ -355,7 +377,8 @@ fn no_dirty_baseline_on_clean_shutdowns() {
         sender: crossbeam_channel::Sender<String>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.url).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -571,6 +594,8 @@ fn ping_collection_must_happen_after_concurrently_scheduled_metrics_recordings()
 
     let (s, r) = crossbeam_channel::bounded(1);
 
+    glean_core::glean_set_test_mode(true);
+
     // Define a fake uploader that reports back the submission URL
     // using a crossbeam channel.
     #[derive(Debug)]
@@ -578,8 +603,9 @@ fn ping_collection_must_happen_after_concurrently_scheduled_metrics_recordings()
         sender: crossbeam_channel::Sender<(String, JsonValue)>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
-            let net::PingUploadRequest { body, url, .. } = upload_request;
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let net::PingUploadRequest { body, url, .. } =
+                upload_request.capable(|_| true).unwrap();
             // Decode the gzipped body.
             let mut gzip_decoder = GzDecoder::new(&body[..]);
             let mut s = String::with_capacity(body.len());
@@ -663,9 +689,8 @@ fn basic_metrics_should_be_cleared_when_disabling_uploading() {
     assert_eq!("TEST VALUE", metric.test_get_value(None).unwrap());
 }
 
-// TODO: Should probably move into glean-core.
 #[test]
-fn core_metrics_should_be_cleared_and_restored_when_disabling_and_enabling_uploading() {
+fn core_metrics_are_not_cleared_when_disabling_and_enabling_uploading() {
     let _lock = lock_test();
 
     let dir = tempfile::tempdir().unwrap();
@@ -691,12 +716,13 @@ fn core_metrics_should_be_cleared_and_restored_when_disabling_and_enabling_uploa
     });
 
     assert!(os_version.test_get_value(None).is_some());
+    let initial_value = os_version.test_get_value(None).unwrap();
 
     set_upload_enabled(false);
-    assert!(os_version.test_get_value(None).is_none());
+    assert_eq!(initial_value, os_version.test_get_value(None).unwrap());
 
     set_upload_enabled(true);
-    assert!(os_version.test_get_value(None).is_some());
+    assert_eq!(initial_value, os_version.test_get_value(None).unwrap());
 }
 
 #[test]
@@ -712,7 +738,8 @@ fn sending_deletion_ping_if_disabled_outside_of_run() {
         sender: crossbeam_channel::Sender<String>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.url).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -750,6 +777,8 @@ fn no_sending_of_deletion_ping_if_unchanged_outside_of_run() {
 
     let (s, r) = crossbeam_channel::bounded::<String>(1);
 
+    glean_core::glean_set_test_mode(true);
+
     // Define a fake uploader that reports back the submission URL
     // using a crossbeam channel.
     #[derive(Debug)]
@@ -757,7 +786,8 @@ fn no_sending_of_deletion_ping_if_unchanged_outside_of_run() {
         sender: crossbeam_channel::Sender<String>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.url).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -800,7 +830,8 @@ fn deletion_request_ping_contains_experimentation_id() {
         sender: crossbeam_channel::Sender<JsonValue>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             let body = upload_request.body;
             let mut gzip_decoder = GzDecoder::new(&body[..]);
             let mut body_str = String::with_capacity(body.len());
@@ -864,8 +895,9 @@ fn test_sending_of_startup_baseline_ping_with_application_lifetime_metric() {
         sender: crossbeam_channel::Sender<(String, JsonValue)>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
-            let net::PingUploadRequest { url, body, .. } = upload_request;
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let net::PingUploadRequest { url, body, .. } =
+                upload_request.capable(|_| true).unwrap();
             // Decode the gzipped body.
             let mut gzip_decoder = GzDecoder::new(&body[..]);
             let mut s = String::with_capacity(body.len());
@@ -945,7 +977,8 @@ fn setting_debug_view_tag_before_initialization_should_not_crash() {
         sender: crossbeam_channel::Sender<Vec<(String, String)>>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.headers).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -991,7 +1024,8 @@ fn setting_source_tags_before_initialization_should_not_crash() {
         sender: crossbeam_channel::Sender<Vec<(String, String)>>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.headers).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -1036,7 +1070,8 @@ fn setting_source_tags_after_initialization_should_not_crash() {
         sender: crossbeam_channel::Sender<Vec<(String, String)>>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.headers).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -1051,6 +1086,7 @@ fn setting_source_tags_after_initialization_should_not_crash() {
         .with_uploader(FakeUploader { sender: s })
         .build();
 
+    glean_core::glean_set_test_mode(true);
     let _t = new_glean(Some(cfg), true);
 
     // Attempt to set source tags after `Glean.initialize` is called,
@@ -1088,6 +1124,8 @@ fn flipping_upload_enabled_respects_order_of_events() {
 
     let (s, r) = crossbeam_channel::bounded::<String>(1);
 
+    glean_core::glean_set_test_mode(true);
+
     // Define a fake uploader that reports back the submission URL
     // using a crossbeam channel.
     #[derive(Debug)]
@@ -1095,7 +1133,8 @@ fn flipping_upload_enabled_respects_order_of_events() {
         sender: crossbeam_channel::Sender<String>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.url).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -1148,7 +1187,8 @@ fn registering_pings_before_init_must_work() {
         sender: crossbeam_channel::Sender<String>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.url).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -1166,6 +1206,7 @@ fn registering_pings_before_init_must_work() {
         .with_uploader(FakeUploader { sender: s })
         .build();
 
+    glean_core::glean_set_test_mode(true);
     let _t = new_glean(Some(cfg), true);
 
     // Submit a test ping.
@@ -1189,7 +1230,8 @@ fn test_a_ping_before_submission() {
         sender: crossbeam_channel::Sender<String>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.url).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -1204,6 +1246,7 @@ fn test_a_ping_before_submission() {
         .with_uploader(FakeUploader { sender: s })
         .build();
 
+    glean_core::glean_set_test_mode(true);
     let _t = new_glean(Some(cfg), true);
 
     // Create a custom ping and register it.
@@ -1245,12 +1288,77 @@ fn test_boolean_get_num_errors() {
         send_in_pings: vec!["custom1".into()],
         lifetime: Lifetime::Application,
         disabled: false,
-        dynamic_label: Some(str::to_string("asdf")),
+        dynamic_label: Some(DynamicLabelType::Label(str::to_string("asdf"))),
     });
 
     // Check specifically for an invalid label
     let result = metric.test_get_num_recorded_errors(ErrorType::InvalidLabel);
 
+    assert_eq!(result, 0);
+}
+
+#[test]
+fn test_labeled_counter_metric() {
+    let _lock = lock_test();
+
+    let _t = new_glean(None, false);
+
+    let metric = LabeledCounter::new(
+        LabeledMetricData::Common {
+            cmd: CommonMetricData {
+                name: "labeled_counter".into(),
+                category: "telemetry".into(),
+                send_in_pings: vec!["store1".into()],
+                disabled: false,
+                lifetime: Lifetime::Ping,
+                ..Default::default()
+            },
+        },
+        Some(vec!["key1".into()]),
+    );
+
+    metric.get("key1").add(1);
+    metric.get("key2").add(2);
+
+    // Check that the value was recorded
+    let value = metric.test_get_value(Some("store1".into())).unwrap();
+    assert_eq!(value["key1"], 1);
+    assert_eq!(value["key2"], 2);
+
+    // Check for an invalid label
+    let result = metric.test_get_num_recorded_errors(ErrorType::InvalidLabel);
+    assert_eq!(result, 0);
+}
+
+#[test]
+fn test_dual_labeled_counter_metric() {
+    let _lock = lock_test();
+
+    let _t = new_glean(None, false);
+
+    let metric = DualLabeledCounterMetric::new(
+        CommonMetricData {
+            name: "dual_labeled_counter".into(),
+            category: "telemetry".into(),
+            send_in_pings: vec!["store1".into()],
+            disabled: false,
+            lifetime: Lifetime::Ping,
+            ..Default::default()
+        },
+        Some(vec!["key1".into()]),
+        Some(vec!["category1".into()]),
+    );
+
+    metric.get("key1", "category1").add(1);
+
+    // Check that the value was recorded
+    let value = metric
+        .get("key1", "category1")
+        .test_get_value(Some("store1".into()));
+    assert_eq!(value.unwrap(), 1);
+
+    // Check for an invalid label
+    let result = metric.test_get_num_recorded_errors(ErrorType::InvalidLabel);
     assert_eq!(result, 0);
 }
 
@@ -1266,7 +1374,7 @@ fn test_text_can_hold_long_string() {
         send_in_pings: vec!["custom1".into()],
         lifetime: Lifetime::Application,
         disabled: false,
-        dynamic_label: Some(str::to_string("text")),
+        dynamic_label: Some(DynamicLabelType::Label(str::to_string("text"))),
     });
 
     // 216 characters, which would overflow StringMetric
@@ -1280,80 +1388,12 @@ fn test_text_can_hold_long_string() {
 }
 
 #[test]
-fn signaling_done() {
-    let _lock = lock_test();
-
-    // Define a fake uploader that reports back the submission URL
-    // using a crossbeam channel.
-    #[derive(Debug)]
-    pub struct FakeUploader {
-        barrier: Arc<Barrier>,
-        counter: Arc<Mutex<HashMap<ThreadId, u32>>>,
-    }
-    impl net::PingUploader for FakeUploader {
-        fn upload(&self, _upload_request: net::PingUploadRequest) -> net::UploadResult {
-            let mut map = self.counter.lock().unwrap();
-            *map.entry(thread::current().id()).or_insert(0) += 1;
-
-            // Wait for the sync.
-            self.barrier.wait();
-
-            // Signal that this uploader thread is done.
-            net::UploadResult::done()
-        }
-    }
-
-    // Create a custom configuration to use a fake uploader.
-    let dir = tempfile::tempdir().unwrap();
-    let tmpname = dir.path().to_path_buf();
-
-    // We use a barrier to sync this test thread with the uploader thread.
-    let barrier = Arc::new(Barrier::new(2));
-    // We count how many times `upload` was invoked per thread.
-    let call_count = Arc::new(Mutex::default());
-
-    let cfg = ConfigurationBuilder::new(true, tmpname, GLOBAL_APPLICATION_ID)
-        .with_server_endpoint("invalid-test-host")
-        .with_uploader(FakeUploader {
-            barrier: Arc::clone(&barrier),
-            counter: Arc::clone(&call_count),
-        })
-        .build();
-
-    let _t = new_glean(Some(cfg), true);
-
-    // Define a new ping and submit it.
-    const PING_NAME: &str = "test-ping";
-    let custom_ping = new_test_ping(PING_NAME);
-    custom_ping.submit(None);
-    custom_ping.submit(None);
-
-    // Sync up with the upload thread.
-    barrier.wait();
-
-    // Submit another ping and wait for it to do work.
-    custom_ping.submit(None);
-
-    // Sync up with the upload thread again.
-    // This will not be the same thread as the one before (hopefully).
-    barrier.wait();
-
-    // No one's ever gonna wait for the uploader thread (the RLB doesn't store the handle to it),
-    // so all we can do is hope it finishes within time.
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    let map = call_count.lock().unwrap();
-    assert_eq!(2, map.len(), "should have launched 2 uploader threads");
-    for &count in map.values() {
-        assert_eq!(1, count, "each thread should call upload only once");
-    }
-}
-
-#[test]
 fn configure_ping_throttling() {
     let _lock = lock_test();
 
     let (s, r) = crossbeam_channel::bounded::<String>(1);
+
+    glean_core::glean_set_test_mode(true);
 
     // Define a fake uploader that reports back the submission URL
     // using a crossbeam channel.
@@ -1363,7 +1403,8 @@ fn configure_ping_throttling() {
         done: Arc<std::sync::atomic::AtomicBool>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             if self.done.load(std::sync::atomic::Ordering::SeqCst) {
                 // If we've outlived the test, just lie.
                 return net::UploadResult::http_status(200);
@@ -1438,7 +1479,8 @@ fn pings_ride_along_builtin_pings() {
         sender: crossbeam_channel::Sender<String>,
     }
     impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::PingUploadRequest) -> net::UploadResult {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
             self.sender.send(upload_request.url).unwrap();
             net::UploadResult::http_status(200)
         }
@@ -1456,6 +1498,7 @@ fn pings_ride_along_builtin_pings() {
         .with_ping_schedule(ping_schedule)
         .build();
 
+    glean_core::glean_set_test_mode(true);
     let _t = new_glean(Some(cfg), true);
 
     let _ride_along_ping = new_test_ping("ride-along");
@@ -1470,4 +1513,106 @@ fn pings_ride_along_builtin_pings() {
     // We expect a ride-along ping to ride along.
     let url = r.recv().unwrap();
     assert!(url.contains("ride-along"));
+}
+
+#[test]
+fn pings_get_submitted_on_disabled_ping_schedule() {
+    let _lock = lock_test();
+
+    // Define a fake uploader that reports back the submission headers
+    // using a crossbeam channel.
+    let (s, r) = crossbeam_channel::bounded::<String>(3);
+
+    #[derive(Debug)]
+    pub struct FakeUploader {
+        sender: crossbeam_channel::Sender<String>,
+    }
+    impl net::PingUploader for FakeUploader {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
+            self.sender.send(upload_request.url).unwrap();
+            net::UploadResult::http_status(200)
+        }
+    }
+
+    // Create a custom configuration to use a fake uploader.
+    let dir = tempfile::tempdir().unwrap();
+    let tmpname = dir.path().to_path_buf();
+
+    let ping_schedule = HashMap::from([("baseline".to_string(), vec!["ride-along".to_string()])]);
+
+    let cfg = ConfigurationBuilder::new(false, tmpname, GLOBAL_APPLICATION_ID)
+        .with_server_endpoint("invalid-test-host")
+        .with_uploader(FakeUploader { sender: s })
+        .with_ping_schedule(ping_schedule)
+        .build();
+
+    let _t = new_glean(Some(cfg), true);
+
+    let ride_along_ping = PingType::new(
+        "ride-along",
+        true,
+        true,
+        true,
+        true,
+        true,
+        vec![],
+        vec![],
+        false,
+        vec![],
+    );
+    ride_along_ping.set_enabled(true);
+
+    // Simulate becoming active.
+    handle_client_active();
+
+    // We expect a ride-along ping to ride along.
+    let url = r.recv_timeout(Duration::from_millis(100)).unwrap();
+    assert!(url.contains("ride-along"));
+}
+
+#[test]
+fn test_attribution_and_distribution_updates_before_glean_inits() {
+    let _lock = lock_test();
+    let dir = tempfile::tempdir().unwrap();
+    let tmpname = dir.path().to_path_buf();
+
+    destroy_glean(true, &tmpname);
+
+    // No Glean, let's set and update some attribution + distribution.
+    let mut attribution = AttributionMetrics {
+        source: Some("source".into()),
+        medium: Some("medium".into()),
+        campaign: Some("campaign".into()),
+        term: Some("term".into()),
+        content: Some("content".into()),
+    };
+    let distribution = DistributionMetrics {
+        name: Some("name".into()),
+    };
+    update_attribution(attribution.clone());
+    update_distribution(distribution);
+
+    let attribution_update = AttributionMetrics {
+        term: Some("new term".into()),
+        ..Default::default()
+    };
+    let distribution_update = DistributionMetrics {
+        name: Some("different name".into()),
+    };
+    update_attribution(attribution_update);
+    update_distribution(distribution_update.clone());
+
+    test_reset_glean(
+        ConfigurationBuilder::new(true, tmpname, GLOBAL_APPLICATION_ID)
+            .with_server_endpoint("invalid-test-host")
+            .build(),
+        ClientInfoMetrics::unknown(),
+        false,
+    );
+
+    // Ensure the updated attribution + distribution are correctly stored.
+    attribution.term = Some("new term".into());
+    assert_eq!(attribution, test_get_attribution());
+    assert_eq!(distribution_update, test_get_distribution());
 }

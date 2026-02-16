@@ -31,11 +31,12 @@ pub(crate) use handlevec::HandleVec;
 pub use range::{BadRangeError, Range};
 pub use unique_arena::UniqueArena;
 
+use alloc::vec::Vec;
+use core::{fmt, ops};
+
 use crate::Span;
 
 use handle::Index;
-
-use std::{fmt, ops};
 
 /// An arena holding some kind of component (e.g., type, constant,
 /// instruction, etc.) that can be referenced.
@@ -77,18 +78,17 @@ impl<T> Arena<T> {
     }
 
     /// Extracts the inner vector.
-    #[allow(clippy::missing_const_for_fn)] // ignore due to requirement of #![feature(const_precise_live_drops)]
     pub fn into_inner(self) -> Vec<T> {
         self.data
     }
 
     /// Returns the current number of items stored in this arena.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Returns `true` if the arena contains no elements.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
@@ -101,9 +101,21 @@ impl<T> Arena<T> {
             .map(|(i, v)| unsafe { (Handle::from_usize_unchecked(i), v) })
     }
 
+    /// Returns an iterator over the items stored in this arena, returning both
+    /// the item's handle and a reference to it.
+    pub fn iter_mut_span(
+        &mut self,
+    ) -> impl DoubleEndedIterator<Item = (Handle<T>, &mut T, &Span)> + ExactSizeIterator {
+        self.data
+            .iter_mut()
+            .zip(self.span_info.iter())
+            .enumerate()
+            .map(|(i, (v, span))| unsafe { (Handle::from_usize_unchecked(i), v, span) })
+    }
+
     /// Drains the arena, returning an iterator over the items stored.
     pub fn drain(&mut self) -> impl DoubleEndedIterator<Item = (Handle<T>, T, Span)> {
-        let arena = std::mem::take(self);
+        let arena = core::mem::take(self);
         arena
             .data
             .into_iter()
@@ -221,7 +233,6 @@ impl<T> Arena<T> {
         Ok(())
     }
 
-    #[cfg(feature = "compact")]
     pub(crate) fn retain_mut<P>(&mut self, mut predicate: P)
     where
         P: FnMut(Handle<T>, &mut T) -> bool,
@@ -258,9 +269,7 @@ where
         D: serde::Deserializer<'de>,
     {
         let data = Vec::deserialize(deserializer)?;
-        let span_info = std::iter::repeat(Span::default())
-            .take(data.len())
-            .collect();
+        let span_info = core::iter::repeat_n(Span::default(), data.len()).collect();
 
         Ok(Self { data, span_info })
     }

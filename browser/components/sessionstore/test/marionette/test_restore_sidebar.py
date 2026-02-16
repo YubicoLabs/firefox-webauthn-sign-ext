@@ -12,9 +12,7 @@ from session_store_test_case import SessionStoreTestCase
 
 
 def inline(title):
-    return "data:text/html;charset=utf-8,<html><head><title>{}</title></head><body></body></html>".format(
-        title
-    )
+    return f"data:text/html;charset=utf-8,<html><head><title>{title}</title></head><body></body></html>"
 
 
 class TestSessionRestore(SessionStoreTestCase):
@@ -23,18 +21,16 @@ class TestSessionRestore(SessionStoreTestCase):
     """
 
     def setUp(self):
-        super(TestSessionRestore, self).setUp(
+        super().setUp(
             startup_page=1,
             include_private=False,
             restore_on_demand=True,
-            test_windows=set(
-                [
-                    (
-                        inline("lorem ipsom"),
-                        inline("dolor"),
-                    ),
-                ]
-            ),
+            test_windows=set([
+                (
+                    inline("lorem ipsom"),
+                    inline("dolor"),
+                ),
+            ]),
         )
 
     def test_restore_sidebar_open(self):
@@ -43,12 +39,14 @@ class TestSessionRestore(SessionStoreTestCase):
             1,
             msg="Should have 1 window open.",
         )
-        self.marionette.execute_script(
+        self.marionette.execute_async_script(
             """
+            const resolve = arguments[0];
             let window = BrowserWindowTracker.getTopWindow()
-            window.SidebarController.show("viewHistorySidebar");
-            let sidebarBox = window.document.getElementById("sidebar-box")
-            sidebarBox.style.width = "100px";
+            window.SidebarController.show("viewHistorySidebar").then(() => {
+              let sidebarBox = window.document.getElementById("sidebar-box")
+              sidebarBox.style.width = "100px";
+            }).then(resolve);
             """
         )
 
@@ -110,13 +108,15 @@ class TestSessionRestore(SessionStoreTestCase):
         )
 
     def test_restore_sidebar_closed(self):
-        self.marionette.execute_script(
+        self.marionette.execute_async_script(
             """
+            const resolve = arguments[0];
             let window = BrowserWindowTracker.getTopWindow()
-            window.SidebarController.show("viewHistorySidebar");
-            let sidebarBox = window.document.getElementById("sidebar-box")
-            sidebarBox.style.width = "100px";
-            window.SidebarController.toggle();
+            window.SidebarController.show("viewHistorySidebar").then(() => {
+             let sidebarBox = window.document.getElementById("sidebar-box")
+             sidebarBox.style.width = "100px";
+             window.SidebarController.toggle();
+            }).then(resolve);
             """
         )
 
@@ -225,19 +225,19 @@ class TestSessionRestore(SessionStoreTestCase):
             1,
             msg="Should have 1 window open.",
         )
-        self.assertFalse(
+        self.assertTrue(
             self.marionette.execute_script(
                 """
                 const window = BrowserWindowTracker.getTopWindow();
                 return window.SidebarController.sidebarContainer.hidden;
                 """
             ),
-            "Sidebar is visible before window is closed.",
+            "Sidebar is hidden before window is closed.",
         )
 
         self.marionette.restart()
 
-        self.assertFalse(
+        self.assertTrue(
             self.marionette.execute_script(
                 """
                 const window = BrowserWindowTracker.getTopWindow();
@@ -287,3 +287,18 @@ class TestSessionRestore(SessionStoreTestCase):
             "viewHistorySidebar",
             "Correct sidebar category has been restored.",
         )
+
+    def test_upgrade_profile_and_restore_sidebar_from_backup_pref(self):
+        # Bug 1963549 - Sidebar bookmarks no longer open automatically since the last update.
+        self.marionette.execute_script(
+            """
+            Services.prefs.setIntPref("browser.migration.version", 154);
+            Services.xulStore.setValue(
+                AppConstants.BROWSER_CHROME_URL,
+                "sidebar-box",
+                "checked",
+                "true"
+            );
+            """
+        )
+        self.test_restore_sidebar_open_from_backup_pref()

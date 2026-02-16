@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdint>
 
+#include "EXIF.h"
 #include "gfxColor.h"
 #include "gfxPlatform.h"
 #include "imgFrame.h"
@@ -22,7 +23,6 @@
 #include "SurfaceCache.h"
 #include "SurfacePipeFactory.h"
 #include "mozilla/DebugOnly.h"
-#include "mozilla/Telemetry.h"
 
 using namespace mozilla::gfx;
 
@@ -130,12 +130,17 @@ nsPNGDecoder::~nsPNGDecoder() {
 }
 
 nsPNGDecoder::TransparencyType nsPNGDecoder::GetTransparencyType(
-    const OrientedIntRect& aFrameRect) {
+    const UnorientedIntRect& aFrameRect) {
+  MOZ_ASSERT(GetOrientation().IsIdentity() || !HasAnimation(),
+             "can't be oriented and have animation");
+
   // Check if the image has a transparent color in its palette.
   if (HasAlphaChannel()) {
     return TransparencyType::eAlpha;
   }
-  if (!aFrameRect.IsEqualEdges(FullFrame())) {
+  if (!aFrameRect.IsEqualEdges(
+          UnorientedIntRect(IntPointTyped<mozilla::UnorientedPixel>(0, 0),
+                            GetOrientation().ToUnoriented(Size())))) {
     MOZ_ASSERT(HasAnimation());
     return TransparencyType::eFrameRect;
   }
@@ -184,7 +189,8 @@ nsresult nsPNGDecoder::CreateFrame(const FrameInfo& aFrameInfo) {
 
   Maybe<AnimationParams> animParams;
 #ifdef PNG_APNG_SUPPORTED
-  if (!IsFirstFrameDecode() && png_get_valid(mPNG, mInfo, PNG_INFO_acTL)) {
+  const bool isAnimated = png_get_valid(mPNG, mInfo, PNG_INFO_acTL);
+  if (!IsFirstFrameDecode() && isAnimated) {
     mAnimInfo = AnimFrameInfo(mPNG, mInfo);
 
     if (mAnimInfo.mDispose == DisposalMethod::CLEAR) {
@@ -200,15 +206,44 @@ nsresult nsPNGDecoder::CreateFrame(const FrameInfo& aFrameInfo) {
   }
 #endif
 
-  // If this image is interlaced, we can display better quality intermediate
-  // results to the user by post processing them with ADAM7InterpolatingFilter.
-  SurfacePipeFlags pipeFlags = aFrameInfo.mIsInterlaced
-                                   ? SurfacePipeFlags::ADAM7_INTERPOLATE
-                                   : SurfacePipeFlags();
+  MOZ_ASSERT(GetOrientation().IsIdentity() || !animParams.isSome(),
+             "can't be oriented and have animation");
+  MOZ_ASSERT(GetOrientation().IsIdentity() || !aFrameInfo.mIsInterlaced,
+             "can't be oriented and be doing interlacing");
 
-  if (mNumFrames == 0) {
-    // The first frame may be displayed progressively.
-    pipeFlags |= SurfacePipeFlags::PROGRESSIVE_DISPLAY;
+  const bool wantToReorient = !GetOrientation().IsIdentity();
+
+#ifdef DEBUG
+  const bool isFullFrame = aFrameInfo.mFrameRect.IsEqualEdges(
+      UnorientedIntRect(IntPointTyped<mozilla::UnorientedPixel>(0, 0),
+                        GetOrientation().ToUnoriented(Size())));
+#  ifdef PNG_APNG_SUPPORTED
+  MOZ_ASSERT(isAnimated || isFullFrame,
+             "can only have partial frames if animated");
+#  endif
+  MOZ_ASSERT(!wantToReorient || isFullFrame,
+             "can only have partial frames if not re-orienting");
+#endif
+
+  SurfacePipeFlags pipeFlags = SurfacePipeFlags();
+
+  // We disable progressive display if we are reoriented because we don't
+  // support that yet in the reorienting pipeline. And the Adam7 flag doesn't do
+  // anything unless the progressive display flag is passed, so we've already
+  // disabled interlacing by the time we get here if we are reorienting (but we
+  // check again for symmetry).
+  if (!wantToReorient) {
+    if (mNumFrames == 0) {
+      // The first frame may be displayed progressively.
+      pipeFlags |= SurfacePipeFlags::PROGRESSIVE_DISPLAY;
+    }
+
+    if (aFrameInfo.mIsInterlaced) {
+      // If this image is interlaced, we can display better quality intermediate
+      // results to the user by post processing them with
+      // ADAM7InterpolatingFilter.
+      pipeFlags |= SurfacePipeFlags::ADAM7_INTERPOLATE;
+    }
   }
 
   SurfaceFormat inFormat;
@@ -231,9 +266,19 @@ nsresult nsPNGDecoder::CreateFrame(const FrameInfo& aFrameInfo) {
   }
 
   qcms_transform* pipeTransform = mUsePipeTransform ? mTransform : nullptr;
-  Maybe<SurfacePipe> pipe = SurfacePipeFactory::CreateSurfacePipe(
-      this, Size(), OutputSize(), aFrameInfo.mFrameRect, inFormat, mFormat,
-      animParams, pipeTransform, pipeFlags);
+  Maybe<SurfacePipe> pipe;
+  if (!wantToReorient) {
+    // If we get here then the orientation is the identity, so it is valid to
+    // convert mFrameRect directly from Unoriented to Oriented.
+    pipe = SurfacePipeFactory::CreateSurfacePipe(
+        this, Size(), OutputSize(),
+        OrientedIntRect::FromUnknownRect(aFrameInfo.mFrameRect.ToUnknownRect()),
+        inFormat, mFormat, animParams, pipeTransform, pipeFlags);
+  } else {
+    pipe = SurfacePipeFactory::CreateReorientSurfacePipe(
+        this, Size(), OutputSize(), inFormat, mFormat, pipeTransform,
+        GetOrientation(), pipeFlags);
+  }
 
   if (!pipe) {
     mPipe = SurfacePipe();
@@ -276,7 +321,6 @@ nsresult nsPNGDecoder::InitInternal() {
   static png_byte color_chunks[] = {99,  72, 82, 77, '\0',     // cHRM
                                     105, 67, 67, 80, '\0'};    // iCCP
   static png_byte unused_chunks[] = {98,  75, 71, 68,  '\0',   // bKGD
-                                     101, 88, 73, 102, '\0',   // eXIf
                                      104, 73, 83, 84,  '\0',   // hIST
                                      105, 84, 88, 116, '\0',   // iTXt
                                      111, 70, 70, 115, '\0',   // oFFs
@@ -446,8 +490,12 @@ uint32_t nsPNGDecoder::ReadColorProfile(png_structp png_ptr, png_infop info_ptr,
                    "supported\n"));
         }
 
-        mInProfile = qcms_profile_create_cicp(primaries, tc);
+        mInProfile = qcms_profile_create_cicp(
+            primaries, ChooseTransferCharacteristics(tc));
         if (mInProfile) {
+          if (!(color_type & PNG_COLOR_MASK_COLOR)) {
+            png_set_gray_to_rgb(png_ptr);
+          }
           return qcms_profile_get_rendering_intent(mInProfile);
         }
       }
@@ -552,10 +600,29 @@ void nsPNGDecoder::info_callback(png_structp png_ptr, png_infop info_ptr) {
   png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth, &color_type,
                &interlace_type, &compression_type, &filter_type);
 
-  const OrientedIntRect frameRect(0, 0, width, height);
+#ifdef PNG_APNG_SUPPORTED
+  const bool isAnimated = png_get_valid(png_ptr, info_ptr, PNG_INFO_acTL);
+#endif
 
-  // Post our size to the superclass
-  decoder->PostSize(frameRect.Width(), frameRect.Height());
+  // We only support exif orientation for non-animated images.
+  png_uint_32 num_exif_bytes = 0;
+  png_bytep exifdata = nullptr;
+  if (
+#ifdef PNG_APNG_SUPPORTED
+      !isAnimated &&
+#endif
+      png_get_eXIf_1(png_ptr, info_ptr, &num_exif_bytes, &exifdata) &&
+      num_exif_bytes > 0 && exifdata) {
+
+    EXIFData exif = EXIFParser::Parse(/* aExpectExifIdCode = */ false, exifdata,
+                                      static_cast<uint32_t>(num_exif_bytes),
+                                      gfx::IntSize(width, height));
+    decoder->PostSize(width, height, exif.orientation, exif.resolution);
+  } else {
+    decoder->PostSize(width, height);
+  }
+
+  const UnorientedIntRect frameRect(0, 0, width, height);
 
   if (width > SurfaceCache::MaximumCapacity() / (bit_depth > 8 ? 16 : 8)) {
     // libpng needs space to allocate two row buffers
@@ -578,22 +645,6 @@ void nsPNGDecoder::info_callback(png_structp png_ptr, png_infop info_ptr) {
   if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS)) {
     png_color_16p trans_values;
     png_get_tRNS(png_ptr, info_ptr, &trans, &num_trans, &trans_values);
-    // libpng doesn't reject a tRNS chunk with out-of-range samples
-    // so we check it here to avoid setting up a useless opacity
-    // channel or producing unexpected transparent pixels (bug #428045)
-    if (bit_depth < 16) {
-      png_uint_16 sample_max = (1 << bit_depth) - 1;
-      if ((color_type == PNG_COLOR_TYPE_GRAY &&
-           trans_values->gray > sample_max) ||
-          (color_type == PNG_COLOR_TYPE_RGB &&
-           (trans_values->red > sample_max ||
-            trans_values->green > sample_max ||
-            trans_values->blue > sample_max))) {
-        // clear the tRNS valid flag and release tRNS memory
-        png_free_data(png_ptr, info_ptr, PNG_FREE_TRNS, 0);
-        num_trans = 0;
-      }
-    }
     if (num_trans != 0) {
       png_set_expand(png_ptr);
     }
@@ -630,7 +681,9 @@ void nsPNGDecoder::info_callback(png_structp png_ptr, png_infop info_ptr) {
   }
 
   // Let libpng expand interlaced images.
-  const bool isInterlaced = interlace_type == PNG_INTERLACE_ADAM7;
+  // We only support interlacing for images that aren't rotated with exif data.
+  const bool isInterlaced = (interlace_type == PNG_INTERLACE_ADAM7) &&
+                            decoder->GetOrientation().IsIdentity();
   if (isInterlaced) {
     png_set_interlace_handling(png_ptr);
   }
@@ -649,7 +702,6 @@ void nsPNGDecoder::info_callback(png_structp png_ptr, png_infop info_ptr) {
   }
 
 #ifdef PNG_APNG_SUPPORTED
-  bool isAnimated = png_get_valid(png_ptr, info_ptr, PNG_INFO_acTL);
   if (isAnimated) {
     int32_t rawTimeout = GetNextFrameDelay(png_ptr, info_ptr);
     decoder->PostIsAnimated(FrameTimeout::FromRawMilliseconds(rawTimeout));
@@ -755,7 +807,7 @@ void nsPNGDecoder::info_callback(png_structp png_ptr, png_infop info_ptr) {
     }
   }
 
-  if (interlace_type == PNG_INTERLACE_ADAM7) {
+  if (isInterlaced) {
     if (frameRect.Height() <
         INT32_MAX / (frameRect.Width() * int32_t(channels))) {
       const size_t bufferSize =
@@ -966,7 +1018,7 @@ void nsPNGDecoder::frame_info_callback(png_structp png_ptr,
 
   // Save the information necessary to create the frame; we'll actually create
   // it when we return from the yield.
-  const OrientedIntRect frameRect(
+  const UnorientedIntRect frameRect(
       png_get_next_frame_x_offset(png_ptr, decoder->mInfo),
       png_get_next_frame_y_offset(png_ptr, decoder->mInfo),
       png_get_next_frame_width(png_ptr, decoder->mInfo),

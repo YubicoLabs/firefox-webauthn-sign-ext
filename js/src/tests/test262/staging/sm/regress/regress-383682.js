@@ -4,9 +4,8 @@
  */
 
 /*---
-includes: [sm/non262-shell.js, sm/non262.js]
 flags:
-- noStrict
+  - noStrict
 description: |
   pending
 esid: pending
@@ -24,9 +23,6 @@ test();
 
 function test()
 {
-  printBugNumber(BUGNUMBER);
-  printStatus (summary);
- 
   function f(s) {
     return this.eval(s);
   }

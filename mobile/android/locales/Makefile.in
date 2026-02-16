@@ -10,12 +10,6 @@ SUBMAKEFILES += \
         $(DEPTH)/mobile/locales/Makefile \
         $(NULL)
 
-L10N_PREF_JS_EXPORTS = $(firstword $(wildcard $(LOCALE_SRCDIR)/mobile-l10n.js) \
-                         $(srcdir)/en-US/mobile-l10n.js )
-L10N_PREF_JS_EXPORTS_PATH = $(FINAL_TARGET)/$(PREF_DIR)
-L10N_PREF_JS_EXPORTS_FLAGS = $(PREF_PPFLAGS) --silence-missing-directive-warnings
-PP_TARGETS += L10N_PREF_JS_EXPORTS
-
 include $(topsrcdir)/config/rules.mk
 
 # Required for l10n.mk - defines a list of app sub dirs that should
@@ -49,21 +43,3 @@ chrome-%:
 	$(if $(filter en-US,$(AB_CD)),, $(MAKE) merge-$*)
 	$(MAKE) -C $(DEPTH)/mobile/locales chrome-$*
 	$(MAKE) chrome AB_CD=$*
-
-# When we unpack fennec on MacOS X the platform.ini and application.ini are in slightly
-# different locations that on all other platforms
-ifeq (Darwin, $(OS_ARCH))
-GECKO_PLATFORM_INI_PATH='$(STAGEDIST)/platform.ini'
-FENNEC_APPLICATION_INI_PATH='$(STAGEDIST)/application.ini'
-else
-GECKO_PLATFORM_INI_PATH='$(STAGEDIST)/platform.ini'
-FENNEC_APPLICATION_INI_PATH='$(STAGEDIST)/application.ini'
-endif
-
-ident:
-	@printf 'gecko_revision '
-	@$(PYTHON3) $(topsrcdir)/config/printconfigsetting.py $(GECKO_PLATFORM_INI_PATH) Build SourceStamp
-	@printf 'fennec_revision '
-	@$(PYTHON3) $(topsrcdir)/config/printconfigsetting.py $(FENNEC_APPLICATION_INI_PATH) App SourceStamp
-	@printf 'buildid '
-	@$(PYTHON3) $(topsrcdir)/config/printconfigsetting.py $(FENNEC_APPLICATION_INI_PATH) App BuildID

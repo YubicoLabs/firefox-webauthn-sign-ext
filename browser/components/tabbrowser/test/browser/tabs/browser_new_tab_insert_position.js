@@ -153,7 +153,7 @@ async function doTest(
     pageURL
   );
   const openerTabIndex = 1;
-  gBrowser.moveTabTo(openerTab, openerTabIndex);
+  gBrowser.moveTabTo(openerTab, { tabIndex: openerTabIndex });
 
   // Open a related tab via Middle click on the cell and test its position.
   let openTabIndex =
@@ -326,6 +326,12 @@ async function doTest(
   // Restore pre-test state for next test.
   await promiseBrowserStateRestored(oldState);
 }
+
+add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
+});
 
 add_task(async function test_settings_insertRelatedAfter() {
   // Firefox default settings.

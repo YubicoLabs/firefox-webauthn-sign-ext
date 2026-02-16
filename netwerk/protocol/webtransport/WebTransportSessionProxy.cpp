@@ -9,6 +9,7 @@
 #include "ScopedNSSTypes.h"
 #include "WebTransportSessionProxy.h"
 #include "WebTransportStreamProxy.h"
+#include "WebTransportEventService.h"
 #include "nsIAsyncVerifyRedirectCallback.h"
 #include "nsIHttpChannel.h"
 #include "nsIHttpChannelInternal.h"
@@ -17,10 +18,12 @@
 #include "nsIX509Cert.h"
 #include "nsNetUtil.h"
 #include "nsProxyRelease.h"
+#include "nsILoadInfo.h"
 #include "nsSocketTransportService2.h"
 #include "mozilla/Logging.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_network.h"
+#include "mozilla/LoadInfo.h"
 
 namespace mozilla::net {
 
@@ -52,10 +55,10 @@ WebTransportSessionProxy::~WebTransportSessionProxy() {
 
   MOZ_ASSERT(mState != WebTransportSessionProxyState::SESSION_CLOSE_PENDING,
              "We can not be in the SESSION_CLOSE_PENDING state in destructor, "
-             "because should e an runnable  that holds reference to this"
+             "because should be a runnable that holds reference to this"
              "object.");
 
-  Unused << gSocketTransportService->Dispatch(NS_NewRunnableFunction(
+  (void)gSocketTransportService->Dispatch(NS_NewRunnableFunction(
       "WebTransportSessionProxy::ProxyHttp3WebTransportSessionRelease",
       [self{std::move(mWebTransportSession)}]() {}));
 }
@@ -71,15 +74,15 @@ nsresult WebTransportSessionProxy::AsyncConnect(
     WebTransportSessionEventListener* aListener,
     nsIWebTransport::HTTPVersion aVersion) {
   return AsyncConnectWithClient(aURI, aDedicated, std::move(aServerCertHashes),
-                                aPrincipal, aSecurityFlags, aListener,
+                                aPrincipal, 0, aSecurityFlags, aListener,
                                 Maybe<dom::ClientInfo>(), aVersion);
 }
 
 nsresult WebTransportSessionProxy::AsyncConnectWithClient(
     nsIURI* aURI, bool aDedicated,
     const nsTArray<RefPtr<nsIWebTransportHash>>& aServerCertHashes,
-    nsIPrincipal* aPrincipal, uint32_t aSecurityFlags,
-    WebTransportSessionEventListener* aListener,
+    nsIPrincipal* aPrincipal, uint64_t aBrowsingContextID,
+    uint32_t aSecurityFlags, WebTransportSessionEventListener* aListener,
     const Maybe<dom::ClientInfo>& aClientInfo,
     nsIWebTransport::HTTPVersion aVersion) {
   MOZ_ASSERT(NS_IsMainThread());
@@ -175,12 +178,27 @@ nsresult WebTransportSessionProxy::AsyncConnectWithClient(
     mChannel = nullptr;
     return NS_ERROR_ABORT;
   }
-  Unused << internalChannel->SetWebTransportSessionEventListener(this);
+  (void)internalChannel->SetWebTransportSessionEventListener(this);
 
   rv = mChannel->AsyncOpen(this);
   if (NS_SUCCEEDED(rv)) {
     cleanup.release();
   }
+
+  mHttpChannelID = httpChannel->ChannelId();
+
+  // Setting the BrowsingContextID here to let WebTransport requests show up in
+  // devtools. Normally that would automatically happen if we would pass the
+  // nsILoadGroup in ns_NewChannel above, but the nsILoadGroup is inaccessible
+  // here in the ParentProcess. The nsILoadGroup only exists in ContentProcess
+  // as part of the document and nsDocShell. It is also not yet determined which
+  // ContentProcess this load belongs to.
+  if (aBrowsingContextID != 0) {
+    nsCOMPtr<nsILoadInfo> loadInfo = mChannel->LoadInfo();
+    static_cast<LoadInfo*>(loadInfo.get())
+        ->UpdateBrowsingContextID(aBrowsingContextID);
+  }
+
   return rv;
 }
 
@@ -272,7 +290,7 @@ void WebTransportSessionProxy::CloseSessionInternal() MOZ_REQUIRES(mMutex) {
   if (!OnSocketThread()) {
     mMutex.AssertCurrentThreadOwns();
     RefPtr<WebTransportSessionProxy> self(this);
-    Unused << gSocketTransportService->Dispatch(NS_NewRunnableFunction(
+    (void)gSocketTransportService->Dispatch(NS_NewRunnableFunction(
         "WebTransportSessionProxy::CallCloseWebTransportSession",
         [self{std::move(self)}]() { self->CloseSessionInternalLocked(); }));
     return;
@@ -280,7 +298,7 @@ void WebTransportSessionProxy::CloseSessionInternal() MOZ_REQUIRES(mMutex) {
 
   mMutex.AssertCurrentThreadOwns();
 
-  RefPtr<Http3WebTransportSession> wt;
+  RefPtr<WebTransportSessionBase> wt;
   uint32_t closeStatus = 0;
   nsCString reason;
 
@@ -314,7 +332,7 @@ class WebTransportStreamCallbackWrapper final {
   void CallOnError(nsresult aError) {
     if (!mTarget->IsOnCurrentThread()) {
       RefPtr<WebTransportStreamCallbackWrapper> self(this);
-      Unused << mTarget->Dispatch(NS_NewRunnableFunction(
+      (void)mTarget->Dispatch(NS_NewRunnableFunction(
           "WebTransportStreamCallbackWrapper::CallOnError",
           [self{std::move(self)}, error{aError}]() {
             self->CallOnError(error);
@@ -324,14 +342,14 @@ class WebTransportStreamCallbackWrapper final {
 
     LOG(("WebTransportStreamCallbackWrapper::OnError aError=0x%" PRIx32,
          static_cast<uint32_t>(aError)));
-    Unused << mCallback->OnError(nsIWebTransport::INVALID_STATE_ERROR);
+    (void)mCallback->OnError(nsIWebTransport::INVALID_STATE_ERROR);
   }
 
   void CallOnStreamReady(WebTransportStreamProxy* aStream) {
     if (!mTarget->IsOnCurrentThread()) {
       RefPtr<WebTransportStreamCallbackWrapper> self(this);
       RefPtr<WebTransportStreamProxy> stream = aStream;
-      Unused << mTarget->Dispatch(NS_NewRunnableFunction(
+      (void)mTarget->Dispatch(NS_NewRunnableFunction(
           "WebTransportStreamCallbackWrapper::CallOnStreamReady",
           [self{std::move(self)}, stream{std::move(stream)}]() {
             self->CallOnStreamReady(stream);
@@ -340,11 +358,11 @@ class WebTransportStreamCallbackWrapper final {
     }
 
     if (mBidi) {
-      Unused << mCallback->OnBidirectionalStreamReady(aStream);
+      (void)mCallback->OnBidirectionalStreamReady(aStream);
       return;
     }
 
-    Unused << mCallback->OnUnidirectionalStreamReady(aStream);
+    (void)mCallback->OnUnidirectionalStreamReady(aStream);
   }
 
  private:
@@ -409,11 +427,11 @@ void WebTransportSessionProxy::CreateStreamInternal(
 
 void WebTransportSessionProxy::DoCreateStream(
     WebTransportStreamCallbackWrapper* aCallback,
-    Http3WebTransportSession* aSession, bool aBidi) {
+    WebTransportSessionBase* aSession, bool aBidi) {
   if (!OnSocketThread()) {
     RefPtr<WebTransportSessionProxy> self(this);
     RefPtr<WebTransportStreamCallbackWrapper> wrapper(aCallback);
-    Unused << gSocketTransportService->Dispatch(NS_NewRunnableFunction(
+    (void)gSocketTransportService->Dispatch(NS_NewRunnableFunction(
         "WebTransportSessionProxy::DoCreateStream",
         [self{std::move(self)}, wrapper{std::move(wrapper)}, bidi(aBidi)]() {
           self->DoCreateStream(wrapper, nullptr, bidi);
@@ -423,7 +441,7 @@ void WebTransportSessionProxy::DoCreateStream(
 
   LOG(("WebTransportSessionProxy::DoCreateStream %p bidi=%d", this, aBidi));
 
-  RefPtr<Http3WebTransportSession> session = aSession;
+  RefPtr<WebTransportSessionBase> session = aSession;
   // Having no session here means that this is called by dispatching tasks.
   // The mState may be already changed, so we need to check it again.
   if (!aSession) {
@@ -456,13 +474,13 @@ void WebTransportSessionProxy::DoCreateStream(
   RefPtr<WebTransportStreamCallbackWrapper> wrapper(aCallback);
   auto callback =
       [wrapper{std::move(wrapper)}](
-          Result<RefPtr<Http3WebTransportStream>, nsresult>&& aResult) {
+          Result<RefPtr<WebTransportStreamBase>, nsresult>&& aResult) {
         if (aResult.isErr()) {
           wrapper->CallOnError(aResult.unwrapErr());
           return;
         }
 
-        RefPtr<Http3WebTransportStream> stream = aResult.unwrap();
+        RefPtr<WebTransportStreamBase> stream = aResult.unwrap();
         RefPtr<WebTransportStreamProxy> streamProxy =
             new WebTransportStreamProxy(stream);
         wrapper->CallOnStreamReady(streamProxy);
@@ -500,7 +518,7 @@ WebTransportSessionProxy::CreateOutgoingBidirectionalStream(
 }
 
 void WebTransportSessionProxy::SendDatagramInternal(
-    const RefPtr<Http3WebTransportSession>& aSession, nsTArray<uint8_t>&& aData,
+    const RefPtr<WebTransportSessionBase>& aSession, nsTArray<uint8_t>&& aData,
     uint64_t aTrackingId) {
   MOZ_ASSERT(OnSocketThread());
 
@@ -510,7 +528,7 @@ void WebTransportSessionProxy::SendDatagramInternal(
 NS_IMETHODIMP
 WebTransportSessionProxy::SendDatagram(const nsTArray<uint8_t>& aData,
                                        uint64_t aTrackingId) {
-  RefPtr<Http3WebTransportSession> session;
+  RefPtr<WebTransportSessionBase> session;
   {
     MutexAutoLock lock(mMutex);
     if (mState != WebTransportSessionProxyState::ACTIVE ||
@@ -536,7 +554,7 @@ WebTransportSessionProxy::SendDatagram(const nsTArray<uint8_t>& aData,
 }
 
 void WebTransportSessionProxy::GetMaxDatagramSizeInternal(
-    const RefPtr<Http3WebTransportSession>& aSession) {
+    const RefPtr<WebTransportSessionBase>& aSession) {
   MOZ_ASSERT(OnSocketThread());
 
   aSession->GetMaxDatagramSize();
@@ -544,7 +562,7 @@ void WebTransportSessionProxy::GetMaxDatagramSizeInternal(
 
 NS_IMETHODIMP
 WebTransportSessionProxy::GetMaxDatagramSize() {
-  RefPtr<Http3WebTransportSession> session;
+  RefPtr<WebTransportSessionBase> session;
   {
     MutexAutoLock lock(mMutex);
     if (mState != WebTransportSessionProxyState::ACTIVE ||
@@ -563,6 +581,12 @@ WebTransportSessionProxy::GetMaxDatagramSize() {
   }
 
   GetMaxDatagramSizeInternal(session);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebTransportSessionProxy::GetHttpChannelID(uint64_t* _retval) {
+  *_retval = mHttpChannelID;
   return NS_OK;
 }
 
@@ -587,7 +611,13 @@ WebTransportSessionProxy::OnStartRequest(nsIRequest* aRequest) {
         MOZ_ASSERT(false, "OnStartRequest cannot be called in this state.");
         break;
       case WebTransportSessionProxyState::NEGOTIATING:
-      case WebTransportSessionProxyState::CLOSE_CALLBACK_PENDING:
+      case WebTransportSessionProxyState::CLOSE_CALLBACK_PENDING: {
+        nsresult rv;
+        if (NS_SUCCEEDED(mChannel->GetStatus(&rv)) &&
+            rv == NS_ERROR_WEBTRANSPORT_SESSION_LIMIT_EXCEEDED) {
+          mReason = "WebTransport session limit exceeded"_ns;
+          mCloseStatus = 0;
+        }
         listener = mListener;
         mListener = nullptr;
         mChannel = nullptr;
@@ -595,6 +625,7 @@ WebTransportSessionProxy::OnStartRequest(nsIRequest* aRequest) {
         closeStatus = mCloseStatus;
         ChangeState(WebTransportSessionProxyState::DONE);
         break;
+      }
       case WebTransportSessionProxyState::NEGOTIATING_SUCCEEDED: {
         uint32_t status;
 
@@ -696,7 +727,7 @@ WebTransportSessionProxy::OnStopRequest(nsIRequest* aRequest,
   }
 
   if (!pendingCreateStreamEvents.IsEmpty()) {
-    Unused << gSocketTransportService->Dispatch(NS_NewRunnableFunction(
+    (void)gSocketTransportService->Dispatch(NS_NewRunnableFunction(
         "WebTransportSessionProxy::DispatchPendingCreateStreamEvents",
         [pendingCreateStreamEvents = std::move(pendingCreateStreamEvents),
          status(aStatus)]() {
@@ -710,7 +741,7 @@ WebTransportSessionProxy::OnStopRequest(nsIRequest* aRequest,
     if (succeeded) {
       listener->OnSessionReady(sessionId);
       if (!pendingEvents.IsEmpty()) {
-        Unused << gSocketTransportService->Dispatch(NS_NewRunnableFunction(
+        (void)gSocketTransportService->Dispatch(NS_NewRunnableFunction(
             "WebTransportSessionProxy::DispatchPendingEvents",
             [pendingEvents = std::move(pendingEvents)]() {
               for (const auto& event : pendingEvents) {
@@ -810,14 +841,14 @@ WebTransportSessionProxy::GetInterface(const nsIID& aIID, void** aResult) {
 // WebTransportSessionProxy::WebTransportSessionEventListener
 //-----------------------------------------------------------------------------
 
-// This function is called when the Http3WebTransportSession is ready. After
+// This function is called when the WebTransportSessionBase is ready. After
 // this call WebTransportSessionProxy is responsible for the
-// Http3WebTransportSession, i.e. it is responsible for closing it.
+// WebTransportSessionBase, i.e. it is responsible for closing it.
 // The listener of the WebTransportSessionProxy will be informed during
 // OnStopRequest call.
 NS_IMETHODIMP
 WebTransportSessionProxy::OnSessionReadyInternal(
-    Http3WebTransportSession* aSession) {
+    WebTransportSessionBase* aSession) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
   LOG(("WebTransportSessionProxy::OnSessionReadyInternal"));
   MutexAutoLock lock(mMutex);
@@ -832,8 +863,9 @@ WebTransportSessionProxy::OnSessionReadyInternal(
       return NS_ERROR_ABORT;
     case WebTransportSessionProxyState::NEGOTIATING:
       mWebTransportSession = aSession;
-      mSessionId = aSession->StreamId();
+      mSessionId = aSession->GetStreamId();
       ChangeState(WebTransportSessionProxyState::NEGOTIATING_SUCCEEDED);
+      mWebTransportSession->StartReading();
       break;
     case WebTransportSessionProxyState::DONE:
       // The session has been canceled. We do not need to set
@@ -845,7 +877,7 @@ WebTransportSessionProxy::OnSessionReadyInternal(
 
 NS_IMETHODIMP
 WebTransportSessionProxy::OnIncomingStreamAvailableInternal(
-    Http3WebTransportStream* aStream) {
+    WebTransportStreamBase* aStream) {
   nsCOMPtr<WebTransportSessionEventListener> listener;
   {
     MutexAutoLock lock(mMutex);
@@ -869,8 +901,8 @@ WebTransportSessionProxy::OnIncomingStreamAvailableInternal(
 
     if (!mTarget->IsOnCurrentThread()) {
       RefPtr<WebTransportSessionProxy> self(this);
-      RefPtr<Http3WebTransportStream> stream = aStream;
-      Unused << mTarget->Dispatch(NS_NewRunnableFunction(
+      RefPtr<WebTransportStreamBase> stream = aStream;
+      (void)mTarget->Dispatch(NS_NewRunnableFunction(
           "WebTransportSessionProxy::OnIncomingStreamAvailableInternal",
           [self{std::move(self)}, stream{std::move(stream)}]() {
             self->OnIncomingStreamAvailableInternal(stream);
@@ -895,9 +927,9 @@ WebTransportSessionProxy::OnIncomingStreamAvailableInternal(
   RefPtr<WebTransportStreamProxy> streamProxy =
       new WebTransportStreamProxy(aStream);
   if (aStream->StreamType() == WebTransportStreamType::BiDi) {
-    Unused << listener->OnIncomingBidirectionalStreamAvailable(streamProxy);
+    (void)listener->OnIncomingBidirectionalStreamAvailable(streamProxy);
   } else {
-    Unused << listener->OnIncomingUnidirectionalStreamAvailable(streamProxy);
+    (void)listener->OnIncomingUnidirectionalStreamAvailable(streamProxy);
   }
   return NS_OK;
 }
@@ -916,7 +948,7 @@ WebTransportSessionProxy::OnIncomingUnidirectionalStreamAvailable(
 
 NS_IMETHODIMP
 WebTransportSessionProxy::OnSessionReady(uint64_t ready) {
-  MOZ_ASSERT(false, "Should not b called");
+  MOZ_ASSERT(false, "Should not be called");
   return NS_OK;
 }
 
@@ -937,7 +969,7 @@ WebTransportSessionProxy::OnSessionClosed(bool aCleanly, uint32_t aStatus,
     mPendingEvents.AppendElement([self = RefPtr{this}, status(aStatus),
                                   closeReason(std::move(closeReason)),
                                   cleanly(aCleanly)]() {
-      Unused << self->OnSessionClosed(cleanly, status, closeReason);
+      (void)self->OnSessionClosed(cleanly, status, closeReason);
     });
     return NS_OK;
   }
@@ -978,7 +1010,7 @@ void WebTransportSessionProxy::CallOnSessionClosed() MOZ_REQUIRES(mMutex) {
 
   if (!mTarget->IsOnCurrentThread()) {
     RefPtr<WebTransportSessionProxy> self(this);
-    Unused << mTarget->Dispatch(NS_NewRunnableFunction(
+    (void)mTarget->Dispatch(NS_NewRunnableFunction(
         "WebTransportSessionProxy::CallOnSessionClosed",
         [self{std::move(self)}]() { self->CallOnSessionClosedLocked(); }));
     return;

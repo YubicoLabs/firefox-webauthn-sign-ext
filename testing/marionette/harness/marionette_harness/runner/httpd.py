@@ -14,8 +14,8 @@ import os
 import select
 import sys
 import time
+from urllib.parse import parse_qsl, urlparse
 
-from six.moves.urllib import parse as urlparse
 from wptserve import handlers, request, server
 from wptserve import routes as default_routes
 
@@ -28,7 +28,7 @@ default_ssl_key = os.path.join(root, "certificates", "test.key")
 @handlers.handler
 def http_auth_handler(req, response):
     # Allow the test to specify the username and password
-    params = dict(urlparse.parse_qsl(req.url_parts.query))
+    params = dict(parse_qsl(req.url_parts.query))
     username = params.get("username", "guest")
     password = params.get("password", "guest")
 
@@ -55,40 +55,36 @@ def upload_handler(request, response):
 @handlers.handler
 def slow_loading_handler(request, response):
     # Allow the test specify the delay for delivering the content
-    params = dict(urlparse.parse_qsl(request.url_parts.query))
+    params = dict(parse_qsl(request.url_parts.query))
     delay = int(params.get("delay", 5))
     time.sleep(delay)
 
     # Do not allow the page to be cached to circumvent the bfcache of the browser
     response.headers.set("Cache-Control", "no-cache, no-store")
-    response.content = """<!doctype html>
+    response.content = f"""<!doctype html>
 <meta charset="UTF-8">
 <title>Slow page loading</title>
 
-<p>Delay: <span id="delay">{}</span></p>
-""".format(
-        delay
-    )
+<p>Delay: <span id="delay">{delay}</span></p>
+"""
 
 
 @handlers.handler
 def slow_coop_handler(request, response):
     # Allow the test specify the delay for delivering the content
-    params = dict(urlparse.parse_qsl(request.url_parts.query))
+    params = dict(parse_qsl(request.url_parts.query))
     delay = int(params.get("delay", 5))
     time.sleep(delay)
 
     # Isolate the browsing context exclusively to same-origin documents
     response.headers.set("Cross-Origin-Opener-Policy", "same-origin")
     response.headers.set("Cache-Control", "no-cache, no-store")
-    response.content = """<!doctype html>
+    response.content = f"""<!doctype html>
 <meta charset="UTF-8">
 <title>Slow cross-origin page loading</title>
 
-<p>Delay: <span id="delay">{}</span></p>
-""".format(
-        delay
-    )
+<p>Delay: <span id="delay">{delay}</span></p>
+"""
 
 
 @handlers.handler
@@ -98,17 +94,15 @@ def update_xml_handler(request, response):
         "75cd68e6c98c84c435cd27e353f5b4f6a3f2c50f6802aa9bf62b47e47138757306769fd9befa08793635ee649"
         "2319253480860b4aa8ed9ee1caaa4c83ebc90b9"
     )
-    response.content = """
+    response.content = f"""
     <updates>
         <update type="minor" displayVersion="9999.0" appVersion="9999.0" platformVersion="9999.0"
                 buildID="20220627075547">
-            <patch type="complete" URL="{}://{}/update/complete.mar" size="86612"
-                   hashFunction="sha512" hashValue="{}"/>
+            <patch type="complete" URL="{request.url_parts.scheme}://{request.url_parts.netloc}/update/complete.mar" size="86612"
+                   hashFunction="sha512" hashValue="{mar_digest}"/>
         </update>
     </updates>
-    """.format(
-        request.url_parts.scheme, request.url_parts.netloc, mar_digest
-    )
+    """
 
 
 class NotAliveError(Exception):
@@ -120,7 +114,7 @@ class NotAliveError(Exception):
     pass
 
 
-class FixtureServer(object):
+class FixtureServer:
     def __init__(
         self,
         doc_root,
@@ -132,7 +126,7 @@ class FixtureServer(object):
         if not os.path.isdir(doc_root):
             raise ValueError("Server root is not a directory: %s" % doc_root)
 
-        url = urlparse.urlparse(url)
+        url = urlparse(url)
         if url.scheme is None:
             raise ValueError("Server scheme not provided")
 
@@ -237,7 +231,7 @@ e.g. \"https://0.0.0.0:0/base/\"""",
     )
     httpd.start()
     print(
-        "{0}: started fixture server on {1}".format(sys.argv[0], httpd.get_url("/")),
+        "{}: started fixture server on {}".format(sys.argv[0], httpd.get_url("/")),
         file=sys.stderr,
     )
     httpd.wait()

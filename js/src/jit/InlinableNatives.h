@@ -39,6 +39,8 @@
   _(ArrayPush)                                     \
   _(ArraySlice)                                    \
                                                    \
+  _(ArrayBufferByteLength)                         \
+                                                   \
   _(AtomicsCompareExchange)                        \
   _(AtomicsExchange)                               \
   _(AtomicsLoad)                                   \
@@ -79,6 +81,8 @@
   _(DataViewSetFloat64)                            \
   _(DataViewSetBigInt64)                           \
   _(DataViewSetBigUint64)                          \
+  _(DataViewByteLength)                            \
+  _(DataViewByteOffset)                            \
                                                    \
   _(DateGetTime)                                   \
   _(DateGetFullYear)                               \
@@ -91,15 +95,6 @@
                                                    \
   _(FunctionBind)                                  \
                                                    \
-  _(IntlGuardToCollator)                           \
-  _(IntlGuardToDateTimeFormat)                     \
-  _(IntlGuardToDisplayNames)                       \
-  _(IntlGuardToDurationFormat)                     \
-  _(IntlGuardToListFormat)                         \
-  _(IntlGuardToNumberFormat)                       \
-  _(IntlGuardToPluralRules)                        \
-  _(IntlGuardToRelativeTimeFormat)                 \
-  _(IntlGuardToSegmenter)                          \
   _(IntlGuardToSegments)                           \
   _(IntlGuardToSegmentIterator)                    \
                                                    \
@@ -108,6 +103,7 @@
   _(MapGet)                                        \
   _(MapHas)                                        \
   _(MapSet)                                        \
+  _(MapSize)                                       \
                                                    \
   _(MathAbs)                                       \
   _(MathFloor)                                     \
@@ -152,14 +148,22 @@
                                                    \
   _(ReflectGetPrototypeOf)                         \
                                                    \
+  _(RegExpDotAll)                                  \
+  _(RegExpGlobal)                                  \
+  _(RegExpHasIndices)                              \
+  _(RegExpIgnoreCase)                              \
+  _(RegExpMultiline)                               \
+  _(RegExpSticky)                                  \
+  _(RegExpUnicode)                                 \
+  _(RegExpUnicodeSets)                             \
   _(RegExpMatcher)                                 \
   _(RegExpSearcher)                                \
   _(RegExpSearcherLastLimit)                       \
   _(RegExpHasCaptureGroups)                        \
   _(IsRegExpObject)                                \
+  _(IsOptimizableRegExpObject)                     \
   _(IsPossiblyWrappedRegExpObject)                 \
-  _(RegExpPrototypeOptimizable)                    \
-  _(RegExpInstanceOptimizable)                     \
+  _(IsRegExpPrototypeOptimizable)                  \
   _(GetFirstDollarIndex)                           \
                                                    \
   _(SetConstructor)                                \
@@ -167,6 +171,8 @@
   _(SetHas)                                        \
   _(SetAdd)                                        \
   _(SetSize)                                       \
+                                                   \
+  _(SharedArrayBufferByteLength)                   \
                                                    \
   _(String)                                        \
   _(StringToString)                                \
@@ -184,6 +190,8 @@
   _(StringEndsWith)                                \
   _(StringToLowerCase)                             \
   _(StringToUpperCase)                             \
+  _(StringToLocaleLowerCase)                       \
+  _(StringToLocaleUpperCase)                       \
   _(StringTrim)                                    \
   _(StringTrimStart)                               \
   _(StringTrimEnd)                                 \
@@ -198,9 +206,20 @@
   _(ObjectKeys)                                    \
   _(ObjectToString)                                \
                                                    \
+  _(TypedArrayFill)                                \
+  _(TypedArraySet)                                 \
+  _(TypedArraySubarray)                            \
+  _(TypedArrayLength)                              \
+  _(TypedArrayByteLength)                          \
+  _(TypedArrayByteOffset)                          \
+                                                   \
   _(TestBailout)                                   \
   _(TestAssertFloat32)                             \
   _(TestAssertRecoveredOnBailout)                  \
+                                                   \
+  _(WeakMapGet)                                    \
+  _(WeakMapHas)                                    \
+  _(WeakSetHas)                                    \
                                                    \
   _(IntrinsicUnsafeSetReservedSlot)                \
   _(IntrinsicUnsafeGetReservedSlot)                \
@@ -218,7 +237,6 @@
   _(IntrinsicToLength)                             \
   _(IntrinsicIsConstructing)                       \
   _(IntrinsicSubstringKernel)                      \
-  _(IntrinsicObjectHasPrototype)                   \
   _(IntrinsicIsPackedArray)                        \
                                                    \
   _(IntrinsicIsSuspendedGenerator)                 \
@@ -243,8 +261,6 @@
   _(IntrinsicArrayIteratorPrototypeOptimizable)    \
                                                    \
   _(IntrinsicGuardToArrayBuffer)                   \
-  _(IntrinsicArrayBufferByteLength)                \
-  _(IntrinsicPossiblyWrappedArrayBufferByteLength) \
                                                    \
   _(IntrinsicGuardToSharedArrayBuffer)             \
                                                    \
@@ -253,16 +269,11 @@
   _(IntrinsicIsTypedArray)                         \
   _(IntrinsicIsPossiblyWrappedTypedArray)          \
   _(IntrinsicTypedArrayLength)                     \
-  _(IntrinsicTypedArrayLengthZeroOnOutOfBounds)    \
   _(IntrinsicPossiblyWrappedTypedArrayLength)      \
   _(IntrinsicRegExpBuiltinExec)                    \
   _(IntrinsicRegExpBuiltinExecForTest)             \
   _(IntrinsicRegExpExec)                           \
   _(IntrinsicRegExpExecForTest)                    \
-  _(IntrinsicTypedArrayByteOffset)                 \
-  _(IntrinsicTypedArrayElementSize)                \
-                                                   \
-  _(IntrinsicThisTimeValue)                        \
                                                    \
   INLINABLE_EXPLICIT_RESOURCE_MANAGEMENENT_LIST(_) \
   INLINABLE_NATIVE_FUZZILLI_LIST(_)                \

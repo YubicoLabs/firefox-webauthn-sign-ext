@@ -1,0 +1,194 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+"use strict";
+
+const lazy = {};
+
+ChromeUtils.defineESModuleGetters(lazy, {
+  IPProtectionWidget:
+    "moz-src:///browser/components/ipprotection/IPProtection.sys.mjs",
+  IPProtectionPanel:
+    "moz-src:///browser/components/ipprotection/IPProtectionPanel.sys.mjs",
+  IPPProxyManager:
+    "moz-src:///browser/components/ipprotection/IPPProxyManager.sys.mjs",
+});
+
+/**
+ * Tests that clicking toolbar button opens the panel,
+ * the panel contains a `<ipprotection-content>` element,
+ * and the browser.ipProtection.panelOpenCount pref is set
+ */
+add_task(async function click_toolbar_button() {
+  let button = document.getElementById(lazy.IPProtectionWidget.WIDGET_ID);
+  let panelView = PanelMultiView.getViewNode(
+    document,
+    lazy.IPProtectionWidget.PANEL_ID
+  );
+
+  let panelOpenCount = Services.prefs.getIntPref(
+    "browser.ipProtection.panelOpenCount",
+    0
+  );
+
+  let panelShownPromise = waitForPanelEvent(document, "popupshown");
+  // Open the panel
+  button.click();
+  await panelShownPromise;
+
+  let panelOpenCountAfter = Services.prefs.getIntPref(
+    "browser.ipProtection.panelOpenCount",
+    0
+  );
+  Assert.equal(
+    panelOpenCountAfter,
+    panelOpenCount + 1,
+    "panelOpenCount should increase by 1 when the panel is opened"
+  );
+
+  let component = panelView.querySelector(
+    lazy.IPProtectionPanel.CONTENT_TAGNAME
+  );
+  Assert.ok(
+    BrowserTestUtils.isVisible(component),
+    "ipprotection-content component should be present"
+  );
+
+  let header = panelView.querySelector(
+    `#${lazy.IPProtectionPanel.HEADER_AREA_ID}`
+  );
+  Assert.ok(
+    BrowserTestUtils.isVisible(header),
+    "ipprotection-header component should be present"
+  );
+
+  // Close the panel
+  let panelHiddenPromise = waitForPanelEvent(document, "popuphidden");
+  EventUtils.synthesizeKey("KEY_Escape");
+  await panelHiddenPromise;
+
+  Services.prefs.clearUserPref("browser.ipProtection.panelOpenCount");
+});
+
+/**
+ * Tests that the panel also loads the custom elements in a new window.
+ */
+add_task(async function test_panel_in_new_window() {
+  let newWindow = await BrowserTestUtils.openNewBrowserWindow({
+    url: "about:newtab",
+  });
+  newWindow.focus();
+
+  let button = newWindow.document.getElementById(
+    lazy.IPProtectionWidget.WIDGET_ID
+  );
+  let panelView = PanelMultiView.getViewNode(
+    newWindow.document,
+    lazy.IPProtectionWidget.PANEL_ID
+  );
+
+  let panelShownPromise = waitForPanelEvent(newWindow.document, "popupshown");
+  // Open the panel
+  button.click();
+  await panelShownPromise;
+
+  let component = panelView.querySelector(
+    lazy.IPProtectionPanel.CONTENT_TAGNAME
+  );
+  Assert.ok(
+    BrowserTestUtils.isVisible(component),
+    "ipprotection-content component should be present"
+  );
+
+  let header = panelView.querySelector(
+    `#${lazy.IPProtectionPanel.HEADER_AREA_ID}`
+  );
+  Assert.ok(
+    BrowserTestUtils.isVisible(header),
+    "ipprotection-header component should be present"
+  );
+
+  await BrowserTestUtils.closeWindow(newWindow);
+});
+
+/**
+ * Tests that sending IPProtection:Close closes the panel.
+ */
+add_task(async function test_close_panel() {
+  let button = document.getElementById(lazy.IPProtectionWidget.WIDGET_ID);
+  let panelView = PanelMultiView.getViewNode(
+    document,
+    lazy.IPProtectionWidget.PANEL_ID
+  );
+
+  let panelShownPromise = waitForPanelEvent(document, "popupshown");
+  // Open the panel
+  button.click();
+  await panelShownPromise;
+
+  // Close the panel
+  let panelHiddenPromise = waitForPanelEvent(document, "popuphidden");
+
+  panelView.dispatchEvent(
+    new CustomEvent("IPProtection:Close", { bubbles: true })
+  );
+
+  await panelHiddenPromise;
+
+  Assert.ok(!BrowserTestUtils.isVisible(panelView), "Panel should be closed");
+});
+
+add_task(async function test_user_enable_count() {
+  Services.prefs.clearUserPref("browser.ipProtection.userEnableCount");
+
+  let initialCount = Services.prefs.getIntPref(
+    "browser.ipProtection.userEnableCount",
+    0
+  );
+  Assert.equal(initialCount, 0, "userEnableCount should start at 0");
+
+  let startStub = sinon.stub(lazy.IPPProxyManager, "start");
+
+  let button = document.getElementById(lazy.IPProtectionWidget.WIDGET_ID);
+
+  let panelShownPromise = waitForPanelEvent(document, "popupshown");
+  button.click();
+  await panelShownPromise;
+
+  for (let i = 1; i <= 5; i++) {
+    document.dispatchEvent(
+      new CustomEvent("IPProtection:UserEnable", { bubbles: true })
+    );
+
+    let currentCount = Services.prefs.getIntPref(
+      "browser.ipProtection.userEnableCount",
+      0
+    );
+
+    let expectedCount = Math.min(i, 3);
+    Assert.equal(
+      currentCount,
+      expectedCount,
+      `userEnableCount should be ${expectedCount} after ${i} enable(s)`
+    );
+  }
+
+  let finalCount = Services.prefs.getIntPref(
+    "browser.ipProtection.userEnableCount",
+    0
+  );
+  Assert.equal(
+    finalCount,
+    3,
+    "userEnableCount should not exceed 3 even after 5 enables"
+  );
+
+  let panelHiddenPromise = waitForPanelEvent(document, "popuphidden");
+  EventUtils.synthesizeKey("KEY_Escape");
+  await panelHiddenPromise;
+
+  startStub.restore();
+  Services.prefs.clearUserPref("browser.ipProtection.userEnableCount");
+  Services.prefs.clearUserPref("browser.ipProtection.userEnabled");
+});

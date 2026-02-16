@@ -212,8 +212,7 @@ impl CommonInformationEntry {
 
         if encoding.version >= 4 {
             w.write_u8(encoding.address_size)?;
-            // TODO: segment_selector_size
-            w.write_u8(0)?;
+            w.write_u8(0)?; // segment_selector_size
         }
 
         w.write_uleb128(self.code_alignment_factor.into())?;
@@ -456,7 +455,7 @@ impl CallFrameInstruction {
             }
             CallFrameInstruction::CfaExpression(ref expression) => {
                 w.write_u8(constants::DW_CFA_def_cfa_expression.0)?;
-                w.write_uleb128(expression.size(encoding, None) as u64)?;
+                w.write_uleb128(expression.size(encoding, None)? as u64)?;
                 expression.write(w, None, encoding, None)?;
             }
             CallFrameInstruction::Restore(register) => {
@@ -510,13 +509,13 @@ impl CallFrameInstruction {
             CallFrameInstruction::Expression(register, ref expression) => {
                 w.write_u8(constants::DW_CFA_expression.0)?;
                 w.write_uleb128(register.0.into())?;
-                w.write_uleb128(expression.size(encoding, None) as u64)?;
+                w.write_uleb128(expression.size(encoding, None)? as u64)?;
                 expression.write(w, None, encoding, None)?;
             }
             CallFrameInstruction::ValExpression(register, ref expression) => {
                 w.write_u8(constants::DW_CFA_val_expression.0)?;
                 w.write_uleb128(register.0.into())?;
-                w.write_uleb128(expression.size(encoding, None) as u64)?;
+                w.write_uleb128(expression.size(encoding, None)? as u64)?;
                 expression.write(w, None, encoding, None)?;
             }
             CallFrameInstruction::RememberState => {

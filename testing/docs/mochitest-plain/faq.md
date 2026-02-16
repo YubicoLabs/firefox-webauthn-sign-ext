@@ -50,10 +50,11 @@ await SpecialPowers.popPrefEnv(); // Implicit at the end of the test too.
 
 You can also set prefs directly in the manifest:
 
-```ini
+```toml
 [DEFAULT]
-prefs =
-  browser.chrome.guess_favicon=true
+prefs = [
+  "browser.chrome.guess_favicon=true",
+]
 ```
 
 If you need to change a pref when running a test locally, you can use the
@@ -117,12 +118,13 @@ docs for less mochitest-specific documentation of what you can do in SJS
 scripts.
 
 An SJS is simply a JavaScript file with the extension .sjs which is loaded in a
-sandbox. Don't forget to reference it from your `mochitest.ini` file too!
+sandbox. Don't forget to reference it from your `mochitest.toml` file too!
 
-```ini
+```toml
 [DEFAULT]
-support-files =
-  test_file.sjs
+support-files = [
+  "test_file.sjs",
+]
 ```
 
 The global property `handleRequest` defined by the script is then executed with
@@ -155,6 +157,13 @@ var xhr = new XMLHttpRequest();
 xhr.open("GET", "http://test/tests/dom/manifest/test/test_file.sjs");
 xhr.onload = function(e){ console.log("loaded!", this.responseText)}
 xhr.send();
+```
+
+```{note}
+Note that the first directory in the path depends on the type of test being run:
+for example, `tests` for plain mochitests, `browser` for browser mochitests, `chrome` for
+chrome mochitests, etc. Since `<objdir>/_tests/testing/mochitest/` serves as the root
+directory for the server, you can check there to find the exact path.
 ```
 
 The exact properties of the request and response parameters are defined in the

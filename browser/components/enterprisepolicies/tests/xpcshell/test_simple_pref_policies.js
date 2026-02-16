@@ -43,12 +43,6 @@ const POLICIES_TESTS = [
     },
   },
 
-  // POLICY: DisableBuiltinPDFViewer
-  {
-    policies: { DisableBuiltinPDFViewer: true },
-    lockedPrefs: { "pdfjs.disabled": true },
-  },
-
   // POLICY: DisableFormHistory
   {
     policies: { DisableFormHistory: true },
@@ -86,6 +80,9 @@ const POLICIES_TESTS = [
         Cryptomining: true,
         Fingerprinting: true,
         EmailTracking: true,
+        SuspectedFingerprinting: true,
+        BaselineExceptions: true,
+        ConvenienceExceptions: true,
         Locked: true,
       },
     },
@@ -94,6 +91,10 @@ const POLICIES_TESTS = [
       "privacy.trackingprotection.fingerprinting.enabled": true,
       "privacy.trackingprotection.emailtracking.enabled": true,
       "privacy.trackingprotection.emailtracking.pbmode.enabled": true,
+      "privacy.fingerprintingProtection": true,
+      "privacy.fingerprintingProtection.pbmode": true,
+      "privacy.trackingprotection.allow_list.baseline.enabled": true,
+      "privacy.trackingprotection.allow_list.convenience.enabled": true,
     },
   },
 
@@ -171,18 +172,6 @@ const POLICIES_TESTS = [
       "network.automatic-ntlm-auth.allow-proxies": false,
       "network.negotiate-auth.allow-proxies": false,
       "network.auth.private-browsing-sso": true,
-    },
-  },
-
-  // POLICY: Certificates (true)
-  {
-    policies: {
-      Certificates: {
-        ImportEnterpriseRoots: true,
-      },
-    },
-    lockedPrefs: {
-      "security.enterprise_roots.enabled": true,
     },
   },
 
@@ -636,12 +625,15 @@ const POLICIES_TESTS = [
   {
     policies: {
       FirefoxHome: {
-        Pocket: false,
+        Stories: false,
+        SponsoredStories: false,
         Locked: true,
       },
     },
     lockedPrefs: {
       "browser.newtabpage.activity-stream.feeds.system.topstories": false,
+      "browser.newtabpage.activity-stream.feeds.section.topstories": false,
+      "browser.newtabpage.activity-stream.showSponsored": false,
     },
   },
 
@@ -783,6 +775,29 @@ const POLICIES_TESTS = [
     },
   },
 
+  // POLICY: LocalNetworkAccess
+  {
+    policies: {
+      LocalNetworkAccess: {
+        Enabled: true,
+      },
+    },
+    unlockedPrefs: {
+      "network.lna.enabled": true,
+    },
+  },
+  {
+    policies: {
+      LocalNetworkAccess: {
+        Enabled: false,
+        Locked: true,
+      },
+    },
+    lockedPrefs: {
+      "network.lna.enabled": false,
+    },
+  },
+
   // POLICY: EncryptedMediaExtensions
 
   {
@@ -871,6 +886,9 @@ const POLICIES_TESTS = [
         TLS_RSA_WITH_AES_128_CBC_SHA: false,
         TLS_RSA_WITH_AES_256_CBC_SHA: false,
         TLS_RSA_WITH_3DES_EDE_CBC_SHA: false,
+        TLS_CHACHA20_POLY1305_SHA256: false,
+        TLS_AES_128_GCM_SHA256: false,
+        TLS_AES_256_GCM_SHA384: false,
       },
     },
     lockedPrefs: {
@@ -891,6 +909,9 @@ const POLICIES_TESTS = [
       "security.ssl3.rsa_aes_128_sha": true,
       "security.ssl3.rsa_aes_256_sha": true,
       "security.ssl3.deprecated.rsa_des_ede3_sha": true,
+      "security.tls13.chacha20_poly1305_sha256": true,
+      "security.tls13.aes_128_gcm_sha256": true,
+      "security.tls13.aes_256_gcm_sha384": true,
     },
   },
 
@@ -914,6 +935,9 @@ const POLICIES_TESTS = [
         TLS_RSA_WITH_AES_128_CBC_SHA: true,
         TLS_RSA_WITH_AES_256_CBC_SHA: true,
         TLS_RSA_WITH_3DES_EDE_CBC_SHA: true,
+        TLS_CHACHA20_POLY1305_SHA256: true,
+        TLS_AES_128_GCM_SHA256: true,
+        TLS_AES_256_GCM_SHA384: true,
       },
     },
     lockedPrefs: {
@@ -934,6 +958,9 @@ const POLICIES_TESTS = [
       "security.ssl3.rsa_aes_128_sha": false,
       "security.ssl3.rsa_aes_256_sha": false,
       "security.ssl3.deprecated.rsa_des_ede3_sha": false,
+      "security.tls13.chacha20_poly1305_sha256": false,
+      "security.tls13.aes_128_gcm_sha256": false,
+      "security.tls13.aes_256_gcm_sha384": false,
     },
   },
 
@@ -1157,6 +1184,60 @@ const POLICIES_TESTS = [
     },
     lockedPrefs: {
       "dom.security.https_only_mode": true,
+    },
+  },
+
+  // POLICY: SkipTermsOfUse
+  {
+    policies: {
+      SkipTermsOfUse: true,
+    },
+    lockedPrefs: {
+      "termsofuse.acceptedVersion": 999,
+      // "termsofuse.acceptedVersion" is a string of
+      // the timestamp at which the policy was set
+    },
+  },
+
+  // POLICY: VisualSearchEnabled
+  {
+    policies: {
+      VisualSearchEnabled: false,
+    },
+    lockedPrefs: {
+      "browser.search.visualSearch.featureGate": false,
+    },
+  },
+
+  // Bug 1981587
+  {
+    policies: {
+      Preferences: {
+        "security.webauthn.always_allow_direct_attestation": {
+          Value: true,
+          Status: "locked",
+        },
+      },
+    },
+    lockedPrefs: {
+      "security.webauthn.always_allow_direct_attestation": true,
+    },
+  },
+
+  // GenerativeAI
+  {
+    policies: {
+      GenerativeAI: {
+        Enabled: false,
+        Chatbot: true,
+        Locked: true,
+      },
+    },
+    lockedPrefs: {
+      "browser.ml.chat.enabled": true,
+      "browser.ml.chat.page": true,
+      "browser.ml.linkPreview.optin": false,
+      "browser.tabs.groups.smart.userEnabled": false,
     },
   },
 ];

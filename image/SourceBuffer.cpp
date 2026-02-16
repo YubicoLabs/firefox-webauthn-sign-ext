@@ -206,7 +206,11 @@ nsresult SourceBuffer::Compact() {
   if (capacity == MAX_CHUNK_CAPACITY) {
     size_t lastLength = mChunks.LastElement().Length();
     if (lastLength != capacity) {
-      mChunks.LastElement().SetCapacity(lastLength);
+      if (lastLength == 0) {
+        mChunks.RemoveLastElement();
+      } else {
+        mChunks.LastElement().SetCapacity(lastLength);
+      }
     }
     return NS_OK;
   }
@@ -439,6 +443,18 @@ nsresult SourceBuffer::Append(const char* aData, size_t aLength) {
   }
 
   return NS_OK;
+}
+
+nsresult SourceBuffer::AdoptData(char* aData, size_t aLength,
+                                 void* (*aRealloc)(void*, size_t),
+                                 void (*aFree)(void*)) {
+  MOZ_ASSERT(aData, "Should have a buffer");
+  MOZ_ASSERT(aLength > 0, "Writing a zero-sized chunk");
+  if (!aData || aLength == 0) {
+    return NS_ERROR_INVALID_ARG;
+  }
+  MutexAutoLock lock(mMutex);
+  return AppendChunk(Some(Chunk(aData, aLength, aRealloc, aFree)));
 }
 
 static nsresult AppendToSourceBuffer(nsIInputStream*, void* aClosure,

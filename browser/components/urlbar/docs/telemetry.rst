@@ -1,8 +1,13 @@
-Telemetry
-=========
+.. _urlbar-telemetry:
+
+Address Bar Telemetry
+=====================
 
 This section describes existing telemetry probes measuring interaction with the
 Address Bar.
+
+This document only covers Legacy telemetry, not Glean telemetry.
+Glean metrics are self-documenting and can be looked up in the Glean dictionary.
 
 For telemetry specific to Firefox Suggest, see the
 :doc:`firefox-suggest-telemetry` document.
@@ -20,11 +25,19 @@ PLACES_AUTOCOMPLETE_1ST_RESULT_TIME_MS
   This probe tracks the amount of time it takes to get the first result.
   It is an exponential histogram with values between 5 and 100.
 
+  Changelog
+    Firefox 138
+      Mirrored from Glean (urlbar.autocomplete_first_result_time) . (See bug 1938938)
+
 PLACES_AUTOCOMPLETE_6_FIRST_RESULTS_TIME_MS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
   This probe tracks the amount of time it takes to get the first six results.
   It is an exponential histogram with values between 50 and 1000.
+
+  Changelog
+    Firefox 138
+      Mirrored from Glean (urlbar.autocomplete_sixth_result_time). (See bug 1938938)
 
 FX_URLBAR_SELECTED_RESULT_METHOD
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -68,6 +81,10 @@ FX_URLBAR_ZERO_PREFIX_DWELL_TIME_MS
   sites. This is an exponential histogram whose values range from 0 to 60,000
   with 50 buckets. Values are in milliseconds. This histogram was introduced in
   Firefox 110.0 in bug 1806765.
+
+  Changelog
+    Firefox 138
+      Removed completely. (See bug 1938938)
 
 PLACES_FRECENCY_RECALC_CHUNK_TIME_MS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -123,6 +140,8 @@ urlbar.engagement
 urlbar.impression.*
 ~~~~~~~~~~~~~~~~~~~
 
+  NOTE: This telemetry is no longer collected. See changelog below.
+
   A uint recording the number of impression that was displaying when user picks
   any result.
 
@@ -140,6 +159,13 @@ urlbar.impression.*
     code that is not properly setting a specific autofill type.
   - ``autofill_url``
     For url type autofill.
+
+  Changelog
+    Firefox 134
+      Legacy ``urlbar.impression.*`` telemetry mirrored to Glean. (See bug 1927093)
+    Firefox 138
+      Legacy ``urlbar.impression.*`` telemetry and Glean ``urlbar.impression.*`` telemetry
+      removed completely. (See bug 1932712)
 
 urlbar.persistedsearchterms.revert_by_popup_count
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -270,6 +296,10 @@ urlbar.searchmode.*
     Used when the user selects a keyword offer result.
   - ``oneoff``
     Used when the user selects a one-off engine in the Urlbar.
+  - ``searchbutton``
+    Used when the user entered search mode via the unified search button.
+    Added in Firefox 133, but the unified search button was not enabled in
+    release until 136.
   - ``shortcut``
     Used when the user enters search mode with a keyboard shortcut or menu bar
     item (e.g. ``Accel+K``).
@@ -343,6 +373,14 @@ urlbar.searchmode.*
 
       Please note that symbols cannot trigger the ``urlbar.searchmode.keywordoffer``
       telemetry, as symbols are only valid for typed. [Bug `1919180`_]
+
+    Firefox 133
+      Added ``urlbar.searchmode.searchbutton``:
+        - This new probe is for accesses to search mode from the unified search
+          button. The button was released in Firefox 136 and replaced the previous
+          one-off buttons (``urlbar.searchmode.oneoff``).
+
+      Added Glean equivalents of the probes as labeled counters.
 
 
 urlbar.picked.*
@@ -607,9 +645,7 @@ Search Engagement Telemetry
 ---------------------------
 
 The search engagement telemetry provided since Firefox 110 is is recorded using
-Glean events. Because of the data size, these events are collected only for a
-subset of the population, using the Glean Sampling feature. Please see the
-following documents for the details.
+Glean events. Please see the following documents for the details.
 
   - `Engagement`_ :
     It is defined as a completed action in urlbar, where a user picked one of
@@ -624,12 +660,19 @@ following documents for the details.
 .. _Abandonment: https://dictionary.telemetry.mozilla.org/apps/firefox_desktop/metrics/urlbar_abandonment
 
 Changelog
+  Firefox 141
+    New result types have been added, in particular sub-types can now be added
+    to `history` and `tab`, indicating whether they are from semantic history,
+    or SERP, e.g. `history_serp`, `history_semantic`, `tab_semantic_serp`.
+    [Bug `1971534`_]
+
   Firefox 128
     The "actions" key was added to the engagement event. [Bug `1893067`_]
 
   Firefox 125
     The "impression" engagement event has been removed. [Bug `1878983`_]
 
+.. _1971534: https://bugzilla.mozilla.org/show_bug.cgi?id=1971534
 .. _1893067: https://bugzilla.mozilla.org/show_bug.cgi?id=1893067
 .. _1878983: https://bugzilla.mozilla.org/show_bug.cgi?id=1878983
 

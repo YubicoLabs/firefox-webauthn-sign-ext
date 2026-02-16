@@ -6,9 +6,19 @@ import os
 import re
 import shutil
 import sys
+from pathlib import Path
 
 from fetch_github_repo import fetch_repo
-from run_operations import get_last_line, run_git, run_hg, run_shell
+from run_operations import (
+    RepoType,
+    check_repo_status,
+    detect_repo_type,
+    get_last_line,
+    run_git,
+    run_shell,
+)
+
+repo_type = detect_repo_type()
 
 # This script restores the mozilla patch stack and no-op commit tracking
 # files.  In the case of repo corruption or a mistake made during
@@ -25,7 +35,7 @@ def restore_patch_stack(
     tar_name,
 ):
     # make sure the repo is clean before beginning
-    stdout_lines = run_hg("hg status third_party/libwebrtc")
+    stdout_lines = check_repo_status(repo_type)
     if len(stdout_lines) != 0:
         print("There are modified or untracked files under third_party/libwebrtc")
         print("Please cleanup the repo under third_party/libwebrtc before running")
@@ -58,7 +68,18 @@ def restore_patch_stack(
     # restore the patches to moz-libwebrtc repo, use run_shell instead of
     # run_hg to allow filepath wildcard
     print("Restoring patch stack")
-    run_shell(f"cd {github_path} && git am {patch_directory}/*.patch")
+    test_directory = Path(patch_directory)
+    pre_stack_file_cnt = len(
+        list(Path(patch_directory).glob("p[0-9][0-9][0-9][0-9].patch"))
+    )
+    print(f"Restoring {pre_stack_file_cnt} pre-stack patch files")
+    if pre_stack_file_cnt > 0:
+        run_shell(f"cd {github_path} && git am {patch_directory}/p*.patch")
+
+    norm_stack_files = list(test_directory.glob("s*.patch"))
+    norm_stack_file_cnt = len(norm_stack_files)
+    print(f"Restoring {norm_stack_file_cnt} normal patch files")
+    run_shell(f"cd {github_path} && git am {patch_directory}/s*.patch")
 
     # it is also helpful to restore the no-op-cherry-pick-msg files to
     # the state directory so that if we're restoring a patch-stack we
@@ -76,6 +97,11 @@ def restore_patch_stack(
 
 
 if __name__ == "__main__":
+    # first, check which repo we're in, git or hg
+    if repo_type is None or not isinstance(repo_type, RepoType):
+        print("Unable to detect repo (git or hg)")
+        sys.exit(1)
+
     default_patch_dir = "third_party/libwebrtc/moz-patch-stack"
     default_state_dir = ".moz-fast-forward"
     default_tar_name = "moz-libwebrtc.tar.gz"

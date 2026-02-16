@@ -12,12 +12,6 @@
     visible: true
   });
 
-  async function checkForH264Support() {
-    const pc = new RTCPeerConnection();
-    const offer = await pc.createOffer({offerToReceiveVideo: true});
-    return offer.sdp.match(/a=rtpmap:[1-9][0-9]* H264/);
-  }
-
   let resolutionAlignment = 1;
 
   var mustRejectWith = (msg, reason, f) =>
@@ -69,9 +63,7 @@
                                                scaleResolutionDownBy: 2 }] });
 
     let offer = await pc1.createOffer();
-    if (codec == "VP8") {
-      offer.sdp = sdputils.removeAllButPayloadType(offer.sdp, 126);
-    }
+    offer.sdp = sdputils.removeAllButCodec(offer.sdp, codec);
     await pc1.setLocalDescription(offer);
     await pc2.setRemoteDescription(pc1.localDescription);
 
@@ -104,15 +96,22 @@
   }
 
   runNetworkTest(async () => {
-    await matchPlatformH264CodecPrefs();
-    const hasH264 = await checkForH264Support();
-    if (hasH264 && navigator.userAgent.includes("Android")) {
-      // Android only has a hw encoder for h264
+    await pushPrefs(
+        ['media.peerconnection.video.lock_scaling', true],
+        // Disable h264 hardware support, to ensure it is not prioritized over VP8
+        ["media.webrtc.hw.h264.enabled", false],
+        // Use libwebrtc VP8 encoder to avoid unexpected resolution alignment on
+        // some devices.
+        ["media.webrtc.encoder_creation_strategy", 0],
+      );
+    await testScale("VP8");
+
+    const h264Support = checkPlatformH264CodecPrefs();
+    if (!h264Support.webrtc) {
+      // MediaDataEncoder always uses 16-alignment.
       resolutionAlignment = 16;
     }
-    await pushPrefs(['media.peerconnection.video.lock_scaling', true]);
-    await testScale("VP8");
-    if (hasH264) {
+    if (h264Support.any) {
       await testScale("H264");
     }
   });

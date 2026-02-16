@@ -51,8 +51,17 @@ Below is a full example of using the engine to summarize a content:
   });
 
   // 3. Call the engine
+  const text = 'The tower is 324 metres (1,063 ft) tall, about the same height as an 81-storey building, ' +
+  'and the tallest structure in Paris. Its base is square, measuring 125 metres (410 ft) on each side. ' +
+  'During its construction, the Eiffel Tower surpassed the Washington Monument to become the tallest ' +
+  'man-made structure in the world, a title it held for 41 years until the Chrysler Building in New ' +
+  'York City was finished in 1930. It was the first structure to reach a height of 300 metres. Due to ' +
+  'the addition of a broadcasting aerial at the top of the tower in 1957, it is now taller than the ' +
+  'Chrysler Building by 5.2 metres (17 ft). Excluding transmitters, the Eiffel Tower is the second ' +
+  'tallest free-standing structure in France after the Millau Viaduct.';
+
   const res = await browser.trial.ml.runEngine({
-    args: ["This is the text to summarize"],
+    args: [text],
   });
 
   // 4. Get the results.
@@ -103,7 +112,7 @@ one.
 - **summarization**: Xenova/distilbart-cnn-6-6
 - **translation**: Xenova/t5-small
 - **text2text-generation**: Xenova/flan-t5-small
-- **text-generation**: Xenova/gpt2
+- **text-generation**: onnx-community/gpt2-ONNX
 - **zero-shot-classification**: Xenova/distilbert-base-uncased-mnli
 - **image-to-text**: Mozilla/distilvit
 - **image-classification**: Xenova/vit-base-patch16-224
@@ -130,7 +139,7 @@ So the example below:
 .. code-block:: javascript
 
    const gen = await pipeline('summarization', 'Xenova/distilbart-cnn-6-6');
-   const output = await gen('some text', {max_new_tokens: 100});
+   const output = await gen(text, {max_new_tokens: 100});
 
 Becomes:
 
@@ -143,7 +152,7 @@ Becomes:
   });
 
   const output = await browser.trial.ml.runEngine({
-    args: ["some text"],
+    args: [text],
   });
 
 
@@ -168,7 +177,7 @@ Last, but not least, if the device memory resources are getting too low, engine 
 be deleted and an error will be thrown.
 
 
-Full example
-------------
+Examples
+--------
 
-We've implemented a full example that leverages our `image-to-text model` to generate a caption on a right click. :ref:`See the README <Trial Inference API Extension Example>`.
+We've implemented some examples, look for all repositories starting with `webext-ai` in https://github.com/firefox-ai.

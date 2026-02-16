@@ -10,14 +10,24 @@
 #include "net/dcsctp/tx/outstanding_data.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <map>
+#include <optional>
 #include <set>
 #include <utility>
 #include <vector>
 
+#include "api/array_view.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
+#include "net/dcsctp/common/internal_types.h"
 #include "net/dcsctp/common/math.h"
 #include "net/dcsctp/common/sequence_numbers.h"
+#include "net/dcsctp/packet/chunk/forward_tsn_chunk.h"
+#include "net/dcsctp/packet/chunk/iforward_tsn_chunk.h"
+#include "net/dcsctp/packet/chunk/sack_chunk.h"
+#include "net/dcsctp/packet/data.h"
 #include "net/dcsctp/public/types.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
@@ -77,7 +87,8 @@ bool OutstandingData::Item::has_expired(Timestamp now) const {
 }
 
 bool OutstandingData::IsConsistent() const {
-  size_t actual_unacked_bytes = 0;
+  size_t actual_unacked_payload_bytes = 0;
+  size_t actual_unacked_packet_bytes = 0;
   size_t actual_unacked_items = 0;
 
   std::set<UnwrappedTSN> combined_to_be_retransmitted;
@@ -91,7 +102,8 @@ bool OutstandingData::IsConsistent() const {
   for (const Item& item : outstanding_data_) {
     tsn.Increment();
     if (item.is_outstanding()) {
-      actual_unacked_bytes += GetSerializedChunkSize(item.data());
+      actual_unacked_payload_bytes += item.data().size();
+      actual_unacked_packet_bytes += GetSerializedChunkSize(item.data());
       ++actual_unacked_items;
     }
 
@@ -100,7 +112,8 @@ bool OutstandingData::IsConsistent() const {
     }
   }
 
-  return actual_unacked_bytes == unacked_bytes_ &&
+  return actual_unacked_payload_bytes == unacked_payload_bytes_ &&
+         actual_unacked_packet_bytes == unacked_packet_bytes_ &&
          actual_unacked_items == unacked_items_ &&
          actual_combined_to_be_retransmitted == combined_to_be_retransmitted;
 }
@@ -112,7 +125,8 @@ void OutstandingData::AckChunk(AckInfo& ack_info,
     size_t serialized_size = GetSerializedChunkSize(item.data());
     ack_info.bytes_acked += serialized_size;
     if (item.is_outstanding()) {
-      unacked_bytes_ -= serialized_size;
+      unacked_payload_bytes_ -= item.data().size();
+      unacked_packet_bytes_ -= serialized_size;
       --unacked_items_;
     }
     if (item.should_be_retransmitted()) {
@@ -127,7 +141,7 @@ void OutstandingData::AckChunk(AckInfo& ack_info,
 
 OutstandingData::AckInfo OutstandingData::HandleSack(
     UnwrappedTSN cumulative_tsn_ack,
-    rtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
+    webrtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
     bool is_in_fast_recovery) {
   OutstandingData::AckInfo ack_info(cumulative_tsn_ack);
   // Erase all items up to cumulative_tsn_ack.
@@ -188,7 +202,7 @@ void OutstandingData::RemoveAcked(UnwrappedTSN cumulative_tsn_ack,
 
 void OutstandingData::AckGapBlocks(
     UnwrappedTSN cumulative_tsn_ack,
-    rtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
+    webrtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
     AckInfo& ack_info) {
   // Mark all non-gaps as ACKED (but they can't be removed) as (from RFC)
   // "SCTP considers the information carried in the Gap Ack Blocks in the
@@ -209,7 +223,7 @@ void OutstandingData::AckGapBlocks(
 
 void OutstandingData::NackBetweenAckBlocks(
     UnwrappedTSN cumulative_tsn_ack,
-    rtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
+    webrtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
     bool is_in_fast_recovery,
     OutstandingData::AckInfo& ack_info) {
   // Mark everything between the blocks as NACKED/TO_BE_RETRANSMITTED.
@@ -258,7 +272,8 @@ bool OutstandingData::NackItem(UnwrappedTSN tsn,
                                bool do_fast_retransmit) {
   Item& item = GetItem(tsn);
   if (item.is_outstanding()) {
-    unacked_bytes_ -= GetSerializedChunkSize(item.data());
+    unacked_payload_bytes_ -= item.data().size();
+    unacked_packet_bytes_ -= GetSerializedChunkSize(item.data());
     --unacked_items_;
   }
 
@@ -343,7 +358,8 @@ std::vector<std::pair<TSN, Data>> OutstandingData::ExtractChunksThatCanFit(
       item.MarkAsRetransmitted();
       result.emplace_back(tsn.Wrap(), item.data().Clone());
       max_size -= serialized_size;
-      unacked_bytes_ += serialized_size;
+      unacked_payload_bytes_ += item.data().size();
+      unacked_packet_bytes_ += serialized_size;
       ++unacked_items_;
       it = chunks.erase(it);
     } else {
@@ -386,6 +402,7 @@ std::vector<std::pair<TSN, Data>> OutstandingData::GetChunksToBeRetransmitted(
 }
 
 void OutstandingData::ExpireOutstandingChunks(Timestamp now) {
+  std::vector<UnwrappedTSN> tsns_to_expire;
   UnwrappedTSN tsn = last_cumulative_tsn_ack_;
   for (const Item& item : outstanding_data_) {
     tsn.Increment();
@@ -395,14 +412,21 @@ void OutstandingData::ExpireOutstandingChunks(Timestamp now) {
     if (item.is_abandoned()) {
       // Already abandoned.
     } else if (item.is_nacked() && item.has_expired(now)) {
-      RTC_DLOG(LS_VERBOSE) << "Marking nacked chunk " << *tsn.Wrap()
-                           << " and message " << *item.data().mid
-                           << " as expired";
-      AbandonAllFor(item);
+      tsns_to_expire.push_back(tsn);
     } else {
       // A non-expired chunk. No need to iterate any further.
       break;
     }
+  }
+
+  for (UnwrappedTSN tsn_to_expire : tsns_to_expire) {
+    // The item is retrieved by TSN, as AbandonAllFor may have modified
+    // `outstanding_data_` and invalidated iterators from the first loop.
+    Item& item = GetItem(tsn_to_expire);
+    RTC_DLOG(LS_WARNING) << "Marking nacked chunk " << *tsn_to_expire.Wrap()
+                         << " and message " << *item.data().mid
+                         << " as expired";
+    AbandonAllFor(item);
   }
   RTC_DCHECK(IsConsistent());
 }
@@ -421,7 +445,8 @@ std::optional<UnwrappedTSN> OutstandingData::Insert(
     LifecycleId lifecycle_id) {
   // All chunks are always padded to be even divisible by 4.
   size_t chunk_size = GetSerializedChunkSize(data);
-  unacked_bytes_ += chunk_size;
+  unacked_payload_bytes_ += data.size();
+  unacked_packet_bytes_ += chunk_size;
   ++unacked_items_;
   UnwrappedTSN tsn = next_tsn();
   Item& item = outstanding_data_.emplace_back(message_id, data.Clone(),
@@ -454,8 +479,8 @@ void OutstandingData::NackAll() {
     }
   }
 
-  for (UnwrappedTSN tsn : tsns_to_nack) {
-    NackItem(tsn, /*retransmit_now=*/true,
+  for (UnwrappedTSN tsn_to_nack : tsns_to_nack) {
+    NackItem(tsn_to_nack, /*retransmit_now=*/true,
              /*do_fast_retransmit=*/false);
   }
 

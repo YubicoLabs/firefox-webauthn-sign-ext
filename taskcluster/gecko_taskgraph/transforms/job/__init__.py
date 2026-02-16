@@ -9,17 +9,17 @@ the job at a higher level, using a "run" field that can be interpreted by
 run-using handlers in `taskcluster/gecko_taskgraph/transforms/job`.
 """
 
-
-import json
 import logging
+import os
 
 import mozpack.path as mozpath
 from packaging.version import Version
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.transforms.run import rewrite_when_to_optimization
+from taskgraph.util import json
 from taskgraph.util.copy import deepcopy
 from taskgraph.util.python_path import import_sibling_modules
-from taskgraph.util.schema import Schema, validate_schema
+from taskgraph.util.schema import LegacySchema, validate_schema
 from taskgraph.util.taskcluster import get_artifact_prefix
 from voluptuous import Any, Coerce, Exclusive, Extra, Optional, Required
 
@@ -30,83 +30,83 @@ from gecko_taskgraph.util.workertypes import worker_type_implementation
 logger = logging.getLogger(__name__)
 
 # Schema for a build description
-job_description_schema = Schema(
-    {
-        # The name of the job and the job's label.  At least one must be specified,
-        # and the label will be generated from the name if necessary, by prepending
-        # the kind.
-        Optional("name"): str,
-        Optional("label"): str,
-        # the following fields are passed directly through to the task description,
-        # possibly modified by the run implementation.  See
-        # taskcluster/gecko_taskgraph/transforms/task.py for the schema details.
-        Required("description"): task_description_schema["description"],
-        Optional("attributes"): task_description_schema["attributes"],
-        Optional("task-from"): task_description_schema["task-from"],
-        Optional("dependencies"): task_description_schema["dependencies"],
-        Optional("if-dependencies"): task_description_schema["if-dependencies"],
-        Optional("soft-dependencies"): task_description_schema["soft-dependencies"],
-        Optional("if-dependencies"): task_description_schema["if-dependencies"],
-        Optional("requires"): task_description_schema["requires"],
-        Optional("expires-after"): task_description_schema["expires-after"],
-        Optional("expiration-policy"): task_description_schema["expiration-policy"],
-        Optional("routes"): task_description_schema["routes"],
-        Optional("scopes"): task_description_schema["scopes"],
-        Optional("tags"): task_description_schema["tags"],
-        Optional("extra"): task_description_schema["extra"],
-        Optional("treeherder"): task_description_schema["treeherder"],
-        Optional("index"): task_description_schema["index"],
-        Optional("run-on-projects"): task_description_schema["run-on-projects"],
-        Optional("shipping-phase"): task_description_schema["shipping-phase"],
-        Optional("shipping-product"): task_description_schema["shipping-product"],
-        Optional("always-target"): task_description_schema["always-target"],
-        Exclusive("optimization", "optimization"): task_description_schema[
-            "optimization"
-        ],
-        Optional("use-sccache"): task_description_schema["use-sccache"],
-        Optional("use-python"): Any("system", "default", Coerce(Version)),
-        Optional("priority"): task_description_schema["priority"],
-        # The "when" section contains descriptions of the circumstances under which
-        # this task should be included in the task graph.  This will be converted
-        # into an optimization, so it cannot be specified in a job description that
-        # also gives 'optimization'.
-        Exclusive("when", "optimization"): Any(
-            None,
+job_description_schema = LegacySchema({
+    # The name of the job and the job's label.  At least one must be specified,
+    # and the label will be generated from the name if necessary, by prepending
+    # the kind.
+    Optional("name"): str,
+    Optional("label"): str,
+    # the following fields are passed directly through to the task description,
+    # possibly modified by the run implementation.  See
+    # taskcluster/gecko_taskgraph/transforms/task.py for the schema details.
+    Required("description"): task_description_schema["description"],
+    Optional("attributes"): task_description_schema["attributes"],
+    Optional("task-from"): task_description_schema["task-from"],
+    Optional("dependencies"): task_description_schema["dependencies"],
+    Optional("if-dependencies"): task_description_schema["if-dependencies"],
+    Optional("soft-dependencies"): task_description_schema["soft-dependencies"],
+    Optional("if-dependencies"): task_description_schema["if-dependencies"],
+    Optional("requires"): task_description_schema["requires"],
+    Optional("expires-after"): task_description_schema["expires-after"],
+    Optional("expiration-policy"): task_description_schema["expiration-policy"],
+    Optional("routes"): task_description_schema["routes"],
+    Optional("scopes"): task_description_schema["scopes"],
+    Optional("tags"): task_description_schema["tags"],
+    Optional("extra"): task_description_schema["extra"],
+    Optional("treeherder"): task_description_schema["treeherder"],
+    Optional("index"): task_description_schema["index"],
+    Optional("run-on-repo-type"): task_description_schema["run-on-repo-type"],
+    Optional("run-on-projects"): task_description_schema["run-on-projects"],
+    Optional("run-on-git-branches"): task_description_schema["run-on-git-branches"],
+    Optional("shipping-phase"): task_description_schema["shipping-phase"],
+    Optional("shipping-product"): task_description_schema["shipping-product"],
+    Optional("always-target"): task_description_schema["always-target"],
+    Exclusive("optimization", "optimization"): task_description_schema["optimization"],
+    Optional("use-sccache"): task_description_schema["use-sccache"],
+    Optional("use-python"): Any("system", "default", Coerce(Version)),
+    # Fetch uv binary and add it to PATH
+    Optional("use-uv"): bool,
+    Optional("priority"): task_description_schema["priority"],
+    # The "when" section contains descriptions of the circumstances under which
+    # this task should be included in the task graph.  This will be converted
+    # into an optimization, so it cannot be specified in a job description that
+    # also gives 'optimization'.
+    Exclusive("when", "optimization"): Any(
+        None,
+        {
+            # This task only needs to be run if a file matching one of the given
+            # patterns has changed in the push.  The patterns use the mozpack
+            # match function (python/mozbuild/mozpack/path.py).
+            Optional("files-changed"): [str],
+        },
+    ),
+    # A list of artifacts to install from 'fetch' tasks.
+    Optional("fetches"): {
+        str: [
+            str,
             {
-                # This task only needs to be run if a file matching one of the given
-                # patterns has changed in the push.  The patterns use the mozpack
-                # match function (python/mozbuild/mozpack/path.py).
-                Optional("files-changed"): [str],
+                Required("artifact"): str,
+                Optional("dest"): str,
+                Optional("extract"): bool,
+                Optional("verify-hash"): bool,
             },
-        ),
-        # A list of artifacts to install from 'fetch' tasks.
-        Optional("fetches"): {
-            str: [
-                str,
-                {
-                    Required("artifact"): str,
-                    Optional("dest"): str,
-                    Optional("extract"): bool,
-                    Optional("verify-hash"): bool,
-                },
-            ],
-        },
-        # A description of how to run this job.
-        "run": {
-            # The key to a job implementation in a peer module to this one
-            "using": str,
-            # Base work directory used to set up the task.
-            Optional("workdir"): str,
-            # Any remaining content is verified against that job implementation's
-            # own schema.
-            Extra: object,
-        },
-        Required("worker-type"): task_description_schema["worker-type"],
-        # This object will be passed through to the task description, with additions
-        # provided by the job's run-using function
-        Optional("worker"): dict,
-    }
-)
+        ],
+    },
+    # A description of how to run this job.
+    "run": {
+        # The key to a job implementation in a peer module to this one
+        "using": str,
+        # Base work directory used to set up the task.
+        Optional("workdir"): str,
+        # Any remaining content is verified against that job implementation's
+        # own schema.
+        Extra: object,
+    },
+    Required("worker-type"): task_description_schema["worker-type"],
+    # This object will be passed through to the task description, with additions
+    # provided by the job's run-using function
+    Optional("worker"): dict,
+})
 
 transforms = TransformSequence()
 transforms.add_validate(job_description_schema)
@@ -184,6 +184,20 @@ def get_attribute(dict, key, attributes, attribute_name):
         dict[key] = value
 
 
+def get_platform(job):
+    if "win" in job["worker"]["os"]:
+        return "win64"
+    elif "linux" in job["worker"]["os"]:
+        platform = "linux64"
+        if "aarch64" in job["worker-type"] or "arm64" in job["worker-type"]:
+            return f"{platform}-aarch64"
+        return platform
+    elif "macosx" in job["worker"]["os"]:
+        return "macosx64"
+    else:
+        raise ValueError(f"unexpected worker.os value {job['worker']['os']}")
+
+
 @transforms.add
 def use_system_python(config, jobs):
     for job in jobs:
@@ -198,14 +212,7 @@ def use_system_python(config, jobs):
 
             fetches = job.setdefault("fetches", {})
             toolchain = fetches.setdefault("toolchain", [])
-            if "win" in job["worker"]["os"]:
-                platform = "win64"
-            elif "linux" in job["worker"]["os"]:
-                platform = "linux64"
-            elif "macosx" in job["worker"]["os"]:
-                platform = "macosx64"
-            else:
-                raise ValueError("unexpected worker.os value {}".format(platform))
+            platform = get_platform(job)
 
             toolchain.append(f"{platform}-{python_version}")
 
@@ -217,6 +224,51 @@ def use_system_python(config, jobs):
             env["MOZ_PYTHON_HOME"] = moz_python_home
 
             yield job
+
+
+@transforms.add
+def use_uv(config, jobs):
+    for job in jobs:
+        if not job.pop("use-uv", False):
+            yield job
+        else:
+            fetches = job.setdefault("fetches", {})
+            toolchain = fetches.setdefault("toolchain", [])
+            platform = get_platform(job)
+
+            toolchain.append(f"{platform}-uv")
+
+            worker = job.setdefault("worker", {})
+            env = worker.setdefault("env", {})
+            moz_fetches_dir = env.get("MOZ_FETCHES_DIR", "fetches")
+            env["MOZ_UV_HOME"] = os.path.join(moz_fetches_dir, "uv")
+
+            yield job
+
+
+@transforms.add
+def add_perfherder_fetch_content_artifact(config, jobs):
+    for job in jobs:
+        if not job.get("fetches"):
+            yield job
+            continue
+
+        worker = job.setdefault("worker", {})
+        env = worker.setdefault("env", {})
+        artifacts = worker.setdefault("artifacts", [])
+        perfherder_fetch_content_json_path = (
+            "/builds/worker/perf/perfherder-data-fetch-content.json"
+            if worker.get("implementation") == "docker-worker"
+            else "./perf/perfherder-data-fetch-content.json"
+        )
+        artifacts.append({
+            "type": "file",
+            "name": "public/fetch/perfherder-data-fetch-content.json",
+            "path": perfherder_fetch_content_json_path,
+        })
+        env["PERFHERDER_FETCH_CONTENT_JSON_PATH"] = perfherder_fetch_content_json_path
+
+        yield job
 
 
 @transforms.add
@@ -279,9 +331,7 @@ def use_fetches(config, jobs):
                     label = aliases.get(label, label)
                     if label not in artifact_names:
                         raise Exception(
-                            "Missing fetch job for {kind}-{name}: {fetch}".format(
-                                kind=config.kind, name=name, fetch=fetch_name
-                            )
+                            f"Missing fetch job for {config.kind}-{name}: {fetch_name}"
                         )
                     if label in extra_env:
                         env.update(extra_env[label])
@@ -289,21 +339,19 @@ def use_fetches(config, jobs):
                     path = artifact_names[label]
 
                     dependencies[label] = label
-                    job_fetches.append(
-                        {
-                            "artifact": path,
-                            "task": f"<{label}>",
-                            "extract": should_extract.get(label, True),
-                        }
-                    )
+                    job_fetches.append({
+                        "artifact": path,
+                        "task": f"<{label}>",
+                        "extract": should_extract.get(label, True),
+                    })
 
                     if kind == "toolchain" and fetch_name.endswith("-sccache"):
                         has_sccache = True
             else:
                 if kind not in dependencies:
                     raise Exception(
-                        "{name} can't fetch {kind} artifacts because "
-                        "it has no {kind} dependencies!".format(name=name, kind=kind)
+                        f"{name} can't fetch {kind} artifacts because "
+                        f"it has no {kind} dependencies!"
                     )
                 dep_label = dependencies[kind]
                 if dep_label in artifact_prefixes:
@@ -311,12 +359,8 @@ def use_fetches(config, jobs):
                 else:
                     if dep_label not in config.kind_dependencies_tasks:
                         raise Exception(
-                            "{name} can't fetch {kind} artifacts because "
-                            "there are no tasks with label {label} in kind dependencies!".format(
-                                name=name,
-                                kind=kind,
-                                label=dependencies[kind],
-                            )
+                            f"{name} can't fetch {kind} artifacts because "
+                            f"there are no tasks with label {dependencies[kind]} in kind dependencies!"
                         )
 
                     prefix = get_artifact_prefix(
@@ -407,11 +451,7 @@ def run_job_using(worker_implementation, run_using, schema=None, defaults={}):
         for_run_using = registry.setdefault(run_using, {})
         if worker_implementation in for_run_using:
             raise Exception(
-                "run_job_using({!r}, {!r}) already exists: {!r}".format(
-                    run_using,
-                    worker_implementation,
-                    for_run_using[worker_implementation],
-                )
+                f"run_job_using({run_using!r}, {worker_implementation!r}) already exists: {for_run_using[worker_implementation]!r}"
             )
         for_run_using[worker_implementation] = (func, schema, defaults)
         return func
@@ -420,7 +460,7 @@ def run_job_using(worker_implementation, run_using, schema=None, defaults={}):
 
 
 @run_job_using(
-    "always-optimized", "always-optimized", Schema({"using": "always-optimized"})
+    "always-optimized", "always-optimized", LegacySchema({"using": "always-optimized"})
 )
 def always_optimized(config, job, taskdesc):
     pass
@@ -440,9 +480,7 @@ def configure_taskdesc_for_run(config, job, taskdesc, worker_implementation):
 
     if worker_implementation not in registry[run_using]:
         raise Exception(
-            "no functions for run.using {!r} on {!r}".format(
-                run_using, worker_implementation
-            )
+            f"no functions for run.using {run_using!r} on {worker_implementation!r}"
         )
 
     func, schema, defaults = registry[run_using][worker_implementation]

@@ -204,12 +204,13 @@ export class EncryptedMediaParent extends JSWindowActorParent {
       return;
     }
 
-    let msgPrefix = "eme-notifications-drm-content-playing";
-    let msgId = msgPrefix;
-    let manageLabelId = msgPrefix + "-manage";
-    let manageAccessKeyId = msgPrefix + "-manage-accesskey";
-    let dismissLabelId = msgPrefix + "-dismiss";
-    let dismissAccessKeyId = msgPrefix + "-dismiss-accesskey";
+    let msgId = "eme-notifications-drm-content-playing";
+    let manageLabelId = "eme-notifications-drm-content-playing-manage";
+    let manageAccessKeyId =
+      "eme-notifications-drm-content-playing-manage-accesskey";
+    let dismissLabelId = "eme-notifications-drm-content-playing-dismiss";
+    let dismissAccessKeyId =
+      "eme-notifications-drm-content-playing-dismiss-accesskey";
 
     let [
       message,
@@ -279,7 +280,6 @@ export class EncryptedMediaParent extends JSWindowActorParent {
     let hasHardwareDecryption = false;
     let hasSoftwareClearlead = false;
     let hasHardwareClearlead = false;
-    let hasHdcp22Plus = false;
     let hasWMF = false;
 
     // Get CDM capabilities from the GMP process.
@@ -305,16 +305,12 @@ export class EncryptedMediaParent extends JSWindowActorParent {
           hasSoftwareClearlead = true;
         }
       }
-      if (info.isHDCP22Compatible) {
-        hasHdcp22Plus = true;
-      }
     }
     Glean.mediadrm.decryption.has_hardware_decryption.set(
       hasHardwareDecryption
     );
     Glean.mediadrm.decryption.has_hardware_clearlead.set(hasHardwareClearlead);
     Glean.mediadrm.decryption.has_software_clearlead.set(hasSoftwareClearlead);
-    Glean.mediadrm.decryption.has_hdcp22_plus.set(hasHdcp22Plus);
     Glean.mediadrm.decryption.has_wmf.set(hasWMF);
   }
 }

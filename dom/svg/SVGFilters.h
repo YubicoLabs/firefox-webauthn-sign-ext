@@ -7,14 +7,13 @@
 #ifndef DOM_SVG_SVGFILTERS_H_
 #define DOM_SVG_SVGFILTERS_H_
 
-#include "mozilla/Attributes.h"
-#include "mozilla/dom/SVGElement.h"
 #include "FilterDescription.h"
-#include "nsImageLoadingContent.h"
 #include "SVGAnimatedLength.h"
 #include "SVGAnimatedNumber.h"
 #include "SVGAnimatedNumberPair.h"
 #include "SVGAnimatedString.h"
+#include "mozilla/dom/SVGElement.h"
+#include "nsImageLoadingContent.h"
 
 namespace mozilla {
 class SVGFilterInstance;
@@ -191,10 +190,6 @@ class SVGFELightingElement : public SVGFELightingElementBase {
   void GetSourceImageNames(nsTArray<SVGStringInfo>& aSources) override;
 
  protected:
-  bool OperatesOnSRGB(int32_t aInputIndex, bool aInputIsAlreadySRGB) override {
-    return true;
-  }
-
   NumberAttributesInfo GetNumberInfo() override;
   NumberPairAttributesInfo GetNumberPairInfo() override;
   StringAttributesInfo GetStringInfo() override;
@@ -202,9 +197,8 @@ class SVGFELightingElement : public SVGFELightingElementBase {
   mozilla::gfx::LightType ComputeLightAttributes(
       SVGFilterInstance* aInstance, nsTArray<float>& aFloatAttributes);
 
-  bool AddLightingAttributes(
-      mozilla::gfx::DiffuseLightingAttributes* aAttributes,
-      SVGFilterInstance* aInstance);
+  bool AddLightingAttributes(mozilla::gfx::LightingAttributes* aAttributes,
+                             SVGFilterInstance* aInstance);
 
   enum {
     SURFACE_SCALE,
@@ -215,13 +209,13 @@ class SVGFELightingElement : public SVGFELightingElementBase {
   SVGAnimatedNumber mNumberAttributes[4];
   static NumberInfo sNumberInfo[4];
 
-  enum { KERNEL_UNIT_LENGTH };
-  SVGAnimatedNumberPair mNumberPairAttributes[1];
-  static NumberPairInfo sNumberPairInfo[1];
-
   enum { RESULT, IN1 };
   SVGAnimatedString mStringAttributes[2];
   static StringInfo sStringInfo[2];
+
+  enum { KERNEL_UNIT_LENGTH };
+  SVGAnimatedNumberPair mNumberPairAttributes[1];
+  static NumberPairInfo sNumberPairInfo[1];
 };
 
 using SVGFELightElementBase = SVGFilterPrimitiveChildElement;

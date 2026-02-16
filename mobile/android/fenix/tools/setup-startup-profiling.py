@@ -72,9 +72,12 @@ def push(id, filename):
         with config.file as f:
             f.write(GV_CONFIG)
 
-        print("Pushing {} to device.".format(filename))
-        run(["adb", "push", config.name, os.path.join(PATH_PREFIX, filename)])
-        run(["adb", "shell", "am", "set-debug-app", "--persistent", id])
+        print(f"Pushing {filename} to device.")
+        run(
+            ["adb", "push", config.name, os.path.join(PATH_PREFIX, filename)],
+            check=True,
+        )
+        run(["adb", "shell", "am", "set-debug-app", "--persistent", id], check=True)
         print(
             "\nStartup profiling enabled on all future start ups, possibly even after reinstall."
         )
@@ -89,9 +92,9 @@ def push(id, filename):
 
 
 def remove(filename):
-    print("Removing {} from device.".format(filename))
-    run(["adb", "shell", "rm", PATH_PREFIX + "/" + filename])
-    run(["adb", "shell", "am", "clear-debug-app"])
+    print(f"Removing {filename} from device.")
+    run(["adb", "shell", "rm", PATH_PREFIX + "/" + filename], check=True)
+    run(["adb", "shell", "am", "clear-debug-app"], check=True)
 
 
 def convert_channel_to_id(product, channel):

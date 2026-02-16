@@ -1165,7 +1165,7 @@ tests.push({
       );
       for (let row of parentRows) {
         let actualChangeCounter = row.getResultByName("syncChangeCounter");
-        Assert.ok(actualChangeCounter > 0);
+        Assert.greater(actualChangeCounter, 0);
       }
     }
 
@@ -2478,7 +2478,7 @@ tests.push({
           let nowAsPRTime = PlacesUtils.toPRTime(new Date());
           Assert.greater(dateAdded, 0);
           Assert.equal(dateAdded, lastModified);
-          Assert.ok(dateAdded <= nowAsPRTime);
+          Assert.lessOrEqual(dateAdded, nowAsPRTime);
           break;
         }
 
@@ -2610,7 +2610,7 @@ tests.push({
     });
 
     PlacesUtils.tagging.tagURI(this._uri1, ["testtag"]);
-    await PlacesUtils.favicons.setFaviconForPage(
+    await PlacesTestUtils.setFaviconForPage(
       this._uri2,
       SMALLPNG_DATA_URI,
       SMALLPNG_DATA_URI
@@ -2654,12 +2654,8 @@ tests.push({
     });
     Assert.equal(pageInfo.annotations.get("anno"), "anno");
 
-    await new Promise(resolve => {
-      PlacesUtils.favicons.getFaviconURLForPage(this._uri2, aFaviconURI => {
-        Assert.ok(aFaviconURI.equals(SMALLPNG_DATA_URI));
-        resolve();
-      });
-    });
+    let favicon = await PlacesTestUtils.getFaviconForPage(this._uri2);
+    Assert.equal(favicon.uri.spec, SMALLPNG_DATA_URI.spec);
   },
 });
 
@@ -2671,7 +2667,7 @@ add_task(async function test_preventive_maintenance() {
   defaultBookmarksMaxId = (
     await db.executeCached("SELECT MAX(id) FROM moz_bookmarks")
   )[0].getResultByIndex(0);
-  Assert.ok(defaultBookmarksMaxId > 0);
+  Assert.greater(defaultBookmarksMaxId, 0);
 
   for (let test of tests) {
     await PlacesTestUtils.markBookmarksAsSynced();

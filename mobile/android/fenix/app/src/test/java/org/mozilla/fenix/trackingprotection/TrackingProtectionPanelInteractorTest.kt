@@ -15,17 +15,18 @@ import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.concept.engine.cookiehandling.CookieBannersStorage
 import mozilla.components.concept.engine.permission.SitePermissions
 import mozilla.components.feature.session.TrackingProtectionUseCases
-import mozilla.components.support.test.rule.MainCoroutineRule
-import mozilla.components.support.test.rule.runTestOnMain
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
+import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.settings
 
@@ -45,17 +46,16 @@ class TrackingProtectionPanelInteractorTest {
     @MockK(relaxed = true)
     private lateinit var store: ProtectionsStore
 
+    @MockK(relaxed = true)
+    private lateinit var cookieBannersStorage: CookieBannersStorage
     private lateinit var interactor: TrackingProtectionPanelInteractor
 
     private lateinit var tab: TabSessionState
-
-    @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
-    private val scope = coroutinesTestRule.scope
-
     private var learnMoreClicked = false
     private var openSettings = false
     private var gravity = 54
+
+    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
@@ -63,14 +63,13 @@ class TrackingProtectionPanelInteractorTest {
         learnMoreClicked = false
 
         context = mockk()
-        tab = createTab("https://mozilla.org")
-        val cookieBannersStorage: CookieBannersStorage = mockk(relaxed = true)
+        tab = createTab("https://mozilla.org", id = "testID")
 
         interactor = TrackingProtectionPanelInteractor(
             context = context,
             fragment = fragment,
             store = store,
-            ioScope = scope,
+            scope = mockk(),
             cookieBannersStorage = cookieBannersStorage,
             navController = { navController },
             openTrackingProtectionSettings = { openSettings = true },
@@ -84,14 +83,7 @@ class TrackingProtectionPanelInteractorTest {
 
         every { fragment.context } returns context
         every { context.components.useCases.trackingProtectionUseCases } returns trackingProtectionUseCases
-
-        val onComplete = slot<(Boolean) -> Unit>()
-        every {
-            trackingProtectionUseCases.containsException.invoke(
-                any(),
-                capture(onComplete),
-            )
-        }.answers { onComplete.captured.invoke(true) }
+        every { context.components.appStore.state.isPrivateScreenLocked } returns true
     }
 
     @Test
@@ -134,16 +126,43 @@ class TrackingProtectionPanelInteractorTest {
     }
 
     @Test
-    fun `WHEN onBackPressed is called THEN call popBackStack and navigate`() = runTestOnMain {
+    fun `WHEN onBackPressed is called THEN call popBackStack and navigate`() = runTest(testDispatcher) {
         every { context.settings().shouldUseCookieBannerPrivateMode } returns false
+        val directionsSlot = slot<NavDirections>()
+        every { context.components.publicSuffixList } returns mockk()
 
-        interactor.onBackPressed()
+        val interactor = TrackingProtectionPanelInteractor(
+            context = context,
+            fragment = fragment,
+            store = store,
+            scope = this,
+            cookieBannersStorage = cookieBannersStorage,
+            navController = { navController },
+            openTrackingProtectionSettings = { openSettings = true },
+            openLearnMoreLink = { learnMoreClicked = true },
+            sitePermissions = sitePermissions,
+            gravity = gravity,
+            getCurrentTab = { tab },
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+        )
+
+        interactor.handleNavigationAfterCheck(tab, true)
+        testDispatcher.scheduler.advanceUntilIdle()
 
         coVerify {
             navController.popBackStack()
 
-            navController.navigate(any<NavDirections>())
+            navController.navigate(capture(directionsSlot))
         }
+
+        val capturedDirections = directionsSlot.captured
+
+        assertTrue(directionsSlot.isCaptured)
+        assertEquals(
+            R.id.action_global_quickSettingsSheetDialogFragment,
+            capturedDirections.actionId,
+        )
     }
 
     @Test

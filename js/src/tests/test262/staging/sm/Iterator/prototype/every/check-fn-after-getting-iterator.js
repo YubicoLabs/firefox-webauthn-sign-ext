@@ -1,13 +1,10 @@
-// |reftest| shell-option(--enable-iterator-helpers) skip-if(!this.hasOwnProperty('Iterator')||!xulRuntime.shell) -- iterator-helpers is not enabled unconditionally, requires shell-options
 // Copyright (C) 2024 Mozilla Corporation. All rights reserved.
 // This code is governed by the BSD license found in the LICENSE file.
 
 /*---
-includes: [compareArray.js, sm/non262-shell.js, sm/non262.js]
-flags:
-- noStrict
+includes: [compareArray.js]
 features:
-- iterator-helpers
+  - iterator-helpers
 info: |
   Iterator is not enabled unconditionally
 description: |
@@ -29,11 +26,11 @@ class TestIterator extends Iterator {
 }
 
 const iter = new Proxy(new TestIterator(), handlerProxy);
-assertThrowsInstanceOf(() => iter.every(1), TypeError);
+assert.throws(TypeError, () => iter.every(1));
 
 assert.compareArray(
   log,
-  ["get: every"]
+  ["get: every", "get: return"]
 );
 
 

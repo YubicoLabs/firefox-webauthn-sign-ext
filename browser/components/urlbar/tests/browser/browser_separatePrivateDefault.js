@@ -43,7 +43,7 @@ add_setup(async function () {
   let engine2 = await SearchTestUtils.installOpenSearchEngine({
     url: getRootDirectory(gTestPath) + "POSTSearchEngine.xml",
   });
-  await Services.search.moveEngine(engine2, 0);
+  await SearchService.moveEngine(engine2, 0);
 
   // Add an engine with an alias.
   await SearchTestUtils.installSearchExtension({
@@ -58,7 +58,7 @@ add_setup(async function () {
 
 async function AssertNoPrivateResult(win) {
   let count = await UrlbarTestUtils.getResultCount(win);
-  Assert.ok(count > 0, "Sanity check result count");
+  Assert.greater(count, 0, "Sanity check result count");
   for (let i = 0; i < count; ++i) {
     let result = await UrlbarTestUtils.getDetailsOfResultAt(win, i);
     Assert.ok(
@@ -71,7 +71,7 @@ async function AssertNoPrivateResult(win) {
 
 async function AssertPrivateResult(win, engine, isPrivateEngine) {
   let count = await UrlbarTestUtils.getResultCount(win);
-  Assert.ok(count > 1, "Sanity check result count");
+  Assert.greater(count, 1, "Sanity check result count");
   let result = await UrlbarTestUtils.getDetailsOfResultAt(window, 1);
   Assert.equal(
     result.type,
@@ -111,7 +111,7 @@ add_task(async function test_search() {
     window,
     value: "unique198273982173",
   });
-  await AssertPrivateResult(window, await Services.search.getDefault(), false);
+  await AssertPrivateResult(window, await SearchService.getDefault(), false);
 });
 
 add_task(async function test_search_urlbar_result_disabled() {
@@ -140,7 +140,7 @@ add_task(async function test_search_disabled_suggestions() {
     window,
     value: "unique198273982173",
   });
-  await AssertPrivateResult(window, await Services.search.getDefault(), false);
+  await AssertPrivateResult(window, await SearchService.getDefault(), false);
   await SpecialPowers.popPrefEnv();
 });
 
@@ -160,7 +160,7 @@ add_task(async function test_search_disabled_suggestions() {
 //     window,
 //     value: "unique198273982173",
 //   });
-//   await AssertPrivateResult(window, await Services.search.getDefault(), false);
+//   await AssertPrivateResult(window, await SearchService.getDefault(), false);
 //   // Select the 'Search in a Private Window' result, alt down to select the
 //   // first one-off button, Enter. It should open a pb window, but using the
 //   // selected one-off engine.
@@ -198,7 +198,7 @@ add_task(async function test_search_disabled_suggestions() {
 //     window,
 //     value: "unique198273982173",
 //   });
-//   await AssertPrivateResult(window, await Services.search.getDefault(), false);
+//   await AssertPrivateResult(window, await SearchService.getDefault(), false);
 //   // Select the 'Search in a Private Window' result, alt down to select the
 //   // first one-off button, Enter. It should open a pb window, but using the
 //   // selected one-off engine.

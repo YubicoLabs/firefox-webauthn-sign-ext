@@ -57,11 +57,4 @@ worker.onerror = function (event) {
   SimpleTest.finish();
 };
 
-var { AppConstants } = SpecialPowers.ChromeUtils.importESModule(
-  "resource://gre/modules/AppConstants.sys.mjs"
-);
-var isNightly = AppConstants.NIGHTLY_BUILD;
-var isRelease = AppConstants.RELEASE_OR_BETA;
-var isAndroid = AppConstants.platform == "android";
-
-worker.postMessage({ isNightly, isRelease, isAndroid });
+worker.postMessage(getHelperData());

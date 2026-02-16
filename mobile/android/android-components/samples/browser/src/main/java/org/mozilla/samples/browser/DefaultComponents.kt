@@ -4,13 +4,13 @@
 
 package org.mozilla.samples.browser
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import mozilla.components.browser.domains.autocomplete.ShippedDomainsProvider
@@ -47,8 +47,13 @@ import mozilla.components.feature.autofill.AutofillConfiguration
 import mozilla.components.feature.contextmenu.ContextMenuUseCases
 import mozilla.components.feature.customtabs.CustomTabIntentProcessor
 import mozilla.components.feature.customtabs.store.CustomTabsServiceStore
+import mozilla.components.feature.downloads.DateTimeProvider
+import mozilla.components.feature.downloads.DefaultDateTimeProvider
+import mozilla.components.feature.downloads.DefaultFileSizeFormatter
+import mozilla.components.feature.downloads.DownloadEstimator
 import mozilla.components.feature.downloads.DownloadMiddleware
 import mozilla.components.feature.downloads.DownloadsUseCases
+import mozilla.components.feature.downloads.FileSizeFormatter
 import mozilla.components.feature.intent.processing.TabIntentProcessor
 import mozilla.components.feature.media.MediaSessionFeature
 import mozilla.components.feature.media.middleware.RecordingDevicesMiddleware
@@ -93,12 +98,11 @@ import org.mozilla.samples.browser.integration.FindInPageIntegration
 import org.mozilla.samples.browser.media.MediaSessionService
 import org.mozilla.samples.browser.request.SampleUrlEncodedRequestInterceptor
 import java.util.concurrent.TimeUnit
-import mozilla.components.ui.colors.R.color as photonColors
+import mozilla.components.ui.colors.R as colorsR
 import mozilla.components.ui.icons.R as iconsR
 
 private const val DAY_IN_MINUTES = 24 * 60L
 
-@SuppressLint("NewApi")
 @Suppress("LargeClass")
 open class DefaultComponents(private val applicationContext: Context) {
     companion object {
@@ -168,7 +172,11 @@ open class DefaultComponents(private val applicationContext: Context) {
     val store by lazy {
         BrowserStore(
             middleware = listOf(
-                DownloadMiddleware(applicationContext, DownloadService::class.java),
+                DownloadMiddleware(
+                    applicationContext = applicationContext,
+                    downloadServiceClass = DownloadService::class.java,
+                    deleteFileFromStorage = { false },
+                ),
                 ReaderViewMiddleware(),
                 ThumbnailsMiddleware(thumbnailStorage),
                 UndoMiddleware(),
@@ -238,8 +246,7 @@ open class DefaultComponents(private val applicationContext: Context) {
 
     val appLinksInterceptor by lazy {
         AppLinksInterceptor(
-            applicationContext,
-            interceptLinkClicks = true,
+            context = applicationContext,
             launchInApp = {
                 applicationContext.components.preferences.getBoolean(PREF_LAUNCH_EXTERNAL_APP, false)
             },
@@ -281,7 +288,7 @@ open class DefaultComponents(private val applicationContext: Context) {
             menuItems,
             store = store,
             style = WebExtensionBrowserMenuBuilder.Style(
-                webExtIconTintColorResource = photonColors.photonGrey90,
+                webExtIconTintColorResource = colorsR.color.photonGrey90,
             ),
             onAddonsManagerTapped = {
                 val intent = Intent(applicationContext, AddonsActivity::class.java)
@@ -317,7 +324,6 @@ open class DefaultComponents(private val applicationContext: Context) {
             SimpleBrowserMenuItem("Save to PDF") {
                 sessionUseCases.saveToPdf.invoke()
             },
-
             SimpleBrowserMenuItem("Translate (auto)") {
                 var detectedFrom =
                     store.state.selectedTab?.translationsState?.translationEngineState
@@ -391,7 +397,7 @@ open class DefaultComponents(private val applicationContext: Context) {
                     preferences.getBoolean(PREF_LAUNCH_EXTERNAL_APP, false)
                 },
             ) { checked ->
-                preferences.edit().putBoolean(PREF_LAUNCH_EXTERNAL_APP, checked).apply()
+                preferences.edit { putBoolean(PREF_LAUNCH_EXTERNAL_APP, checked) }
             },
         )
 
@@ -402,9 +408,23 @@ open class DefaultComponents(private val applicationContext: Context) {
                     preferences.getBoolean(PREF_GLOBAL_PRIVACY_CONTROL, false)
                 },
             ) { checked ->
-                preferences.edit().putBoolean(PREF_GLOBAL_PRIVACY_CONTROL, checked).apply()
+                preferences.edit { putBoolean(PREF_GLOBAL_PRIVACY_CONTROL, checked) }
                 engine.settings.globalPrivacyControlEnabled = checked
                 sessionUseCases.reload()
+            },
+        )
+
+        items.add(
+            BrowserMenuCheckbox(
+                "Toggle Relay",
+                { engine.settings.firefoxRelay != null },
+            ) { checked ->
+                val mode = if (checked) {
+                    Engine.FirefoxRelayMode.ENABLED
+                } else {
+                    Engine.FirefoxRelayMode.DISABLED
+                }
+                engine.settings.firefoxRelay = mode
             },
         )
 
@@ -414,13 +434,13 @@ open class DefaultComponents(private val applicationContext: Context) {
     private val menuToolbar by lazy {
         val back = BrowserMenuItemToolbar.TwoStateButton(
             primaryImageResource = iconsR.drawable.mozac_ic_back_24,
-            primaryImageTintResource = photonColors.photonBlue90,
+            primaryImageTintResource = colorsR.color.photonBlue90,
             primaryContentDescription = "Back",
             isInPrimaryState = {
                 store.state.selectedTab?.content?.canGoBack ?: true
             },
             disableInSecondaryState = true,
-            secondaryImageTintResource = photonColors.photonGrey40,
+            secondaryImageTintResource = colorsR.color.photonGrey40,
         ) {
             sessionUseCases.goBack()
         }
@@ -428,12 +448,12 @@ open class DefaultComponents(private val applicationContext: Context) {
         val forward = BrowserMenuItemToolbar.TwoStateButton(
             primaryImageResource = iconsR.drawable.mozac_ic_forward_24,
             primaryContentDescription = "Forward",
-            primaryImageTintResource = photonColors.photonBlue90,
+            primaryImageTintResource = colorsR.color.photonBlue90,
             isInPrimaryState = {
                 store.state.selectedTab?.content?.canGoForward ?: true
             },
             disableInSecondaryState = true,
-            secondaryImageTintResource = photonColors.photonGrey40,
+            secondaryImageTintResource = colorsR.color.photonGrey40,
         ) {
             sessionUseCases.goForward()
         }
@@ -441,13 +461,13 @@ open class DefaultComponents(private val applicationContext: Context) {
         val refresh = BrowserMenuItemToolbar.TwoStateButton(
             primaryImageResource = iconsR.drawable.mozac_ic_arrow_clockwise_24,
             primaryContentDescription = "Refresh",
-            primaryImageTintResource = photonColors.photonBlue90,
+            primaryImageTintResource = colorsR.color.photonBlue90,
             isInPrimaryState = {
                 store.state.selectedTab?.content?.loading == false
             },
             secondaryImageResource = iconsR.drawable.mozac_ic_stop,
             secondaryContentDescription = "Stop",
-            secondaryImageTintResource = photonColors.photonBlue90,
+            secondaryImageTintResource = colorsR.color.photonBlue90,
             disableInSecondaryState = false,
         ) {
             if (store.state.selectedTab?.content?.loading == true) {
@@ -467,7 +487,7 @@ open class DefaultComponents(private val applicationContext: Context) {
     }
 
     val tabsUseCases: TabsUseCases by lazy { TabsUseCases(store) }
-    val downloadsUseCases: DownloadsUseCases by lazy { DownloadsUseCases(store) }
+    val downloadsUseCases: DownloadsUseCases by lazy { DownloadsUseCases(store, applicationContext) }
     val contextMenuUseCases: ContextMenuUseCases by lazy { ContextMenuUseCases(store) }
 
     val crashReporter: CrashReporter by lazy {
@@ -513,4 +533,10 @@ open class DefaultComponents(private val applicationContext: Context) {
 
     val addonUpdater =
         DefaultAddonUpdater(applicationContext, Frequency(1, TimeUnit.DAYS), notificationsDelegate)
+
+    val fileSizeFormatter: FileSizeFormatter by lazy { DefaultFileSizeFormatter(applicationContext) }
+
+    val dateTimeProvider: DateTimeProvider by lazy { DefaultDateTimeProvider() }
+
+    val downloadEstimator: DownloadEstimator by lazy { DownloadEstimator(dateTimeProvider = dateTimeProvider) }
 }

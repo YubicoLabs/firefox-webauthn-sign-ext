@@ -2,8 +2,7 @@ import asyncio
 
 import pytest
 
-from tests.support.sync import AsyncPoll
-
+from tests.bidi import wait_for_bidi_events
 from .. import (
     assert_before_request_sent_event,
     assert_response_event,
@@ -52,41 +51,31 @@ async def test_cors_preflight_request(bidi_session, url, fetch, setup_network_te
         fetch(fetch_url, method="GET", headers={"Content-Type": "custom/type"})
     )
 
-    wait = AsyncPoll(bidi_session, timeout=2)
-    await wait.until(lambda _: len(events) >= 6)
+    await wait_for_bidi_events(bidi_session, events, 6, timeout=2)
 
     # Check that all events for the CORS preflight request are received before
     # receiving events for the actual request
 
     # Preflight beforeRequestSent
     assert_before_request_sent_event(
-        events[0],
-        expected_request={"method": "OPTIONS", "url": fetch_url},
+        events[0], expected_event={"request": {"method": "OPTIONS", "url": fetch_url}}
     )
     # Preflight responseStarted
     assert_response_event(
-        events[1],
-        expected_request={"method": "OPTIONS", "url": fetch_url},
-    )
-    # Preflight responseCompleted
+        events[1], expected_event={"request": {"method": "OPTIONS", "url": fetch_url}}
+    )  # Preflight responseCompleted
     assert_response_event(
-        events[2],
-        expected_request={"method": "OPTIONS", "url": fetch_url},
-    )
-    # Actual request beforeRequestSent
+        events[2], expected_event={"request": {"method": "OPTIONS", "url": fetch_url}}
+    )  # Actual request beforeRequestSent
     assert_before_request_sent_event(
-        events[3],
-        expected_request={"method": "GET", "url": fetch_url},
+        events[3], expected_event={"request": {"method": "GET", "url": fetch_url}}
     )
     # Actual request responseStarted
     assert_response_event(
-        events[4],
-        expected_request={"method": "GET", "url": fetch_url},
-    )
-    # Actual request responseCompleted
+        events[4], expected_event={"request": {"method": "GET", "url": fetch_url}}
+    )  # Actual request responseCompleted
     assert_response_event(
-        events[5],
-        expected_request={"method": "GET", "url": fetch_url},
+        events[5], expected_event={"request": {"method": "GET", "url": fetch_url}}
     )
 
     remove_before_request_sent_listener()
@@ -150,21 +139,27 @@ async def test_iframe_navigation_request(
         expected_response = {"url": url}
         assert_before_request_sent_event(
             network_events[BEFORE_REQUEST_SENT_EVENT][event_index],
-            expected_request=expected_request,
-            context=context,
-            navigation=navigation,
+            expected_event={
+                "request": expected_request,
+                "context": context,
+                "navigation": navigation,
+            },
         )
         assert_response_event(
             network_events[RESPONSE_STARTED_EVENT][event_index],
-            expected_response=expected_response,
-            context=context,
-            navigation=navigation,
+            expected_event={
+                "response": expected_response,
+                "context": context,
+                "navigation": navigation,
+            },
         )
         assert_response_event(
             network_events[RESPONSE_COMPLETED_EVENT][event_index],
-            expected_response=expected_response,
-            context=context,
-            navigation=navigation,
+            expected_event={
+                "response": expected_response,
+                "context": context,
+                "navigation": navigation,
+            },
         )
 
     assert_events(
@@ -226,21 +221,27 @@ async def test_same_navigation_id(
     expected_response = {"url": html_url}
     assert_before_request_sent_event(
         network_events[BEFORE_REQUEST_SENT_EVENT][0],
-        expected_request=expected_request,
-        context=top_context["context"],
-        navigation=result["navigation"],
+        expected_event={
+            "request": expected_request,
+            "context": top_context["context"],
+            "navigation": result["navigation"],
+        },
     )
     assert_response_event(
         network_events[RESPONSE_STARTED_EVENT][0],
-        expected_response=expected_response,
-        context=top_context["context"],
-        navigation=result["navigation"],
+        expected_event={
+            "response": expected_response,
+            "context": top_context["context"],
+            "navigation": result["navigation"],
+        },
     )
     assert_response_event(
         network_events[RESPONSE_COMPLETED_EVENT][0],
-        expected_response=expected_response,
-        context=top_context["context"],
-        navigation=result["navigation"],
+        expected_event={
+            "response": expected_response,
+            "context": top_context["context"],
+            "navigation": result["navigation"],
+        },
     )
 
 
@@ -267,19 +268,23 @@ async def test_same_request_id(wait_for_event, wait_for_future_safe, url, setup_
     assert len(response_completed_events) == 1
     expected_request = {"method": "GET", "url": text_url}
     assert_before_request_sent_event(
-        before_request_sent_events[0], expected_request=expected_request
+        before_request_sent_events[0], expected_event={"request": expected_request}
     )
 
     expected_response = {"url": text_url}
     assert_response_event(
         response_started_events[0],
-        expected_request=expected_request,
-        expected_response=expected_response,
+        expected_event={
+            "request": expected_request,
+            "response": expected_response,
+        },
     )
     assert_response_event(
         response_completed_events[0],
-        expected_request=expected_request,
-        expected_response=expected_response,
+        expected_event={
+            "request": expected_request,
+            "response": expected_response,
+        },
     )
 
     assert (
@@ -326,18 +331,24 @@ async def test_subscribe_to_one_context(
     expected_response = {"url": text_url}
     assert_before_request_sent_event(
         network_events[BEFORE_REQUEST_SENT_EVENT][0],
-        expected_request=expected_request,
-        context=top_context["context"],
+        expected_event={
+            "request": expected_request,
+            "context": top_context["context"],
+        },
     )
     assert_response_event(
         network_events[RESPONSE_STARTED_EVENT][0],
-        expected_response=expected_response,
-        context=top_context["context"],
+        expected_event={
+            "response": expected_response,
+            "context": top_context["context"],
+        },
     )
     assert_response_event(
         network_events[RESPONSE_COMPLETED_EVENT][0],
-        expected_response=expected_response,
-        context=top_context["context"],
+        expected_event={
+            "response": expected_response,
+            "context": top_context["context"],
+        },
     )
 
     # Perform another fetch request in the other context.
@@ -364,8 +375,8 @@ async def test_event_order_with_redirect(
     network_events = []
     listeners = []
     response_completed_events = []
-    for event in events:
 
+    for event in events:
         async def on_event(method, data, event=event):
             network_events.append({"event": event, "url": data["request"]["url"]})
 
@@ -383,8 +394,7 @@ async def test_event_order_with_redirect(
 
     # Wait until we receive two events, one for the initial request and one for
     # the redirection.
-    wait = AsyncPoll(bidi_session, timeout=2)
-    await wait.until(lambda _: len(response_completed_events) >= 2)
+    await wait_for_bidi_events(bidi_session, response_completed_events, 2, timeout=2)
 
     events_in_expected_order = [
         {"event": "network.beforeRequestSent", "url": redirect_url},

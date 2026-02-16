@@ -5,12 +5,17 @@ const { CustomizableUITestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/CustomizableUITestUtils.sys.mjs"
 );
 
+const { EnterprisePolicyTesting, PoliciesPrefTracker } =
+  ChromeUtils.importESModule(
+    "resource://testing-common/EnterprisePolicyTesting.sys.mjs"
+  );
+
 const { UrlClassifierTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/UrlClassifierTestUtils.sys.mjs"
 );
 
-const { ReportBrokenSite } = ChromeUtils.importESModule(
-  "resource:///modules/ReportBrokenSite.sys.mjs"
+const { ReportBrokenSite, ViewState } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/reportbrokensite/ReportBrokenSite.sys.mjs"
 );
 
 const BASE_URL =
@@ -22,6 +27,11 @@ const REPORTABLE_PAGE_URL2 = REPORTABLE_PAGE_URL.replace(".com", ".org");
 
 const REPORTABLE_PAGE_URL3 = `${BASE_URL}example_report_page.html`;
 
+const SUMO_BASE_URL = Services.urlFormatter.formatURLPref(
+  "app.support.baseURL"
+);
+const LEARN_MORE_TEST_URL = `${SUMO_BASE_URL}report-broken-site`;
+
 const NEW_REPORT_ENDPOINT_TEST_URL = `${BASE_URL}sendMoreInfoTestEndpoint.html`;
 
 const PREFS = {
@@ -30,7 +40,6 @@ const PREFS = {
   REASON: "ui.new-webcompat-reporter.reason-dropdown",
   SEND_MORE_INFO: "ui.new-webcompat-reporter.send-more-info-link",
   NEW_REPORT_ENDPOINT: "ui.new-webcompat-reporter.new-report-endpoint",
-  REPORT_SITE_ISSUE_ENABLED: "extensions.webcompat-reporter.enabled",
   TOUCH_EVENTS: "dom.w3c_touch_events.enabled",
   USE_ACCESSIBILITY_THEME: "ui.useAccessibilityTheme",
 };
@@ -39,6 +48,7 @@ function add_common_setup() {
   add_setup(async function () {
     await SpecialPowers.pushPrefEnv({
       set: [
+        ["browser.urlbar.trustPanel.featureGate", false],
         [PREFS.NEW_REPORT_ENDPOINT, NEW_REPORT_ENDPOINT_TEST_URL],
 
         // set touch events to auto-detect, as the pref gets set to 1 somewhere
@@ -50,6 +60,8 @@ function add_common_setup() {
       for (const prefName of Object.values(PREFS)) {
         Services.prefs.clearUserPref(prefName);
       }
+      Services.telemetry.clearEvents();
+      Services.fog.testResetFOG();
     });
   });
 }
@@ -147,6 +159,35 @@ function isSelectedTab(win, tab) {
   is(selectedTab, tab);
 }
 
+async function setupPolicyEngineWithJson(json, customSchema) {
+  PoliciesPrefTracker.restoreDefaultValues();
+  if (typeof json != "object") {
+    let filePath = getTestFilePath(json ? json : "non-existing-file.json");
+    return EnterprisePolicyTesting.setupPolicyEngineWithJson(
+      filePath,
+      customSchema
+    );
+  }
+  return EnterprisePolicyTesting.setupPolicyEngineWithJson(json, customSchema);
+}
+
+async function ensureReportBrokenSiteDisabledByPolicy() {
+  await setupPolicyEngineWithJson({
+    policies: {
+      DisableFeedbackCommands: true,
+    },
+  });
+}
+
+registerCleanupFunction(async function resetPolicies() {
+  if (Services.policies.status != Ci.nsIEnterprisePolicies.INACTIVE) {
+    await setupPolicyEngineWithJson("");
+  }
+  EnterprisePolicyTesting.resetRunOnceState();
+  PoliciesPrefTracker.restoreDefaultValues();
+  PoliciesPrefTracker.stop();
+});
+
 function ensureReportBrokenSitePreffedOn() {
   Services.prefs.setBoolPref(PREFS.DATAREPORTING_ENABLED, true);
   Services.prefs.setBoolPref(PREFS.REPORTER_ENABLED, true);
@@ -155,14 +196,6 @@ function ensureReportBrokenSitePreffedOn() {
 
 function ensureReportBrokenSitePreffedOff() {
   Services.prefs.setBoolPref(PREFS.REPORTER_ENABLED, false);
-}
-
-function ensureReportSiteIssuePreffedOn() {
-  Services.prefs.setBoolPref(PREFS.REPORT_SITE_ISSUE_ENABLED, true);
-}
-
-function ensureReportSiteIssuePreffedOff() {
-  Services.prefs.setBoolPref(PREFS.REPORT_SITE_ISSUE_ENABLED, false);
 }
 
 function ensureSendMoreInfoEnabled() {
@@ -202,6 +235,10 @@ function isMenuItemDisabled(menuItem, itemDesc) {
   ok(menuItem.disabled, `${itemDesc} menu item is disabled`);
 }
 
+function waitForWebcompatComTab(gBrowser) {
+  return BrowserTestUtils.waitForNewTab(gBrowser, NEW_REPORT_ENDPOINT_TEST_URL);
+}
+
 class ReportBrokenSiteHelper {
   sourceMenu = undefined;
   win = undefined;
@@ -219,6 +256,10 @@ class ReportBrokenSiteHelper {
     return this.getViewNode("report-broken-site-popup-mainView");
   }
 
+  get previewView() {
+    return this.getViewNode("report-broken-site-popup-previewView");
+  }
+
   get sentView() {
     return this.getViewNode("report-broken-site-popup-reportSentView");
   }
@@ -231,16 +272,23 @@ class ReportBrokenSiteHelper {
     return this.openPanel?.hasAttribute("panelopen");
   }
 
-  async open(triggerMenuItem) {
+  async click(triggerMenuItem) {
     const window = triggerMenuItem.ownerGlobal;
+    await EventUtils.synthesizeMouseAtCenter(triggerMenuItem, {}, window);
+  }
+
+  async open(triggerMenuItem) {
     const shownPromise = BrowserTestUtils.waitForEvent(
       this.mainView,
       "ViewShown"
     );
     const focusPromise = BrowserTestUtils.waitForEvent(this.URLInput, "focus");
-    await EventUtils.synthesizeMouseAtCenter(triggerMenuItem, {}, window);
+    await this.click(triggerMenuItem);
     await shownPromise;
     await focusPromise;
+    await BrowserTestUtils.waitForCondition(
+      () => this.URLInput.selectionStart === 0
+    );
   }
 
   async #assertClickAndViewChanges(button, view, newView, newFocus) {
@@ -262,6 +310,13 @@ class ReportBrokenSiteHelper {
     }
     EventUtils.synthesizeMouseAtCenter(button, {}, this.win);
     await Promise.all(promises);
+  }
+
+  async awaitPreviewViewOpened() {
+    await Promise.all([
+      BrowserTestUtils.waitForEvent(this.sentView, "ViewShown"),
+      BrowserTestUtils.waitForEvent(this.okayButton, "focus"),
+    ]);
   }
 
   async awaitReportSentViewOpened() {
@@ -288,7 +343,7 @@ class ReportBrokenSiteHelper {
   }
 
   async clickSendMoreInfo() {
-    const newTabPromise = this.waitForSendMoreInfoTab();
+    const newTabPromise = waitForWebcompatComTab(this.win.gBrowser);
     EventUtils.synthesizeMouseAtCenter(this.sendMoreInfoLink, {}, this.win);
     const newTab = await newTabPromise;
     const receivedData = await SpecialPowers.spawn(
@@ -309,6 +364,21 @@ class ReportBrokenSiteHelper {
 
   async clickOkay() {
     await this.#assertClickAndViewChanges(this.okayButton, this.sentView);
+  }
+
+  async clickPreview() {
+    await this.#assertClickAndViewChanges(
+      this.previewButton,
+      this.mainView,
+      this.previewView
+    );
+  }
+
+  async clickPreviewBack() {
+    await this.#assertClickAndViewChanges(
+      this.previewBackButton,
+      this.sourceMenu.popup
+    );
   }
 
   async clickBack() {
@@ -363,12 +433,30 @@ class ReportBrokenSiteHelper {
     return this.getViewNode("report-broken-site-popup-description");
   }
 
+  get learnMoreLink() {
+    return this.getViewNode("report-broken-site-popup-learn-more-link");
+  }
+
   get sendMoreInfoLink() {
     return this.getViewNode("report-broken-site-popup-send-more-info-link");
   }
 
   get backButton() {
     return this.mainView.querySelector(".subviewbutton-back");
+  }
+
+  get previewBackButton() {
+    return this.previewView.querySelector(".subviewbutton-back");
+  }
+
+  get blockedTrackersCheckbox() {
+    return this.getViewNode(
+      "report-broken-site-popup-blocked-trackers-checkbox"
+    );
+  }
+
+  set blockedTrackersCheckbox(checked) {
+    this.blockedTrackersCheckbox.checked = checked;
   }
 
   get sendButton() {
@@ -381,6 +469,22 @@ class ReportBrokenSiteHelper {
 
   get okayButton() {
     return this.getViewNode("report-broken-site-popup-okay-button");
+  }
+
+  get previewButton() {
+    return this.getViewNode("report-broken-site-popup-preview-button");
+  }
+
+  get previewCancelButton() {
+    return this.getViewNode("report-broken-site-popup-preview-cancel-button");
+  }
+
+  get previewSendButton() {
+    return this.getViewNode("report-broken-site-popup-preview-send-button");
+  }
+
+  get previewItems() {
+    return this.getViewNode("report-broken-site-panel-preview-items");
   }
 
   // Test helpers
@@ -565,10 +669,6 @@ class MenuHelper {
     throw new Error("Should be defined in derived class");
   }
 
-  get reportSiteIssue() {
-    throw new Error("Should be defined in derived class");
-  }
-
   get popup() {
     throw new Error("Should be defined in derived class");
   }
@@ -593,16 +693,31 @@ class MenuHelper {
     return isMenuItemHidden(this.reportBrokenSite, this.menuDescription);
   }
 
-  isReportSiteIssueDisabled() {
-    return isMenuItemDisabled(this.reportSiteIssue, this.menuDescription);
+  async clickReportBrokenSiteAndAwaitWebCompatTabData() {
+    const newTabPromise = waitForWebcompatComTab(this.win.gBrowser);
+    await this.clickReportBrokenSite();
+    const newTab = await newTabPromise;
+    const receivedData = await SpecialPowers.spawn(
+      newTab.linkedBrowser,
+      [],
+      async function () {
+        await content.wrappedJSObject.messageArrived;
+        return content.wrappedJSObject.message;
+      }
+    );
+
+    this.win.gBrowser.removeCurrentTab();
+    return receivedData;
   }
 
-  isReportSiteIssueEnabled() {
-    return isMenuItemEnabled(this.reportSiteIssue, this.menuDescription);
-  }
-
-  isReportSiteIssueHidden() {
-    return isMenuItemHidden(this.reportSiteIssue, this.menuDescription);
+  async clickReportBrokenSite() {
+    if (!this.opened) {
+      await this.open();
+    }
+    isMenuItemEnabled(this.reportBrokenSite, this.menuDescription);
+    const rbs = new ReportBrokenSiteHelper(this);
+    await rbs.click(this.reportBrokenSite);
+    return rbs;
   }
 
   async openReportBrokenSite() {
@@ -635,48 +750,12 @@ class AppMenuHelper extends MenuHelper {
     return this.getViewNode("appMenu-report-broken-site-button");
   }
 
-  get reportSiteIssue() {
-    return undefined;
-  }
-
   get popup() {
     return this.win.document.getElementById("appMenu-popup");
   }
 
   async open() {
     await new CustomizableUITestUtils(this.win).openMainMenu();
-  }
-
-  async close() {
-    if (this.opened) {
-      await new CustomizableUITestUtils(this.win).hideMainMenu();
-    }
-  }
-}
-
-class AppMenuHelpSubmenuHelper extends MenuHelper {
-  menuDescription = "AppMenu help sub-menu";
-
-  get reportBrokenSite() {
-    return this.getViewNode("appMenu_help_reportBrokenSite");
-  }
-
-  get reportSiteIssue() {
-    return this.getViewNode("appMenu_help_reportSiteIssue");
-  }
-
-  get popup() {
-    return this.win.document.getElementById("appMenu-popup");
-  }
-
-  async open() {
-    await new CustomizableUITestUtils(this.win).openMainMenu();
-
-    const anchor = this.win.document.getElementById("PanelUI-menu-button");
-    this.win.PanelUI.showHelpView(anchor);
-
-    const appMenuHelpSubview = this.getViewNode("PanelUI-helpView");
-    await BrowserTestUtils.waitForEvent(appMenuHelpSubview, "ViewShown");
   }
 
   async close() {
@@ -695,10 +774,6 @@ class HelpMenuHelper extends MenuHelper {
 
   get reportBrokenSite() {
     return this.win.document.getElementById("help_reportBrokenSite");
-  }
-
-  get reportSiteIssue() {
-    return this.win.document.getElementById("help_reportSiteIssue");
   }
 
   get popup() {
@@ -722,6 +797,12 @@ class HelpMenuHelper extends MenuHelper {
     );
     this.reportBrokenSite.click();
     await shownPromise;
+    return new ReportBrokenSiteHelper(this);
+  }
+
+  async clickReportBrokenSite() {
+    await this.open();
+    this.reportBrokenSite.click();
     return new ReportBrokenSiteHelper(this);
   }
 
@@ -760,10 +841,6 @@ class ProtectionsPanelHelper extends MenuHelper {
     return this.getViewNode("protections-popup-report-broken-site-button");
   }
 
-  get reportSiteIssue() {
-    return undefined;
-  }
-
   get popup() {
     this.win.gProtectionsHandler._initializePopup();
     return this.win.document.getElementById("protections-popup");
@@ -792,10 +869,6 @@ class ProtectionsPanelHelper extends MenuHelper {
 
 function AppMenu(win = window) {
   return new AppMenuHelper(win);
-}
-
-function AppMenuHelpSubmenu(win = window) {
-  return new AppMenuHelpSubmenuHelper(win);
 }
 
 function HelpMenu(win = window) {
@@ -836,6 +909,18 @@ async function tabTo(match, win = window) {
   return undefined;
 }
 
+function filterFrameworkDetectorFails(ping, expected) {
+  // the framework detector's frame-script may fail to run in low memory or other
+  // weird corner-cases, so we ignore the results in that case if they don't match.
+  if (!areObjectsEqual(ping.frameworks, expected.frameworks)) {
+    const { fastclick, mobify, marfeel } = ping.frameworks;
+    if (!fastclick && !mobify && !marfeel) {
+      console.info("Ignoring failure to get framework data");
+      expected.frameworks = ping.frameworks;
+    }
+  }
+}
+
 async function setupStrictETP() {
   await UrlClassifierTestUtils.addTestTrackers();
   registerCleanupFunction(() => {
@@ -851,6 +936,7 @@ async function setupStrictETP() {
         "urlclassifier.trackingTable",
         "content-track-digest256,mochitest2-track-simple",
       ],
+      ["browser.contentblocking.category", "strict"],
     ],
   });
 }

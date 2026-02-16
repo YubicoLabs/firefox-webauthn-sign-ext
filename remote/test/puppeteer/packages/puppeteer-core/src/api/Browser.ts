@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 /// <reference types="node"  preserve="true"/>
-import type {ChildProcess} from 'child_process';
+import type {ChildProcess} from 'node:child_process';
 
 import type {Protocol} from 'devtools-protocol';
 
@@ -15,7 +15,11 @@ import {
   raceWith,
 } from '../../third_party/rxjs/rxjs.js';
 import type {ProtocolType} from '../common/ConnectOptions.js';
-import type {Cookie} from '../common/Cookie.js';
+import type {
+  Cookie,
+  CookieData,
+  DeleteCookiesRequest,
+} from '../common/Cookie.js';
 import type {DownloadBehavior} from '../common/DownloadBehavior.js';
 import {EventEmitter, type EventType} from '../common/EventEmitter.js';
 import {
@@ -74,25 +78,24 @@ export const WEB_PERMISSION_TO_PROTOCOL_PERMISSION = new Map<
   Permission,
   Protocol.Browser.PermissionType
 >([
+  ['accelerometer', 'sensors'],
+  ['ambient-light-sensor', 'sensors'],
+  ['background-sync', 'backgroundSync'],
+  ['camera', 'videoCapture'],
+  ['clipboard-read', 'clipboardReadWrite'],
+  ['clipboard-sanitized-write', 'clipboardSanitizedWrite'],
+  ['clipboard-write', 'clipboardReadWrite'],
   ['geolocation', 'geolocation'],
+  ['gyroscope', 'sensors'],
+  ['idle-detection', 'idleDetection'],
+  ['keyboard-lock', 'keyboardLock'],
+  ['magnetometer', 'sensors'],
+  ['microphone', 'audioCapture'],
   ['midi', 'midi'],
   ['notifications', 'notifications'],
-  // TODO: push isn't a valid type?
-  // ['push', 'push'],
-  ['camera', 'videoCapture'],
-  ['microphone', 'audioCapture'],
-  ['background-sync', 'backgroundSync'],
-  ['ambient-light-sensor', 'sensors'],
-  ['accelerometer', 'sensors'],
-  ['gyroscope', 'sensors'],
-  ['magnetometer', 'sensors'],
-  ['accessibility-events', 'accessibilityEvents'],
-  ['clipboard-read', 'clipboardReadWrite'],
-  ['clipboard-write', 'clipboardReadWrite'],
-  ['clipboard-sanitized-write', 'clipboardSanitizedWrite'],
   ['payment-handler', 'paymentHandler'],
   ['persistent-storage', 'durableStorage'],
-  ['idle-detection', 'idleDetection'],
+  ['pointer-lock', 'pointerLock'],
   // chrome-specific permissions we have.
   ['midi-sysex', 'midiSysex'],
 ]);
@@ -101,24 +104,25 @@ export const WEB_PERMISSION_TO_PROTOCOL_PERMISSION = new Map<
  * @public
  */
 export type Permission =
+  | 'accelerometer'
+  | 'ambient-light-sensor'
+  | 'background-sync'
+  | 'camera'
+  | 'clipboard-read'
+  | 'clipboard-sanitized-write'
+  | 'clipboard-write'
   | 'geolocation'
+  | 'gyroscope'
+  | 'idle-detection'
+  | 'keyboard-lock'
+  | 'magnetometer'
+  | 'microphone'
+  | 'midi-sysex'
   | 'midi'
   | 'notifications'
-  | 'camera'
-  | 'microphone'
-  | 'background-sync'
-  | 'ambient-light-sensor'
-  | 'accelerometer'
-  | 'gyroscope'
-  | 'magnetometer'
-  | 'accessibility-events'
-  | 'clipboard-read'
-  | 'clipboard-write'
-  | 'clipboard-sanitized-write'
   | 'payment-handler'
   | 'persistent-storage'
-  | 'idle-detection'
-  | 'midi-sysex';
+  | 'pointer-lock';
 
 /**
  * @public
@@ -204,6 +208,103 @@ export interface BrowserEvents extends Record<EventType, unknown> {
  */
 export interface DebugInfo {
   pendingProtocolErrors: Error[];
+}
+
+/**
+ * @public
+ */
+export type WindowState = 'normal' | 'minimized' | 'maximized' | 'fullscreen';
+
+/**
+ * @public
+ */
+export interface WindowBounds {
+  left?: number;
+  top?: number;
+  width?: number;
+  height?: number;
+  windowState?: WindowState;
+}
+
+/**
+ * @public
+ */
+export type WindowId = string;
+
+/**
+ * @public
+ */
+export type CreatePageOptions = (
+  | {
+      type?: 'tab';
+    }
+  | {
+      type: 'window';
+      windowBounds?: WindowBounds;
+    }
+) & {
+  /**
+   * Whether to create the page in the background.
+   *
+   * @defaultValue `false`
+   */
+  background?: boolean;
+};
+
+/**
+ * @public
+ */
+export interface ScreenOrientation {
+  angle: number;
+  type: string;
+}
+
+/**
+ * @public
+ */
+export interface ScreenInfo {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  availLeft: number;
+  availTop: number;
+  availWidth: number;
+  availHeight: number;
+  devicePixelRatio: number;
+  colorDepth: number;
+  orientation: ScreenOrientation;
+  isExtended: boolean;
+  isInternal: boolean;
+  isPrimary: boolean;
+  label: string;
+  id: string;
+}
+
+/**
+ * @public
+ */
+export interface WorkAreaInsets {
+  top?: number;
+  left?: number;
+  bottom?: number;
+  right?: number;
+}
+
+/**
+ * @public
+ */
+export interface AddScreenParams {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  workAreaInsets?: WorkAreaInsets;
+  devicePixelRatio?: number;
+  rotation?: number;
+  colorDepth?: number;
+  label?: string;
+  isInternal?: boolean;
 }
 
 /**
@@ -320,7 +421,20 @@ export abstract class Browser extends EventEmitter<BrowserEvents> {
    * Creates a new {@link Page | page} in the
    * {@link Browser.defaultBrowserContext | default browser context}.
    */
-  abstract newPage(): Promise<Page>;
+  abstract newPage(options?: CreatePageOptions): Promise<Page>;
+
+  /**
+   * Gets the specified window {@link WindowBounds | bounds}.
+   */
+  abstract getWindowBounds(windowId: WindowId): Promise<WindowBounds>;
+
+  /**
+   * Sets the specified window {@link WindowBounds | bounds}.
+   */
+  abstract setWindowBounds(
+    windowId: WindowId,
+    windowBounds: WindowBounds,
+  ): Promise<void>;
 
   /**
    * Gets all active {@link Target | targets}.
@@ -376,13 +490,15 @@ export abstract class Browser extends EventEmitter<BrowserEvents> {
    * returns all {@link Page | pages} in all
    * {@link BrowserContext | browser contexts}.
    *
+   * @param includeAll - experimental, setting to true includes all kinds of pages.
+   *
    * @remarks Non-visible {@link Page | pages}, such as `"background_page"`,
    * will not be listed here. You can find them using {@link Target.page}.
    */
-  async pages(): Promise<Page[]> {
+  async pages(includeAll = false): Promise<Page[]> {
     const contextPages = await Promise.all(
       this.browserContexts().map(context => {
-        return context.pages();
+        return context.pages(includeAll);
       }),
     );
     // Flatten array.
@@ -408,7 +524,7 @@ export abstract class Browser extends EventEmitter<BrowserEvents> {
    * Gets this {@link Browser | browser's} original user agent.
    *
    * {@link Page | Pages} can override the user agent with
-   * {@link Page.setUserAgent}.
+   * {@link Page.(setUserAgent:2) }.
    *
    */
   abstract userAgent(): Promise<string>;
@@ -445,7 +561,7 @@ export abstract class Browser extends EventEmitter<BrowserEvents> {
    * Shortcut for
    * {@link BrowserContext.setCookie | browser.defaultBrowserContext().setCookie()}.
    */
-  async setCookie(...cookies: Cookie[]): Promise<void> {
+  async setCookie(...cookies: CookieData[]): Promise<void> {
     return await this.defaultBrowserContext().setCookie(...cookies);
   }
 
@@ -460,6 +576,59 @@ export abstract class Browser extends EventEmitter<BrowserEvents> {
   async deleteCookie(...cookies: Cookie[]): Promise<void> {
     return await this.defaultBrowserContext().deleteCookie(...cookies);
   }
+
+  /**
+   * Deletes cookies matching the provided filters from the default
+   * {@link BrowserContext}.
+   *
+   * @remarks
+   *
+   * Shortcut for
+   * {@link BrowserContext.deleteMatchingCookies |
+   * browser.defaultBrowserContext().deleteMatchingCookies()}.
+   */
+  async deleteMatchingCookies(
+    ...filters: DeleteCookiesRequest[]
+  ): Promise<void> {
+    return await this.defaultBrowserContext().deleteMatchingCookies(...filters);
+  }
+
+  /**
+   * Installs an extension and returns the ID. In Chrome, this is only
+   * available if the browser was created using `pipe: true` and the
+   * `--enable-unsafe-extension-debugging` flag is set.
+   */
+  abstract installExtension(path: string): Promise<string>;
+
+  /**
+   * Uninstalls an extension. In Chrome, this is only available if the browser
+   * was created using `pipe: true` and the
+   * `--enable-unsafe-extension-debugging` flag is set.
+   */
+  abstract uninstallExtension(id: string): Promise<void>;
+
+  /**
+   * Gets a list of {@link ScreenInfo | screen information objects}.
+   */
+  abstract screens(): Promise<ScreenInfo[]>;
+
+  /**
+   * Adds a new screen, returns the added {@link ScreenInfo | screen information object}.
+   *
+   * @remarks
+   *
+   * Only supported in headless mode.
+   */
+  abstract addScreen(params: AddScreenParams): Promise<ScreenInfo>;
+
+  /**
+   * Removes a screen.
+   *
+   * @remarks
+   *
+   * Only supported in headless mode. Fails if the primary screen id is specified.
+   */
+  abstract removeScreen(screenId: string): Promise<void>;
 
   /**
    * Whether Puppeteer is connected to this {@link Browser | browser}.
@@ -507,4 +676,9 @@ export abstract class Browser extends EventEmitter<BrowserEvents> {
    * @experimental
    */
   abstract get debugInfo(): DebugInfo;
+
+  /**
+   * @internal
+   */
+  abstract isNetworkEnabled(): boolean;
 }

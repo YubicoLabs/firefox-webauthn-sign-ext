@@ -7,13 +7,12 @@ package org.mozilla.focus.shortcut
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.net.Uri
-import android.os.Build
 import android.text.TextUtils
 import androidx.annotation.VisibleForTesting
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
+import androidx.core.net.toUri
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +56,6 @@ object HomeScreen {
     /**
      * Create a shortcut for the given website on the device's home screen.
      */
-    @Suppress("LongParameterList")
     fun installShortCut(
         context: Context,
         icon: Bitmap,
@@ -66,25 +64,17 @@ object HomeScreen {
         blockingEnabled: Boolean,
         requestDesktop: Boolean,
     ) {
-        val shortcutTitle = if (TextUtils.isEmpty(title.trim { it <= ' ' })) {
+        val shortcutTitle = if (TextUtils.isEmpty(title.trim())) {
             generateTitleFromUrl(url)
         } else {
             title
         }
 
         installShortCutViaManager(context, icon, url, shortcutTitle, blockingEnabled, requestDesktop)
-
-        // Creating shortcut flow is different on Android up to 7, so we want to go
-        // to the home screen manually where the user will see the new shortcut appear
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1) {
-            goToHomeScreen(context)
-        }
     }
 
     /**
      * Create a shortcut via the [ShortcutManagerCompat].
-     *
-     * On Android versions up to 7 shortcut will be created via system broadcast internally.
      *
      * On Android 8+ the user will have the ability to add the shortcut manually
      * or let the system place it automatically.
@@ -97,11 +87,7 @@ object HomeScreen {
         blockingEnabled: Boolean,
         requestDesktop: Boolean,
     ) {
-        val icon = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            IconCompat.createWithAdaptiveBitmap(bitmap)
-        } else {
-            IconCompat.createWithBitmap(bitmap)
-        }
+        val icon = IconCompat.createWithAdaptiveBitmap(bitmap)
         val shortcut = ShortcutInfoCompat.Builder(context, UUID.randomUUID().toString())
             .setShortLabel(title)
             .setLongLabel(title)
@@ -119,7 +105,7 @@ object HomeScreen {
     ): Intent {
         val shortcutIntent = Intent(context, MainActivity::class.java)
         shortcutIntent.action = Intent.ACTION_VIEW
-        shortcutIntent.data = Uri.parse(url)
+        shortcutIntent.data = url.toUri()
         shortcutIntent.putExtra(BLOCKING_ENABLED, blockingEnabled)
         shortcutIntent.putExtra(REQUEST_DESKTOP, requestDesktop)
         shortcutIntent.putExtra(ADD_TO_HOMESCREEN_TAG, ADD_TO_HOMESCREEN_TAG)
@@ -132,16 +118,6 @@ object HomeScreen {
     @VisibleForTesting
     fun generateTitleFromUrl(url: String): String {
         // For now we just use the host name and strip common subdomains like "www" or "m".
-        return Uri.parse(url).host?.stripCommonSubdomains() ?: ""
-    }
-
-    /**
-     * Switch to the the default home screen activity (launcher).
-     */
-    private fun goToHomeScreen(context: Context) {
-        val intent = Intent(Intent.ACTION_MAIN)
-        intent.addCategory(Intent.CATEGORY_HOME)
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        context.startActivity(intent)
+        return url.toUri().host?.stripCommonSubdomains() ?: ""
     }
 }

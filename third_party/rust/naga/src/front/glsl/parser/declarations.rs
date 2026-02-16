@@ -1,3 +1,6 @@
+use alloc::{string::String, vec, vec::Vec};
+
+use super::{DeclarationContext, ParsingContext, Result};
 use crate::{
     front::glsl::{
         ast::{
@@ -16,8 +19,6 @@ use crate::{
     AddressSpace, Expression, FunctionResult, Handle, Scalar, ScalarKind, Statement, StructMember,
     Type, TypeInner,
 };
-
-use super::{DeclarationContext, ParsingContext, Result};
 
 /// Helper method used to retrieve the child type of `ty` at
 /// index `i`.
@@ -607,6 +608,7 @@ impl ParsingContext<'_> {
                 kind: match global {
                     GlobalOrConstant::Global(handle) => GlobalLookupKind::BlockSelect(handle, i),
                     GlobalOrConstant::Constant(handle) => GlobalLookupKind::Constant(handle, ty),
+                    GlobalOrConstant::Override(handle) => GlobalLookupKind::Override(handle, ty),
                 },
                 entry_arg: None,
                 mutable: true,

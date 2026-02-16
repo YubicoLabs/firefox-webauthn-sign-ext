@@ -14,14 +14,17 @@
  * We fix this by clearing the form element as they check it the first time.
  */
 
-/* globals exportFunction */
+if (!window.__firefoxWebCompatFixBug1943898) {
+  Object.defineProperty(window, "__firefoxWebCompatFixBug1943898", {
+    configurable: false,
+    value: true,
+  });
 
-console.info(
-  "setTimeout has been overridden for compatibility reasons. See https://bugzilla.mozilla.org/show_bug.cgi?id=1943898 for details."
-);
+  console.info(
+    "setTimeout has been overridden for compatibility reasons. See https://bugzilla.mozilla.org/show_bug.cgi?id=1943898 for details."
+  );
 
-Object.defineProperty(window.wrappedJSObject, "setTimeout", {
-  value: exportFunction(function (fn, time) {
+  window.setTimeout = function (fn, time) {
     const text = "" + fn;
     if (
       text.includes("var el = document.getElementById('alwaysFetch');") &&
@@ -30,5 +33,5 @@ Object.defineProperty(window.wrappedJSObject, "setTimeout", {
       document.getElementById("alwaysFetch").value = "";
     }
     return window.setTimeout(fn, time);
-  }, window),
-});
+  };
+}

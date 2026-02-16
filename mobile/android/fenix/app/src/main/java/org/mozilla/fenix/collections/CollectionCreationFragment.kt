@@ -9,12 +9,14 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.ComponentDialog
+import androidx.activity.OnBackPressedCallback
 import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.navArgs
 import mozilla.components.lib.state.ext.consumeFrom
+import mozilla.components.lib.state.helpers.StoreProvider.Companion.storeProvider
 import org.mozilla.fenix.R
-import org.mozilla.fenix.components.StoreProvider
 import org.mozilla.fenix.databinding.FragmentCreateCollectionBinding
 import org.mozilla.fenix.ext.requireComponents
 
@@ -40,9 +42,9 @@ class CollectionCreationFragment : DialogFragment() {
         _binding = FragmentCreateCollectionBinding.inflate(inflater, container, false)
         val args: CollectionCreationFragmentArgs by navArgs()
 
-        collectionCreationStore = StoreProvider.get(this) {
+        collectionCreationStore = storeProvider.get { restoredState ->
             CollectionCreationStore(
-                createInitialCollectionCreationState(
+                restoredState ?: createInitialCollectionCreationState(
                     browserState = requireComponents.core.store.state,
                     tabCollectionStorage = requireComponents.core.tabCollectionStorage,
                     publicSuffixList = requireComponents.publicSuffixList,
@@ -89,10 +91,15 @@ class CollectionCreationFragment : DialogFragment() {
     }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        val dialog = super.onCreateDialog(savedInstanceState)
-        dialog.setOnKeyListener { _, keyCode, event ->
-            collectionCreationView.onKey(keyCode, event)
+        return ComponentDialog(requireContext(), this.theme).apply {
+            onBackPressedDispatcher.addCallback(
+                owner = this,
+                onBackPressedCallback = object : OnBackPressedCallback(true) {
+                    override fun handleOnBackPressed() {
+                        collectionCreationView.handleOnBackPressed()
+                    }
+                },
+            )
         }
-        return dialog
     }
 }

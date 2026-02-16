@@ -10,6 +10,12 @@ function assertPixel(actual, expected, message) {
   isfuzzy(actual[2], expected[2], 1, "B color value");
 }
 
+add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["test.wait300msAfterTabSwitch", true]],
+  });
+});
+
 add_task(async function test_visibleScreenshot() {
   await BrowserTestUtils.withNewTab(
     {
@@ -39,7 +45,7 @@ add_task(async function test_visibleScreenshot() {
       );
 
       let panel = gBrowser.selectedBrowser.ownerDocument.querySelector(
-        "#screenshotsPagePanel"
+        helper.selector.panel
       );
 
       // click the visible page button in panel
@@ -132,7 +138,7 @@ add_task(async function test_visibleScreenshotScrolledY() {
       await helper.waitForOverlay();
 
       let panel = gBrowser.selectedBrowser.ownerDocument.querySelector(
-        "#screenshotsPagePanel"
+        helper.selector.panel
       );
 
       let screenshotReady = TestUtils.topicObserved(
@@ -229,7 +235,7 @@ add_task(async function test_visibleScreenshotScrolledX() {
       await helper.waitForOverlay();
 
       let panel = gBrowser.selectedBrowser.ownerDocument.querySelector(
-        "#screenshotsPagePanel"
+        helper.selector.panel
       );
 
       let screenshotReady = TestUtils.topicObserved(
@@ -326,7 +332,7 @@ add_task(async function test_visibleScreenshotScrolledXAndY() {
       await helper.waitForOverlay();
 
       let panel = gBrowser.selectedBrowser.ownerDocument.querySelector(
-        "#screenshotsPagePanel"
+        helper.selector.panel
       );
 
       let screenshotReady = TestUtils.topicObserved(

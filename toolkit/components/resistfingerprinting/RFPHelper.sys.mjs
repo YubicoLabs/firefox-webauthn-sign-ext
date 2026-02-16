@@ -4,7 +4,7 @@
  * You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
-import * as constants from "resource://gre/modules/RFPTargetConstants.sys.mjs";
+import * as RFPTargetConstants from "resource://gre/modules/RFPTargetConstants.sys.mjs";
 
 const kPrefResistFingerprinting = "privacy.resistFingerprinting";
 const kPrefSpoofEnglish = "privacy.spoof_english";
@@ -34,6 +34,11 @@ function log(...args) {
 
 class _RFPHelper {
   _resizeObservers = new WeakMap();
+
+  // Track the observer status. It looks like pref changes can be notified
+  // also if the pref is actually unchanged. This might be a tests-only issue
+  // where we repeatedly push the prefs. See bug 1992137.
+  _letterboxingPrefObserversAdded = false;
 
   // ============================================================================
   // Shared Setup
@@ -81,7 +86,7 @@ class _RFPHelper {
     Services.prefs.removeObserver(kPrefResistFingerprinting, this);
     Services.prefs.removeObserver(kPrefLetterboxing, this);
     // Remove the RFP observers, swallowing exceptions if they weren't present
-    this._removeRFPObservers();
+    this._removeLanguagePrefObservers();
   }
 
   observe(subject, topic, data) {
@@ -139,14 +144,14 @@ class _RFPHelper {
   // ============================================================================
   // Language Prompt
   // ============================================================================
-  _addRFPObservers() {
+  _addLanguagePrefObservers() {
     Services.prefs.addObserver(kPrefSpoofEnglish, this);
     if (this._shouldPromptForLanguagePref()) {
       Services.obs.addObserver(this, kTopicHttpOnModifyRequest);
     }
   }
 
-  _removeRFPObservers() {
+  _removeLanguagePrefObservers() {
     try {
       Services.prefs.removeObserver(kPrefSpoofEnglish, this);
     } catch (e) {
@@ -160,12 +165,11 @@ class _RFPHelper {
   }
 
   _handleResistFingerprintingChanged() {
-    if (
-      (this.rfpEnabled = Services.prefs.getBoolPref(kPrefResistFingerprinting))
-    ) {
-      this._addRFPObservers();
+    this.rfpEnabled = Services.prefs.getBoolPref(kPrefResistFingerprinting);
+    if (ChromeUtils.shouldResistFingerprinting("JSLocalePrompt", null)) {
+      this._addLanguagePrefObservers();
     } else {
-      this._removeRFPObservers();
+      this._removeLanguagePrefObservers();
     }
   }
 
@@ -290,11 +294,17 @@ class _RFPHelper {
 
   _handleLetterboxingPrefChanged() {
     if (Services.prefs.getBoolPref(kPrefLetterboxing, false)) {
-      Services.ww.registerNotification(this);
+      if (!this._letterboxingPrefObserversAdded) {
+        Services.ww.registerNotification(this);
+        this._letterboxingPrefObserversAdded = true;
+      }
       this._attachAllWindows();
     } else {
       this._detachAllWindows();
-      Services.ww.unregisterNotification(this);
+      if (this._letterboxingPrefObserversAdded) {
+        Services.ww.unregisterNotification(this);
+        this._letterboxingPrefObserversAdded = false;
+      }
     }
   }
 
@@ -704,13 +714,19 @@ class _RFPHelper {
   }
 
   getTargets() {
-    return constants.Targets;
+    return RFPTargetConstants.Targets;
+  }
+
+  getTargetDefaultsBaseline() {
+    const key =
+      Services.appinfo.OS === "Android" ? "ANDROID_DEFAULT" : "DESKTOP_DEFAULT";
+    return RFPTargetConstants.DefaultTargetsBaseline[key];
   }
 
   getTargetDefaults() {
     const key =
       Services.appinfo.OS === "Android" ? "ANDROID_DEFAULT" : "DESKTOP_DEFAULT";
-    return constants.DefaultTargets[key];
+    return RFPTargetConstants.DefaultTargetsFPP[key];
   }
 }
 

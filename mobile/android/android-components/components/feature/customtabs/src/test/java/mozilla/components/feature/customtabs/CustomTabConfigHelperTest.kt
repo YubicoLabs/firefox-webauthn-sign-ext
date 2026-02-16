@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.browser.customtabs.TrustedWebUtils
+import androidx.core.graphics.toColorInt
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import mozilla.components.browser.menu.BrowserMenuBuilder
 import mozilla.components.browser.menu.item.BrowserMenuCheckbox
@@ -431,7 +432,7 @@ class CustomTabConfigHelperTest {
             customTabMenuInsertIndex = 1,
         )
 
-        assertEquals(5, customTabMenu!!.items.size)
+        assertEquals(5, customTabMenu.items.size)
         assertEquals(defaultItems[0], customTabMenu.items[0])
         assertTrue(customTabMenu.items[1] is SimpleBrowserMenuItem)
         assertTrue(customTabMenu.items[2] is SimpleBrowserMenuItem)
@@ -708,7 +709,7 @@ class CustomTabConfigHelperTest {
             toolbarColor = Color.BLACK,
             navigationBarDividerColor = Color.YELLOW,
         )
-        val expected = Color.parseColor(LIGHT_GRAY_HEX)
+        val expected = LIGHT_GRAY_HEX.toColorInt()
 
         val result = colorSchemeParams.getToolbarContrastColorDisabled(
             true,

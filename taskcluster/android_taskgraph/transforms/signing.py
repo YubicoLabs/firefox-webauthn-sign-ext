@@ -3,7 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 
-from gecko_taskgraph.util.scriptworker import get_signing_cert_scope
+from gecko_taskgraph.util.scriptworker import get_signing_type
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.schema import resolve_keyed_by
 
@@ -27,7 +27,7 @@ def resolve_keys(config, tasks):
                 **{
                     "build-type": task["attributes"]["build-type"],
                     "level": config.params["level"],
-                }
+                },
             )
         yield task
 
@@ -65,8 +65,7 @@ _DETACHED_SIGNATURE_EXTENSION = ".asc"
 def set_detached_signature_artifacts(config, tasks):
     for task in tasks:
         task["attributes"]["artifacts"] = {
-            extension
-            + _DETACHED_SIGNATURE_EXTENSION: path
+            extension + _DETACHED_SIGNATURE_EXTENSION: path
             + _DETACHED_SIGNATURE_EXTENSION
             for extension, path in task["attributes"]["artifacts"].items()
         }
@@ -84,8 +83,8 @@ def set_signing_format(config, tasks):
 
 
 @transforms.add
-def add_signing_cert_scope(config, tasks):
-    signing_cert_scope = get_signing_cert_scope(config)
+def add_signing_type(config, tasks):
+    signing_type = get_signing_type(config)
     for task in tasks:
-        task.setdefault("scopes", []).append(signing_cert_scope)
+        task["worker"]["signing-type"] = signing_type
         yield task

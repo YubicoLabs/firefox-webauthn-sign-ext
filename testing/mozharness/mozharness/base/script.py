@@ -34,11 +34,10 @@ import zipfile
 import zlib
 from contextlib import contextmanager
 from io import BytesIO
+from pathlib import Path
 from queue import Empty, Queue
 
 import mozinfo
-import six
-from six import binary_type
 
 from mozharness.base.config import BaseConfig
 from mozharness.base.log import (
@@ -135,7 +134,7 @@ def platform_name():
         return None
 
 
-class PlatformMixin(object):
+class PlatformMixin:
     def _is_windows(self):
         """check if the current operating system is Windows.
 
@@ -345,7 +344,7 @@ class ScriptMixin(PlatformMixin):
             str: in case `path` is a string. The result is the path with the new notation.
             type(path): `path` itself is returned in case `path` is not str type.
         """
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             return path
         path = path.replace("\\", "/")
 
@@ -389,7 +388,7 @@ class ScriptMixin(PlatformMixin):
         for ffrec in win32api.FindFiles("\\\\?\\" + path + "\\*.*"):
             file_attr = ffrec[0]
             name = ffrec[8]
-            if name == "." or name == "..":
+            if name in {".", ".."}:
                 continue
             full_name = os.path.join(path, name)
 
@@ -471,13 +470,13 @@ class ScriptMixin(PlatformMixin):
         Returns:
             BytesIO: contents of url
         """
-        self.info("Fetch {} into memory".format(url))
+        self.info(f"Fetch {url} into memory")
         parsed_url = urlparse.urlparse(url)
 
         if parsed_url.scheme in ("", "file"):
             path = parsed_url.path
             if not os.path.isfile(path):
-                raise IOError("Could not find file to extract: {}".format(url))
+                raise OSError(f"Could not find file to extract: {url}")
 
             content_length = os.stat(path).st_size
 
@@ -508,15 +507,13 @@ class ScriptMixin(PlatformMixin):
         response_body = response.read()
         response_body_size = len(response_body)
 
-        self.info("Content-Length response header: {}".format(content_length))
-        self.info("Bytes received: {}".format(response_body_size))
+        self.info(f"Content-Length response header: {content_length}")
+        self.info(f"Bytes received: {response_body_size}")
 
         if response_body_size != content_length:
             raise ContentLengthMismatch(
                 "The retrieved Content-Length header declares a body length "
-                "of {} bytes, while we actually retrieved {} bytes".format(
-                    content_length, response_body_size
-                )
+                f"of {content_length} bytes, while we actually retrieved {response_body_size} bytes"
             )
 
         if response.info().get("Content-Encoding") == "gzip":
@@ -619,7 +616,7 @@ class ScriptMixin(PlatformMixin):
         except socket.timeout as e:
             self.warning("Timed out accessing %s: %s" % (url, str(e)))
             raise
-        except socket.error as e:
+        except OSError as e:
             self.warning("Socket error when accessing %s: %s" % (url, str(e)))
             raise
 
@@ -672,8 +669,7 @@ class ScriptMixin(PlatformMixin):
         filter_partial = functools.partial(fnmatch.filter, namelist)
         entries = itertools.chain(*map(filter_partial, extract_dirs or ["*"]))
 
-        for entry in entries:
-            yield entry
+        yield from entries
 
     def unzip(self, compressed_file, extract_to, extract_dirs="*", verbose=False):
         """This method allows to extract a zip file without writing to disk first.
@@ -694,7 +690,7 @@ class ScriptMixin(PlatformMixin):
 
             for entry in entries:
                 if verbose:
-                    self.info(" {}".format(entry))
+                    self.info(f" {entry}")
 
                 # Exception to be retried:
                 # Bug 1301645 - BadZipfile: Bad CRC-32 for file ...
@@ -714,7 +710,7 @@ class ScriptMixin(PlatformMixin):
                         os.chmod(fname, mode)
 
                 except KeyError:
-                    self.warning("{} was not found in the zip file".format(entry))
+                    self.warning(f"{entry} was not found in the zip file")
 
     def deflate(self, compressed_file, mode, extract_to=".", *args, **kwargs):
         """This method allows to extract a compressed file from a tar{,bz2,gz,xz} files.
@@ -724,8 +720,16 @@ class ScriptMixin(PlatformMixin):
             mode (str): string of the form 'filemode[:compression]' (e.g. 'r:gz' or 'r:bz2')
             extract_to (str, optional): where to extract the compressed file.
         """
-        with tarfile.open(fileobj=compressed_file, mode=mode) as t:
-            _safe_extract(t, path=extract_to)
+        if mode == "r|zst":
+            import zstandard
+
+            unzstd = zstandard.ZstdDecompressor()
+            with unzstd.stream_reader(compressed_file) as stream:
+                with tarfile.open(mode="r|", fileobj=stream) as t:
+                    _safe_extract(t, path=extract_to)
+        else:
+            with tarfile.open(fileobj=compressed_file, mode=mode) as t:
+                _safe_extract(t, path=extract_to)
 
     def download_unpack(self, url, extract_to=".", extract_dirs="*", verbose=False):
         """Generic method to download and extract a compressed file without writing it
@@ -746,6 +750,7 @@ class ScriptMixin(PlatformMixin):
             EXTENSION_TO_MIMETYPE = {
                 "bz2": "application/x-bzip2",
                 "xz": "application/x-xz",
+                "zst": "application/zstd",
                 "gz": "application/x-gzip",
                 "tar": "application/x-tar",
                 "zip": "application/zip",
@@ -754,6 +759,10 @@ class ScriptMixin(PlatformMixin):
                 "application/x-xz": {
                     "function": self.deflate,
                     "kwargs": {"mode": "r:xz"},
+                },
+                "application/zstd": {
+                    "function": self.deflate,
+                    "kwargs": {"mode": "r|zst"},
                 },
                 "application/x-bzip2": {
                     "function": self.deflate,
@@ -779,7 +788,7 @@ class ScriptMixin(PlatformMixin):
             # XXX: bz2/gz/xz instead of tar.{bz2/gz/xz}
             extension = filename[filename.rfind(".") + 1 :]
             mimetype = EXTENSION_TO_MIMETYPE[extension]
-            self.debug("Mimetype: {}".format(mimetype))
+            self.debug(f"Mimetype: {mimetype}")
 
             function = MIMETYPES[mimetype]["function"]
             kwargs = {
@@ -814,7 +823,7 @@ class ScriptMixin(PlatformMixin):
             ),
             sleeptime=30,
             attempts=5,
-            error_message="Can't download from {}".format(url),
+            error_message=f"Can't download from {url}",
             error_level=FATAL,
         )
         compressed_file = self.retry(
@@ -914,7 +923,7 @@ class ScriptMixin(PlatformMixin):
         try:
             shutil.move(src, dest)
         # http://docs.python.org/tutorial/errors.html
-        except IOError as e:
+        except OSError as e:
             self.log("IO error: %s" % str(e), level=error_level, exit_code=exit_code)
             return -1
         except shutil.Error as e:
@@ -973,7 +982,7 @@ class ScriptMixin(PlatformMixin):
                 outfile.writelines(infile)
                 outfile.close()
                 infile.close()
-            except IOError as e:
+            except OSError as e:
                 self.log(
                     "Can't compress %s to %s: %s!" % (src, dest, str(e)),
                     level=error_level,
@@ -983,7 +992,7 @@ class ScriptMixin(PlatformMixin):
             self.log("Copying %s to %s" % (src, dest), level=log_level)
             try:
                 shutil.copyfile(src, dest)
-            except (IOError, shutil.Error) as e:
+            except (OSError, shutil.Error) as e:
                 self.log(
                     "Can't copy %s to %s: %s!" % (src, dest, str(e)), level=error_level
                 )
@@ -992,7 +1001,7 @@ class ScriptMixin(PlatformMixin):
         if copystat:
             try:
                 shutil.copystat(src, dest)
-            except (IOError, shutil.Error) as e:
+            except (OSError, shutil.Error) as e:
                 self.log(
                     "Can't copy attributes of %s to %s: %s!" % (src, dest, str(e)),
                     level=error_level,
@@ -1028,7 +1037,7 @@ class ScriptMixin(PlatformMixin):
             if overwrite == "clobber" or not os.path.exists(dest):
                 self.rmtree(dest)
                 shutil.copytree(src, dest)
-            elif overwrite == "no_overwrite" or overwrite == "overwrite_if_exists":
+            elif overwrite in {"no_overwrite", "overwrite_if_exists"}:
                 files = os.listdir(src)
                 for f in files:
                     abs_src_f = os.path.join(src, f)
@@ -1065,7 +1074,7 @@ class ScriptMixin(PlatformMixin):
                 self.fatal(
                     "%s is not a valid argument for param overwrite" % (overwrite)
                 )
-        except (IOError, shutil.Error):
+        except (OSError, shutil.Error):
             self.exception(
                 "There was an error while copying %s to %s!" % (src, dest),
                 level=error_level,
@@ -1114,7 +1123,7 @@ class ScriptMixin(PlatformMixin):
                 fh.write(contents.encode("utf-8", "replace"))
             fh.close()
             return file_path
-        except IOError:
+        except OSError:
             self.log("%s can't be opened for writing!" % file_path, level=error_level)
 
     @contextmanager
@@ -1139,7 +1148,7 @@ class ScriptMixin(PlatformMixin):
         self.info("Reading from file %s" % file_path)
         try:
             fh = open(file_path, open_mode)
-        except IOError as err:
+        except OSError as err:
             self.log(
                 "unable to open %s: %s" % (file_path, err.strerror), level=error_level
             )
@@ -1326,8 +1335,7 @@ class ScriptMixin(PlatformMixin):
                     )
                     time.sleep(sleeptime)
                     sleeptime = sleeptime * 2
-                    if sleeptime > max_sleeptime:
-                        sleeptime = max_sleeptime
+                    sleeptime = min(sleeptime, max_sleeptime)
 
     def query_env(
         self,
@@ -1393,10 +1401,13 @@ class ScriptMixin(PlatformMixin):
                 del env[k]
         if os.name == "nt":
             pref_encoding = locale.getpreferredencoding()
-            for k, v in six.iteritems(env):
+            for k, v in env.items():
                 # When run locally on Windows machines, some environment
                 # variables may be unicode.
-                env[k] = six.ensure_str(v, pref_encoding)
+                if isinstance(v, bytes):
+                    env[k] = v.decode(pref_encoding)
+                else:
+                    env[k] = str(v)
         if set_self_env:
             self.env = env
         return env
@@ -1446,7 +1457,7 @@ class ScriptMixin(PlatformMixin):
         if isinstance(exe, dict):
             found = False
             # allow for searchable paths of the exe
-            for name, path in six.iteritems(exe):
+            for name, path in exe.items():
                 if isinstance(path, list) or isinstance(path, tuple):
                     path = [x % repl_dict for x in path]
                     if all([os.path.exists(section) for section in path]):
@@ -1511,7 +1522,7 @@ class ScriptMixin(PlatformMixin):
         output_timeout=None,
         fatal_exit_code=2,
         error_level=ERROR,
-        **kwargs
+        **kwargs,
     ):
         """Run a command, with logging and error parsing.
         TODO: context_lines
@@ -1583,12 +1594,11 @@ class ScriptMixin(PlatformMixin):
             if partial_env:
                 self.info("Using partial env: %s" % pprint.pformat(partial_env))
                 env = self.query_env(partial_env=partial_env)
+        elif hasattr(self, "previous_env") and env == self.previous_env:
+            self.info("Using env: (same as previous command)")
         else:
-            if hasattr(self, "previous_env") and env == self.previous_env:
-                self.info("Using env: (same as previous command)")
-            else:
-                self.info("Using env: %s" % pprint.pformat(env))
-                self.previous_env = env
+            self.info("Using env: %s" % pprint.pformat(env))
+            self.previous_env = env
 
         if output_parser is None:
             parser = OutputParser(
@@ -1786,7 +1796,7 @@ class ScriptMixin(PlatformMixin):
         # TODO probably some more elegant solution than 2 similar passes
         try:
             tmp_stdout = open(tmp_stdout_filename, "w")
-        except IOError:
+        except OSError:
             level = ERROR
             if halt_on_failure:
                 level = FATAL
@@ -1797,7 +1807,7 @@ class ScriptMixin(PlatformMixin):
             return None
         try:
             tmp_stderr = open(tmp_stderr_filename, "w")
-        except IOError:
+        except OSError:
             level = ERROR
             if halt_on_failure:
                 level = FATAL
@@ -1843,7 +1853,7 @@ class ScriptMixin(PlatformMixin):
                     for line in output_lines:
                         if not line or line.isspace():
                             continue
-                        if isinstance(line, binary_type):
+                        if isinstance(line, bytes):
                             line = line.decode("utf-8")
                         self.log(" %s" % line, level=log_level)
                     output = "\n".join(output_lines)
@@ -1858,7 +1868,7 @@ class ScriptMixin(PlatformMixin):
                 for line in errors.rstrip().splitlines():
                     if not line or line.isspace():
                         continue
-                    if isinstance(line, binary_type):
+                    if isinstance(line, bytes):
                         line = line.decode("utf-8")
                     self.log(" %s" % line, level=return_level)
         elif p.returncode not in success_codes and not ignore_errors:
@@ -1903,7 +1913,7 @@ class ScriptMixin(PlatformMixin):
         except OSError:
             try:
                 open(file_name, "w").close()
-            except IOError as e:
+            except OSError as e:
                 msg = "I/O error(%s): %s" % (e.errno, e.strerror)
                 self.log(msg, error_level=error_level)
         os.utime(file_name, times)
@@ -1934,13 +1944,11 @@ class ScriptMixin(PlatformMixin):
 
         """
         if not os.path.isfile(filename):
-            raise IOError("Could not find file to extract: %s" % filename)
+            raise OSError("Could not find file to extract: %s" % filename)
 
         if zipfile.is_zipfile(filename):
             try:
-                self.info(
-                    "Using ZipFile to extract {} to {}".format(filename, extract_to)
-                )
+                self.info(f"Using ZipFile to extract {filename} to {extract_to}")
                 with zipfile.ZipFile(filename) as bundle:
                     for entry in self._filter_entries(bundle.namelist(), extract_dirs):
                         if verbose:
@@ -1965,9 +1973,7 @@ class ScriptMixin(PlatformMixin):
         # Bug 1211882 - is_tarfile cannot be trusted for dmg files
         elif tarfile.is_tarfile(filename) and not filename.lower().endswith(".dmg"):
             try:
-                self.info(
-                    "Using TarFile to extract {} to {}".format(filename, extract_to)
-                )
+                self.info(f"Using TarFile to extract {filename} to {extract_to}")
                 with tarfile.open(filename) as bundle:
                     for entry in self._filter_entries(bundle.getnames(), extract_dirs):
                         _validate_tar_member(bundle.getmember(entry), extract_to)
@@ -2075,16 +2081,16 @@ def PostScriptAction(action=None):
 
 
 # BaseScript {{{1
-class BaseScript(ScriptMixin, LogMixin, object):
+class BaseScript(ScriptMixin, LogMixin):
     def __init__(
         self,
         config_options=None,
         ConfigClass=BaseConfig,
         default_log_level="info",
-        **kwargs
+        **kwargs,
     ):
         self._return_code = 0
-        super(BaseScript, self).__init__()
+        super().__init__()
 
         self.log_obj = None
         self.abs_dirs = None
@@ -2154,7 +2160,7 @@ class BaseScript(ScriptMixin, LogMixin, object):
                 item = None
                 self.warning(
                     "BaseScript collecting decorated methods: "
-                    "failure to get attribute {}: {}".format(k, str(e))
+                    f"failure to get attribute {k}: {str(e)}"
                 )
             if not item:
                 continue
@@ -2180,24 +2186,15 @@ class BaseScript(ScriptMixin, LogMixin, object):
         # access. If the property depends upon a module which has not
         # been imported at the time the BaseScript initializer is
         # executed, this property access will result in an
-        # Exception. Until Python 3's `inspect.getattr_static` is
-        # available, the simplest approach is to ignore the specific
-        # properties which are known to cause issues. Currently
-        # adb_path and device are ignored since they require the
-        # availablity of the mozdevice package which is not guaranteed
-        # when BaseScript is called.
-        property_list = set(["adb_path", "device"])
-        if six.PY2:
-            if name in property_list:
-                item = None
-            else:
-                item = getattr(self, name)
+        # Exception. With Python 3's `inspect.getattr_static`,
+        # we can check if something is a property without accessing it,
+        # avoiding issues with properties that depend on packages that
+        # may not be available when BaseScript is initialized.
+        item = inspect.getattr_static(self, name)
+        if type(item) is property:
+            item = None
         else:
-            item = inspect.getattr_static(self, name)
-            if type(item) is property:
-                item = None
-            else:
-                item = getattr(self, name)
+            item = getattr(self, name)
         return item
 
     def _dump_config_hierarchy(self, cfg_files):
@@ -2217,7 +2214,7 @@ class BaseScript(ScriptMixin, LogMixin, object):
         if not cfg_files:
             cfg_files = []
         self.info("Total config files: %d" % (len(cfg_files)))
-        if len(cfg_files):
+        if cfg_files:
             self.info("cfg files used from lowest precedence to highest:")
         for i, (target_file, target_dict) in enumerate(cfg_files):
             unique_keys = set(target_dict.keys())
@@ -2243,7 +2240,7 @@ class BaseScript(ScriptMixin, LogMixin, object):
         )
         cfg_files_dump_config["not_from_cfg_file"] = not_from_file_dict
         self.action_message(
-            "Not from any config file (default_config, " "cmd line options, etc)"
+            "Not from any config file (default_config, cmd line options, etc)"
         )
         self.info(pprint.pformat(not_from_file_dict))
 
@@ -2275,10 +2272,6 @@ class BaseScript(ScriptMixin, LogMixin, object):
             self.error("No such method %s!" % method_name)
 
     def run_action(self, action):
-        if action not in self.actions:
-            self.action_message("Skipping %s step." % action)
-            return
-
         method_name = action.replace("-", "_")
         self.action_message("Running %s step." % action)
 
@@ -2382,12 +2375,36 @@ class BaseScript(ScriptMixin, LogMixin, object):
                 self.fatal("Aborting due to failure in pre-run listener.")
 
         self.dump_config()
+        perfherder_data = {
+            "framework": {"name": "mozharness"},
+            "suites": [],
+        }
         try:
             for action in self.all_actions:
+                if action not in self.actions:
+                    self.action_message(f"Skipping {action} step.")
+                    continue
+
+                start = time.monotonic()
                 self.run_action(action)
+                end = time.monotonic()
+                perfherder_data["suites"].append({
+                    "name": action,
+                    "value": end - start,
+                    "lowerIsBetter": True,
+                    "unit": "s",
+                    "shouldAlert": False,
+                    "subtests": [],
+                })
         except Exception:
             self.fatal("Uncaught exception: %s" % traceback.format_exc())
         finally:
+            if "MOZ_AUTOMATION" in os.environ and "UPLOAD_DIR" in os.environ:
+                upload_dir = Path(os.environ["UPLOAD_DIR"])
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                upload_path = upload_dir / "perfherder-data-mozharness-actions.json"
+                with upload_path.open("w", encoding="utf-8") as f:
+                    json.dump(perfherder_data, f)
             post_success = True
             for fn in self._listeners["post_run"]:
                 try:

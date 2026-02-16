@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __FFmpegRuntimeLinker_h__
-#define __FFmpegRuntimeLinker_h__
+#ifndef FFmpegRuntimeLinker_h_
+#define FFmpegRuntimeLinker_h_
 
 #include "PlatformDecoderModule.h"
 #include "PlatformEncoderModule.h"
@@ -38,10 +38,12 @@ class FFmpegRuntimeLinker {
   static const char* LinkStatusLibraryName() { return sLinkStatusLibraryName; }
 
  private:
+  static void PrefCallbackLogLevel(const char* aPref, void* aData);
+
   static LinkStatus sLinkStatus;
   static const char* sLinkStatusLibraryName;
 };
 
 }  // namespace mozilla
 
-#endif  // __FFmpegRuntimeLinker_h__
+#endif  // FFmpegRuntimeLinker_h_

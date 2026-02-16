@@ -46,6 +46,9 @@ var gExceptionPaths = [
   "chrome://browser/content/asrouter/assets/fox-with-devices.svg",
   "chrome://browser/content/asrouter/assets/fox-with-locked-box.svg",
   "chrome://browser/content/asrouter/assets/fox-with-mobile.svg",
+  "chrome://browser/content/asrouter/assets/desktop-to-mobile-banner.svg",
+  "chrome://browser/content/asrouter/assets/desktop-to-mobile-non-eu-QR.svg",
+  "chrome://browser/content/asrouter/assets/desktop-to-mobile-eu-QR.svg",
 
   // toolkit/components/pdfjs/content/build/pdf.js
   "resource://pdf.js/web/images/",
@@ -105,6 +108,31 @@ var gExceptionPaths = [
 
   // The profile avatars are directly referenced.
   "chrome://browser/content/profiles/assets/",
+
+  // The picture-in-picture add-on.
+  "resource://builtin-addons/pictureinpicture/",
+
+  // The formautofill add-on.
+  "resource://builtin-addons/formautofill/",
+
+  // The webcompat add-on.
+  "resource://builtin-addons/webcompat/",
+
+  // The newtab add-on
+  "resource://builtin-addons/newtab/",
+  "resource://newtab/",
+  "chrome://newtab/",
+
+  // UniFFI test files.
+  "moz-src:///toolkit/components/uniffi-bindgen-gecko-js/tests/generated/",
+
+  // Used for Market suggestions on the urlbar. This is specified from Remote
+  // Settings.
+  "chrome://browser/skin/illustrations/market-opt-in.svg",
+
+  // Used for Yelp realtime suggestions on the urlbar. This is specified from
+  // Remote Settings.
+  "chrome://browser/skin/illustrations/yelpRealtime-opt-in.svg",
 ];
 
 // These are not part of the omni.ja file, so we find them only when running
@@ -157,9 +185,6 @@ var allowlist = [
     isFromDevTools: true,
   },
 
-  // used by devtools/client/memory/index.xhtml
-  { file: "chrome://global/content/third_party/d3/d3.js" },
-
   // SpiderMonkey parser API, currently unused in browser/ and toolkit/
   { file: "resource://gre/modules/reflect.sys.mjs" },
 
@@ -177,10 +202,6 @@ var allowlist = [
 
   { file: "resource://gre/greprefs.js" },
 
-  // layout/mathml/nsMathMLChar.cpp
-  { file: "resource://gre/res/fonts/mathfontSTIXGeneral.properties" },
-  { file: "resource://gre/res/fonts/mathfontUnicode.properties" },
-
   // toolkit/mozapps/extensions/AddonContentPolicy.cpp
   { file: "resource://gre/localization/en-US/toolkit/global/cspErrors.ftl" },
 
@@ -193,19 +214,11 @@ var allowlist = [
     platforms: ["linux", "win"],
   },
   {
-    file: "resource://gre/chrome/en-US/locale/en-US/global-platform/mac/intl.properties",
-    platforms: ["linux", "win"],
-  },
-  {
     file: "resource://gre/chrome/en-US/locale/en-US/global-platform/mac/platformKeys.properties",
     platforms: ["linux", "win"],
   },
   {
     file: "resource://gre/chrome/en-US/locale/en-US/global-platform/unix/accessible.properties",
-    platforms: ["macosx", "win"],
-  },
-  {
-    file: "resource://gre/chrome/en-US/locale/en-US/global-platform/unix/intl.properties",
     platforms: ["macosx", "win"],
   },
   {
@@ -217,10 +230,6 @@ var allowlist = [
     platforms: ["linux", "macosx"],
   },
   {
-    file: "resource://gre/chrome/en-US/locale/en-US/global-platform/win/intl.properties",
-    platforms: ["linux", "macosx"],
-  },
-  {
     file: "resource://gre/chrome/en-US/locale/en-US/global-platform/win/platformKeys.properties",
     platforms: ["linux", "macosx"],
   },
@@ -229,18 +238,15 @@ var allowlist = [
   { file: "resource://pdf.js/web/debugger.mjs" },
   { file: "resource://pdf.js/web/debugger.css" },
 
+  // File from the ipp-activator add-on
+  { file: "resource://builtin-addons/ipp-activator/breakages/tab.json" },
+
   // Starting from here, files in the allowlist are bugs that need fixing.
   // Bug 1339424 (wontfix?)
   {
     file: "chrome://browser/locale/taskbar.properties",
     platforms: ["linux", "macosx"],
   },
-  // Bug 1344267
-  { file: "chrome://remote/content/marionette/test_dialog.properties" },
-  { file: "chrome://remote/content/marionette/test_dialog.xhtml" },
-  { file: "chrome://remote/content/marionette/test_menupopup.xhtml" },
-  { file: "chrome://remote/content/marionette/test_no_xul.xhtml" },
-  { file: "chrome://remote/content/marionette/test.xhtml" },
   // Bug 1348559
   { file: "chrome://pippki/content/resetpassword.xhtml" },
   // Bug 1337345
@@ -267,8 +273,6 @@ var allowlist = [
     file: "resource://app/localization/en-US/browser/touchbar/touchbar.ftl",
     platforms: ["linux", "win"],
   },
-  // Referenced by the webcompat system addon for localization
-  { file: "resource://gre/localization/en-US/toolkit/about/aboutCompat.ftl" },
 
   // dom/media/mediacontrol/MediaControlService.cpp
   { file: "resource://gre/localization/en-US/dom/media.ftl" },
@@ -304,12 +308,6 @@ var allowlist = [
   // toolkit/xre/MacRunFromDmgUtils.mm
   { file: "resource://gre/localization/en-US/toolkit/global/run-from-dmg.ftl" },
 
-  // Referenced by screenshots extension
-  { file: "chrome://browser/content/screenshots/cancel.svg" },
-  { file: "chrome://browser/content/screenshots/copy.svg" },
-  { file: "chrome://browser/content/screenshots/download.svg" },
-  { file: "chrome://browser/content/screenshots/download-white.svg" },
-
   // Referenced programmatically
   { file: "chrome://browser/content/backup/BackupManifest.1.schema.json" },
   { file: "chrome://browser/content/backup/ArchiveJSONBlock.1.schema.json" },
@@ -318,18 +316,37 @@ var allowlist = [
   {
     file: "resource://gre/localization/en-US/netwerk/necko.ftl",
   },
+
+  // dom/xslt/xslt/txMozillaXSLTProcessor.cpp
+  { file: "resource://gre/localization/en-US/dom/xslt.ftl" },
+
+  // A QA and dev debug tool.
+  { file: "chrome://browser/content/places/interactionsViewer.html" },
+
+  // Bug 1984409: We're doing backups to cloud-synced locations first. We'll do local backups eventually,
+  // and this file will be needed for that.
+  {
+    file: "resource://app/modules/backup/CookiesBackupResource.sys.mjs",
+  },
+
+  // Bug 1996315: QR code generation modules
+  {
+    file: "moz-src:///browser/components/qrcode/QRCodeGenerator.sys.mjs",
+  },
+  {
+    file: "moz-src:///browser/components/qrcode/QRCodeWorker.sys.mjs",
+  },
+  // Bug 2011266 - Integrate current tab website chip context in sidebar
+  {
+    file: "chrome://browser/content/aiwindow/components/website-chip-container.mjs",
+  },
 ];
 
 if (AppConstants.NIGHTLY_BUILD) {
   allowlist.push(
-    ...[
-      // This is nightly-only debug tool.
-      { file: "chrome://browser/content/places/interactionsViewer.html" },
-
-      // A debug tool that is only available in Nightly builds, and is accessed
-      // directly by developers via the chrome URI (bug 1888491)
-      { file: "chrome://browser/content/backup/debug.html" },
-    ]
+    // A debug tool that is only available in Nightly builds, and is accessed
+    // directly by developers via the chrome URI (bug 1888491)
+    { file: "chrome://browser/content/backup/debug.html" }
   );
 }
 
@@ -474,14 +491,7 @@ function parseManifest(manifestUri) {
       let [type, ...argv] = line.split(/\s+/);
       if (type == "content" || type == "skin" || type == "locale") {
         let chromeUri = `chrome://${argv[0]}/${type}/`;
-        // The webcompat reporter's locale directory may not exist if
-        // the addon is preffed-off, and since it's a hack until we
-        // get bz1425104 landed, we'll just skip it for now.
-        if (chromeUri === "chrome://report-site-issue/locale/") {
-          gChromeMap.set("chrome://report-site-issue/locale/", true);
-        } else {
-          trackChromeUri(chromeUri);
-        }
+        trackChromeUri(chromeUri);
       } else if (type == "override" || type == "overlay") {
         // Overlays aren't really overrides, but behave the same in
         // that the overlay is only referenced if the original xul
@@ -496,7 +506,10 @@ function parseManifest(manifestUri) {
       } else if (type == "category") {
         if (gInterestingCategories.has(argv[0])) {
           gReferencesFromCode.set(argv[2], null);
-        } else if (argv[1].startsWith("resource://")) {
+        } else if (
+          argv[1].startsWith("resource://") ||
+          argv[1].startsWith("moz-src://")
+        ) {
           // Assume that any resource paths immediately after the category name
           // are for use with BrowserUtils.callModulesFromCategory (rather than
           // having to hardcode a list of categories in this test).
@@ -645,7 +658,7 @@ function parseCodeFile(fileUri) {
       );
 
       if (!urls) {
-        urls = line.match(/["']moz-src:\/\/\/[^"']+["']/g);
+        urls = line.match(/["']moz-src:\/\/[^"']+["']/g);
       }
 
       if (!urls) {
@@ -877,19 +890,18 @@ add_task(async function checkAllTheFiles() {
   const libxul = await IOUtils.read(PathUtils.xulLibraryPath);
   findChromeUrlsFromArray(libxul, "chrome://");
   findChromeUrlsFromArray(libxul, "resource://");
-  findChromeUrlsFromArray(libxul, "moz-src:///");
+  findChromeUrlsFromArray(libxul, "moz-src://");
   // Handle NS_LITERAL_STRING.
   let uint16 = new Uint16Array(libxul.buffer);
   findChromeUrlsFromArray(uint16, "chrome://");
   findChromeUrlsFromArray(uint16, "resource://");
-  findChromeUrlsFromArray(uint16, "moz-src:///");
+  findChromeUrlsFromArray(uint16, "moz-src://");
 
   const kCodeExtensions = [
     ".xml",
     ".xsl",
     ".mjs",
     ".js",
-    ".jsm",
     ".json",
     ".html",
     ".xhtml",
@@ -1015,7 +1027,8 @@ add_task(async function checkAllTheFiles() {
         if (isDevtools) {
           if (
             ref.startsWith("resource://app/components/") ||
-            (file.startsWith("chrome://") && ref.startsWith("resource://"))
+            (file.startsWith("chrome://") &&
+              (ref.startsWith("resource://") || ref.startsWith("moz-src://")))
           ) {
             return false;
           }

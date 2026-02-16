@@ -9,9 +9,11 @@ import android.util.AttributeSet
 import android.widget.CompoundButton.OnCheckedChangeListener
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.widget.AppCompatRadioButton
+import androidx.core.content.edit
 import androidx.core.content.withStyledAttributes
 import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.settings
+import androidx.appcompat.R as appcompatR
 
 /**
  * [AppCompatRadioButton] backed by a boolean `SharedPreference`.
@@ -27,7 +29,7 @@ import org.mozilla.fenix.ext.settings
 class PreferenceBackedRadioButton @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = R.attr.radioButtonStyle,
+    defStyleAttr: Int = appcompatR.attr.radioButtonStyle,
 ) : AppCompatRadioButton(context, attrs, defStyleAttr) {
     @VisibleForTesting
     internal var externalOnCheckedChangeListener: OnCheckedChangeListener? = null
@@ -40,7 +42,7 @@ class PreferenceBackedRadioButton @JvmOverloads constructor(
 
     private val internalOnCheckedChangeListener = OnCheckedChangeListener { buttonView, isChecked ->
         backingPreferenceName?.let {
-            context.settings().preferences.edit().putBoolean(it, isChecked).apply()
+            context.settings().preferences.edit { putBoolean(it, isChecked) }
         }
 
         externalOnCheckedChangeListener?.onCheckedChanged(buttonView, isChecked)
@@ -70,7 +72,7 @@ class PreferenceBackedRadioButton @JvmOverloads constructor(
         if (enabled) {
             isChecked = context.settings().preferences.getBoolean(backingPreferenceName, backingPreferenceDefaultValue)
         } else {
-            context.settings().preferences.edit().remove(backingPreferenceName).apply()
+            context.settings().preferences.edit { remove(backingPreferenceName) }
         }
     }
 }

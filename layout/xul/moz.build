@@ -13,7 +13,9 @@ if CONFIG["ENABLE_TESTS"]:
     BROWSER_CHROME_MANIFESTS += ["test/browser.toml"]
 
 EXPORTS += [
+    "nsIPopupContainer.h",
     "nsIScrollbarMediator.h",
+    "nsMenuPopupFrame.h",
     "nsXULPopupManager.h",
     "nsXULTooltipListener.h",
 ]
@@ -28,6 +30,7 @@ UNIFIED_SOURCES += [
     "nsSplitterFrame.cpp",
     "nsXULPopupManager.cpp",
     "nsXULTooltipListener.cpp",
+    "PopupQueue.cpp",
     "SimpleXULLeafFrame.cpp",
 ]
 

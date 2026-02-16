@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:moz="http://mozac.org/tools" xmlns:tools="http://schemas.android.com/tools">
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
 
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">Retuma historio viŝita</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">La retuma historio de la langeto estis viŝita.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">Serĉi %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Dividi…</string>
@@ -52,7 +62,7 @@
   <string name="menu_settings">Agordoj</string>
   <string name="menu_about">Pri</string>
   <string name="menu_help">Helpo</string>
-  <string name="menu_rights">Viaj rajtoj</string>
+  <string name="menu_terms_of_use">Kondiĉoj de uzo</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -143,19 +153,12 @@
   -->
   <string name="text_selection_search_action_focus_nightly" tools:ignore="BrandUsage">Serĉi en Focus Nightly</string>
   <!--
-    Content of about focus. Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
-    Argument 2 is the url for the learn-more link.
+    Content of about focus. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
+    %2$s is the url for the learn-more link.
   -->
-  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote">&lt;p&gt;%1$s igas vin reganto.&lt;/p&gt;
-&lt;p&gt;Uzu ĝin kiel privatan retumilon:
-  &lt;ul&gt;
-    &lt;li&gt;Serĉu kaj retumu rekte el la programo&lt;/li&gt;
-    &lt;li&gt;Bloku spurilojn (aŭ agordi por permesi spurilojn)&lt;/li&gt;
-    &lt;li&gt;Forigu kuketojn kaj ankaŭ retuman kaj serĉan historion&lt;/li&gt;
-  &lt;/ul&gt;
-&lt;/p&gt;
-&lt;p&gt;%1$s estas farita de Mozilla. Nia misio estas stimuli sanan kaj malfermitan interreton.&lt;br/&gt;
-&lt;a href="%2$s"&gt;Pli da informo&lt;/a&gt;&lt;/p&gt;</string>
+  <string name="about_content" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s igas vin reganto.</p>\n<p>Uzu ĝin kiel privatan retumilon:\n<ul>\n<li>Serĉu kaj retumu rekte el la programo</li>\n<li>Bloku spurilojn (aŭ agordi por permesi spurilojn)</li>\n<li>Forigu kuketojn kaj ankaŭ retuman kaj serĉan historion</li>\n</ul> </p>\n<p>%1$s estas farita de Mozilla. Nia misio estas stimuli sanan kaj malfermitan interreton.<br/>\n<a href=\"%2$s\">Pli da informo</a></p>]]></string>
+  <!-- A link to SUMO at the bottom of About Focus screen. -->
+  <string name="about_screen_learn_more">Pli da informo</string>
   <!-- Header for the Privacy and Security settings menu -->
   <string name="preference_privacy_and_security_header">Privateco kaj sekureco</string>
   <!-- Preference summary for settings related to privacy and security -->
@@ -207,14 +210,14 @@
   <string name="preference_switch_autocomplete_topsites">Por la plej vizititaj retejoj</string>
   <!--
     Summary for the toggle to enable autocomplete for the topsites list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_topsite_summary2">Aktivigu por igi %s aŭtomate kompletigi pli ol 450 popularajn adresojn en la adresa strio.</string>
   <!-- Title of "switch" preference that enables/disables autocomplete for the user-defined list -->
   <string name="preference_switch_autocomplete_user_list">Por retejoj, kiujn vi aldonas</string>
   <!--
     Summary for the toggle to enable autocomplete for the user-defined list
-    %s is a placeholder for the app name (e.g. Firefox Focus)
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="preference_autocomplete_user_list_summary2">Akvitigi por ke %s aŭtomate kompletigu viajn plej ŝatatajn retadresojn.</string>
   <!-- Preference category: Manage (user-defined) sites -->
@@ -289,8 +292,8 @@
   <!--
     Preference Summary: Biometrics (iris scan, fingerprint, or facial scan) can be used to unlock Focus if the app had a URL
     open when the app was last run to ensure that only the phone's owner can view a previous session.
-    %s will be replaced by the app name (e.g. Firefox Focus)
-    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them
+    %s is the name of the app (for example "Firefox Focus" or "Firefox Klar")
+    Shortcuts is a feature that allows the user to pin his favorite websites to Focus home screen so he can quickly access them.
   -->
   <string name="preference_security_biometric_summary2">Malbloki per fingrospuro se vi aldonis ŝparvojojn aŭ kiam retejo jam estas malfermita en %s.</string>
   <!--
@@ -338,9 +341,9 @@
   <string name="preference_libraries_we_use">Bibliotekoj uzataj de ni</string>
   <!-- Link to Focus Crash reports list. -->
   <string name="preference_crashes">Paneoj</string>
-  <!-- Open Source Licenses page title. The first parameter is the app name -->
+  <!-- Open Source Licenses page title. %s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="open_source_licenses_title">%s | Malfermitkodaj bibliotekoj</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">Pri %1$s</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">Instalitaj serĉiloj</string>
@@ -364,7 +367,7 @@
   <string name="search_add_manually_name_hint">Nomo de serĉilo</string>
   <string name="search_add_manually_string">Teksto por serĉi</string>
   <string name="search_add_manually_save">Konservi</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">Ekzemplo: example.com/search/?q=%s</string>
   <string name="search_add_confirmation">Nova serĉilo aldonita.</string>
   <string name="search_add_error_empty_name">Tajpu nomon de serĉilo</string>
@@ -436,19 +439,19 @@
   <string name="external_app_prompt_title">Malfermi ligilon en alia programo</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">Vi povas forlasi %1$s por malfermi tiun ĉi ligilon en %2$s.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">Serĉi programon, kiu povas malfermi ligilon</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">Neniu programo en via aparato povas malfermi tiun ĉi ligilon. Vi povas forlasi %1$s por serĉi en %2$s programon kiu povas fari tion.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">Ĉu eliri el privata retumo?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s finiĝis</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">Malfermi</string>
@@ -458,13 +461,35 @@
   <!--
     New Onboarding flow first screen title
 
-    %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly)
+    %1$s is the app name and build variant (for example "Firefox Focus", "Firefox Klar Nightly").
   -->
   <string name="onboarding_first_screen_title">Bonvenon al %1$s</string>
   <!-- New Onboarding flow first screen subtitle the one that appears under title -->
   <string name="onboarding_first_screen_subtitle">Rapida. Privata. Sendistra.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_terms_of_use_link as text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_text_2" tools:ignore="UnusedResources">Se vi daŭrigas vi akceptas la %1$s.</string>
+  <!--
+    New Onboarding flow first screen 'terms of use link'
+
+    Text for the link used in onboarding_first_screen_terms_of_use_text
+  -->
+  <string name="onboarding_first_screen_terms_of_use_link_2" tools:ignore="BrandUsage">kondiĉojn de uzo de Firefox</string>
+  <!--
+    New Onboarding flow first screen 'privacy notice' text
+
+    %1$s will be replaced by a link using onboarding_first_screen_privacy_notice_link as text
+  -->
+  <string name="onboarding_first_screen_privacy_notice_text_2" tools:ignore="BrandUsage">Firefox zorgas pri via privateco. Pli da informo en nia %1$s.</string>
+  <!-- Text for the link used in onboarding_first_screen_privacy_notice_text -->
+  <string name="onboarding_first_screen_privacy_notice_link_2">Rimarko pri privateco</string>
   <!-- New Onboarding flow first screen button label -->
-  <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">Unuaj paŝoj</string>
+  <string name="onboarding_first_screen_button_agree_and_continue_2">Daŭrigi</string>
+  <!-- In the first screen of new onboarding flow, additional accessibility description for content that contain urls. -->
+  <string name="a11y_link_available">Disponebla ligilo</string>
   <!--
     Onboarding second screen: Title
 
@@ -542,36 +567,6 @@
     item in the list of browsers. Clicking it will open the app store installed on the device (usually that's Google Play).
   -->
   <string name="download_firefox" tools:ignore="BrandUsage">Elŝuti Firefox</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-  -->
-  <string name="your_rights_content1">"%1$s estas libera kaj malfermitkoda programaro, farita de Mozilla kaj aliaj kontribuintoj. "</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the MPL (e.g. https://www.mozilla.org/en-US/MPL/)
-  -->
-  <string name="your_rights_content2" tools:ignore="IncorrectStraightDoubleQuote">%1$s estas liverita laŭ la kondiĉoj de la permesilo &lt;a href="%2$s"&gt;Mozilla Public License&lt;/a&gt; kaj de aliaj malfermitkodaj permesiloj.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the trademark policy (e.g. https://www.mozilla.org/foundation/trademarks/policy/)
-  -->
-  <string name="your_rights_content3" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote">Vi ricevas neniun rajton aŭ uzopermeson pri la registritaj markoj de Mozilla Foundation aŭ de iu alia. Tio inkluzivas la nomojn kaj emblemojn de Mozilla, Firefox aŭ %1$s. Pli da informo troveblas &lt;a href="%2$s"&gt;ĉi tie&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the list of licenses used by the dependencies.
-  -->
-  <string name="your_rights_content4" tools:ignore="IncorrectStraightDoubleQuote">Aldonaj fontaj kodoj por %1$s haveblas sub pluraj aliaj liberaj kaj malfermitkodaj &lt;a href="%2$s"&gt;permesiloj&lt;/a&gt;.</string>
-  <!--
-    Text shown in the "Your rights" screen.
-    %1$s will be replaced with the name of the app (e.g. Firefox Focus)
-    %2$s will be replaced with a URL linking to the GPL
-    %3$s will be replaced with a URL linking to the tracking protection wiki page (e.g. https://wiki.mozilla.org/Security/Tracking_protection#Lists)
-  -->
-  <string name="your_rights_content5" tools:ignore="IncorrectStraightDoubleQuote">%1$s uzas ankaŭ listojn de blokado provizitaj de Disconnect, Inc. kiel apartajn kaj sendependajn verkojn sub la &lt;a href="%2$s"&gt;GNU General Public License v3&lt;/a&gt;, kiu haveblas &lt;a href="%3$s"&gt;ĉi tie&lt;/a&gt;.</string>
   <!-- Text shown in prompts for GeckoView -->
   <string name="gv_prompt_username_hint">Nomo de uzanto</string>
   <string name="gv_prompt_password_hint">Pasvorto</string>
@@ -593,13 +588,15 @@
   <!-- Watermark/Hint for the find in page input field -->
   <string name="find_in_page_input">Serĉi en paĝo</string>
   <!--
-    String to show the number of results found in the page and the
-    position the user is at. The first argument is the position, the second argument is the total
+    String to show the number of results found in the page and the position
+    the user is at. %1$d is the position, %2$d is the total number of
+    results.
   -->
   <string name="find_in_page_result">%1$d/%2$d</string>
   <!--
-    String to be read by the accessibility service presenting the number of results found in the page
-    and the position the user is at. The first argument is the position, the second argument is the total
+    String to be read by the accessibility service presenting the number of
+    results found in the page and the position the user is at. %1$d is the
+    position, %2$d is the total number of results.
   -->
   <string name="accessibility_find_in_page_result">%1$d el %2$d</string>
   <!-- String to be read by the accessibility service when focusing the next result button -->
@@ -646,13 +643,13 @@
   <string name="cookie_banner_exception_panel_switch_state_off">Malŝaltita por tiu ĉi retejo</string>
   <!-- Text for indicating cookie banner handling is on this site, this is shown when the user enters in details after he clicks on the item from protection panel. -->
   <string name="cookie_banner_exception_panel_switch_state_on">Ŝaltita por tiu ĉi retejo</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is on this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_on_for_site">Ĉu ŝalti la redukton de kuketaj anoncoj en %1$s?</string>
-  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. The first parameter is a shortened URL of the current site. -->
+  <!-- Title text for a detail explanation indicating cookie banner handling is off this site, this is shown as part of the cookie banner panel in the toolbar. %1$s is a shortened URL of the current site. -->
   <string name="cookie_banner_exception_panel_title_state_off_for_site">Ĉu malŝalti la redukton de kuketaj anoncoj en %1$s?</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_on_for_site">%1$s forigos la kuketojn de tiuj ĉi retejo kaj reŝargos la paĝon. Forigo de ĉiuj kuketoj povas fini seancojn aŭ malplenigi aĉetumĉarojn.</string>
-  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. The placeholder will be updated with the app name. -->
+  <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="cookie_banner_exception_panel_description_state_off_for_site2">%1$s povas aŭtomate rifuzi kuketajn petojn.</string>
   <!-- Long text for a detail explanation indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner panel in the toolbar. -->
   <string name="cookie_banner_exception_panel_description_site_is_not_supported">Tiu ĉi retejo ne estas subtenata de la redukto de kuketaj anoncoj. Ĉu vi ŝatus peti al ni revizii tiun ĉi retejon, por subteni ĝin estontece?</string>
@@ -679,11 +676,11 @@
   <!-- First step for the allowing a permission -->
   <string name="phone_feature_blocked_step_settings">1. Iru al Agordoj de Android</string>
   <!-- Second step for the allowing a permission -->
-  <string name="phone_feature_blocked_step_permissions">2. Tuŝetu &lt;b&gt;Permesoj&lt;/b&gt;</string>
+  <string name="phone_feature_blocked_step_permissions"><![CDATA[2. Tuŝetu <b>Permesoj</b>]]></string>
   <!-- Button label that take the user to the Android App setting -->
   <string name="phone_feature_go_to_settings">Iri al agordoj</string>
-  <!-- Third step for allowing a permission. The placeholder will be updated by, for example, "Camera" -->
-  <string name="phone_feature_blocked_step_feature">3. Aktivigu &lt;b&gt;%1$s&lt;/b&gt;</string>
+  <!-- Third step for allowing a permission. %1$s is the permission name, for example, "Camera" -->
+  <string name="phone_feature_blocked_step_feature"><![CDATA[3. Aktivigu <b>%1$s</b>]]></string>
   <!-- Preference for altering the camera access for all websites -->
   <string name="preference_phone_feature_camera">Filmilo</string>
   <!-- Preference for altering the microphone access for all websites -->
@@ -710,20 +707,6 @@
   <string name="preference_block_autoplay_audio_only_summary">Rekomenditaj</string>
   <!-- Preference for block autoplay audio and video -->
   <string name="preference_block_autoplay_audio_video">Bloki sonon kaj videon</string>
-  <!-- Preference for studies -->
-  <string name="preference_studies">Studoj</string>
-  <!-- Preference for studies summary -->
-  <string name="preference_studies_summary" tools:ignore="BrandUsage">Firefox povas de tempo al tempo instali kaj fari studojn.</string>
-  <!-- Learn more link for studies, links to an article for more information about studies. -->
-  <string name="studies_learn_more">Pli da informo</string>
-  <!-- Dialog message shown when some changes are made on studies -->
-  <string name="studies_restart_app" moz:removedIn="137">Tiu ĉi programo finiĝos por apliki ŝanĝojn</string>
-  <!-- Title of the remove studies button -->
-  <string name="studies_remove">Forigi</string>
-  <!-- Title of the active section on the studies list -->
-  <string name="studies_active">Aktiva</string>
-  <!-- Title of the completed section on the studies list -->
-  <string name="studies_completed">Kompleta</string>
   <!-- Preference to enable remote debugging of the app via USB or Wi-Fi -->
   <string name="preference_remote_debugging">Fora senerarigo per USB aŭ sendrata reto</string>
   <!-- Text Button for show biometric prompt -->
@@ -770,28 +753,28 @@
     Tip displayed on home view explaining how to disable tracking protection
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_disable_tracking_protection">Ĉu la retejo neatendite kondutas?\n Provu malŝalti la protekton kontraŭ spurado</string>
+  <string name="tip_disable_tracking_protection">Ĉu la retejo neatendite kondutas?\nProvu malŝalti la protekton kontraŭ spurado</string>
   <!--
     Tip displayed on home view explaining how to add sites to homescreen
-    Argument 1 will be replaced with a line break in the application.
+    %1$s is replaced with a line break in the application.
   -->
   <string name="tip_add_to_homescreen">Atingu viajn plej vizititajn retejojn per nura tuŝeto%1$s Menuo &gt; Aldoni al hejmekrano</string>
   <!--
     Tip displayed on home view explaining how to make Focus the default browser
-    Argument 1 is the app name (Firefox Focus/Firefox Klar/etc).
+    %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_set_default_browser">Malfermi ĉiun ligilon per %1$s\n Igu %1$s via norma retumilo</string>
+  <string name="tip_set_default_browser">Malfermi ĉiun ligilon per %1$s\nIgu %1$s via norma retumilo</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_autocomplete_url">Aŭtomate kompletigi restadresojn por la retejoj, kiujn vi plej multe uzas\n Longe premu iun ajn retadreson en la adresa strio</string>
+  <string name="tip_autocomplete_url">Aŭtomate kompletigi restadresojn por la retejoj, kiujn vi plej multe uzas\nLonge premu iun ajn retadreson en la adresa strio</string>
   <!--
     Tip displayed on home view explaining how to add a custom autocomplete URL
     The new line here must be kept as the second half of the string is clickable for the user.
   -->
-  <string name="tip_open_in_new_tab">Malfermu ligilon en nova langeto\n Longe premu iun ajn ligilon en paĝo</string>
+  <string name="tip_open_in_new_tab">Malfermu ligilon en nova langeto\nLonge premu iun ajn ligilon en paĝo</string>
   <!-- Tip displayed on home view explaining how to add a custom autocomplete URL -->
   <string name="tip_disable_tips2">Malŝalti konsilojn en la komenca ekrano</string>
   <!-- Label for the snackbar when a user opens a new tab -->
@@ -832,29 +815,29 @@
   <string name="crash_report_send_crash_label">Sendi raporton pri paneo al Mozilla</string>
   <!-- Tracking protection bottom sheet -->
 
-  <!-- Label for the total number of trackers blocked. %s represents the app install date -->
+  <!-- Label for the total number of trackers blocked. %s is the app install date. -->
   <string name="trackers_count_note">Spuriloj blokitaj ekde %s</string>
-  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (content) that can be blocked by Enhanced Tracking Protection. -->
   <string name="content">Enhavo</string>
-  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (advertising) that can be blocked by Enhanced Tracking Protection. -->
   <string name="advertising">Reklamado</string>
-  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (social media) that can be blocked by Enhanced Tracking Protection. -->
   <string name="social">Socia</string>
-  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection -->
+  <!-- Category of trackers (analytics) that can be blocked by Enhanced Tracking Protection. -->
   <string name="analytics">Statistikoj</string>
-  <!-- Preference title for enhanced tracking protection settings -->
+  <!-- Preference title for enhanced tracking protection settings. -->
   <string name="enhanced_tracking_protection">Plibonigita protekto kontraŭ spurado</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is disabled for this site. -->
   <string name="enhanced_tracking_protection_state_off">Protektoj malŝaltitaj por tiu ĉi retejo</string>
-  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site -->
+  <!-- Enhanced tracking protection preference description when the tracking protection is enabled for this site. -->
   <string name="enhanced_tracking_protection_state_on">Protektoj ŝaltitaj por tiu ĉi retejo</string>
-  <!-- Label that indicates a site is using a secure connection -->
+  <!-- Label that indicates a site is using a secure connection. -->
   <string name="secure_connection">Sekura konekto</string>
-  <!-- Label that indicates a site is using a insecure connection -->
+  <!-- Label that indicates a site is using a insecure connection. -->
   <string name="insecure_connection">Nesekura konekto</string>
-  <!-- Title for the list of trackers enhanced tracking ptotection can block -->
+  <!-- Title for the list of trackers enhanced tracking protection can block. -->
   <string name="trackers_and_scripts">Spuriloj kaj skriptoj blokendaj</string>
-  <!-- Content description (not visible, for screen readers etc.): Navigate back button description -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate back button description. -->
   <string name="go_back">Malantaŭen</string>
   <!--
     Top Sites
@@ -872,7 +855,7 @@
     Text for context menu additional note.
     %1$s is a placeholder for the app name.
   -->
-  <string name="contextmenu_erased_images_note2">Konservitaj kaj dividitaj bildoj &lt;b&gt;ne estos&lt;/b&gt; forigitaj kiam vi viŝas la historion de %1$s</string>
+  <string name="contextmenu_erased_images_note2"><![CDATA[Konservitaj kaj dividitaj bildoj <b>ne estos</b> forigitaj kiam vi viŝas la historion de %1$s]]></string>
   <!--
     Theme Preferences
 
@@ -890,23 +873,16 @@
   <!-- The title of the error page for websites that do not support HTTPS when HTTPS-Only is turned on -->
   <string name="errorpage_httpsonly_title2">Tiu ĉi retejo ne subtenas HTTPS</string>
   <!--
-    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s will get replaced with the name of the app (e.g. "Firefox Focus").
-    Contains a button that will redirect the user to Privacy & Security Screen
+    The text of the error page for websites that do not support HTTPS when HTTPS-Only is turned on. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"),
+    %2$s is a URL to a support article. Contains a button that will redirect the user to Privacy & Security Screen.
   -->
-  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote">%1$s klopodas uzi konekton HTTPS, kiam tio eblas, pro sekureco.
-     &lt;a href="%2$s"&gt;Pli da informo&lt;/a&gt; &lt;br/&gt;&lt;br/&gt;
-     Ŝanĝu tiun ĉi agordon en Agordoj &gt; Privateco kaj sekureco &gt; Sekureco.</string>
+  <string name="errorpage_httpsonly_message2" tools:ignore="IncorrectStraightDoubleQuote"><![CDATA[%1$s klopodas uzi konekton HTTPS, kiam tio eblas, pro sekureco. <a href=\"%2$s\">Pli da informo</a> <br/><br/> Ŝanĝu tiun ĉi agordon en Agordoj > Privateco kaj sekureco > Sekureco.]]></string>
   <!-- The document title and heading of the error page shown when a website has an invalid or expired SSL certificate. -->
   <string name="mozac_browser_errorpages_security_bad_cert_title">Nesekura konekto</string>
   <!-- The error message shown when a website has an invalid or expired SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_message">
-    Tio povus esti problemo kun la agordoj de la servilo, aŭ iu kiu klopodas trompe ŝajnigi esti tiu servilo. &lt;br/&gt;&lt;br/&gt;
-    Se vi sukcese konektiĝis al tiu ĉi servilo en la pasinto, la eraro povas esti momenta.    </string>
+  <string name="mozac_browser_errorpages_security_bad_cert_message"><![CDATA[Tio povus esti problemo kun la agordoj de la servilo, aŭ iu kiu klopodas trompe ŝajnigi esti tiu servilo. <br/><br/> Se vi sukcese konektiĝis al tiu ĉi servilo en la pasinto, la eraro povas esti momenta.]]></string>
   <!-- The advanced certificate information shown when a website has an invalid SSL certificate. The %1$s will be replaced by the app name and %2$s will be replaced by website URL. It's only shown when a website has an invalid SSL certificate. -->
-  <string name="mozac_browser_errorpages_security_bad_cert_techInfo">&lt;label&gt;Iu povus voli trompe aspekti kiel tiu retejo, kaj daŭrigo estas riska.&lt;/label&gt;
-        &lt;br&gt;&lt;br&gt;
-&lt;label&gt;%1$s ne fidas &lt;b&gt;%2$s&lt;/b&gt; ĉar la eldoninto de ĝia atestilo estas nekonata, la atestilo estas memsubskribita aŭ la servilo ne sendas la ĝustajn perajn atestilojn.&lt;/label&gt;
-</string>
+  <string name="mozac_browser_errorpages_security_bad_cert_techInfo"><![CDATA[<label>Iu povus voli trompe aspekti kiel tiu retejo, kaj daŭrigo estas riska.</label> <br><br>\n<label>%1$s ne fidas <b>%2$s</b> ĉar la eldoninto de ĝia atestilo estas nekonata, la atestilo estas memsubskribita aŭ la servilo ne sendas la ĝustajn perajn atestilojn.</label>]]></string>
   <!--
     Sessions List
 
@@ -969,13 +945,13 @@
 
     Message shown to explain how to exit fullscreen mode when gesture navigation is enabled.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_gesture_short">Trenu el supre kaj uzu la geston malantaŭen por eliri</string>
   <!--
     Message shown to explain how to exit fullscreen mode when using back button navigation.
 
-    Localisation note: this text should be as short as possible, max 68 chars
+    This text should be as short as possible, max 68 chars
   -->
   <string name="exit_fullscreen_with_back_button_short">Trenu el supre kaj premu la butonon malantaŭen por eliri</string>
 </resources>

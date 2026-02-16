@@ -1,4 +1,7 @@
 [DEFAULT]
+run-if = [
+  "os != 'android'",
+]
 head = "head_bookmarks.js"
 firefox-appdir = "browser"
 prefs = ["places.loglevel='All'"]
@@ -32,7 +35,9 @@ support-files = [
 ["test_385397.js"]
 
 ["test_399266.js"]
-skip-if = ["os == 'linux'"] # Bug 821781
+skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'", # Bug 821781
+]
 
 ["test_402799.js"]
 
@@ -64,7 +69,19 @@ skip-if = ["os == 'linux'"] # Bug 821781
 
 ["test_PlacesDBUtils_removeOldCorruptDBs.js"]
 
+["test_PlacesObservers_counts.js"]
+
 ["test_PlacesQuery_history.js"]
+
+["test_PlacesSemanticHistoryDatabase.js"]
+run-if = [
+  "buildapp == 'browser'",
+]
+
+["test_PlacesSemanticHistoryManager.js"]
+run-if = [
+  "buildapp == 'browser'",
+]
 
 ["test_PlacesUtils_isRootItem.js"]
 
@@ -106,22 +123,22 @@ skip-if = ["os == 'linux'"] # Bug 821781
 
 ["test_childlessTags.js"]
 
-["test_frecency_decay.js"]
-
 ["test_frecency_interactions.js"]
-prefs = ["places.frecency.pages.alternative.featureGate=true"]
 
 ["test_frecency_interactions_trigger_recalc.js"]
-prefs = ["places.frecency.pages.alternative.featureGate=true"]
 
 ["test_frecency_observers.js"]
 
 ["test_frecency_origins_alternative.js"]
 
 ["test_frecency_origins_recalc.js"]
+run-sequentially = ["os == 'win'"] # frequent fail in parallel on Windows
 prefs = ["places.frecency.origins.alternative.featureGate=true"]
 
-["test_frecency_pages_alternative.js"]
+["test_frecency_pages_alternative_disabled.js"]
+prefs = ["places.frecency.pages.alternative.featureGate=false"]
+
+["test_frecency_pages_alternative_enabled.js"]
 prefs = ["places.frecency.pages.alternative.featureGate=true"]
 
 ["test_frecency_pages_recalc_alt.js"]
@@ -130,6 +147,8 @@ prefs = ["places.frecency.pages.alternative.featureGate=true"]
 ["test_frecency_recalc_triggers.js"]
 
 ["test_frecency_recalculator.js"]
+
+["test_frecency_threshold.js"]
 
 ["test_frecency_unvisited_bookmark.js"]
 
@@ -182,16 +201,20 @@ prefs = ["places.frecency.pages.alternative.featureGate=true"]
 ["test_null_interfaces.js"]
 
 ["test_origins.js"]
+requesttimeoutfactor = 3  # Slow on Mac debug
 
 ["test_origins_parsing.js"]
 
 ["test_pageGuid_bookmarkGuid.js"]
 
-["test_PlacesObservers_counts.js"]
-
 ["test_placeURIs.js"]
 
 ["test_promiseBookmarksTree.js"]
+
+["test_removeDownloadsMetadataFromDb.js"]
+support-files = [
+  "test_places.sqlite",
+]
 
 ["test_resolveNullBookmarkTitles.js"]
 

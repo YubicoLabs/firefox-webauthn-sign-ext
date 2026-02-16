@@ -8,11 +8,13 @@ import androidx.appcompat.widget.Toolbar
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import mozilla.components.support.ktx.android.content.getColorFromAttr
-import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
+import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.setToolbarColors
+import com.google.android.material.R as materialR
 
 abstract class LibraryPageFragment<T> : Fragment() {
 
@@ -33,7 +35,13 @@ abstract class LibraryPageFragment<T> : Fragment() {
                 }
         }
 
-        (activity as HomeActivity).browsingModeManager.mode = BrowsingMode.fromBoolean(private)
+        requireComponents.appStore.dispatch(
+            AppAction.BrowsingModeManagerModeChanged(
+                mode = BrowsingMode.fromBoolean(
+                    private,
+                ),
+            ),
+        )
     }
 
     override fun onDetach() {
@@ -41,8 +49,8 @@ abstract class LibraryPageFragment<T> : Fragment() {
         context?.let {
             activity?.title = getString(R.string.app_name)
             activity?.findViewById<Toolbar>(R.id.navigationToolbar)?.setToolbarColors(
-                it.getColorFromAttr(R.attr.textPrimary),
-                it.getColorFromAttr(R.attr.layer1),
+                it.getColorFromAttr(materialR.attr.colorOnSurface),
+                it.getColorFromAttr(materialR.attr.colorSurface),
             )
         }
     }

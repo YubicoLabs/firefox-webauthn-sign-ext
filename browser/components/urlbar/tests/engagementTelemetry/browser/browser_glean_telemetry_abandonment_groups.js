@@ -32,7 +32,19 @@ add_task(async function adaptive_history() {
       assertAbandonmentTelemetry([
         {
           groups: "heuristic,adaptive_history",
-          results: "search_engine,history",
+          results: "search_engine,history_adaptive",
+          n_results: 2,
+        },
+      ]),
+  });
+
+  await doAdaptiveHistoryBookmarkTest({
+    trigger: () => doBlur(),
+    assert: () =>
+      assertAbandonmentTelemetry([
+        {
+          groups: "heuristic,adaptive_history",
+          results: "search_engine,bookmark_adaptive",
           n_results: 2,
         },
       ]),
@@ -247,6 +259,112 @@ add_task(async function suggested_index() {
         {
           groups: "heuristic,suggested_index",
           results: "search_engine,unit",
+          n_results: 2,
+        },
+      ]),
+  });
+});
+
+add_task(async function history_semantic() {
+  await doSemanticHistoryTest({
+    trigger: () => doBlur(),
+    assert: () =>
+      assertAbandonmentTelemetry([
+        {
+          groups: "heuristic,general",
+          results: "search_engine,history_semantic",
+          n_results: 2,
+        },
+      ]),
+  });
+});
+
+add_task(async function history_serp() {
+  await doSerpHistoryTest({
+    trigger: () => doBlur(),
+    assert: () =>
+      assertAbandonmentTelemetry([
+        {
+          groups: "heuristic,general",
+          results: "search_engine,history_serp",
+          n_results: 2,
+        },
+      ]),
+  });
+
+  await doBookmarkSerpHistoryTest({
+    trigger: () => doBlur(),
+    assert: () =>
+      assertAbandonmentTelemetry([
+        {
+          groups: "heuristic,general",
+          results: "search_engine,bookmark_serp",
+          n_results: 2,
+        },
+      ]),
+  });
+
+  await doAdaptiveHistorySerpHistoryTest({
+    trigger: () => doBlur(),
+    assert: () =>
+      assertAbandonmentTelemetry([
+        {
+          groups: "heuristic,adaptive_history",
+          results: "search_engine,history_adaptive_serp",
+          n_results: 2,
+        },
+      ]),
+  });
+
+  await doAdaptiveHistoryBookmarkSerpHistoryTest({
+    trigger: () => doBlur(),
+    assert: () =>
+      assertAbandonmentTelemetry([
+        {
+          groups: "heuristic,adaptive_history",
+          results: "search_engine,bookmark_adaptive_serp",
+          n_results: 2,
+        },
+      ]),
+  });
+});
+
+add_task(async function tab_adaptive() {
+  await doTabAdaptiveTest({
+    trigger: () => doBlur(),
+    assert: () =>
+      assertAbandonmentTelemetry([
+        {
+          groups: "heuristic,adaptive_history",
+          results: "search_engine,tab_adaptive",
+          n_results: 2,
+        },
+      ]),
+  });
+});
+
+add_task(async function tab_adaptive_serp() {
+  await doTabAdaptiveSerpHistoryTest({
+    trigger: () => doBlur(),
+    assert: () =>
+      assertAbandonmentTelemetry([
+        {
+          groups: "heuristic,adaptive_history",
+          results: "search_engine,tab_adaptive_serp",
+          n_results: 2,
+        },
+      ]),
+  });
+});
+
+add_task(async function tab_serp() {
+  await doTabSerpHistoryTest({
+    trigger: () => doBlur(),
+    assert: () =>
+      assertAbandonmentTelemetry([
+        {
+          groups: "heuristic,general",
+          results: "search_engine,tab_serp",
           n_results: 2,
         },
       ]),

@@ -4,15 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_workers_workerrunnable_h__
-#define mozilla_dom_workers_workerrunnable_h__
+#ifndef mozilla_dom_workers_workerrunnable_h_
+#define mozilla_dom_workers_workerrunnable_h_
 
-#include <cstdint>
 #include <utility>
+
 #include "MainThreadUtils.h"
-#include "mozilla/Atomics.h"
 #include "mozilla/RefPtr.h"
-#include "mozilla/ThreadSafeWeakPtr.h"
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerRef.h"
 #include "mozilla/dom/WorkerStatus.h"
@@ -278,7 +276,7 @@ class WorkerDebuggerRunnable : public WorkerThreadRunnable {
  private:
   virtual bool IsDebuggerRunnable() const override { return true; }
 
-  bool PreDispatch(WorkerPrivate* aWorkerPrivate) final {
+  virtual bool PreDispatch(WorkerPrivate* aWorkerPrivate) override {
     AssertIsOnMainThread();
 
     return true;
@@ -566,4 +564,4 @@ class WorkerDebuggeeRunnable : public WorkerThreadRunnable {
 }  // namespace dom
 }  // namespace mozilla
 
-#endif  // mozilla_dom_workers_workerrunnable_h__
+#endif  // mozilla_dom_workers_workerrunnable_h_

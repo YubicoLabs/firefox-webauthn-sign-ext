@@ -85,9 +85,9 @@ def load_moz_yaml(filename, verify=True, require_license_file=True):
 
     # Load and parse YAML.
     try:
-        with open(filename, "r") as f:
+        with open(filename) as f:
             manifest = yaml.load(f, Loader=yaml.BaseLoader)
-    except IOError as e:
+    except OSError as e:
         if e.errno == errno.ENOENT:
             raise MozYamlVerifyError(filename, "Failed to find manifest: %s" % filename)
         raise
@@ -119,121 +119,124 @@ def load_moz_yaml(filename, verify=True, require_license_file=True):
 
 def _schema_1():
     """Returns Voluptuous Schema object."""
-    return Schema(
-        {
-            Required("schema"): "1",
-            Required("bugzilla"): {
-                Required("product"): All(str, Length(min=1)),
-                Required("component"): All(str, Length(min=1)),
-            },
-            "origin": {
-                Required("name"): All(str, Length(min=1)),
-                Required("description"): All(str, Length(min=1)),
-                "notes": All(str, Length(min=1)),
-                Required("url"): FqdnUrl(),
-                Required("license"): Msg(License(), msg="Unsupported License"),
-                "license-file": All(str, Length(min=1)),
-                Required("release"): All(str, Length(min=1)),
-                # The following regex defines a valid git reference
-                # The first group [^ ~^:?*[\]] matches 0 or more times anything
-                # that isn't a Space, ~, ^, :, ?, *, or ]
-                # The second group [^ ~^:?*[\]\.]+ matches 1 or more times
-                # anything that isn't a Space, ~, ^, :, ?, *, [, ], or .
-                "revision": Match(r"^[^ ~^:?*[\]]*[^ ~^:?*[\]\.]+$"),
-            },
-            "updatebot": {
-                Required("maintainer-phab"): All(str, Length(min=1)),
-                Required("maintainer-bz"): All(str, Length(min=1)),
-                "try-preset": All(str, Length(min=1)),
-                "fuzzy-query": All(str, Length(min=1)),
-                "fuzzy-paths": All([str], Length(min=1)),
-                "tasks": All(
-                    UpdatebotTasks(),
+
+    actions_schema = All(
+        VendoringActions(),
+        [
+            {
+                Required("action"): In(
                     [
-                        {
-                            Required("type"): In(
-                                ["vendoring", "commit-alert"],
-                                msg="Invalid type specified in tasks",
-                            ),
-                            "branch": All(str, Length(min=1)),
-                            "enabled": Boolean(),
-                            "cc": Unique([str]),
-                            "needinfo": Unique([str]),
-                            "filter": In(
-                                ["none", "security", "source-extensions"],
-                                msg="Invalid filter value specified in tasks",
-                            ),
-                            "source-extensions": Unique([str]),
-                            "blocking": Match(r"^[0-9]+$"),
-                            "frequency": Match(
-                                r"^(every|release|[1-9][0-9]* weeks?|[1-9][0-9]* commits?|"
-                                + r"[1-9][0-9]* weeks?, ?[1-9][0-9]* commits?)$"
-                            ),
-                            "platform": Match(r"^(windows|linux)$"),
-                        }
+                        "copy-file",
+                        "move-file",
+                        "move-dir",
+                        "replace-in-file",
+                        "replace-in-file-regex",
+                        "run-script",
+                        "run-command",
+                        "delete-path",
+                        "vcs-add-remove-files",
                     ],
+                    msg="Invalid action specified in vendoring-actions",
                 ),
-            },
-            "vendoring": {
-                Required("url"): FqdnUrl(),
-                Required("source-hosting"): All(
-                    str,
-                    Length(min=1),
-                    In(VALID_SOURCE_HOSTS, msg="Unsupported Source Hosting"),
-                ),
-                "source-host-path": str,
-                "tracking": Match(r"^(commit|tag)$"),
-                "release-artifact": All(str, Length(min=1)),
-                "flavor": Match(r"^(regular|rust|individual-files)$"),
-                "skip-vendoring-steps": Unique([str]),
-                "vendor-directory": All(str, Length(min=1)),
-                "patches": Unique([str]),
-                "keep": Unique([str]),
-                "exclude": Unique([str]),
-                "include": Unique([str]),
-                "generated": Unique([str]),
-                "individual-files": [
+                "from": All(str, Length(min=1)),
+                "to": All(str, Length(min=1)),
+                "pattern": All(str, Length(min=1)),
+                "with": All(str, Length(min=1)),
+                "file": All(str, Length(min=1)),
+                "script": All(str, Length(min=1)),
+                "command": All(str, Length(min=1)),
+                "args": All([All(str, Length(min=1))]),
+                "cwd": All(str, Length(min=1)),
+                "path": All(str, Length(min=1)),
+            }
+        ],
+    )
+
+    return Schema({
+        Required("schema"): "1",
+        Required("bugzilla"): {
+            Required("product"): All(str, Length(min=1)),
+            Required("component"): All(str, Length(min=1)),
+        },
+        "origin": {
+            Required("name"): All(str, Length(min=1)),
+            Required("description"): All(str, Length(min=1)),
+            "notes": All(str, Length(min=1)),
+            Required("url"): FqdnUrl(),
+            Required("license"): Msg(License(), msg="Unsupported License"),
+            "license-file": All(str, Length(min=1)),
+            Required("release"): All(str, Length(min=1)),
+            # The following regex defines a valid git reference
+            # The first group [^ ~^:?*[\]] matches 0 or more times anything
+            # that isn't a Space, ~, ^, :, ?, *, or ]
+            # The second group [^ ~^:?*[\]\.]+ matches 1 or more times
+            # anything that isn't a Space, ~, ^, :, ?, *, [, ], or .
+            "revision": Match(r"^[^ ~^:?*[\]]*[^ ~^:?*[\]\.]+$"),
+        },
+        "updatebot": {
+            Required("maintainer-phab"): All(str, Length(min=1)),
+            Required("maintainer-bz"): All(str, Length(min=1)),
+            "try-preset": All(str, Length(min=1)),
+            "fuzzy-query": All(str, Length(min=1)),
+            "fuzzy-paths": All([str], Length(min=1)),
+            "tasks": All(
+                UpdatebotTasks(),
+                [
                     {
-                        Required("upstream"): All(str, Length(min=1)),
-                        Required("destination"): All(str, Length(min=1)),
+                        Required("type"): In(
+                            ["vendoring", "commit-alert"],
+                            msg="Invalid type specified in tasks",
+                        ),
+                        "branch": All(str, Length(min=1)),
+                        "enabled": Boolean(),
+                        "cc": Unique([str]),
+                        "needinfo": Unique([str]),
+                        "filter": In(
+                            ["none", "security", "source-extensions"],
+                            msg="Invalid filter value specified in tasks",
+                        ),
+                        "source-extensions": Unique([str]),
+                        "blocking": Match(r"^[0-9]+$"),
+                        "frequency": Match(
+                            r"^(every|release|[1-9][0-9]* weeks?|[1-9][0-9]* commits?|"
+                            + r"[1-9][0-9]* weeks?, ?[1-9][0-9]* commits?)$"
+                        ),
+                        "platform": Match(r"^(windows|linux)$"),
                     }
                 ],
-                "individual-files-default-upstream": str,
-                "individual-files-default-destination": All(str, Length(min=1)),
-                "individual-files-list": Unique([str]),
-                "update-actions": All(
-                    UpdateActions(),
-                    [
-                        {
-                            Required("action"): In(
-                                [
-                                    "copy-file",
-                                    "move-file",
-                                    "move-dir",
-                                    "replace-in-file",
-                                    "replace-in-file-regex",
-                                    "run-script",
-                                    "run-command",
-                                    "delete-path",
-                                ],
-                                msg="Invalid action specified in update-actions",
-                            ),
-                            "from": All(str, Length(min=1)),
-                            "to": All(str, Length(min=1)),
-                            "pattern": All(str, Length(min=1)),
-                            "with": All(str, Length(min=1)),
-                            "file": All(str, Length(min=1)),
-                            "script": All(str, Length(min=1)),
-                            "command": All(str, Length(min=1)),
-                            "args": All([All(str, Length(min=1))]),
-                            "cwd": All(str, Length(min=1)),
-                            "path": All(str, Length(min=1)),
-                        }
-                    ],
-                ),
-            },
-        }
-    )
+            ),
+        },
+        "vendoring": {
+            Required("url"): FqdnUrl(),
+            Required("source-hosting"): All(
+                str,
+                Length(min=1),
+                In(VALID_SOURCE_HOSTS, msg="Unsupported Source Hosting"),
+            ),
+            "source-host-path": str,
+            "tracking": Match(r"^(commit|tag)$"),
+            "release-artifact": All(str, Length(min=1)),
+            "flavor": Match(r"^(regular|rust|individual-files)$"),
+            "skip-vendoring-steps": Unique([str]),
+            "vendor-directory": All(str, Length(min=1)),
+            "patches": Unique([str]),
+            "keep": Unique([str]),
+            "exclude": Unique([str]),
+            "include": Unique([str]),
+            "generated": Unique([str]),
+            "individual-files": [
+                {
+                    Required("upstream"): All(str, Length(min=1)),
+                    Required("destination"): All(str, Length(min=1)),
+                }
+            ],
+            "individual-files-default-upstream": str,
+            "individual-files-default-destination": All(str, Length(min=1)),
+            "individual-files-list": Unique([str]),
+            "update-actions": actions_schema,
+            "post-patch-actions": actions_schema,
+        },
+    })
 
 
 def _schema_1_additional(filename, manifest, require_license_file=True):
@@ -409,7 +412,7 @@ def _schema_1_additional(filename, manifest, require_license_file=True):
                     )
 
     # Check for a simple YAML file
-    with open(filename, "r") as f:
+    with open(filename) as f:
         has_schema = False
         for line in f.readlines():
             m = RE_SECTION(line)
@@ -437,8 +440,8 @@ def _schema_1_transform(manifest):
     return manifest
 
 
-class UpdateActions(object):
-    """Voluptuous validator which verifies the update actions(s) are valid."""
+class VendoringActions:
+    """Voluptuous validator which verifies the vendoring actions(s) are valid."""
 
     def __call__(self, values):
         for v in values:
@@ -466,6 +469,11 @@ class UpdateActions(object):
                     raise Invalid(
                         "delete-path action must (only) specify the 'path' key"
                     )
+            elif v["action"] == "vcs-add-remove-files":
+                if "path" not in v or len(v.keys()) != 2:
+                    raise Invalid(
+                        "vcs-add-remove-files action must (only) specify the 'path' key"
+                    )
             elif v["action"] == "run-script":
                 if "script" not in v or "cwd" not in v:
                     raise Invalid(
@@ -491,10 +499,10 @@ class UpdateActions(object):
         return values
 
     def __repr__(self):
-        return "UpdateActions"
+        return "VendoringActions"
 
 
-class UpdatebotTasks(object):
+class UpdatebotTasks:
     """Voluptuous validator which verifies the updatebot task(s) are valid."""
 
     def __call__(self, values):
@@ -525,7 +533,7 @@ class UpdatebotTasks(object):
         return "UpdatebotTasks"
 
 
-class License(object):
+class License:
     """Voluptuous validator which verifies the license(s) are valid as per our
     allow list."""
 

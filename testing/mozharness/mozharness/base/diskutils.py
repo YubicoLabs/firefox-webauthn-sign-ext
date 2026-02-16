@@ -4,36 +4,34 @@
 
 """Disk utility module, no mixins here!
 
-    examples:
-    1) get disk size
-    from mozharness.base.diskutils import DiskInfo, DiskutilsError
-    ...
-    try:
-        DiskSize().get_size(path='/', unit='Mb')
-    except DiskutilsError as e:
-        # manage the exception e.g: log.error(e)
-        pass
-    log.info("%s" % di)
+examples:
+1) get disk size
+from mozharness.base.diskutils import DiskInfo, DiskutilsError
+...
+try:
+    DiskSize().get_size(path='/', unit='Mb')
+except DiskutilsError as e:
+    # manage the exception e.g: log.error(e)
+    pass
+log.info("%s" % di)
 
 
-    2) convert disk size:
-    from mozharness.base.diskutils import DiskutilsError, convert_to
-    ...
-    file_size = <function that gets file size in bytes>
-    # convert file_size to GB
-    try:
-        file_size = convert_to(file_size, from_unit='bytes', to_unit='GB')
-    except DiskutilsError as e:
-        # manage the exception e.g: log.error(e)
-        pass
+2) convert disk size:
+from mozharness.base.diskutils import DiskutilsError, convert_to
+...
+file_size = <function that gets file size in bytes>
+# convert file_size to GB
+try:
+    file_size = convert_to(file_size, from_unit='bytes', to_unit='GB')
+except DiskutilsError as e:
+    # manage the exception e.g: log.error(e)
+    pass
 
 """
+
 import ctypes
 import logging
 import os
-import sys
-
-from six import string_types
 
 from mozharness.base.log import INFO, numeric_log_level
 
@@ -75,7 +73,7 @@ def convert_to(size, from_unit, to_unit):
         raise DiskutilsError("conversion error: size (%s) is not a number" % size)
 
 
-class DiskInfo(object):
+class DiskInfo:
     """Stores basic information about the disk"""
 
     def __init__(self):
@@ -100,7 +98,7 @@ class DiskInfo(object):
         self.unit = unit
 
 
-class DiskSize(object):
+class DiskSize:
     """DiskSize object"""
 
     @staticmethod
@@ -125,11 +123,7 @@ class DiskSize(object):
         dummy = ctypes.c_ulonglong()  # needed by the dll call but not used
         total = ctypes.c_ulonglong()  # stores the total space value
         free = ctypes.c_ulonglong()  # stores the free space value
-        # depending on path format (unicode or not) and python version (2 or 3)
-        # we need to call GetDiskFreeSpaceExW or GetDiskFreeSpaceExA
-        called_function = ctypes.windll.kernel32.GetDiskFreeSpaceExA
-        if isinstance(path, string_types) or sys.version_info >= (3,):
-            called_function = ctypes.windll.kernel32.GetDiskFreeSpaceExW
+        called_function = ctypes.windll.kernel32.GetDiskFreeSpaceExW
         # we're ready for the dll call. On error it returns 0
         if (
             called_function(

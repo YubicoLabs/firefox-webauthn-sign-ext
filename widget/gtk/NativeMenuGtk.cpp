@@ -39,10 +39,8 @@ using GtkMenuPopupAtRect = void (*)(GtkMenu* menu, GdkWindow* rect_window,
                                     const GdkEvent* trigger_event);
 
 static bool IsDisabled(const dom::Element& aElement) {
-  return aElement.AttrValueIs(kNameSpaceID_None, nsGkAtoms::disabled,
-                              nsGkAtoms::_true, eCaseMatters) ||
-         aElement.AttrValueIs(kNameSpaceID_None, nsGkAtoms::hidden,
-                              nsGkAtoms::_true, eCaseMatters);
+  return aElement.GetBoolAttr(nsGkAtoms::disabled) ||
+         aElement.GetBoolAttr(nsGkAtoms::hidden);
 }
 static bool NodeIsRelevant(const nsINode& aNode) {
   return aNode.IsAnyOfXULElements(nsGkAtoms::menu, nsGkAtoms::menuseparator,
@@ -64,8 +62,7 @@ static Maybe<bool> GetChecked(const dom::Element& aMenuItem) {
       return Nothing();
   }
 
-  return Some(aMenuItem.AttrValueIs(kNameSpaceID_None, nsGkAtoms::checked,
-                                    nsGkAtoms::_true, eCaseMatters));
+  return Some(aMenuItem.GetBoolAttr(nsGkAtoms::checked));
 }
 
 struct Actions {
@@ -237,28 +234,28 @@ class MenuModelGMenu final : public MenuModel {
 NS_IMPL_ISUPPORTS(MenuModel, nsIMutationObserver)
 
 void MenuModel::ContentWillBeRemoved(nsIContent* aChild,
-                                     const BatchRemovalState* aState) {
+                                     const ContentRemoveInfo&) {
   if (NodeIsRelevant(*aChild)) {
     nsContentUtils::AddScriptRunner(NewRunnableMethod(
         "MenuModel::ContentWillBeRemoved", this, &MenuModel::DirtyModel));
   }
 }
 
-void MenuModel::ContentInserted(nsIContent* aChild) {
+void MenuModel::ContentInserted(nsIContent* aChild, const ContentInsertInfo&) {
   if (NodeIsRelevant(*aChild)) {
     DirtyModel();
   }
 }
 
-void MenuModel::ContentAppended(nsIContent* aChild) {
+void MenuModel::ContentAppended(nsIContent* aChild, const ContentAppendInfo&) {
   if (NodeIsRelevant(*aChild)) {
     DirtyModel();
   }
 }
 
-void MenuModel::AttributeChanged(dom::Element* aElement, int32_t aNameSpaceID,
-                                 nsAtom* aAttribute, int32_t aModType,
-                                 const nsAttrValue* aOldValue) {
+void MenuModel::AttributeChanged(dom::Element* aElement, int32_t,
+                                 nsAtom* aAttribute, AttrModType,
+                                 const nsAttrValue*) {
   if (NodeIsRelevant(*aElement) &&
       (aAttribute == nsGkAtoms::label || aAttribute == nsGkAtoms::aria_label ||
        aAttribute == nsGkAtoms::disabled || aAttribute == nsGkAtoms::hidden)) {
@@ -412,7 +409,7 @@ void NativeMenuGtk::ShowAsContextMenu(nsIFrame* aClickedFrame,
   const GdkRectangle rect = {gdkPos.x, gdkPos.y, 1, 1};
   auto openFn = GetPopupAtRectFn();
   openFn(GTK_MENU(mNativeMenu.get()), win, &rect, GDK_GRAVITY_NORTH_WEST,
-         GDK_GRAVITY_NORTH_WEST, GetLastMousePressEvent());
+         GDK_GRAVITY_NORTH_WEST, GetLastPointerDownEvent());
 
   RefPtr pin{this};
   FireEvent(eXULPopupShown);
@@ -601,8 +598,7 @@ static void UpdateRadioOrCheck(DbusmenuMenuitem* aItem,
                                    DBUSMENU_MENUITEM_TOGGLE_RADIO);
   }
 
-  bool isChecked = aContent->AttrValueIs(kNameSpaceID_None, nsGkAtoms::checked,
-                                         nsGkAtoms::_true, eCaseMatters);
+  const bool isChecked = aContent->GetBoolAttr(nsGkAtoms::checked);
   dbusmenu_menuitem_property_set_int(
       aItem, DBUSMENU_MENUITEM_PROP_TOGGLE_STATE,
       isChecked ? DBUSMENU_MENUITEM_TOGGLE_STATE_CHECKED
@@ -610,9 +606,7 @@ static void UpdateRadioOrCheck(DbusmenuMenuitem* aItem,
 }
 
 static void UpdateEnabled(DbusmenuMenuitem* aItem, const nsIContent* aContent) {
-  bool disabled = aContent->AsElement()->AttrValueIs(
-      kNameSpaceID_None, nsGkAtoms::disabled, nsGkAtoms::_true, eCaseMatters);
-
+  const bool disabled = aContent->AsElement()->GetBoolAttr(nsGkAtoms::disabled);
   dbusmenu_menuitem_property_set_bool(aItem, DBUSMENU_MENUITEM_PROP_ENABLED,
                                       !disabled);
 }
@@ -632,17 +626,26 @@ static void ConnectActivated(DbusmenuMenuitem* aItem,
                    const_cast<dom::Element*>(aContent));
 }
 
-static MOZ_CAN_RUN_SCRIPT void DBusAboutToShowCallback(
-    DbusmenuMenuitem* aMenuitem, gpointer aUserData) {
+static MOZ_CAN_RUN_SCRIPT bool DBusEventCallback(DbusmenuMenuitem* aMenuItem,
+                                                 const gchar* name,
+                                                 GVariant* variant,
+                                                 guint timestamp,
+                                                 gpointer aUserData) {
   RefPtr element = static_cast<dom::Element*>(aUserData);
-  FireEvent(element, eXULPopupShowing);
-  FireEvent(element, eXULPopupShown);
+  if (strcmp(name, "opened") == 0) {
+    FireEvent(element, eXULPopupShowing);
+    FireEvent(element, eXULPopupShown);
+  } else if (strcmp(name, "closed") == 0) {
+    FireEvent(element, eXULPopupHiding);
+    FireEvent(element, eXULPopupHidden);
+  }
+  return false;
 }
 
-static void ConnectAboutToShow(DbusmenuMenuitem* aItem,
-                               const dom::Element* aContent) {
-  g_signal_connect(G_OBJECT(aItem), DBUSMENU_MENUITEM_SIGNAL_ABOUT_TO_SHOW,
-                   G_CALLBACK(DBusAboutToShowCallback),
+static void ConnectEvent(DbusmenuMenuitem* aItem,
+                         const dom::Element* aContent) {
+  g_signal_connect(G_OBJECT(aItem), DBUSMENU_MENUITEM_SIGNAL_EVENT,
+                   G_CALLBACK(DBusEventCallback),
                    const_cast<dom::Element*>(aContent));
 }
 
@@ -681,7 +684,7 @@ void MenubarModelDBus::AppendSubmenu(DbusmenuMenuitem* aParent,
   }
   nsAutoString label;
   aMenu->GetAttr(nsGkAtoms::label, label);
-  ConnectAboutToShow(submenu, aPopup);
+  ConnectEvent(submenu, aPopup);
   dbusmenu_menuitem_property_set(submenu, DBUSMENU_MENUITEM_PROP_LABEL,
                                  NS_ConvertUTF16toUTF8(label).get());
   dbusmenu_menuitem_child_append(aParent, submenu);
@@ -739,14 +742,15 @@ void DBusMenuBar::OnNameOwnerChanged() {
     return;
   }
 
+  gdkWin = gdk_window_get_toplevel(gdkWin);
+
 #  ifdef MOZ_WAYLAND
   if (auto* display = widget::WaylandDisplayGet()) {
     if (!StaticPrefs::widget_gtk_global_menu_wayland_enabled()) {
       return;
     }
-    xdg_dbus_annotation_manager_v1* annotationManager =
-        display->GetXdgDbusAnnotationManager();
-    if (NS_WARN_IF(!annotationManager)) {
+    org_kde_kwin_appmenu_manager* appMenuManager = display->GetAppMenuManager();
+    if (NS_WARN_IF(!appMenuManager)) {
       return;
     }
 
@@ -761,12 +765,13 @@ void DBusMenuBar::OnNameOwnerChanged() {
       return;
     }
 
-    // FIXME(emilio, bug 1883209): Nothing deletes this as of right now.
-    mAnnotation = xdg_dbus_annotation_manager_v1_create_surface(
-        annotationManager, "com.canonical.dbusmenu", surface);
+    if (!mAppMenu) {
+      mAppMenu = org_kde_kwin_appmenu_manager_create(appMenuManager, surface);
+    }
 
-    xdg_dbus_annotation_v1_set_address(mAnnotation, myServiceName,
-                                       mObjectPath.get());
+    mMenuModel->Element()->SetBoolAttr(nsGkAtoms::native, true);
+    org_kde_kwin_appmenu_set_address(mAppMenu, myServiceName,
+                                     mObjectPath.get());
     return;
   }
 #  endif
@@ -779,12 +784,12 @@ void DBusMenuBar::OnNameOwnerChanged() {
       ->Then(
           GetCurrentSerialEventTarget(), __func__,
           [self = RefPtr{this}](RefPtr<GVariant>&& aResult) {
-            self->mMenuModel->Element()->SetBoolAttr(nsGkAtoms::hidden, true);
+            self->mMenuModel->Element()->SetBoolAttr(nsGkAtoms::native, true);
           },
           [self = RefPtr{this}](GUniquePtr<GError>&& aError) {
             g_printerr("Failed to register window menubar: %s\n",
                        aError->message);
-            self->mMenuModel->Element()->SetBoolAttr(nsGkAtoms::hidden, false);
+            self->mMenuModel->Element()->SetBoolAttr(nsGkAtoms::native, false);
           });
 #  endif
 }
@@ -825,7 +830,7 @@ RefPtr<DBusMenuBar> DBusMenuBar::Create(dom::Element* aElement) {
 
 DBusMenuBar::~DBusMenuBar() {
 #  ifdef MOZ_WAYLAND
-  MozClearPointer(mAnnotation, xdg_dbus_annotation_v1_destroy);
+  MozClearPointer(mAppMenu, org_kde_kwin_appmenu_release);
 #  endif
 }
 #endif

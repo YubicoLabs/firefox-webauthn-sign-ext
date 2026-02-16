@@ -11,7 +11,11 @@ import { LiveTestCaseResult } from '../internal/logging/result.js';
 import { parseQuery } from '../internal/query/parseQuery.js';
 import { TestQueryLevel } from '../internal/query/query.js';
 import { TestTreeNode, TestSubtree, TestTreeLeaf, TestTree } from '../internal/tree.js';
-import { setDefaultRequestAdapterOptions } from '../util/navigator_gpu.js';
+import {
+  getDefaultRequestAdapterOptions,
+  getGPU,
+  setDefaultRequestAdapterOptions,
+} from '../util/navigator_gpu.js';
 import { ErrorWithExtra, unreachable } from '../util/util.js';
 
 import {
@@ -25,15 +29,16 @@ import {
 import { TestDedicatedWorker, TestSharedWorker, TestServiceWorker } from './helper/test_worker.js';
 
 const rootQuerySpec = 'webgpu:*';
-let promptBeforeReload = false;
 let isFullCTS = false;
 
 globalTestConfig.frameworkDebugLog = console.log;
 
-window.onbeforeunload = () => {
-  // Prompt user before reloading if there are any results
-  return promptBeforeReload ? false : undefined;
-};
+// Prompt before reloading to avoid losing test results.
+function enablePromptBeforeReload() {
+  window.addEventListener('beforeunload', () => {
+    return false;
+  });
+}
 
 const kOpenTestLinkAltText = 'Open';
 
@@ -53,6 +58,13 @@ globalTestConfig.enableDebugLogs = options.debug;
 globalTestConfig.unrollConstEvalLoops = options.unrollConstEvalLoops;
 globalTestConfig.compatibility = compatibility;
 globalTestConfig.enforceDefaultLimits = options.enforceDefaultLimits;
+globalTestConfig.blockAllFeatures = options.blockAllFeatures;
+if (options.subcasesBetweenAttemptingGC) {
+  globalTestConfig.subcasesBetweenAttemptingGC = Number(options.subcasesBetweenAttemptingGC);
+}
+if (options.casesBetweenReplacingDevice) {
+  globalTestConfig.casesBetweenReplacingDevice = Number(options.casesBetweenReplacingDevice);
+}
 globalTestConfig.logToWebSocket = options.logToWebSocket;
 
 const logger = new Logger();
@@ -85,8 +97,7 @@ stopButtonElem.addEventListener('click', () => {
 if (powerPreference || compatibility || forceFallbackAdapter) {
   setDefaultRequestAdapterOptions({
     ...(powerPreference && { powerPreference }),
-    // MAINTENANCE_TODO: remove compatibilityMode once no longer needed.
-    ...(compatibility && { compatibilityMode: true, featureLevel: 'compatibility' }),
+    ...(compatibility && { featureLevel: 'compatibility' }),
     ...(forceFallbackAdapter && { forceFallbackAdapter: true }),
   });
 }
@@ -283,7 +294,7 @@ function makeSubtreeHTML(n: TestSubtree, parentLevel: TestQueryLevel): Visualize
       progressElem.style.display = '';
       // only prompt if this is the full CTS and we started from the root.
       if (isFullCTS && n.query.filePathParts.length === 0) {
-        promptBeforeReload = true;
+        enablePromptBeforeReload();
       }
     }
     if (stopRequested) {
@@ -651,6 +662,14 @@ void (async () => {
   };
   addOptionsToPage(options, kStandaloneOptionsInfos);
 
+  let deviceDescription = '<unable to get WebGPU adapter>';
+  const adapter = await getGPU(null).requestAdapter(getDefaultRequestAdapterOptions());
+  if (adapter) {
+    deviceDescription = `${adapter.info.vendor} ${adapter.info.architecture} (${adapter.info.description})`;
+  }
+  $('#device')[0].textContent = 'Default WebGPU adapter: ' + deviceDescription;
+  logger.defaultDeviceDescription = deviceDescription;
+
   if (qs.length !== 1) {
     showInfo('currently, there must be exactly one ?q=');
     return;
@@ -696,8 +715,25 @@ void (async () => {
     setTreeCheckedRecursively();
   });
 
+  function getResultsText() {
+    const saveOptionElement = document.getElementById('saveOnlyFailures') as HTMLInputElement;
+    const onlyFailures = saveOptionElement.checked;
+    const predFunc = (key: string, value: LiveTestCaseResult) =>
+      value.status === 'fail' || !onlyFailures;
+    return logger.asJSON(2, predFunc);
+  }
+
   document.getElementById('copyResultsJSON')!.addEventListener('click', () => {
-    void navigator.clipboard.writeText(logger.asJSON(2));
+    void navigator.clipboard.writeText(getResultsText());
+  });
+
+  document.getElementById('saveResultsJSON')!.addEventListener('click', () => {
+    const text = getResultsText();
+    const blob = new Blob([text], { type: 'text/plain' });
+    const link = document.createElement('a');
+    link.download = 'results-webgpu-cts.json';
+    link.href = window.URL.createObjectURL(blob);
+    link.click();
   });
 
   if (runnow) {

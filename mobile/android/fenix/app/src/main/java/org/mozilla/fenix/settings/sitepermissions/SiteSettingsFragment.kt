@@ -5,15 +5,15 @@
 package org.mozilla.fenix.settings.sitepermissions
 
 import android.os.Bundle
-import androidx.core.content.ContextCompat
-import androidx.navigation.Navigation
+import androidx.navigation.findNavController
+import androidx.navigation.fragment.navArgs
 import androidx.preference.Preference
 import androidx.preference.Preference.OnPreferenceClickListener
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
+import com.google.android.material.color.MaterialColors
 import mozilla.components.browser.state.action.DefaultDesktopModeAction
 import mozilla.telemetry.glean.private.NoExtras
-import org.mozilla.fenix.Config
 import org.mozilla.fenix.GleanMetrics.Autoplay
 import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.components
@@ -24,6 +24,7 @@ import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.ext.showToolbar
 import org.mozilla.fenix.settings.PhoneFeature
 import org.mozilla.fenix.settings.requirePreference
+import com.google.android.material.R as materialR
 
 /**
  * Screen for managing settings related to site permissions and content defaults.
@@ -31,11 +32,10 @@ import org.mozilla.fenix.settings.requirePreference
 @SuppressWarnings("TooManyFunctions")
 class SiteSettingsFragment : PreferenceFragmentCompat() {
 
+    val args by navArgs<SiteSettingsFragmentArgs>()
+
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.site_permissions_preferences, rootKey)
-
-        val preferenceDescription = requirePreference<Preference>(R.string.pref_key_site_permissions_description)
-        preferenceDescription.isVisible = Config.channel.isMozillaOnline
 
         // This should be setup in onCreatePreferences so we setup only once when the fragment is created
         bindDesktopMode()
@@ -45,6 +45,9 @@ class SiteSettingsFragment : PreferenceFragmentCompat() {
         super.onResume()
         showToolbar(getString(R.string.preferences_site_settings))
         setupPreferences()
+        args.preferenceToScrollTo?.let {
+            scrollToPreference(it)
+        }
     }
 
     private fun setupPreferences() {
@@ -54,7 +57,13 @@ class SiteSettingsFragment : PreferenceFragmentCompat() {
 
     private fun bindDesktopMode() {
         requirePreference<SwitchPreference>(R.string.pref_key_desktop_browsing).apply {
-            icon?.setTint(ContextCompat.getColor(context, R.color.fx_mobile_icon_color_primary))
+            icon?.setTint(
+                MaterialColors.getColor(
+                    requireContext(),
+                    materialR.attr.colorOnSurface,
+                    "Could not resolve themed color",
+                ),
+            )
             isChecked = requireComponents.core.store.state.desktopMode
             isPersistent = false
             onPreferenceChangeListener =
@@ -71,7 +80,7 @@ class SiteSettingsFragment : PreferenceFragmentCompat() {
 
         exceptionsCategory.onPreferenceClickListener = OnPreferenceClickListener {
             val directions = SiteSettingsFragmentDirections.actionSitePermissionsToExceptions()
-            Navigation.findNavController(requireView()).navigate(directions)
+            requireView().findNavController().navigate(directions)
             true
         }
     }
@@ -81,6 +90,13 @@ class SiteSettingsFragment : PreferenceFragmentCompat() {
             // Autoplay inaudible should be set in the same menu as autoplay audible, so it does
             // not need to be bound
             .filter { it != PhoneFeature.AUTOPLAY_INAUDIBLE }
+            .excludeFeatures(
+                condition = { !requireContext().settings().isLnaFeatureEnabled },
+                features = setOf(
+                    PhoneFeature.LOCAL_DEVICE_ACCESS,
+                    PhoneFeature.LOCAL_NETWORK_ACCESS,
+                ),
+            )
             .forEach(::initPhoneFeature)
     }
 
@@ -88,10 +104,17 @@ class SiteSettingsFragment : PreferenceFragmentCompat() {
         val context = requireContext()
         val settings = context.settings()
 
-        val cameraPhoneFeatures = requirePreference<Preference>(phoneFeature.getPreferenceId())
-        cameraPhoneFeatures.summary = phoneFeature.getActionLabel(context, settings = settings)
-
-        cameraPhoneFeatures.onPreferenceClickListener = OnPreferenceClickListener {
+        val preference = requirePreference<Preference>(phoneFeature.getPreferenceId())
+        preference.summary = phoneFeature.getActionLabel(context, settings = settings)
+        preference.isVisible = true
+        preference.icon?.setTint(
+            MaterialColors.getColor(
+                requireContext(),
+                materialR.attr.colorOnSurface,
+                "Could not resolve themed color",
+            ),
+        )
+        preference.onPreferenceClickListener = OnPreferenceClickListener {
             navigateToPhoneFeature(phoneFeature)
             true
         }
@@ -105,12 +128,26 @@ class SiteSettingsFragment : PreferenceFragmentCompat() {
             Autoplay.visitedSetting.record(NoExtras())
         }
         context?.let {
-            Navigation.findNavController(requireView()).navigateWithBreadcrumb(
+            requireView().findNavController().navigateWithBreadcrumb(
                 directions = directions,
                 navigateFrom = "SitePermissionsFragment",
                 navigateTo = "ActionSitePermissionsToManagePhoneFeatures",
                 crashReporter = it.components.analytics.crashReporter,
             )
         }
+    }
+
+    /**
+     * Excludes a set of [PhoneFeature]s from the receiver list if the given [condition] is true.
+     *
+     * @param condition A lambda that returns true if the features should be excluded.
+     * @param features A set of [PhoneFeature]s to exclude if the condition is true.
+     * @return A new list of [PhoneFeature]s with the specified features potentially excluded.
+     */
+    private fun Iterable<PhoneFeature>.excludeFeatures(
+        condition: () -> Boolean,
+        features: Set<PhoneFeature> = emptySet(),
+    ): List<PhoneFeature> {
+        return if (condition()) filterNot { features.contains(it) } else this.toList()
     }
 }

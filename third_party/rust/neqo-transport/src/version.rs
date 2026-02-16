@@ -4,32 +4,27 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(clippy::module_name_repetitions)]
-
+use enum_map::Enum;
 use neqo_common::qdebug;
 
 use crate::{Error, Res};
 
-pub type WireVersion = u32;
+pub type Wire = u32;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Enum)]
+#[repr(u32)]
 pub enum Version {
-    Version2,
+    Version2 = 0x6b33_43cf,
     #[default]
-    Version1,
+    Version1 = 1,
     #[cfg(feature = "draft-29")]
-    Draft29,
+    Draft29 = 0xff00_0000 + 29,
 }
 
 impl Version {
     #[must_use]
-    pub const fn wire_version(self) -> WireVersion {
-        match self {
-            Self::Version2 => 0x6b33_43cf,
-            Self::Version1 => 1,
-            #[cfg(feature = "draft-29")]
-            Self::Draft29 => 0xff00_0000 + 29,
-        }
+    pub const fn wire_version(self) -> Wire {
+        self as u32
     }
 
     pub(crate) const fn initial_salt(self) -> &'static [u8] {
@@ -88,7 +83,10 @@ impl Version {
         }
     }
 
-    #[allow(clippy::unused_self)] // `self` only used in feature-gated code
+    #[cfg_attr(
+        not(feature = "draft-29"),
+        expect(clippy::unused_self, reason = "Only used with draft-29 feature.")
+    )]
     pub(crate) const fn is_draft(self) -> bool {
         #[cfg(feature = "draft-29")]
         return matches!(self, Self::Draft29);
@@ -116,18 +114,18 @@ impl Version {
         ]
     }
 
-    pub fn compatible<'a>(
+    pub fn compatible<'a, I: IntoIterator<Item = &'a Self>>(
         self,
-        all: impl IntoIterator<Item = &'a Self>,
+        all: I,
     ) -> impl Iterator<Item = &'a Self> {
         all.into_iter().filter(move |&v| self.is_compatible(*v))
     }
 }
 
-impl TryFrom<WireVersion> for Version {
+impl TryFrom<Wire> for Version {
     type Error = Error;
 
-    fn try_from(wire: WireVersion) -> Res<Self> {
+    fn try_from(wire: Wire) -> Res<Self> {
         if wire == 1 {
             Ok(Self::Version1)
         } else if wire == 0x6b33_43cf {
@@ -143,7 +141,7 @@ impl TryFrom<WireVersion> for Version {
 }
 
 #[derive(Debug, Clone)]
-pub struct VersionConfig {
+pub struct Config {
     /// The version that a client uses to establish a connection.
     ///
     /// For a client, this is the version that is sent out in an Initial packet.
@@ -168,7 +166,7 @@ pub struct VersionConfig {
     all: Vec<Version>,
 }
 
-impl VersionConfig {
+impl Config {
     /// # Panics
     /// When `all` does not include `initial`.
     #[must_use]
@@ -204,7 +202,7 @@ impl VersionConfig {
 
     fn find_preferred<'a>(
         preferences: impl IntoIterator<Item = &'a Version>,
-        vn: &[WireVersion],
+        vn: &[Wire],
     ) -> Option<Version> {
         for v in preferences {
             if vn.contains(&v.wire_version()) {
@@ -215,17 +213,17 @@ impl VersionConfig {
     }
 
     /// Determine the preferred version based on a version negotiation packet.
-    pub(crate) fn preferred(&self, vn: &[WireVersion]) -> Option<Version> {
+    pub(crate) fn preferred(&self, vn: &[Wire]) -> Option<Version> {
         Self::find_preferred(&self.all, vn)
     }
 
     /// Determine the preferred version based on a set of compatible versions.
-    pub(crate) fn preferred_compatible(&self, vn: &[WireVersion]) -> Option<Version> {
+    pub(crate) fn preferred_compatible(&self, vn: &[Wire]) -> Option<Version> {
         Self::find_preferred(self.compatible(), vn)
     }
 }
 
-impl Default for VersionConfig {
+impl Default for Config {
     fn default() -> Self {
         Self::new(Version::default(), Version::all())
     }

@@ -1,17 +1,8 @@
 import pytest
+from tests.classic.execute_async_script import execute_async_script
 from tests.support.asserts import assert_success
 from tests.support.sync import Poll
 from webdriver.error import NoSuchAlertException
-
-
-def execute_async_script(session, script, args=None):
-    if args is None:
-        args = []
-    body = {"script": script, "args": args}
-
-    return session.transport.send(
-        "POST", "/session/{session_id}/execute/async".format(**vars(session)), body
-    )
 
 
 @pytest.mark.parametrize("dialog_type", ["alert", "confirm", "prompt"])
@@ -20,16 +11,14 @@ def test_no_abort_by_user_prompt_in_other_tab(session, inline, dialog_type):
     original_handles = session.handles
 
     session.url = inline(
-        """
+        f"""
       <a onclick="window.open();">open window</a>
       <script>
         window.addEventListener("message", function (event) {{
-          {}("foo");
+          {dialog_type}("foo");
         }});
       </script>
-    """.format(
-            dialog_type
-        )
+    """
     )
 
     session.find.css("a", all=False).click()

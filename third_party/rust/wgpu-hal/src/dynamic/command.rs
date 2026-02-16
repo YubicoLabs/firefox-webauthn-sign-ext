@@ -66,10 +66,9 @@ pub trait DynCommandEncoder: DynResource + core::fmt::Debug {
         dynamic_offsets: &[wgt::DynamicOffset],
     );
 
-    unsafe fn set_push_constants(
+    unsafe fn set_immediates(
         &mut self,
         layout: &dyn DynPipelineLayout,
-        stages: wgt::ShaderStages,
         offset_bytes: u32,
         data: &[u32],
     );
@@ -94,7 +93,7 @@ pub trait DynCommandEncoder: DynResource + core::fmt::Debug {
     unsafe fn begin_render_pass(
         &mut self,
         desc: &RenderPassDescriptor<dyn DynQuerySet, dyn DynTextureView>,
-    );
+    ) -> Result<(), DeviceError>;
     unsafe fn end_render_pass(&mut self);
 
     unsafe fn set_render_pipeline(&mut self, pipeline: &dyn DynRenderPipeline);
@@ -130,6 +129,12 @@ pub trait DynCommandEncoder: DynResource + core::fmt::Debug {
         first_instance: u32,
         instance_count: u32,
     );
+    unsafe fn draw_mesh_tasks(
+        &mut self,
+        group_count_x: u32,
+        group_count_y: u32,
+        group_count_z: u32,
+    );
     unsafe fn draw_indirect(
         &mut self,
         buffer: &dyn DynBuffer,
@@ -137,6 +142,12 @@ pub trait DynCommandEncoder: DynResource + core::fmt::Debug {
         draw_count: u32,
     );
     unsafe fn draw_indexed_indirect(
+        &mut self,
+        buffer: &dyn DynBuffer,
+        offset: wgt::BufferAddress,
+        draw_count: u32,
+    );
+    unsafe fn draw_mesh_tasks_indirect(
         &mut self,
         buffer: &dyn DynBuffer,
         offset: wgt::BufferAddress,
@@ -151,6 +162,14 @@ pub trait DynCommandEncoder: DynResource + core::fmt::Debug {
         max_count: u32,
     );
     unsafe fn draw_indexed_indirect_count(
+        &mut self,
+        buffer: &dyn DynBuffer,
+        offset: wgt::BufferAddress,
+        count_buffer: &dyn DynBuffer,
+        count_offset: wgt::BufferAddress,
+        max_count: u32,
+    );
+    unsafe fn draw_mesh_tasks_indirect_count(
         &mut self,
         buffer: &dyn DynBuffer,
         offset: wgt::BufferAddress,
@@ -309,15 +328,14 @@ impl<C: CommandEncoder + DynResource> DynCommandEncoder for C {
         unsafe { C::set_bind_group(self, layout, index, group, dynamic_offsets) };
     }
 
-    unsafe fn set_push_constants(
+    unsafe fn set_immediates(
         &mut self,
         layout: &dyn DynPipelineLayout,
-        stages: wgt::ShaderStages,
         offset_bytes: u32,
         data: &[u32],
     ) {
         let layout = layout.expect_downcast_ref();
-        unsafe { C::set_push_constants(self, layout, stages, offset_bytes, data) };
+        unsafe { C::set_immediates(self, layout, offset_bytes, data) };
     }
 
     unsafe fn insert_debug_marker(&mut self, label: &str) {
@@ -374,7 +392,7 @@ impl<C: CommandEncoder + DynResource> DynCommandEncoder for C {
     unsafe fn begin_render_pass(
         &mut self,
         desc: &RenderPassDescriptor<dyn DynQuerySet, dyn DynTextureView>,
-    ) {
+    ) -> Result<(), DeviceError> {
         let color_attachments = desc
             .color_attachments
             .iter()
@@ -395,7 +413,7 @@ impl<C: CommandEncoder + DynResource> DynCommandEncoder for C {
                     .depth_stencil_attachment
                     .as_ref()
                     .map(|ds| ds.expect_downcast()),
-                multiview: desc.multiview,
+                multiview_mask: desc.multiview_mask,
                 timestamp_writes: desc
                     .timestamp_writes
                     .as_ref()
@@ -404,7 +422,7 @@ impl<C: CommandEncoder + DynResource> DynCommandEncoder for C {
                     .occlusion_query_set
                     .map(|set| set.expect_downcast_ref()),
             };
-        unsafe { C::begin_render_pass(self, &desc) };
+        unsafe { C::begin_render_pass(self, &desc) }
     }
 
     unsafe fn end_render_pass(&mut self) {
@@ -473,6 +491,15 @@ impl<C: CommandEncoder + DynResource> DynCommandEncoder for C {
         };
     }
 
+    unsafe fn draw_mesh_tasks(
+        &mut self,
+        group_count_x: u32,
+        group_count_y: u32,
+        group_count_z: u32,
+    ) {
+        unsafe { C::draw_mesh_tasks(self, group_count_x, group_count_y, group_count_z) };
+    }
+
     unsafe fn draw_indirect(
         &mut self,
         buffer: &dyn DynBuffer,
@@ -491,6 +518,16 @@ impl<C: CommandEncoder + DynResource> DynCommandEncoder for C {
     ) {
         let buffer = buffer.expect_downcast_ref();
         unsafe { C::draw_indexed_indirect(self, buffer, offset, draw_count) };
+    }
+
+    unsafe fn draw_mesh_tasks_indirect(
+        &mut self,
+        buffer: &dyn DynBuffer,
+        offset: wgt::BufferAddress,
+        draw_count: u32,
+    ) {
+        let buffer = buffer.expect_downcast_ref();
+        unsafe { C::draw_mesh_tasks_indirect(self, buffer, offset, draw_count) };
     }
 
     unsafe fn draw_indirect_count(
@@ -520,6 +557,28 @@ impl<C: CommandEncoder + DynResource> DynCommandEncoder for C {
         let count_buffer = count_buffer.expect_downcast_ref();
         unsafe {
             C::draw_indexed_indirect_count(
+                self,
+                buffer,
+                offset,
+                count_buffer,
+                count_offset,
+                max_count,
+            )
+        };
+    }
+
+    unsafe fn draw_mesh_tasks_indirect_count(
+        &mut self,
+        buffer: &dyn DynBuffer,
+        offset: wgt::BufferAddress,
+        count_buffer: &dyn DynBuffer,
+        count_offset: wgt::BufferAddress,
+        max_count: u32,
+    ) {
+        let buffer = buffer.expect_downcast_ref();
+        let count_buffer = count_buffer.expect_downcast_ref();
+        unsafe {
+            C::draw_mesh_tasks_indirect_count(
                 self,
                 buffer,
                 offset,
@@ -669,6 +728,7 @@ impl<'a> ColorAttachment<'a, dyn DynTextureView> {
     pub fn expect_downcast<B: DynTextureView>(&self) -> ColorAttachment<'a, B> {
         ColorAttachment {
             target: self.target.expect_downcast(),
+            depth_slice: self.depth_slice,
             resolve_target: self.resolve_target.as_ref().map(|rt| rt.expect_downcast()),
             ops: self.ops,
             clear_value: self.clear_value,

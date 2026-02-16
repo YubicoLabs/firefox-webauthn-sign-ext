@@ -14,7 +14,7 @@ def get_buildid():
     import buildconfig
 
     path = os.path.join(buildconfig.topobjdir, "buildid.h")
-    _define, _MOZ_BUILDID, buildid = open(path, "r", encoding="utf-8").read().split()
+    _define, _MOZ_BUILDID, buildid = open(path, encoding="utf-8").read().split()
     return buildid
 
 
@@ -75,7 +75,10 @@ def get_info_from_sourcestamp(sourcestamp_path):
         return None, None
 
     # Return the repo and the changeset.
-    return lines[1].split("/rev/")
+    for separator in ["/rev/", "/commit/"]:
+        if separator in lines[1]:
+            return lines[1].split(separator)
+    return None, None
 
 
 def source_repo_header(output):
@@ -97,14 +100,15 @@ def source_repo_header(output):
         changeset = get_hg_changeset(buildconfig.topsrcdir)
         if not changeset:
             raise Exception(
-                "could not resolve changeset; " "try setting MOZ_SOURCE_CHANGESET"
+                "could not resolve changeset; try setting MOZ_SOURCE_CHANGESET"
             )
 
     if changeset:
         output.write("#define MOZ_SOURCE_STAMP %s\n" % changeset)
 
     if repo and buildconfig.substs.get("MOZ_INCLUDE_SOURCE_INFO"):
-        source = "%s/rev/%s" % (repo, changeset)
+        rev_path = "/rev/" if "hg.mozilla.org" in repo else "/commit/"
+        source = f"{repo}{rev_path}{changeset}"
         output.write("#define MOZ_SOURCE_REPO %s\n" % repo)
         output.write("#define MOZ_SOURCE_URL %s\n" % source)
 

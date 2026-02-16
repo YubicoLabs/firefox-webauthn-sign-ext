@@ -28,6 +28,10 @@ export class _LinkMenu extends React.PureComponent {
       isPrivateBrowsingEnabled,
       siteInfo,
       platform,
+      privacyInfoUrl,
+      dispatch,
+      options,
+      shouldSendImpressionStats,
       userEvent = ac.UserEvent,
     } = props;
 
@@ -35,9 +39,9 @@ export class _LinkMenu extends React.PureComponent {
     const propOptions =
       site.isDefault && !site.searchTopSite && !site.sponsored_position
         ? DEFAULT_SITE_MENU_OPTIONS
-        : props.options;
+        : options;
 
-    const options = propOptions
+    const linkMenuOptions = propOptions
       .map(o =>
         LinkMenuOptions[o](
           site,
@@ -45,7 +49,8 @@ export class _LinkMenu extends React.PureComponent {
           source,
           isPrivateBrowsingEnabled,
           siteInfo,
-          platform
+          platform,
+          privacyInfoUrl
         )
       )
       .map(option => {
@@ -62,21 +67,64 @@ export class _LinkMenu extends React.PureComponent {
                 action.data
               );
             }
-            props.dispatch(action);
+            dispatch(action);
             if (eventName) {
+              let value;
+              // Bug 1958135: Pass additional info to ac.OPEN_NEW_WINDOW event
+              if (action.type === "OPEN_NEW_WINDOW") {
+                const {
+                  card_type,
+                  corpus_item_id,
+                  event_source,
+                  fetchTimestamp,
+                  firstVisibleTimestamp,
+                  format,
+                  is_section_followed,
+                  received_rank,
+                  recommendation_id,
+                  recommended_at,
+                  scheduled_corpus_item_id,
+                  section_position,
+                  section,
+                  selected_topics,
+                  tile_id,
+                  topic,
+                } = action.data;
+
+                value = {
+                  card_type,
+                  corpus_item_id,
+                  event_source,
+                  fetchTimestamp,
+                  firstVisibleTimestamp,
+                  format,
+                  received_rank,
+                  recommendation_id,
+                  recommended_at,
+                  scheduled_corpus_item_id,
+                  ...(section
+                    ? { is_section_followed, section_position, section }
+                    : {}),
+                  selected_topics: selected_topics ? selected_topics : "",
+                  tile_id,
+                  topic,
+                };
+              } else {
+                value = { card_type: site.flight_id ? "spoc" : "organic" };
+              }
               const userEventData = Object.assign(
                 {
                   event: eventName,
                   source,
                   action_position: index,
-                  value: { card_type: site.flight_id ? "spoc" : "organic" },
+                  value,
                 },
                 siteInfo
               );
-              props.dispatch(userEvent(userEventData));
-            }
-            if (impression && props.shouldSendImpressionStats) {
-              props.dispatch(impression);
+              dispatch(userEvent(userEventData));
+              if (impression && shouldSendImpressionStats) {
+                dispatch(impression);
+              }
             }
           };
         }
@@ -86,9 +134,9 @@ export class _LinkMenu extends React.PureComponent {
     // This is for accessibility to support making each item tabbable.
     // We want to know which item is the first and which item
     // is the last, so we can close the context menu accordingly.
-    options[0].first = true;
-    options[options.length - 1].last = true;
-    return options;
+    linkMenuOptions[0].first = true;
+    linkMenuOptions[linkMenuOptions.length - 1].last = true;
+    return linkMenuOptions;
   }
 
   render() {
@@ -106,5 +154,6 @@ export class _LinkMenu extends React.PureComponent {
 const getState = state => ({
   isPrivateBrowsingEnabled: state.Prefs.values.isPrivateBrowsingEnabled,
   platform: state.Prefs.values.platform,
+  privacyInfoUrl: state.Prefs.values["privacyInfo.url"],
 });
 export const LinkMenu = connect(getState)(_LinkMenu);

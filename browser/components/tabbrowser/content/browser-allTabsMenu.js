@@ -2,9 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// This file is loaded into the browser window scope.
-/* eslint-env mozilla/browser-window */
-
 ChromeUtils.defineESModuleGetters(this, {
   BrowserUsageTelemetry: "resource:///modules/BrowserUsageTelemetry.sys.mjs",
   GroupsPanel: "moz-src:///browser/components/tabbrowser/GroupsList.sys.mjs",
@@ -21,6 +18,8 @@ var gTabsPanel = {
     containerTabsView: "allTabsMenu-containerTabsView",
     hiddenTabsButton: "allTabsMenu-hiddenTabsButton",
     hiddenTabsView: "allTabsMenu-hiddenTabsView",
+    hiddenTabsViewTabs: "allTabsMenu-hiddenTabsView-tabs",
+    hiddenAudioTabs: "allTabsMenu-allTabsView-hiddenAudio-tabs",
     groupsView: "allTabsMenu-groupsView",
     groupsSubView: "allTabsMenu-groupsSubView",
   },
@@ -56,15 +55,16 @@ var gTabsPanel = {
 
     this.hiddenAudioTabsPopup = new TabsPanel({
       view: this.allTabsView,
-      insertBefore: document.getElementById("allTabsMenu-hiddenTabsSeparator"),
-      filterFn: tab => tab.hidden && tab.soundPlaying,
+      containerNode: this.hiddenAudioTabs,
+      filterFn: tab => tab.soundPlaying,
+      onlyHiddenTabs: true,
     });
     this.allTabsPanel = new TabsPanel({
       view: this.allTabsView,
       containerNode: this.allTabsViewTabs,
       filterFn: tab => !tab.hidden,
       dropIndicator: this.dropIndicator,
-      showGroups: true,
+      onlyHiddenTabs: false,
     });
     this.groupsPanel = new GroupsPanel({
       view: this.allTabsView,
@@ -91,15 +91,11 @@ var gTabsPanel = {
       document.getElementById("allTabsMenu-hiddenTabsSeparator").hidden =
         !hasHiddenTabs;
 
-      let closeDuplicateEnabled = Services.prefs.getBoolPref(
-        "browser.tabs.context.close-duplicate.enabled"
-      );
       let closeDuplicateTabsItem = document.getElementById(
         "allTabsMenu-closeDuplicateTabs"
       );
-      closeDuplicateTabsItem.hidden = !closeDuplicateEnabled;
       closeDuplicateTabsItem.disabled =
-        !closeDuplicateEnabled || !gBrowser.getAllDuplicateTabsToClose().length;
+        !gBrowser.getAllDuplicateTabsToClose().length;
 
       let syncedTabs = document.getElementById("allTabsMenu-syncedTabs");
       syncedTabs.hidden =
@@ -117,9 +113,13 @@ var gTabsPanel = {
       let { PanelUI } = target.ownerGlobal;
       switch (target.id) {
         case "allTabsMenu-searchTabs":
+          Glean.browserUiInteraction.listAllTabsAction.search_tabs.add(1);
           this.searchTabs();
           break;
         case "allTabsMenu-closeDuplicateTabs":
+          Glean.browserUiInteraction.listAllTabsAction.close_all_duplicates.add(
+            1
+          );
           gBrowser.removeAllDuplicateTabs();
           break;
         case "allTabsMenu-containerTabsButton":
@@ -129,6 +129,7 @@ var gTabsPanel = {
           PanelUI.showSubView(this.kElements.hiddenTabsView, target);
           break;
         case "allTabsMenu-syncedTabs":
+          Glean.browserUiInteraction.listAllTabsAction.tabs_from_devices.add(1);
           SidebarController.show("viewTabsSidebar");
           break;
         case "allTabsMenu-groupsViewShowMore":
@@ -181,7 +182,9 @@ var gTabsPanel = {
 
     this.hiddenTabsPopup = new TabsPanel({
       view: this.hiddenTabsView,
-      filterFn: tab => tab.hidden && tab != FirefoxViewHandler.tab,
+      containerNode: this.hiddenTabsViewTabs,
+      filterFn: tab => tab != FirefoxViewHandler.tab,
+      onlyHiddenTabs: true,
     });
 
     this._initialized = true;

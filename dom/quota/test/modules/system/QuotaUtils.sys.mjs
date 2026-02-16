@@ -17,7 +17,7 @@ export const QuotaUtils = {
    *
    * These requests are typically returned by the quota manager service.
    *
-   * @param {Object} request
+   * @param {object} request
    *   The request object, which must have a callback property and
    *   result-related properties (e.g., resultCode, resultName).
    * @returns {Promise}
@@ -76,5 +76,27 @@ export const QuotaUtils = {
     }
 
     return result;
+  },
+
+  /**
+   * Simulates an orderly shutdown sequence by advancing through predefined
+   * application shutdown phases. This function mirrors the shutdown sequence
+   * triggered during the xpcshell test cleanup phase:
+   * https://searchfox.org/mozilla-central/rev/a2abcf7ff6b7ae0c2d8a04b9a35679f8c84634e7/testing/xpcshell/head.js#701-718
+   *
+   * Tests can use this function to prematurely trigger shutdown in order to
+   * test edge cases related to events occurring during Quota Manager shutdown.
+   */
+  startShutdown() {
+    const phases = [
+      Services.startup.SHUTDOWN_PHASE_APPSHUTDOWNNETTEARDOWN,
+      Services.startup.SHUTDOWN_PHASE_APPSHUTDOWNTEARDOWN,
+      Services.startup.SHUTDOWN_PHASE_APPSHUTDOWN,
+      Services.startup.SHUTDOWN_PHASE_APPSHUTDOWNQM,
+    ];
+
+    for (const phase of phases) {
+      Services.startup.advanceShutdownPhase(phase);
+    }
   },
 };

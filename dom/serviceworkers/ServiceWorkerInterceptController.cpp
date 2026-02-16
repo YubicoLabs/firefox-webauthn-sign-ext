@@ -6,6 +6,7 @@
 
 #include "ServiceWorkerInterceptController.h"
 
+#include "ServiceWorkerManager.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_privacy.h"
@@ -18,7 +19,6 @@
 #include "nsContentUtils.h"
 #include "nsIChannel.h"
 #include "nsICookieJarSettings.h"
-#include "ServiceWorkerManager.h"
 #include "nsIPrincipal.h"
 #include "nsQueryObject.h"
 
@@ -92,14 +92,32 @@ ServiceWorkerInterceptController::ShouldPrepareForIntercept(
 
     RefPtr<net::HttpBaseChannel> httpChannel = do_QueryObject(aChannel);
 
+    RequestMode requestMode =
+        InternalRequest::MapChannelToRequestMode(aChannel);
+
     if (httpChannel &&
         httpChannel->GetRequestHead()->HasHeader(net::nsHttp::Range)) {
-      RequestMode requestMode =
-          InternalRequest::MapChannelToRequestMode(aChannel);
       bool mayLoad = nsContentUtils::CheckMayLoad(
           loadInfo->GetLoadingPrincipal(), aChannel,
           /*allowIfInheritsPrincipal*/ false);
       if (requestMode == RequestMode::No_cors && !mayLoad) {
+        *aShouldIntercept = false;
+      }
+    }
+
+    RequestDestination requestDest =
+        InternalRequest::MapContentPolicyTypeToRequestDestination(
+            loadInfo->GetExternalContentPolicyType());
+    // Skip no_cors Cross-Origin sub-resource request from CSS.
+    if (requestMode == RequestMode::No_cors &&
+        requestDest == RequestDestination::Style) {
+      nsCOMPtr<nsIPrincipal> triggeringPrincipal;
+      (void)loadInfo->GetTriggeringPrincipal(
+          getter_AddRefs(triggeringPrincipal));
+      MOZ_ASSERT(triggeringPrincipal);
+      bool mayLoad = nsContentUtils::CheckMayLoad(
+          triggeringPrincipal, aChannel, /*allowIfInheritsPrincipal*/ false);
+      if (!mayLoad) {
         *aShouldIntercept = false;
       }
     }
@@ -133,20 +151,18 @@ ServiceWorkerInterceptController::ShouldPrepareForIntercept(
   // to avoid showing warnings about the use of third-party cookies in the UI
   // unnecessarily when no service worker is being accessed.
   auto storageAccess = StorageAllowedForChannel(aChannel);
-  if (storageAccess != StorageAccess::eAllow) {
-    if (!StaticPrefs::privacy_partition_serviceWorkers()) {
-      return NS_OK;
-    }
+  nsCOMPtr<nsICookieJarSettings> cookieJarSettings;
+  loadInfo->GetCookieJarSettings(getter_AddRefs(cookieJarSettings));
 
-    nsCOMPtr<nsICookieJarSettings> cookieJarSettings;
-    loadInfo->GetCookieJarSettings(getter_AddRefs(cookieJarSettings));
-
-    if (!StoragePartitioningEnabled(storageAccess, cookieJarSettings)) {
-      return NS_OK;
-    }
-  }
-
-  *aShouldIntercept = true;
+  *aShouldIntercept =
+      storageAccess == StorageAccess::eAllow ||
+      (storageAccess == StorageAccess::ePrivateBrowsing &&
+       StaticPrefs::dom_serviceWorkers_privateBrowsing_enabled()) ||
+      (ShouldPartitionStorage(storageAccess) &&
+       StaticPrefs::privacy_partition_serviceWorkers() &&
+       StoragePartitioningEnabled(storageAccess, cookieJarSettings) &&
+       (!principal->GetIsInPrivateBrowsing() ||
+        StaticPrefs::dom_serviceWorkers_privateBrowsing_enabled()));
   return NS_OK;
 }
 

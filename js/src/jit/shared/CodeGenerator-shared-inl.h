@@ -128,10 +128,10 @@ static inline Register64 ToOutRegister64(LInstruction* ins) {
 
 static inline bool IsRegister64(const LInt64Allocation& a) {
 #if JS_BITS_PER_WORD == 32
-  MOZ_ASSERT(a.low().isRegister() == a.high().isRegister());
-  return a.low().isRegister();
+  MOZ_ASSERT(a.low().isGeneralReg() == a.high().isGeneralReg());
+  return a.low().isGeneralReg();
 #else
-  return a.value().isRegister();
+  return a.value().isGeneralReg();
 #endif
 }
 
@@ -228,6 +228,17 @@ static inline ValueOperand ToValue(const LBoxAllocation& a) {
 #endif
 }
 
+static inline ValueOperand ToValue(const LBoxDefinition& a) {
+#if defined(JS_NUNBOX32)
+  return ValueOperand(ToRegister(a.pointerType()),
+                      ToRegister(a.pointerPayload()));
+#elif defined(JS_PUNBOX64)
+  return ValueOperand(ToRegister(a.pointer()));
+#else
+#  error "Unknown"
+#endif
+}
+
 // For argument construction for calls. Argslots are Value-sized.
 Address CodeGeneratorShared::AddressOfPassedArg(uint32_t slot) const {
   MOZ_ASSERT(masm.framePushed() == frameSize());
@@ -312,11 +323,10 @@ Address CodeGeneratorShared::ToAddress(const LInt64Allocation& a) const {
 // static
 Address CodeGeneratorShared::ToAddress(Register elements,
                                        const LAllocation* index,
-                                       Scalar::Type type,
-                                       int32_t offsetAdjustment) {
+                                       Scalar::Type type) {
   int32_t idx = ToInt32(index);
   int32_t offset;
-  MOZ_ALWAYS_TRUE(ArrayOffsetFitsInInt32(idx, type, offsetAdjustment, &offset));
+  MOZ_ALWAYS_TRUE(ArrayOffsetFitsInInt32(idx, type, &offset));
   return Address(elements, offset);
 }
 

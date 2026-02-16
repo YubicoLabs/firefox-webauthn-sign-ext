@@ -309,6 +309,10 @@ pub enum MINIDUMP_STREAM_TYPE {
     /// See [`MINIDUMP_CRASHPAD_INFO`].
     CrashpadInfoStream = 0x43500001,
 
+    /// Chromium stability report stream
+    /// <https://source.chromium.org/chromium/chromium/src/+/main:components/stability_report/>
+    StabilityReportStream = 0x4b6b0002,
+
     /// Data from the __DATA,__crash_info section of every module which contains
     /// one that has useful data. Only available on macOS. 0x4D7A = "Mz".
     ///
@@ -323,6 +327,9 @@ pub enum MINIDUMP_STREAM_TYPE {
 
     /// The contents of /proc/self/limits from a Linux system
     MozLinuxLimits = 0x4d7a0003,
+
+    /// Soft errors reported during minidump generation
+    MozSoftErrors = 0x4d7a0004,
 }
 
 impl From<MINIDUMP_STREAM_TYPE> for u32 {
@@ -470,7 +477,7 @@ pub struct CV_INFO_PDB20 {
     pub pdb_file_name: Vec<u8>,
 }
 
-impl<'a> scroll::ctx::TryFromCtx<'a, Endian> for CV_INFO_PDB20 {
+impl scroll::ctx::TryFromCtx<'_, Endian> for CV_INFO_PDB20 {
     type Error = scroll::Error;
 
     fn try_from_ctx(src: &[u8], endian: Endian) -> Result<(Self, usize), Self::Error> {
@@ -506,7 +513,7 @@ pub struct CV_INFO_PDB70 {
     pub pdb_file_name: Vec<u8>,
 }
 
-impl<'a> scroll::ctx::TryFromCtx<'a, Endian> for CV_INFO_PDB70 {
+impl scroll::ctx::TryFromCtx<'_, Endian> for CV_INFO_PDB70 {
     type Error = scroll::Error;
 
     fn try_from_ctx(src: &[u8], endian: Endian) -> Result<(Self, usize), Self::Error> {
@@ -577,12 +584,12 @@ pub struct GUID {
 /// ```
 impl From<[u8; 16]> for GUID {
     fn from(uuid: [u8; 16]) -> Self {
-        let data1 = (uuid[0] as u32) << 24
-            | (uuid[1] as u32) << 16
-            | (uuid[2] as u32) << 8
+        let data1 = ((uuid[0] as u32) << 24)
+            | ((uuid[1] as u32) << 16)
+            | ((uuid[2] as u32) << 8)
             | uuid[3] as u32;
-        let data2 = (uuid[4] as u16) << 8 | uuid[5] as u16;
-        let data3 = (uuid[6] as u16) << 8 | uuid[7] as u16;
+        let data2 = ((uuid[4] as u16) << 8) | uuid[5] as u16;
+        let data3 = ((uuid[6] as u16) << 8) | uuid[7] as u16;
         let mut data4 = [0u8; 8];
         data4.copy_from_slice(&uuid[8..]);
 
@@ -1730,7 +1737,7 @@ impl Default for XSTATE_CONFIG_FEATURE_MSC_INFO {
 
 impl XSTATE_CONFIG_FEATURE_MSC_INFO {
     /// Gets an iterator of all the enabled features.
-    pub fn iter(&self) -> XstateFeatureIter {
+    pub fn iter(&self) -> XstateFeatureIter<'_> {
         XstateFeatureIter { info: self, idx: 0 }
     }
 }
@@ -1742,7 +1749,7 @@ pub struct XstateFeatureIter<'a> {
     idx: usize,
 }
 
-impl<'a> Iterator for XstateFeatureIter<'a> {
+impl Iterator for XstateFeatureIter<'_> {
     type Item = (usize, XSTATE_FEATURE);
     fn next(&mut self) -> Option<Self::Item> {
         while self.idx < self.info.features.len() {
@@ -2055,7 +2062,7 @@ pub struct MINIDUMP_UTF8_STRING {
     pub buffer: Vec<u8>,
 }
 
-impl<'a> scroll::ctx::TryFromCtx<'a, Endian> for MINIDUMP_UTF8_STRING {
+impl scroll::ctx::TryFromCtx<'_, Endian> for MINIDUMP_UTF8_STRING {
     type Error = scroll::Error;
 
     fn try_from_ctx(src: &[u8], endian: Endian) -> Result<(Self, usize), Self::Error> {

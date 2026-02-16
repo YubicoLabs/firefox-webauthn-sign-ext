@@ -203,7 +203,7 @@
 //! [wiki-debug]: https://github.com/gfx-rs/wgpu/wiki/Debugging-wgpu-Applications
 
 #![no_std]
-#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(
     // this happens on the GL backend, where it is both thread safe and non-thread safe in the same code.
     clippy::arc_with_non_send_sync,
@@ -225,6 +225,8 @@
     clippy::missing_safety_doc,
     // It gets in the way a lot and does not prevent bugs in practice.
     clippy::pattern_type_mismatch,
+    // We should investigate these.
+    clippy::large_enum_variant
 )]
 #![warn(
     clippy::alloc_instead_of_core,
@@ -240,8 +242,8 @@
 
 extern crate alloc;
 extern crate wgpu_types as wgt;
-// TODO(https://github.com/gfx-rs/wgpu/issues/6826): disable std except on noop and gles-WebGL.
-// Requires Rust 1.81 for core::error::Error.
+// Each of these backends needs `std` in some fashion; usually `std::thread` functions.
+#[cfg(any(dx12, gles_with_std, metal, vulkan))]
 #[macro_use]
 extern crate std;
 
@@ -275,6 +277,11 @@ pub mod api {
 }
 
 mod dynamic;
+#[cfg(feature = "validation_canary")]
+mod validation_canary;
+
+#[cfg(feature = "validation_canary")]
+pub use validation_canary::{ValidationCanary, VALIDATION_CANARY};
 
 pub(crate) use dynamic::impl_dyn_resource;
 pub use dynamic::{
@@ -287,24 +294,33 @@ pub use dynamic::{
 
 #[allow(unused)]
 use alloc::boxed::Box;
-use alloc::{borrow::Cow, string::String, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, string::String, vec::Vec};
 use core::{
     borrow::Borrow,
+    error::Error,
     fmt,
-    num::NonZeroU32,
+    num::{NonZeroU32, NonZeroU64},
     ops::{Range, RangeInclusive},
     ptr::NonNull,
 };
-use std::error::Error; // TODO(https://github.com/gfx-rs/wgpu/issues/6826): use core::error after MSRV bump
 
 use bitflags::bitflags;
-use parking_lot::Mutex;
+use raw_window_handle::DisplayHandle;
 use thiserror::Error;
 use wgt::WasmNotSendSync;
 
+cfg_if::cfg_if! {
+    if #[cfg(supports_ptr_atomics)] {
+        use alloc::sync::Arc;
+    } else if #[cfg(feature = "portable-atomic")] {
+        use portable_atomic_util::Arc;
+    }
+}
+
 // - Vertex + Fragment
 // - Compute
-pub const MAX_CONCURRENT_SHADER_STAGES: usize = 2;
+// Task + Mesh + Fragment
+pub const MAX_CONCURRENT_SHADER_STAGES: usize = 3;
 pub const MAX_ANISOTROPY: u8 = 16;
 pub const MAX_BIND_GROUPS: usize = 8;
 pub const MAX_VERTEX_BUFFERS: usize = 16;
@@ -362,10 +378,109 @@ pub enum DeviceError {
     OutOfMemory,
     #[error("Device is lost")]
     Lost,
-    #[error("Creation of a resource failed for a reason other than running out of memory.")]
-    ResourceCreationFailed,
     #[error("Unexpected error variant (driver implementation is at fault)")]
     Unexpected,
+}
+
+#[cfg(any(dx12, vulkan))]
+impl From<gpu_allocator::AllocationError> for DeviceError {
+    fn from(result: gpu_allocator::AllocationError) -> Self {
+        match result {
+            gpu_allocator::AllocationError::OutOfMemory => Self::OutOfMemory,
+            gpu_allocator::AllocationError::FailedToMap(e) => {
+                log::error!("gpu-allocator: Failed to map: {e}");
+                Self::Lost
+            }
+            gpu_allocator::AllocationError::NoCompatibleMemoryTypeFound => {
+                log::error!("gpu-allocator: No Compatible Memory Type Found");
+                Self::Lost
+            }
+            gpu_allocator::AllocationError::InvalidAllocationCreateDesc => {
+                log::error!("gpu-allocator: Invalid Allocation Creation Description");
+                Self::Lost
+            }
+            gpu_allocator::AllocationError::InvalidAllocatorCreateDesc(e) => {
+                log::error!("gpu-allocator: Invalid Allocator Creation Description: {e}");
+                Self::Lost
+            }
+
+            gpu_allocator::AllocationError::Internal(e) => {
+                log::error!("gpu-allocator: Internal Error: {e}");
+                Self::Lost
+            }
+            gpu_allocator::AllocationError::BarrierLayoutNeedsDevice10
+            | gpu_allocator::AllocationError::CastableFormatsRequiresEnhancedBarriers
+            | gpu_allocator::AllocationError::CastableFormatsRequiresAtLeastDevice12 => {
+                unreachable!()
+            }
+        }
+    }
+}
+
+// A copy of gpu_allocator::AllocationSizes, allowing to read the configured value for
+// the dx12 backend, we should instead add getters to gpu_allocator::AllocationSizes
+// and remove this type.
+// https://github.com/Traverse-Research/gpu-allocator/issues/295
+#[cfg_attr(not(any(dx12, vulkan)), expect(dead_code))]
+pub(crate) struct AllocationSizes {
+    pub(crate) min_device_memblock_size: u64,
+    pub(crate) max_device_memblock_size: u64,
+    pub(crate) min_host_memblock_size: u64,
+    pub(crate) max_host_memblock_size: u64,
+}
+
+impl AllocationSizes {
+    #[allow(dead_code)] // may be unused on some platforms
+    pub(crate) fn from_memory_hints(memory_hints: &wgt::MemoryHints) -> Self {
+        // TODO: the allocator's configuration should take hardware capability into
+        // account.
+        const MB: u64 = 1024 * 1024;
+
+        match memory_hints {
+            wgt::MemoryHints::Performance => Self {
+                min_device_memblock_size: 128 * MB,
+                max_device_memblock_size: 256 * MB,
+                min_host_memblock_size: 64 * MB,
+                max_host_memblock_size: 128 * MB,
+            },
+            wgt::MemoryHints::MemoryUsage => Self {
+                min_device_memblock_size: 8 * MB,
+                max_device_memblock_size: 64 * MB,
+                min_host_memblock_size: 4 * MB,
+                max_host_memblock_size: 32 * MB,
+            },
+            wgt::MemoryHints::Manual {
+                suballocated_device_memory_block_size,
+            } => {
+                // TODO: https://github.com/gfx-rs/wgpu/issues/8625
+                // Would it be useful to expose the host size in memory hints
+                // instead of always using half of the device size?
+                let device_size = suballocated_device_memory_block_size;
+                let host_size = device_size.start / 2..device_size.end / 2;
+
+                // gpu_allocator clamps the sizes between 4MiB and 256MiB, but we clamp them ourselves since we use
+                // the sizes when detecting high memory pressure and there is no way to query the values otherwise.
+                Self {
+                    min_device_memblock_size: device_size.start.clamp(4 * MB, 256 * MB),
+                    max_device_memblock_size: device_size.end.clamp(4 * MB, 256 * MB),
+                    min_host_memblock_size: host_size.start.clamp(4 * MB, 256 * MB),
+                    max_host_memblock_size: host_size.end.clamp(4 * MB, 256 * MB),
+                }
+            }
+        }
+    }
+}
+
+#[cfg(any(dx12, vulkan))]
+impl From<AllocationSizes> for gpu_allocator::AllocationSizes {
+    fn from(value: AllocationSizes) -> gpu_allocator::AllocationSizes {
+        gpu_allocator::AllocationSizes::new(
+            value.min_device_memblock_size,
+            value.min_host_memblock_size,
+        )
+        .with_max_device_memblock_size(value.max_device_memblock_size)
+        .with_max_host_memblock_size(value.max_host_memblock_size)
+    }
 }
 
 #[allow(dead_code)] // may be unused on some platforms
@@ -445,14 +560,32 @@ impl InstanceError {
     }
     #[allow(dead_code)] // may be unused on some platforms
     pub(crate) fn with_source(message: String, source: impl Error + Send + Sync + 'static) -> Self {
+        cfg_if::cfg_if! {
+            if #[cfg(supports_ptr_atomics)] {
+                let source = Arc::new(source);
+            } else {
+                // TODO(https://github.com/rust-lang/rust/issues/18598): avoid indirection via Box once arbitrary types support unsized coercion
+                let source: Box<dyn Error + Send + Sync + 'static> = Box::new(source);
+                let source = Arc::from(source);
+            }
+        }
         Self {
             message,
-            source: Some(Arc::new(source)),
+            source: Some(source),
         }
     }
 }
 
-pub trait Api: Clone + fmt::Debug + Sized {
+/// All the types and methods that make up a implementation on top of a backend.
+///
+/// Only the types that have non-dyn trait bounds have methods on them. Most methods
+/// are either on [`CommandEncoder`] or [`Device`].
+///
+/// The api can either be used through generics (through use of this trait and associated
+/// types) or dynamically through using the `Dyn*` traits.
+pub trait Api: Clone + fmt::Debug + Sized + WasmNotSendSync + 'static {
+    const VARIANT: wgt::Backend;
+
     type Instance: DynInstance + Instance<A = Self>;
     type Surface: DynSurface + Surface<A = Self>;
     type Adapter: DynAdapter + Adapter<A = Self>;
@@ -511,7 +644,7 @@ pub trait Api: Clone + fmt::Debug + Sized {
 pub trait Instance: Sized + WasmNotSendSync {
     type A: Api;
 
-    unsafe fn init(desc: &InstanceDescriptor) -> Result<Self, InstanceError>;
+    unsafe fn init(desc: &InstanceDescriptor<'_>) -> Result<Self, InstanceError>;
     unsafe fn create_surface(
         &self,
         display_handle: raw_window_handle::RawDisplayHandle,
@@ -950,6 +1083,9 @@ pub trait Device: WasmNotSendSync {
     /// Calling `wait` with a lower [`FenceValue`] than `fence`'s current value
     /// returns immediately.
     ///
+    /// If `timeout` is provided, the function will block indefinitely or until
+    /// an error is encountered.
+    ///
     /// Returns `Ok(true)` on success and `Ok(false)` on timeout.
     ///
     /// [`Fence`]: Api::Fence
@@ -958,11 +1094,26 @@ pub trait Device: WasmNotSendSync {
         &self,
         fence: &<Self::A as Api>::Fence,
         value: FenceValue,
-        timeout_ms: u32,
+        timeout: Option<core::time::Duration>,
     ) -> Result<bool, DeviceError>;
 
-    unsafe fn start_capture(&self) -> bool;
-    unsafe fn stop_capture(&self);
+    /// Start a graphics debugger capture.
+    ///
+    /// # Safety
+    ///
+    /// See [`wgpu::Device::start_graphics_debugger_capture`][api] for more details.
+    ///
+    /// [api]: ../wgpu/struct.Device.html#method.start_graphics_debugger_capture
+    unsafe fn start_graphics_debugger_capture(&self) -> bool;
+
+    /// Stop a graphics debugger capture.
+    ///
+    /// # Safety
+    ///
+    /// See [`wgpu::Device::stop_graphics_debugger_capture`][api] for more details.
+    ///
+    /// [api]: ../wgpu/struct.Device.html#method.stop_graphics_debugger_capture
+    unsafe fn stop_graphics_debugger_capture(&self);
 
     #[allow(unused_variables)]
     unsafe fn pipeline_cache_get_data(
@@ -995,6 +1146,8 @@ pub trait Device: WasmNotSendSync {
     fn generate_allocator_report(&self) -> Option<wgt::AllocatorReport> {
         None
     }
+
+    fn check_if_oom(&self) -> Result<(), DeviceError>;
 }
 
 pub trait Queue: WasmNotSendSync {
@@ -1005,9 +1158,9 @@ pub trait Queue: WasmNotSendSync {
     /// Update `fence` to `value` when the operation is complete. See
     /// [`Fence`] for details.
     ///
-    /// A `wgpu_hal` queue is "single threaded": all command buffers are
-    /// executed in the order they're submitted, with each buffer able to see
-    /// previous buffers' results. Specifically:
+    /// All command buffers submitted to a `wgpu_hal` queue are executed in the
+    /// order they're submitted, with each buffer able to observe the effects of
+    /// previous buffers' execution. Specifically:
     ///
     /// - If two calls to `submit` on a single `Queue` occur in a particular
     ///   order (that is, they happen on the same thread, or on two threads that
@@ -1315,18 +1468,17 @@ pub trait CommandEncoder: WasmNotSendSync + fmt::Debug {
         dynamic_offsets: &[wgt::DynamicOffset],
     );
 
-    /// Sets a range in push constant data.
+    /// Sets a range in immediate data.
     ///
     /// IMPORTANT: while the data is passed as words, the offset is in bytes!
     ///
     /// # Safety
     ///
     /// - `offset_bytes` must be a multiple of 4.
-    /// - The range of push constants written must be valid for the pipeline layout at draw time.
-    unsafe fn set_push_constants(
+    /// - The range of immediates written must be valid for the pipeline layout at draw time.
+    unsafe fn set_immediates(
         &mut self,
         layout: &<Self::A as Api>::PipelineLayout,
-        stages: wgt::ShaderStages,
         offset_bytes: u32,
         data: &[u32],
     );
@@ -1363,7 +1515,7 @@ pub trait CommandEncoder: WasmNotSendSync + fmt::Debug {
     /// This clears any bindings established by the following calls:
     ///
     /// - [`set_bind_group`](CommandEncoder::set_bind_group)
-    /// - [`set_push_constants`](CommandEncoder::set_push_constants)
+    /// - [`set_immediates`](CommandEncoder::set_immediates)
     /// - [`begin_query`](CommandEncoder::begin_query)
     /// - [`set_render_pipeline`](CommandEncoder::set_render_pipeline)
     /// - [`set_index_buffer`](CommandEncoder::set_index_buffer)
@@ -1384,7 +1536,7 @@ pub trait CommandEncoder: WasmNotSendSync + fmt::Debug {
     unsafe fn begin_render_pass(
         &mut self,
         desc: &RenderPassDescriptor<<Self::A as Api>::QuerySet, <Self::A as Api>::TextureView>,
-    );
+    ) -> Result<(), DeviceError>;
 
     /// End the current render pass.
     ///
@@ -1457,6 +1609,26 @@ pub trait CommandEncoder: WasmNotSendSync + fmt::Debug {
         count_offset: wgt::BufferAddress,
         max_count: u32,
     );
+    unsafe fn draw_mesh_tasks(
+        &mut self,
+        group_count_x: u32,
+        group_count_y: u32,
+        group_count_z: u32,
+    );
+    unsafe fn draw_mesh_tasks_indirect(
+        &mut self,
+        buffer: &<Self::A as Api>::Buffer,
+        offset: wgt::BufferAddress,
+        draw_count: u32,
+    );
+    unsafe fn draw_mesh_tasks_indirect_count(
+        &mut self,
+        buffer: &<Self::A as Api>::Buffer,
+        offset: wgt::BufferAddress,
+        count_buffer: &<Self::A as Api>::Buffer,
+        count_offset: wgt::BufferAddress,
+        max_count: u32,
+    );
 
     // compute passes
 
@@ -1465,7 +1637,7 @@ pub trait CommandEncoder: WasmNotSendSync + fmt::Debug {
     /// This clears any bindings established by the following calls:
     ///
     /// - [`set_bind_group`](CommandEncoder::set_bind_group)
-    /// - [`set_push_constants`](CommandEncoder::set_push_constants)
+    /// - [`set_immediates`](CommandEncoder::set_immediates)
     /// - [`begin_query`](CommandEncoder::begin_query)
     /// - [`set_compute_pipeline`](CommandEncoder::set_compute_pipeline)
     ///
@@ -1544,9 +1716,9 @@ bitflags!(
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct PipelineLayoutFlags: u32 {
         /// D3D12: Add support for `first_vertex` and `first_instance` builtins
-        /// via push constants for direct execution.
+        /// via immediates for direct execution.
         const FIRST_VERTEX_INSTANCE = 1 << 0;
-        /// D3D12: Add support for `num_workgroups` builtins via push constants
+        /// D3D12: Add support for `num_workgroups` builtins via immediates
         /// for direct execution.
         const NUM_WORK_GROUPS = 1 << 1;
         /// D3D12: Add support for the builtins that the other flags enable for
@@ -1666,7 +1838,7 @@ impl From<wgt::TextureFormat> for FormatAspects {
             wgt::TextureFormat::Depth32FloatStencil8 | wgt::TextureFormat::Depth24PlusStencil8 => {
                 Self::DEPTH_STENCIL
             }
-            wgt::TextureFormat::NV12 => Self::PLANE_0 | Self::PLANE_1,
+            wgt::TextureFormat::NV12 | wgt::TextureFormat::P010 => Self::PLANE_0 | Self::PLANE_1,
             _ => Self::COLOR,
         }
     }
@@ -1680,21 +1852,35 @@ bitflags!(
     }
 );
 
-//TODO: it's not intuitive for the backends to consider `LOAD` being optional.
-
 bitflags!(
+    /// Attachment load and store operations.
+    ///
+    /// There must be at least one flag from the LOAD group and one from the STORE group set.
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct AttachmentOps: u8 {
+        /// Load the existing contents of the attachment.
         const LOAD = 1 << 0;
-        const STORE = 1 << 1;
+        /// Clear the attachment to a specified value.
+        const LOAD_CLEAR = 1 << 1;
+        /// The contents of the attachment are undefined.
+        const LOAD_DONT_CARE = 1 << 2;
+        /// Store the contents of the attachment.
+        const STORE = 1 << 3;
+        /// The contents of the attachment are undefined after the pass.
+        const STORE_DISCARD = 1 << 4;
     }
 );
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct InstanceDescriptor<'a> {
     pub name: &'a str,
     pub flags: wgt::InstanceFlags,
+    pub memory_budget_thresholds: wgt::MemoryBudgetThresholds,
     pub backend_options: wgt::BackendOptions,
+    pub telemetry: Option<Telemetry>,
+    /// This is a borrow because the surrounding `core::Instance` keeps the the owned display handle
+    /// alive already.
+    pub display: Option<DisplayHandle<'a>>,
 }
 
 #[derive(Clone, Debug)]
@@ -1735,8 +1921,16 @@ pub struct Capabilities {
     pub limits: wgt::Limits,
     pub alignments: Alignments,
     pub downlevel: wgt::DownlevelCapabilities,
+    /// Supported cooperative matrix configurations.
+    ///
+    /// Empty if cooperative matrices are not supported.
+    pub cooperative_matrix_properties: Vec<wgt::CooperativeMatrixProperties>,
 }
 
+/// An adapter with all the information needed to reason about its capabilities.
+///
+/// These are either made by [`Instance::enumerate_adapters`] or by backend specific
+/// methods on the backend [`Instance`] or [`Adapter`].
 #[derive(Debug)]
 pub struct ExposedAdapter<A: Api> {
     pub adapter: A::Adapter,
@@ -1791,6 +1985,10 @@ pub struct AcquiredSurfaceTexture<A: Api> {
     pub suboptimal: bool,
 }
 
+/// An open connection to a device and a queue.
+///
+/// This can be created from [`Adapter::open`] or backend
+/// specific methods on the backend's [`Instance`] or [`Adapter`].
 #[derive(Debug)]
 pub struct OpenDevice<A: Api> {
     pub device: A::Device,
@@ -1833,7 +2031,7 @@ impl TextureDescriptor<'_> {
 
     pub fn is_cube_compatible(&self) -> bool {
         self.dimension == wgt::TextureDimension::D2
-            && self.size.depth_or_array_layers % 6 == 0
+            && self.size.depth_or_array_layers.is_multiple_of(6)
             && self.sample_count == 1
             && self.size.width == self.size.height
     }
@@ -1868,7 +2066,7 @@ pub struct SamplerDescriptor<'a> {
     pub address_modes: [wgt::AddressMode; 3],
     pub mag_filter: wgt::FilterMode,
     pub min_filter: wgt::FilterMode,
-    pub mipmap_filter: wgt::FilterMode,
+    pub mipmap_filter: wgt::MipmapFilterMode,
     pub lod_clamp: Range<f32>,
     pub compare: Option<wgt::CompareFunction>,
     // Must in the range [1, 16].
@@ -1894,18 +2092,25 @@ pub struct PipelineLayoutDescriptor<'a, B: DynBindGroupLayout + ?Sized> {
     pub label: Label<'a>,
     pub flags: PipelineLayoutFlags,
     pub bind_group_layouts: &'a [&'a B],
-    pub push_constant_ranges: &'a [wgt::PushConstantRange],
+    pub immediate_size: u32,
 }
 
 /// A region of a buffer made visible to shaders via a [`BindGroup`].
 ///
 /// [`BindGroup`]: Api::BindGroup
 ///
+/// ## Construction
+///
+/// The recommended way to construct a `BufferBinding` is using the `binding`
+/// method on a wgpu-core `Buffer`, which will validate the binding size
+/// against the buffer size. A `new_unchecked` constructor is also provided for
+/// cases where direct construction is necessary.
+///
 /// ## Accessible region
 ///
 /// `wgpu_hal` guarantees that shaders compiled with
 /// [`ShaderModuleDescriptor::runtime_checks`] set to `true` cannot read or
-/// write data via this binding outside the *accessible region* of [`buffer`]:
+/// write data via this binding outside the *accessible region* of a buffer:
 ///
 /// - The accessible region starts at [`offset`].
 ///
@@ -1925,28 +2130,39 @@ pub struct PipelineLayoutDescriptor<'a, B: DynBindGroupLayout + ?Sized> {
 /// parts of which buffers shaders might observe. This optimization is only
 /// sound if shader access is bounds-checked.
 ///
-/// [`buffer`]: BufferBinding::buffer
+/// ## Zero-length bindings
+///
+/// Some back ends cannot tolerate zero-length regions; for example, see
+/// [VUID-VkDescriptorBufferInfo-offset-00340][340] and
+/// [VUID-VkDescriptorBufferInfo-range-00341][341], or the
+/// documentation for GLES's [glBindBufferRange][bbr]. This documentation
+/// previously stated that a `BufferBinding` must have `offset` strictly less
+/// than the size of the buffer, but this restriction was not honored elsewhere
+/// in the code, so has been removed. However, it remains the case that
+/// some backends do not support zero-length bindings, so additional
+/// logic is needed somewhere to handle this properly. See
+/// [#3170](https://github.com/gfx-rs/wgpu/issues/3170).
+///
 /// [`offset`]: BufferBinding::offset
 /// [`size`]: BufferBinding::size
 /// [`Storage`]: wgt::BufferBindingType::Storage
 /// [`Uniform`]: wgt::BufferBindingType::Uniform
+/// [340]: https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkDescriptorBufferInfo-offset-00340
+/// [341]: https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkDescriptorBufferInfo-range-00341
+/// [bbr]: https://registry.khronos.org/OpenGL-Refpages/es3.0/html/glBindBufferRange.xhtml
 /// [woob]: https://gpuweb.github.io/gpuweb/wgsl/#out-of-bounds-access-sec
 #[derive(Debug)]
 pub struct BufferBinding<'a, B: DynBuffer + ?Sized> {
     /// The buffer being bound.
-    pub buffer: &'a B,
+    ///
+    /// This is not fully `pub` to prevent direct construction of
+    /// `BufferBinding`s, while still allowing public read access to the `offset`
+    /// and `size` properties.
+    pub(crate) buffer: &'a B,
 
     /// The offset at which the bound region starts.
     ///
-    /// This must be less than the size of the buffer. Some back ends
-    /// cannot tolerate zero-length regions; for example, see
-    /// [VUID-VkDescriptorBufferInfo-offset-00340][340] and
-    /// [VUID-VkDescriptorBufferInfo-range-00341][341], or the
-    /// documentation for GLES's [glBindBufferRange][bbr].
-    ///
-    /// [340]: https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkDescriptorBufferInfo-offset-00340
-    /// [341]: https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkDescriptorBufferInfo-range-00341
-    /// [bbr]: https://registry.khronos.org/OpenGL-Refpages/es3.0/html/glBindBufferRange.xhtml
+    /// This must be less or equal to the size of the buffer.
     pub offset: wgt::BufferAddress,
 
     /// The size of the region bound, in bytes.
@@ -1957,12 +2173,71 @@ pub struct BufferBinding<'a, B: DynBuffer + ?Sized> {
     pub size: Option<wgt::BufferSize>,
 }
 
-impl<'a, T: DynBuffer + ?Sized> Clone for BufferBinding<'a, T> {
+// We must implement this manually because `B` is not necessarily `Clone`.
+impl<B: DynBuffer + ?Sized> Clone for BufferBinding<'_, B> {
     fn clone(&self) -> Self {
         BufferBinding {
             buffer: self.buffer,
             offset: self.offset,
             size: self.size,
+        }
+    }
+}
+
+/// Temporary convenience trait to let us call `.get()` on `u64`s in code that
+/// really wants to be using `NonZeroU64`.
+/// TODO(<https://github.com/gfx-rs/wgpu/issues/3170>): remove this
+pub trait ShouldBeNonZeroExt {
+    fn get(&self) -> u64;
+}
+
+impl ShouldBeNonZeroExt for NonZeroU64 {
+    fn get(&self) -> u64 {
+        NonZeroU64::get(*self)
+    }
+}
+
+impl ShouldBeNonZeroExt for u64 {
+    fn get(&self) -> u64 {
+        *self
+    }
+}
+
+impl ShouldBeNonZeroExt for Option<NonZeroU64> {
+    fn get(&self) -> u64 {
+        match *self {
+            Some(non_zero) => non_zero.get(),
+            None => 0,
+        }
+    }
+}
+
+impl<'a, B: DynBuffer + ?Sized> BufferBinding<'a, B> {
+    /// Construct a `BufferBinding` with the given contents.
+    ///
+    /// When possible, use the `binding` method on a wgpu-core `Buffer` instead
+    /// of this method. `Buffer::binding` validates the size of the binding
+    /// against the size of the buffer.
+    ///
+    /// It is more difficult to provide a validating constructor here, due to
+    /// not having direct access to the size of a `DynBuffer`.
+    ///
+    /// SAFETY: The caller is responsible for ensuring that a binding of `size`
+    /// bytes starting at `offset` is contained within the buffer.
+    ///
+    /// The `S` type parameter is a temporary convenience to allow callers to
+    /// pass a zero size. When the zero-size binding issue is resolved, the
+    /// argument should just match the type of the member.
+    /// TODO(<https://github.com/gfx-rs/wgpu/issues/3170>): remove the parameter
+    pub fn new_unchecked<S: Into<Option<NonZeroU64>>>(
+        buffer: &'a B,
+        offset: wgt::BufferAddress,
+        size: S,
+    ) -> Self {
+        Self {
+            buffer,
+            offset,
+            size: size.into(),
         }
     }
 }
@@ -1978,6 +2253,23 @@ impl<'a, T: DynTextureView + ?Sized> Clone for TextureBinding<'a, T> {
         TextureBinding {
             view: self.view,
             usage: self.usage,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ExternalTextureBinding<'a, B: DynBuffer + ?Sized, T: DynTextureView + ?Sized> {
+    pub planes: [TextureBinding<'a, T>; 3],
+    pub params: BufferBinding<'a, B>,
+}
+
+impl<'a, B: DynBuffer + ?Sized, T: DynTextureView + ?Sized> Clone
+    for ExternalTextureBinding<'a, B, T>
+{
+    fn clone(&self) -> Self {
+        ExternalTextureBinding {
+            planes: self.planes.clone(),
+            params: self.params.clone(),
         }
     }
 }
@@ -2015,6 +2307,7 @@ pub struct BindGroupDescriptor<
     pub textures: &'a [TextureBinding<'a, T>],
     pub entries: &'a [BindGroupEntry],
     pub acceleration_structures: &'a [&'a A],
+    pub external_textures: &'a [ExternalTextureBinding<'a, B, T>],
 }
 
 #[derive(Clone, Debug)]
@@ -2024,6 +2317,7 @@ pub struct CommandEncoderDescriptor<'a, Q: DynQueue + ?Sized> {
 }
 
 /// Naga shader module.
+#[derive(Default)]
 pub struct NagaShader {
     /// Shader module IR.
     pub module: Cow<'static, naga::Module>,
@@ -2042,10 +2336,29 @@ impl fmt::Debug for NagaShader {
 }
 
 /// Shader input.
-#[allow(clippy::large_enum_variant)]
 pub enum ShaderInput<'a> {
     Naga(NagaShader),
+    Msl {
+        shader: &'a str,
+        entry_point: String,
+        num_workgroups: (u32, u32, u32),
+    },
     SpirV(&'a [u32]),
+    Dxil {
+        shader: &'a [u8],
+        entry_point: String,
+        num_workgroups: (u32, u32, u32),
+    },
+    Hlsl {
+        shader: &'a str,
+        entry_point: String,
+        num_workgroups: (u32, u32, u32),
+    },
+    Glsl {
+        shader: &'a str,
+        entry_point: String,
+        num_workgroups: (u32, u32, u32),
+    },
 }
 
 pub struct ShaderModuleDescriptor<'a> {
@@ -2126,6 +2439,20 @@ pub struct VertexBufferLayout<'a> {
     pub attributes: &'a [wgt::VertexAttribute],
 }
 
+#[derive(Clone, Debug)]
+pub enum VertexProcessor<'a, M: DynShaderModule + ?Sized> {
+    Standard {
+        /// The format of any vertex buffers used with this pipeline.
+        vertex_buffers: &'a [VertexBufferLayout<'a>],
+        /// The vertex stage for this pipeline.
+        vertex_stage: ProgrammableStage<'a, M>,
+    },
+    Mesh {
+        task_stage: Option<ProgrammableStage<'a, M>>,
+        mesh_stage: ProgrammableStage<'a, M>,
+    },
+}
+
 /// Describes a render (graphics) pipeline.
 #[derive(Clone, Debug)]
 pub struct RenderPipelineDescriptor<
@@ -2137,10 +2464,8 @@ pub struct RenderPipelineDescriptor<
     pub label: Label<'a>,
     /// The layout of bind groups for this pipeline.
     pub layout: &'a Pl,
-    /// The format of any vertex buffers used with this pipeline.
-    pub vertex_buffers: &'a [VertexBufferLayout<'a>],
-    /// The vertex stage for this pipeline.
-    pub vertex_stage: ProgrammableStage<'a, M>,
+    /// The vertex processing state(vertex shader + buffers or task + mesh shaders)
+    pub vertex_processor: VertexProcessor<'a, M>,
     /// The properties of the pipeline at the primitive assembly and rasterization level.
     pub primitive: wgt::PrimitiveState,
     /// The effect of draw calls on the depth and stencil aspects of the output target, if any.
@@ -2153,7 +2478,7 @@ pub struct RenderPipelineDescriptor<
     pub color_targets: &'a [Option<wgt::ColorTargetState>],
     /// If the pipeline will be used with a multiview render pass, this indicates how many array
     /// layers the attachments will have.
-    pub multiview: Option<NonZeroU32>,
+    pub multiview_mask: Option<NonZeroU32>,
     /// The cache which will be used and filled when compiling this pipeline
     pub cache: Option<&'a Pc>,
 }
@@ -2230,6 +2555,36 @@ pub struct CopyExtent {
     pub depth: u32,
 }
 
+impl From<wgt::Extent3d> for CopyExtent {
+    fn from(value: wgt::Extent3d) -> Self {
+        let wgt::Extent3d {
+            width,
+            height,
+            depth_or_array_layers,
+        } = value;
+        Self {
+            width,
+            height,
+            depth: depth_or_array_layers,
+        }
+    }
+}
+
+impl From<CopyExtent> for wgt::Extent3d {
+    fn from(value: CopyExtent) -> Self {
+        let CopyExtent {
+            width,
+            height,
+            depth,
+        } = value;
+        Self {
+            width,
+            height,
+            depth_or_array_layers: depth,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TextureCopy {
     pub src_base: TextureCopyBase,
@@ -2255,6 +2610,7 @@ pub struct Attachment<'a, T: DynTextureView + ?Sized> {
 #[derive(Clone, Debug)]
 pub struct ColorAttachment<'a, T: DynTextureView + ?Sized> {
     pub target: Attachment<'a, T>,
+    pub depth_slice: Option<u32>,
     pub resolve_target: Option<Attachment<'a, T>>,
     pub ops: AttachmentOps,
     pub clear_value: wgt::Color,
@@ -2282,7 +2638,7 @@ pub struct RenderPassDescriptor<'a, Q: DynQuerySet + ?Sized, T: DynTextureView +
     pub sample_count: u32,
     pub color_attachments: &'a [Option<ColorAttachment<'a, T>>],
     pub depth_stencil_attachment: Option<DepthStencilAttachment<'a, T>>,
-    pub multiview: Option<NonZeroU32>,
+    pub multiview_mask: Option<NonZeroU32>,
     pub timestamp_writes: Option<PassTimestampWrites<'a, Q>>,
     pub occlusion_query_set: Option<&'a Q>,
 }
@@ -2291,42 +2647,6 @@ pub struct RenderPassDescriptor<'a, Q: DynQuerySet + ?Sized, T: DynTextureView +
 pub struct ComputePassDescriptor<'a, Q: DynQuerySet + ?Sized> {
     pub label: Label<'a>,
     pub timestamp_writes: Option<PassTimestampWrites<'a, Q>>,
-}
-
-/// Stores the text of any validation errors that have occurred since
-/// the last call to `get_and_reset`.
-///
-/// Each value is a validation error and a message associated with it,
-/// or `None` if the error has no message from the api.
-///
-/// This is used for internal wgpu testing only and _must not_ be used
-/// as a way to check for errors.
-///
-/// This works as a static because `cargo nextest` runs all of our
-/// tests in separate processes, so each test gets its own canary.
-///
-/// This prevents the issue of one validation error terminating the
-/// entire process.
-pub static VALIDATION_CANARY: ValidationCanary = ValidationCanary {
-    inner: Mutex::new(Vec::new()),
-};
-
-/// Flag for internal testing.
-pub struct ValidationCanary {
-    inner: Mutex<Vec<String>>,
-}
-
-impl ValidationCanary {
-    #[allow(dead_code)] // in some configurations this function is dead
-    fn add(&self, msg: String) {
-        self.inner.lock().push(msg);
-    }
-
-    /// Returns any API validation errors that have occurred in this process
-    /// since the last call to this function.
-    pub fn get_and_reset(&self) -> Vec<String> {
-        self.inner.lock().drain(..).collect()
-    }
 }
 
 #[test]
@@ -2488,4 +2808,24 @@ pub struct TlasInstance {
     pub custom_data: u32,
     pub mask: u8,
     pub blas_address: u64,
+}
+
+#[cfg(dx12)]
+pub enum D3D12ExposeAdapterResult {
+    CreateDeviceError(dx12::CreateDeviceError),
+    UnknownFeatureLevel(i32),
+    ResourceBindingTier2Requirement,
+    ShaderModel6Requirement,
+    Success(dx12::FeatureLevel, dx12::ShaderModel),
+}
+
+/// Pluggable telemetry, mainly to be used by Firefox.
+#[derive(Debug, Clone, Copy)]
+pub struct Telemetry {
+    #[cfg(dx12)]
+    pub d3d12_expose_adapter: fn(
+        desc: &windows::Win32::Graphics::Dxgi::DXGI_ADAPTER_DESC2,
+        driver_version: Result<[u16; 4], windows_core::HRESULT>,
+        result: D3D12ExposeAdapterResult,
+    ),
 }

@@ -4,12 +4,12 @@
 // @ts-check
 
 /**
- * @typedef {Object} StateProps
+ * @typedef {object} StateProps
  * @property {RecordingState} recordingState
  */
 
 /**
- * @typedef {Object} OwnProps
+ * @typedef {object} OwnProps
  * @property {any} toolbox
  */
 
@@ -23,14 +23,14 @@
 
 const {
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const {
   connect,
 } = require("resource://devtools/client/shared/vendor/react-redux.js");
 const selectors = require("resource://devtools/client/performance-new/store/selectors.js");
 
 /**
- * @extends {React.PureComponent<Props>}
+ * @augments {React.PureComponent<Props>}
  */
 class ToolboxHighlightController extends PureComponent {
   /** @param {Props} prevProps */

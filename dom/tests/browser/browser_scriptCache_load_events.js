@@ -1,17 +1,9 @@
 const TEST_URL =
   "https://example.com/browser/dom/tests/browser/page_scriptCache_load_events.html";
 
-function clearAllCache() {
-  return new Promise(function (resolve) {
-    Services.clearData.deleteData(
-      Ci.nsIClearDataService.CLEAR_ALL_CACHES,
-      resolve
-    );
-  });
-}
-
 async function testOrder() {
-  await clearAllCache();
+  ChromeUtils.clearResourceCache();
+  Services.cache2.clear();
 
   const tab = await BrowserTestUtils.openNewForegroundTab({
     gBrowser,
@@ -39,7 +31,7 @@ async function testOrder() {
 
 add_task(async function test_withoutNavigationCache() {
   await SpecialPowers.pushPrefEnv({
-    set: [["dom.script_loader.navigation_cache", false]],
+    set: [["dom.script_loader.experimental.navigation_cache", false]],
   });
   registerCleanupFunction(() => SpecialPowers.popPrefEnv());
 
@@ -48,7 +40,7 @@ add_task(async function test_withoutNavigationCache() {
 
 add_task(async function test_withNavigationCache() {
   await SpecialPowers.pushPrefEnv({
-    set: [["dom.script_loader.navigation_cache", true]],
+    set: [["dom.script_loader.experimental.navigation_cache", true]],
   });
   registerCleanupFunction(() => SpecialPowers.popPrefEnv());
 

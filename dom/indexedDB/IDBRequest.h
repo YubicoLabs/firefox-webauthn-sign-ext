@@ -4,28 +4,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_idbrequest_h__
-#define mozilla_dom_idbrequest_h__
+#ifndef mozilla_dom_idbrequest_h_
+#define mozilla_dom_idbrequest_h_
 
+#include "ReportInternalError.h"
+#include "SafeRefPtr.h"
 #include "js/RootingAPI.h"
-#include "mozilla/Attributes.h"
+#include "mozilla/DOMEventTargetHelper.h"
 #include "mozilla/EventForwards.h"
+#include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/SourceLocation.h"
 #include "mozilla/dom/DOMException.h"
 #include "mozilla/dom/IDBRequestBinding.h"
 #include "mozilla/dom/ScriptSettings.h"
-#include "mozilla/DOMEventTargetHelper.h"
-#include "mozilla/HoldDropJSObjects.h"
 #include "nsCycleCollectionParticipant.h"
-#include "ReportInternalError.h"
-#include "SafeRefPtr.h"
 
-#define PRIVATE_IDBREQUEST_IID                       \
-  {                                                  \
-    0xe68901e5, 0x1d50, 0x4ee9, {                    \
-      0xaf, 0x49, 0x90, 0x99, 0x4a, 0xff, 0xc8, 0x39 \
-    }                                                \
-  }
+#define PRIVATE_IDBREQUEST_IID \
+  {0xe68901e5, 0x1d50, 0x4ee9, {0xaf, 0x49, 0x90, 0x99, 0x4a, 0xff, 0xc8, 0x39}}
 
 class nsIGlobalObject;
 
@@ -50,10 +45,8 @@ namespace detail {
 // This class holds the IID for use with NS_GET_IID.
 class PrivateIDBRequest {
  public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(PRIVATE_IDBREQUEST_IID)
+  NS_INLINE_DECL_STATIC_IID(PRIVATE_IDBREQUEST_IID)
 };
-
-NS_DEFINE_STATIC_IID_ACCESSOR(PrivateIDBRequest, PRIVATE_IDBREQUEST_IID)
 
 }  // namespace detail
 
@@ -286,4 +279,4 @@ class IDBOpenDBRequest final : public IDBRequest {
 }  // namespace dom
 }  // namespace mozilla
 
-#endif  // mozilla_dom_idbrequest_h__
+#endif  // mozilla_dom_idbrequest_h_

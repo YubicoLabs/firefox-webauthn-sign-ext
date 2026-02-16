@@ -12,9 +12,10 @@
 [package]
 edition = "2018"
 name = "minidump"
-version = "0.22.1"
+version = "0.26.1"
 authors = ["Ted Mielczarek <ted@mielczarek.org>"]
 build = false
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -31,6 +32,12 @@ categories = ["parsing"]
 license = "MIT"
 repository = "https://github.com/rust-minidump/rust-minidump"
 resolver = "2"
+
+[features]
+arbitrary_impls = [
+    "minidump-common/arbitrary",
+    "arbitrary",
+]
 
 [lib]
 name = "minidump"
@@ -55,14 +62,17 @@ version = "0.8"
 version = "0.9"
 
 [dependencies.minidump-common]
-version = "0.22.1"
+version = "0.26.1"
 
 [dependencies.num-traits]
 version = "0.2"
 
 [dependencies.procfs-core]
-version = "0.16"
+version = "0.17"
 default-features = false
+
+[dependencies.prost]
+version = "0.13"
 
 [dependencies.range-map]
 version = "0.2"
@@ -71,7 +81,7 @@ version = "0.2"
 version = "0.12.0"
 
 [dependencies.thiserror]
-version = "1.0.37"
+version = "2"
 
 [dependencies.time]
 version = "0.3.34"
@@ -85,7 +95,7 @@ features = ["log"]
 version = "1.0.0"
 
 [dev-dependencies.ctor]
-version = "0.2"
+version = "0.4"
 
 [dev-dependencies.doc-comment]
 version = "0.3.3"
@@ -95,9 +105,3 @@ version = "0.11.1"
 
 [dev-dependencies.test-assembler]
 version = "0.1.6"
-
-[features]
-arbitrary_impls = [
-    "minidump-common/arbitrary",
-    "arbitrary",
-]

@@ -14,6 +14,7 @@ Each filter is a simple function, but it also have attached a special
 :class:`Filter`; this allow to write stuff like::
 
   from raptor import filters
+
   filter_list = filters.ignore_first.prepare(1) + filters.median.prepare()
 
   for filter in filter_list:
@@ -24,7 +25,7 @@ Each filter is a simple function, but it also have attached a special
 _FILTERS = {}
 
 
-class Filter(object):
+class Filter:
     def __init__(self, func, *args, **kwargs):
         """
         Takes a filter function, and save args and kwargs that

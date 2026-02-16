@@ -4,7 +4,7 @@
 
 const perfMetadata = {
   owner: "GenAI Team",
-  name: "ML Suggest Feature",
+  name: "browser_ml_suggest_feature_perf.js",
   description: "Template test for latency for ML suggest Feature",
   options: {
     default: {
@@ -29,11 +29,10 @@ const perfMetadata = {
   },
 };
 
-requestLongerTimeout(120);
+requestLongerTimeout(10);
 const CUSTOM_INTENT_OPTIONS = {
   taskName: "text-classification",
   featureId: "suggest-intent-classification",
-  engineId: "ml-suggest-intent",
   modelId: "Mozilla/mobilebert-uncased-finetuned-LoRA-intent-classifier",
   modelHubUrlTemplate: "{model}/{revision}",
   dtype: "q8",
@@ -45,7 +44,6 @@ const CUSTOM_INTENT_OPTIONS = {
 const CUSTOM_NER_OPTIONS = {
   taskName: "token-classification",
   featureId: "suggest-NER",
-  engineId: "ml-suggest-ner",
   modelId: "Mozilla/distilbert-uncased-NER-LoRA",
   modelHubUrlTemplate: "{model}/{revision}",
   dtype: "q8",
@@ -57,7 +55,7 @@ const CUSTOM_NER_OPTIONS = {
 const journal = {};
 const runInference2 = async () => {
   ChromeUtils.defineESModuleGetters(this, {
-    MLSuggest: "resource:///modules/urlbar/private/MLSuggest.sys.mjs",
+    MLSuggest: "moz-src:///browser/components/urlbar/private/MLSuggest.sys.mjs",
   });
 
   // Override INTENT and NER options within MLSuggest
@@ -81,6 +79,13 @@ const runInference2 = async () => {
   const numIterations = 10;
   let query = "restaurants in seattle, wa";
   let names = ["intent", "ner"];
+
+  // expected output from MLSuggest model
+  const EXPECTED_INTENT = "yelp_intent";
+  const EXPECTED_CITY = "seattle";
+  const EXPECTED_STATE = "wa";
+  const EXPECTED_SUBJECT = "restaurants";
+
   let addColdStart = false;
   for (let name of names) {
     name = name.toUpperCase();
@@ -115,6 +120,10 @@ const runInference2 = async () => {
     let memUsage = await getTotalMemoryUsage();
     intent_metrics[`${TOTAL_MEMORY_USAGE}`] = memUsage;
     ner_metrics[`${TOTAL_MEMORY_USAGE}`] = memUsage;
+    Assert.equal(res.intent, EXPECTED_INTENT);
+    Assert.equal(res.location.city, EXPECTED_CITY);
+    Assert.equal(res.location.state, EXPECTED_STATE);
+    Assert.equal(res.subject, EXPECTED_SUBJECT);
 
     for (let [metricName, metricVal] of Object.entries(intent_metrics)) {
       if (metricVal === null || metricVal === undefined || metricVal < 0) {
@@ -137,7 +146,7 @@ const runInference2 = async () => {
 };
 
 /**
- * Tests remote ML Suggest feature
+ * Tests remote ML Suggest feature performance
  */
 add_task(async function test_ml_suggest_feature() {
   await runInference2();

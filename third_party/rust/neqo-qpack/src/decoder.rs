@@ -4,29 +4,30 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use neqo_common::{qdebug, Header};
+use std::fmt::{self, Display, Formatter};
+
+use neqo_common::{qdebug, Encoder, Header};
 use neqo_transport::{Connection, StreamId};
 
 use crate::{
     decoder_instructions::DecoderInstruction,
     encoder_instructions::{DecodedEncoderInstruction, EncoderInstructionReader},
     header_block::{HeaderDecoder, HeaderDecoderResult},
-    qpack_send_buf::QpackData,
-    reader::ReceiverConnWrapper,
+    reader::{ReadByte, Reader, ReceiverConnWrapper},
     stats::Stats,
     table::HeaderTable,
-    Error, QpackSettings, Res,
+    Error, Res, Settings,
 };
 
 pub const QPACK_UNI_STREAM_TYPE_DECODER: u64 = 0x3;
 
 #[derive(Debug)]
-pub struct QPackDecoder {
+pub struct Decoder {
     instruction_reader: EncoderInstructionReader,
     table: HeaderTable,
     acked_inserts: u64,
     max_entries: u64,
-    send_buf: QpackData,
+    send_buf: Encoder,
     local_stream_id: Option<StreamId>,
     max_table_size: u64,
     max_blocked_streams: usize,
@@ -34,25 +35,26 @@ pub struct QPackDecoder {
     stats: Stats,
 }
 
-impl QPackDecoder {
+impl Decoder {
     /// # Panics
     ///
     /// If settings include invalid values.
     #[must_use]
-    pub fn new(qpack_settings: &QpackSettings) -> Self {
+    pub fn new(qpack_settings: &Settings) -> Self {
         qdebug!("Decoder: creating a new qpack decoder");
-        let mut send_buf = QpackData::default();
+        let mut send_buf = Encoder::default();
         send_buf.encode_varint(QPACK_UNI_STREAM_TYPE_DECODER);
+        let max_blocked_streams = usize::from(qpack_settings.max_blocked_streams);
         Self {
-            instruction_reader: EncoderInstructionReader::new(),
+            instruction_reader: EncoderInstructionReader::default(),
             table: HeaderTable::new(false),
             acked_inserts: 0,
             max_entries: qpack_settings.max_table_size_decoder >> 5,
             send_buf,
             local_stream_id: None,
             max_table_size: qpack_settings.max_table_size_decoder,
-            max_blocked_streams: usize::from(qpack_settings.max_blocked_streams),
-            blocked_streams: Vec::new(),
+            max_blocked_streams,
+            blocked_streams: Vec::with_capacity(max_blocked_streams),
             stats: Stats::default(),
         }
     }
@@ -62,20 +64,7 @@ impl QPackDecoder {
         self.table.capacity()
     }
 
-    #[must_use]
-    pub const fn get_max_table_size(&self) -> u64 {
-        self.max_table_size
-    }
-
-    /// # Panics
-    ///
-    /// If the number of blocked streams is too large.
-    #[must_use]
-    pub fn get_blocked_streams(&self) -> u16 {
-        u16::try_from(self.max_blocked_streams).unwrap()
-    }
-
-    /// returns a list of unblocked streams
+    /// Returns a list of unblocked streams.
     ///
     /// # Errors
     ///
@@ -90,19 +79,21 @@ impl QPackDecoder {
             return Ok(Vec::new());
         }
 
-        let r = self
+        Ok(self
             .blocked_streams
-            .iter()
-            .filter_map(|(id, req)| (*req <= base_new).then_some(*id))
-            .collect::<Vec<_>>();
-        self.blocked_streams.retain(|(_, req)| *req > base_new);
-        Ok(r)
+            .extract_if(.., |(_, req)| *req <= base_new)
+            .map(|(id, _)| id)
+            .collect())
     }
 
     fn read_instructions(&mut self, conn: &mut Connection, stream_id: StreamId) -> Res<()> {
         let mut recv = ReceiverConnWrapper::new(conn, stream_id);
+        self.process_instructions(&mut recv)
+    }
+
+    pub(crate) fn process_instructions<T: ReadByte + Reader>(&mut self, recv: &mut T) -> Res<()> {
         loop {
-            match self.instruction_reader.read_instructions(&mut recv) {
+            match self.instruction_reader.read_instructions(recv) {
                 Ok(instruction) => self.execute_instruction(instruction)?,
                 Err(Error::NeedMoreData) => break Ok(()),
                 Err(e) => break Err(e),
@@ -174,7 +165,6 @@ impl QPackDecoder {
     /// # Panics
     ///
     /// Never, but rust doesn't know that.
-    #[allow(clippy::map_err_ignore)]
     pub fn send(&mut self, conn: &mut Connection) -> Res<()> {
         // Encode increment instruction if needed.
         let increment = self.table.base() - self.acked_inserts;
@@ -184,17 +174,20 @@ impl QPackDecoder {
         }
         if !self.send_buf.is_empty() && self.local_stream_id.is_some() {
             let r = conn
-                .stream_send(self.local_stream_id.unwrap(), &self.send_buf[..])
+                .stream_send(
+                    self.local_stream_id.ok_or(Error::Internal)?,
+                    self.send_buf.as_ref(),
+                )
                 .map_err(|_| Error::DecoderStream)?;
             qdebug!("[{self}] {r} bytes sent");
-            self.send_buf.read(r);
+            self.send_buf.skip(r);
         }
         Ok(())
     }
 
     /// # Errors
     ///
-    /// May return `DecompressionFailed` if header block is incorrect or incomplete.
+    /// May return `Error::Decompression` if header block is incorrect or incomplete.
     pub fn refers_dynamic_table(&self, buf: &[u8]) -> Res<bool> {
         HeaderDecoder::new(buf).refers_dynamic_table(self.max_entries, self.table.base())
     }
@@ -204,7 +197,7 @@ impl QPackDecoder {
     ///
     /// # Errors
     ///
-    /// May return `DecompressionFailed` if header block is incorrect or incomplete.
+    /// May return `Error::Decompression` if header block is incorrect or incomplete.
     ///
     /// # Panics
     ///
@@ -214,25 +207,24 @@ impl QPackDecoder {
         buf: &[u8],
         stream_id: StreamId,
     ) -> Res<Option<Vec<Header>>> {
+        #[cfg(feature = "build-fuzzing-corpus")]
+        crate::fuzz::write_item_to_fuzzing_corpus(stream_id, buf);
+
         qdebug!("[{self}] decode header block");
         let mut decoder = HeaderDecoder::new(buf);
 
         match decoder.decode_header_block(&self.table, self.max_entries, self.table.base()) {
             Ok(HeaderDecoderResult::Blocked(req_insert_cnt)) => {
                 if self.blocked_streams.len() > self.max_blocked_streams {
-                    Err(Error::DecompressionFailed)
+                    Err(Error::Decompression)
                 } else {
-                    let r = self
+                    let found = self
                         .blocked_streams
                         .iter()
-                        .filter_map(|(id, req)| (*id == stream_id).then_some(*req))
-                        .collect::<Vec<_>>();
-                    if !r.is_empty() {
-                        debug_assert!(r.len() == 1);
-                        debug_assert!(r[0] == req_insert_cnt);
-                        return Ok(None);
+                        .any(|(id, _req)| *id == stream_id);
+                    if !found {
+                        self.blocked_streams.push((stream_id, req_insert_cnt));
                     }
-                    self.blocked_streams.push((stream_id, req_insert_cnt));
                     Ok(None)
                 }
             }
@@ -243,7 +235,7 @@ impl QPackDecoder {
                 }
                 Ok(Some(h))
             }
-            Err(_) => Err(Error::DecompressionFailed),
+            Err(_) => Err(Error::Decompression),
         }
     }
 
@@ -269,9 +261,9 @@ impl QPackDecoder {
     }
 }
 
-impl ::std::fmt::Display for QPackDecoder {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "QPackDecoder {}", self.capacity())
+impl Display for Decoder {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "QPack {}", self.capacity())
     }
 }
 
@@ -284,18 +276,19 @@ fn map_error(err: &Error) -> Error {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use neqo_common::Header;
     use neqo_transport::{StreamId, StreamType};
     use test_fixture::now;
 
-    use super::{Connection, Error, QPackDecoder, Res};
-    use crate::QpackSettings;
+    use super::{Connection, Decoder, Error, Res};
+    use crate::Settings;
 
     const STREAM_0: StreamId = StreamId::new(0);
 
     struct TestDecoder {
-        decoder: QPackDecoder,
+        decoder: Decoder,
         send_stream_id: StreamId,
         recv_stream_id: StreamId,
         conn: Connection,
@@ -310,7 +303,7 @@ mod tests {
         let send_stream_id = conn.stream_create(StreamType::UniDi).unwrap();
 
         // create a decoder
-        let mut decoder = QPackDecoder::new(&QpackSettings {
+        let mut decoder = Decoder::new(&Settings {
             max_table_size_encoder: 0,
             max_table_size_decoder: 300,
             max_blocked_streams: 100,

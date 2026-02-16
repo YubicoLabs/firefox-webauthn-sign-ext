@@ -24,25 +24,24 @@
   _(WellKnownParserAtomsInit, 100)    \
                                       \
   _(ExecutionTracerInstanceLock, 250) \
-  _(WasmInitBuiltinThunks, 250)       \
-  _(WasmCodeProtected, 250)           \
-  _(WasmLazyStubsTier2, 251)          \
                                       \
-  _(StoreBuffer, 275)                 \
+  _(Sweeping, 275)                    \
                                       \
   _(GCLock, 300)                      \
                                       \
   _(GlobalHelperThreadState, 400)     \
                                       \
+  _(WasmCodeProtected, 450)           \
+                                      \
+  _(WasmInitBuiltinThunks, 451)       \
   _(StringsCache, 500)                \
   _(FutexThread, 500)                 \
-  _(GeckoProfilerStrings, 500)        \
   _(ProtectedRegionTree, 500)         \
   _(ShellOffThreadState, 500)         \
   _(ShellStreamCacheEntryState, 500)  \
   _(SimulatorCacheLock, 500)          \
   _(Arm64SimulatorLock, 500)          \
-  _(IonSpewer, 500)                   \
+  _(JitSpewGraphOutput, 500)          \
   _(PerfSpewer, 500)                  \
   _(CacheIRSpewer, 500)               \
   _(DateTimeInfoMutex, 500)           \
@@ -62,15 +61,16 @@
   _(SourceCompression, 500)           \
   _(GCDelayedMarkingLock, 500)        \
   _(BufferAllocator, 500)             \
+  _(GeckoProfilerScriptSources, 500)  \
                                       \
   _(SharedImmutableStringsCache, 600) \
   _(IrregexpLazyStatic, 600)          \
   _(ThreadId, 600)                    \
   _(WasmCodeBlockMap, 600)            \
+  _(WasmInliningBudget, 600)          \
   _(VTuneLock, 600)                   \
   _(ShellTelemetry, 600)              \
-  _(ShellUseCounters, 600)            \
-  _(WasmCodeMetaStats, 600)
+  _(ShellUseCounters, 600)
 
 namespace js {
 namespace mutexid {

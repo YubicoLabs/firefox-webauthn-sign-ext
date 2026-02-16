@@ -1,6 +1,5 @@
 [DEFAULT]
 tags = "devtools"
-skip-if = ["os == 'android'"]
 support-files = [
   "doc_Debugger.Source.prototype.introductionType.xhtml",
   "Debugger.Source.prototype.element.js",
@@ -148,3 +147,5 @@ support-files = [
 ["test_unsafeDereference.html"]
 
 ["test_webconsole-node-grip.html"]
+
+["test_webtransport-listeners.html"]

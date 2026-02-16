@@ -6,10 +6,8 @@
 
 #include "MLUtils.h"
 
-#include <algorithm>
 #include <cmath>
 #include "prsystem.h"
-#include "mozilla/Casting.h"
 #include <sys/types.h>
 #include "nsSystemInfo.h"
 
@@ -23,44 +21,23 @@
 #if defined(XP_LINUX)
 #  include <sys/sysinfo.h>
 #endif
+#include "mozilla/SSE.h"
 
 namespace mozilla::ml {
 
 NS_IMPL_ISUPPORTS(MLUtils, nsIMLUtils)
 
-/**
- * See nsIMLUtils for the method documentation.
- */
-NS_IMETHODIMP MLUtils::HasEnoughMemoryToInfer(uint64_t aModelSizeInMemory,
-                                              uint32_t aThresholdPercentage,
-                                              uint64_t aMinMemoryRequirement,
-                                              bool* _retval) {
-  // Check for the physical memory. On devices with less than
-  // `aMinMemoryRequirement`, we give up.
-  uint64_t totalMemory = PR_GetPhysicalMemorySize();
+NS_IMETHODIMP MLUtils::GetTotalPhysicalMemory(uint64_t* _retval) {
+  *_retval = PR_GetPhysicalMemorySize();
+  return NS_OK;
+}
 
-  if (totalMemory <= aMinMemoryRequirement) {
-    // We are not doing inference if the device has less than what is required.
-    *_retval = false;
-    return NS_OK;
-  }
-
-  // Ensure threshold is valid and within 0-100 range
-  if (aThresholdPercentage <= 0 || aThresholdPercentage > 100) {
-    *_retval = false;
-    return NS_ERROR_FAILURE;  // throw an error
-  }
-
-  // Convert the threshold percentage to a usable value (e.g., 80% becomes 0.8)
-  double threshold = static_cast<double>(aThresholdPercentage) / 100.0f;
-
-  // Determin the available resident memory on different platforms.
-  uint64_t availableResidentMemory = 0;
+NS_IMETHODIMP MLUtils::GetAvailablePhysicalMemory(uint64_t* _retval) {
 #if defined(XP_WIN)
   MEMORYSTATUSEX memStatus = {sizeof(memStatus)};
 
   if (GlobalMemoryStatusEx(&memStatus)) {
-    availableResidentMemory = memStatus.ullAvailPhys;
+    *_retval = memStatus.ullAvailPhys;
   } else {
     return NS_ERROR_FAILURE;
   }
@@ -76,11 +53,10 @@ NS_IMETHODIMP MLUtils::HasEnoughMemoryToInfer(uint64_t aModelSizeInMemory,
       host_statistics64(host_port, HOST_VM_INFO64,
                         reinterpret_cast<host_info64_t>(&vm_stats),
                         &count) != KERN_SUCCESS) {
-    *_retval = false;
     return NS_ERROR_FAILURE;
   }
 
-  availableResidentMemory =
+  *_retval =
       static_cast<uint64_t>(vm_stats.free_count + vm_stats.inactive_count) *
       page_size;
 #endif
@@ -88,15 +64,11 @@ NS_IMETHODIMP MLUtils::HasEnoughMemoryToInfer(uint64_t aModelSizeInMemory,
 #if defined(XP_LINUX)
   struct sysinfo memInfo{0};
   if (sysinfo(&memInfo) != 0) {
-    *_retval = false;
     return NS_ERROR_FAILURE;
   }
-  availableResidentMemory = memInfo.freeram * memInfo.mem_unit;
+  *_retval = memInfo.freeram * memInfo.mem_unit;
 #endif
 
-  // Check if the modelSize fits within memory using the threshold
-  *_retval = AssertedCast<double>(aModelSizeInMemory) <=
-             AssertedCast<double>(availableResidentMemory) * threshold;
   return NS_OK;
 }
 
@@ -121,6 +93,18 @@ NS_IMETHODIMP MLUtils::GetOptimalCPUConcurrency(uint8_t* _retval) {
 #endif
 
   *_retval = cpuCount;
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP MLUtils::CanUseLlamaCpp(bool* _retval) {
+#ifdef __x86_64__
+  *_retval = mozilla::supports_avx2();
+#elif defined(__aarch64__)
+  *_retval = true;
+#else
+  *_retval = false;
+#endif
 
   return NS_OK;
 }

@@ -1,9 +1,13 @@
 [DEFAULT]
 prefs = [
     "browser.backup.scheduled.enabled=false",
+    "browser.backup.archive.enabled=true",
+    "browser.backup.restore.enabled=true",
+    "browser.backup.archive.overridePlatformCheck=true",
+    "browser.backup.restore.overridePlatformCheck=true",
+    "privacy.sanitize.sanitizeOnShutdown=false"
 ]
 support-files = ["head.js"]
-skip-if = ["os == 'android'"]
 
 ["test_backup_settings.html"]
 
@@ -14,6 +18,8 @@ skip-if = ["os == 'android'"]
 ["test_password_validation_inputs.html"]
 
 ["test_restore_from_backup.html"]
+
+["test_trigger_create_backup.html"]
 
 ["test_turn_off_scheduled_backups.html"]
 

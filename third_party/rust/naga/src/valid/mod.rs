@@ -10,13 +10,16 @@ mod handles;
 mod interface;
 mod r#type;
 
+use alloc::{boxed::Box, string::String, vec, vec::Vec};
+use core::ops;
+
+use bit_set::BitSet;
+
 use crate::{
     arena::{Handle, HandleSet},
     proc::{ExpressionKindTracker, LayoutError, Layouter, TypeResolution},
     FastHashSet,
 };
-use bit_set::BitSet;
-use std::ops;
 
 //TODO: analyze the model at the same time as we validate it,
 // merge the corresponding matches over expressions and statements.
@@ -24,13 +27,17 @@ use std::ops;
 use crate::span::{AddSpan as _, WithSpan};
 pub use analyzer::{ExpressionInfo, FunctionInfo, GlobalUse, Uniformity, UniformityRequirements};
 pub use compose::ComposeError;
+pub use expression::builtin::ZeroValueError;
 pub use expression::{check_literal_value, LiteralError};
 pub use expression::{ConstExpressionError, ExpressionError};
-pub use function::{CallError, FunctionError, LocalVariableError};
+pub use function::{CallError, FunctionError, LocalVariableError, SubgroupError};
 pub use interface::{EntryPointError, GlobalVariableError, VaryingError};
-pub use r#type::{Disalignment, TypeError, TypeFlags, WidthError};
+pub use r#type::{Disalignment, ImmediateError, TypeError, TypeFlags, WidthError};
 
 use self::handles::InvalidHandleError;
+
+/// Maximum size of a type, in bytes.
+pub const MAX_TYPE_SIZE: u32 = 0x4000_0000; // 1GB
 
 bitflags::bitflags! {
     /// Validation flags.
@@ -77,25 +84,25 @@ bitflags::bitflags! {
     #[cfg_attr(feature = "serialize", derive(serde::Serialize))]
     #[cfg_attr(feature = "deserialize", derive(serde::Deserialize))]
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub struct Capabilities: u32 {
-        /// Support for [`AddressSpace::PushConstant`][1].
+    pub struct Capabilities: u64 {
+        /// Support for [`AddressSpace::Immediate`][1].
         ///
-        /// [1]: crate::AddressSpace::PushConstant
-        const PUSH_CONSTANT = 1 << 0;
+        /// [1]: crate::AddressSpace::Immediate
+        const IMMEDIATES = 1 << 0;
         /// Float values with width = 8.
         const FLOAT64 = 1 << 1;
         /// Support for [`BuiltIn::PrimitiveIndex`][1].
         ///
         /// [1]: crate::BuiltIn::PrimitiveIndex
         const PRIMITIVE_INDEX = 1 << 2;
-        /// Support for non-uniform indexing of sampled textures and storage buffer arrays.
-        const SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING = 1 << 3;
-        /// Support for non-uniform indexing of storage texture arrays.
-        const STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING = 1 << 4;
-        /// Support for non-uniform indexing of uniform buffer arrays.
-        const UNIFORM_BUFFER_ARRAY_NON_UNIFORM_INDEXING = 1 << 5;
-        /// Support for non-uniform indexing of samplers.
-        const SAMPLER_NON_UNIFORM_INDEXING = 1 << 6;
+        /// Support for binding arrays of sampled textures and samplers.
+        const TEXTURE_AND_SAMPLER_BINDING_ARRAY = 1 << 3;
+        /// Support for binding arrays of uniform buffers.
+        const BUFFER_BINDING_ARRAY = 1 << 4;
+        /// Support for binding arrays of storage textures.
+        const STORAGE_TEXTURE_BINDING_ARRAY = 1 << 5;
+        /// Support for binding arrays of storage buffers.
+        const STORAGE_BUFFER_BINDING_ARRAY = 1 << 6;
         /// Support for [`BuiltIn::ClipDistance`].
         ///
         /// [`BuiltIn::ClipDistance`]: crate::BuiltIn::ClipDistance
@@ -125,13 +132,26 @@ bitflags::bitflags! {
         const CUBE_ARRAY_TEXTURES = 1 << 15;
         /// Support for 64-bit signed and unsigned integers.
         const SHADER_INT64 = 1 << 16;
-        /// Support for subgroup operations.
-        /// Implies support for subgroup operations in both fragment and compute stages,
-        /// but not necessarily in the vertex stage, which requires [`Capabilities::SUBGROUP_VERTEX_STAGE`].
+        /// Support for subgroup operations (except barriers) in fragment and compute shaders.
+        ///
+        /// Subgroup operations in the vertex stage require
+        /// [`Capabilities::SUBGROUP_VERTEX_STAGE`] in addition to `Capabilities::SUBGROUP`.
+        /// (But note that `create_validator` automatically sets
+        /// `Capabilities::SUBGROUP` whenever `Features::SUBGROUP_VERTEX` is
+        /// available.)
+        ///
+        /// Subgroup barriers require [`Capabilities::SUBGROUP_BARRIER`] in addition to
+        /// `Capabilities::SUBGROUP`.
         const SUBGROUP = 1 << 17;
-        /// Support for subgroup barriers.
+        /// Support for subgroup barriers in compute shaders.
+        ///
+        /// Requires [`Capabilities::SUBGROUP`]. Without it, enables nothing.
         const SUBGROUP_BARRIER = 1 << 18;
-        /// Support for subgroup operations in the vertex stage.
+        /// Support for subgroup operations (not including barriers) in the vertex stage.
+        ///
+        /// Without [`Capabilities::SUBGROUP`], enables nothing. (But note that
+        /// `create_validator` automatically sets `Capabilities::SUBGROUP`
+        /// whenever `Features::SUBGROUP_VERTEX` is available.)
         const SUBGROUP_VERTEX_STAGE = 1 << 19;
         /// Support for [`AtomicFunction::Min`] and [`AtomicFunction::Max`] on
         /// 64-bit integers in the [`Storage`] address space, when the return
@@ -158,6 +178,55 @@ bitflags::bitflags! {
         const TEXTURE_ATOMIC = 1 << 23;
         /// Support for atomic operations on 64-bit images.
         const TEXTURE_INT64_ATOMIC = 1 << 24;
+        /// Support for ray queries returning vertex position
+        const RAY_HIT_VERTEX_POSITION = 1 << 25;
+        /// Support for 16-bit floating-point types.
+        const SHADER_FLOAT16 = 1 << 26;
+        /// Support for [`ImageClass::External`]
+        const TEXTURE_EXTERNAL = 1 << 27;
+        /// Support for `quantizeToF16`, `pack2x16float`, and `unpack2x16float`, which store
+        /// `f16`-precision values in `f32`s.
+        const SHADER_FLOAT16_IN_FLOAT32 = 1 << 28;
+        /// Support for fragment shader barycentric coordinates.
+        const SHADER_BARYCENTRICS = 1 << 29;
+        /// Support for task shaders, mesh shaders, and per-primitive fragment inputs
+        const MESH_SHADER = 1 << 30;
+        /// Support for mesh shaders which output points.
+        const MESH_SHADER_POINT_TOPOLOGY = 1 << 31;
+        /// Support for non-uniform indexing of binding arrays of sampled textures and samplers.
+        const TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING = 1 << 32;
+        /// Support for non-uniform indexing of binding arrays of uniform buffers.
+        const BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING = 1 << 33;
+        /// Support for non-uniform indexing of binding arrays of storage textures.
+        const STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING = 1 << 34;
+        /// Support for non-uniform indexing of binding arrays of storage buffers.
+        const STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING = 1 << 35;
+        /// Support for cooperative matrix types and operations
+        const COOPERATIVE_MATRIX = 1 << 36;
+        /// Support for per-vertex fragment input.
+        const PER_VERTEX = 1 << 37;
+    }
+}
+
+impl Capabilities {
+    /// Returns the extension corresponding to this capability, if there is one.
+    ///
+    /// This is used by integration tests.
+    #[cfg(feature = "wgsl-in")]
+    #[doc(hidden)]
+    pub const fn extension(&self) -> Option<crate::front::wgsl::ImplementedEnableExtension> {
+        use crate::front::wgsl::ImplementedEnableExtension as Ext;
+        match *self {
+            Self::DUAL_SOURCE_BLENDING => Some(Ext::DualSourceBlending),
+            // NOTE: `SHADER_FLOAT16_IN_FLOAT32` _does not_ require the `f16` extension
+            Self::SHADER_FLOAT16 => Some(Ext::F16),
+            Self::CLIP_DISTANCE => Some(Ext::ClipDistances),
+            Self::MESH_SHADER => Some(Ext::WgpuMeshShader),
+            Self::RAY_QUERY => Some(Ext::WgpuRayQuery),
+            Self::RAY_HIT_VERTEX_POSITION => Some(Ext::WgpuRayQueryVertexReturn),
+            Self::COOPERATIVE_MATRIX => Some(Ext::WgpuCooperativeMatrix),
+            _ => None,
+        }
     }
 }
 
@@ -173,7 +242,11 @@ bitflags::bitflags! {
     #[cfg_attr(feature = "deserialize", derive(serde::Deserialize))]
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
     pub struct SubgroupOperationSet: u8 {
-        /// Elect, Barrier
+        /// Barriers
+        // Possibly elections, when that is supported.
+        // https://github.com/gfx-rs/wgpu/issues/6042#issuecomment-3272603431
+        // Contrary to what the name "basic" suggests, HLSL/DX12 support the
+        // other subgroup operations, but do not support subgroup barriers.
         const BASIC = 1 << 0;
         /// Any, All
         const VOTE = 1 << 1;
@@ -188,8 +261,8 @@ bitflags::bitflags! {
         // We don't support these operations yet
         // /// Clustered
         // const CLUSTERED = 1 << 6;
-        // /// Quad supported
-        // const QUAD_FRAGMENT_COMPUTE = 1 << 7;
+        /// Quad supported
+        const QUAD_FRAGMENT_COMPUTE = 1 << 7;
         // /// Quad supported in all stages
         // const QUAD_ALL_STAGES = 1 << 8;
     }
@@ -214,6 +287,7 @@ impl super::GatherMode {
             Self::BroadcastFirst | Self::Broadcast(_) => S::BALLOT,
             Self::Shuffle(_) | Self::ShuffleXor(_) => S::SHUFFLE,
             Self::ShuffleUp(_) | Self::ShuffleDown(_) => S::SHUFFLE_RELATIVE,
+            Self::QuadBroadcast(_) | Self::QuadSwap(_) => S::QUAD_FRAGMENT_COMPUTE,
         }
     }
 }
@@ -227,10 +301,13 @@ bitflags::bitflags! {
         const VERTEX = 0x1;
         const FRAGMENT = 0x2;
         const COMPUTE = 0x4;
+        const MESH = 0x8;
+        const TASK = 0x10;
+        const COMPUTE_LIKE = Self::COMPUTE.bits() | Self::TASK.bits() | Self::MESH.bits();
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize))]
 #[cfg_attr(feature = "deserialize", derive(serde::Deserialize))]
 pub struct ModuleInfo {
@@ -270,13 +347,16 @@ pub struct Validator {
     types: Vec<r#type::TypeInfo>,
     layouter: Layouter,
     location_mask: BitSet,
+    blend_src_mask: BitSet,
     ep_resource_bindings: FastHashSet<crate::ResourceBinding>,
-    #[allow(dead_code)]
     switch_values: FastHashSet<crate::SwitchValue>,
     valid_expression_list: Vec<Handle<crate::Expression>>,
     valid_expression_set: HandleSet<crate::Expression>,
     override_ids: FastHashSet<u16>,
-    allow_overrides: bool,
+
+    /// Treat overrides whose initializers are not fully-evaluated
+    /// constant expressions as errors.
+    overrides_resolved: bool,
 
     /// A checklist of expressions that must be visited by a specific kind of
     /// statement.
@@ -327,6 +407,13 @@ pub enum OverrideError {
     TypeNotScalar,
     #[error("Override declarations are not allowed")]
     NotAllowed,
+    #[error("Override is uninitialized")]
+    UninitializedOverride,
+    #[error("Constant expression {handle:?} is invalid")]
+    ConstExpression {
+        handle: Handle<crate::Expression>,
+        source: ConstExpressionError,
+    },
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -389,6 +476,7 @@ impl crate::TypeInner {
             Self::Scalar { .. }
             | Self::Vector { .. }
             | Self::Matrix { .. }
+            | Self::CooperativeMatrix { .. }
             | Self::Array {
                 size: crate::ArraySize::Constant(_),
                 ..
@@ -400,8 +488,8 @@ impl crate::TypeInner {
             Self::Array { .. }
             | Self::Image { .. }
             | Self::Sampler { .. }
-            | Self::AccelerationStructure
-            | Self::RayQuery
+            | Self::AccelerationStructure { .. }
+            | Self::RayQuery { .. }
             | Self::BindingArray { .. } => false,
         }
     }
@@ -435,11 +523,29 @@ impl crate::TypeInner {
 }
 
 impl Validator {
-    /// Construct a new validator instance.
+    /// Create a validator for Naga [`Module`]s.
+    ///
+    /// The `flags` argument indicates which stages of validation the
+    /// returned `Validator` should perform. Skipping stages can make
+    /// validation somewhat faster, but the validator may not reject some
+    /// invalid modules. Regardless of `flags`, validation always returns
+    /// a usable [`ModuleInfo`] value on success.
+    ///
+    /// If `flags` contains everything in `ValidationFlags::default()`,
+    /// then the returned Naga [`Validator`] will reject any [`Module`]
+    /// that would use capabilities not included in `capabilities`.
+    ///
+    /// [`Module`]: crate::Module
     pub fn new(flags: ValidationFlags, capabilities: Capabilities) -> Self {
         let subgroup_operations = if capabilities.contains(Capabilities::SUBGROUP) {
             use SubgroupOperationSet as S;
-            S::BASIC | S::VOTE | S::ARITHMETIC | S::BALLOT | S::SHUFFLE | S::SHUFFLE_RELATIVE
+            S::BASIC
+                | S::VOTE
+                | S::ARITHMETIC
+                | S::BALLOT
+                | S::SHUFFLE
+                | S::SHUFFLE_RELATIVE
+                | S::QUAD_FRAGMENT_COMPUTE
         } else {
             SubgroupOperationSet::empty()
         };
@@ -449,7 +555,7 @@ impl Validator {
                 stages |= ShaderStages::VERTEX;
             }
             if capabilities.contains(Capabilities::SUBGROUP) {
-                stages |= ShaderStages::FRAGMENT | ShaderStages::COMPUTE;
+                stages |= ShaderStages::FRAGMENT | ShaderStages::COMPUTE_LIKE;
             }
             stages
         };
@@ -462,22 +568,25 @@ impl Validator {
             types: Vec::new(),
             layouter: Layouter::default(),
             location_mask: BitSet::new(),
+            blend_src_mask: BitSet::new(),
             ep_resource_bindings: FastHashSet::default(),
             switch_values: FastHashSet::default(),
             valid_expression_list: Vec::new(),
             valid_expression_set: HandleSet::new(),
             override_ids: FastHashSet::default(),
-            allow_overrides: true,
+            overrides_resolved: false,
             needs_visit: HandleSet::new(),
         }
     }
 
-    pub fn subgroup_stages(&mut self, stages: ShaderStages) -> &mut Self {
+    // TODO(https://github.com/gfx-rs/wgpu/issues/8207): Consider removing this
+    pub const fn subgroup_stages(&mut self, stages: ShaderStages) -> &mut Self {
         self.subgroup_stages = stages;
         self
     }
 
-    pub fn subgroup_operations(&mut self, operations: SubgroupOperationSet) -> &mut Self {
+    // TODO(https://github.com/gfx-rs/wgpu/issues/8207): Consider removing this
+    pub const fn subgroup_operations(&mut self, operations: SubgroupOperationSet) -> &mut Self {
         self.subgroup_operations = operations;
         self
     }
@@ -487,6 +596,7 @@ impl Validator {
         self.types.clear();
         self.layouter.clear();
         self.location_mask.clear();
+        self.blend_src_mask.clear();
         self.ep_resource_bindings.clear();
         self.switch_values.clear();
         self.valid_expression_list.clear();
@@ -512,9 +622,7 @@ impl Validator {
             return Err(ConstantError::InitializerExprType);
         }
 
-        let decl_ty = &gctx.types[con.ty].inner;
-        let init_ty = mod_info[con.init].inner_with(gctx.types);
-        if !decl_ty.equivalent(init_ty, gctx.types) {
+        if !gctx.compare_types(&TypeResolution::Handle(con.ty), &mod_info[con.init]) {
             return Err(ConstantError::InvalidType);
         }
 
@@ -527,15 +635,7 @@ impl Validator {
         gctx: crate::proc::GlobalCtx,
         mod_info: &ModuleInfo,
     ) -> Result<(), OverrideError> {
-        if !self.allow_overrides {
-            return Err(OverrideError::NotAllowed);
-        }
-
         let o = &gctx.overrides[handle];
-
-        if o.name.is_none() && o.id.is_none() {
-            return Err(OverrideError::MissingNameAndID);
-        }
 
         if let Some(id) = o.id {
             if !self.override_ids.insert(id) {
@@ -548,12 +648,12 @@ impl Validator {
             return Err(OverrideError::NonConstructibleType);
         }
 
-        let decl_ty = &gctx.types[o.ty].inner;
-        match decl_ty {
-            &crate::TypeInner::Scalar(
+        match gctx.types[o.ty].inner {
+            crate::TypeInner::Scalar(
                 crate::Scalar::BOOL
                 | crate::Scalar::I32
                 | crate::Scalar::U32
+                | crate::Scalar::F16
                 | crate::Scalar::F32
                 | crate::Scalar::F64,
             ) => {}
@@ -561,10 +661,11 @@ impl Validator {
         }
 
         if let Some(init) = o.init {
-            let init_ty = mod_info[init].inner_with(gctx.types);
-            if !decl_ty.equivalent(init_ty, gctx.types) {
+            if !gctx.compare_types(&TypeResolution::Handle(o.ty), &mod_info[init]) {
                 return Err(OverrideError::InvalidType);
             }
+        } else if self.overrides_resolved {
+            return Err(OverrideError::UninitializedOverride);
         }
 
         Ok(())
@@ -575,18 +676,22 @@ impl Validator {
         &mut self,
         module: &crate::Module,
     ) -> Result<ModuleInfo, WithSpan<ValidationError>> {
-        self.allow_overrides = true;
+        self.overrides_resolved = false;
         self.validate_impl(module)
     }
 
-    /// Check the given module to be valid.
+    /// Check the given module to be valid, requiring overrides to be resolved.
     ///
-    /// With the additional restriction that overrides are not present.
-    pub fn validate_no_overrides(
+    /// This is the same as [`validate`], except that any override
+    /// whose value is not a fully-evaluated constant expression is
+    /// treated as an error.
+    ///
+    /// [`validate`]: Validator::validate
+    pub fn validate_resolved_overrides(
         &mut self,
         module: &crate::Module,
     ) -> Result<ModuleInfo, WithSpan<ValidationError>> {
-        self.allow_overrides = false;
+        self.overrides_resolved = true;
         self.validate_impl(module)
     }
 
@@ -629,20 +734,6 @@ impl Validator {
                     }
                     .with_span_handle(handle, &module.types)
                 })?;
-            if !self.allow_overrides {
-                if let crate::TypeInner::Array {
-                    size: crate::ArraySize::Pending(_),
-                    ..
-                } = ty.inner
-                {
-                    return Err((ValidationError::Type {
-                        handle,
-                        name: ty.name.clone().unwrap_or_default(),
-                        source: TypeError::UnresolvedOverride(handle),
-                    })
-                    .with_span_handle(handle, &module.types));
-                }
-            }
             mod_info.type_flags.push(ty_info.flags);
             self.types[handle.index()] = ty_info;
         }
@@ -697,7 +788,7 @@ impl Validator {
                             source,
                         }
                         .with_span_handle(handle, &module.overrides)
-                    })?
+                    })?;
             }
         }
 
@@ -714,7 +805,7 @@ impl Validator {
         }
 
         for (handle, fun) in module.functions.iter() {
-            match self.validate_function(fun, module, &mod_info, false, &global_expr_kind) {
+            match self.validate_function(fun, module, &mod_info, false) {
                 Ok(info) => mod_info.functions.push(info),
                 Err(error) => {
                     return Err(error.and_then(|source| {
@@ -740,7 +831,7 @@ impl Validator {
                 .with_span()); // TODO: keep some EP span information?
             }
 
-            match self.validate_entry_point(ep, module, &mod_info, &global_expr_kind) {
+            match self.validate_entry_point(ep, module, &mod_info) {
                 Ok(info) => mod_info.entry_points.push(info),
                 Err(error) => {
                     return Err(error.and_then(|source| {

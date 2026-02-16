@@ -31,8 +31,10 @@ appmenuitem-downloads =
   .label = Downloads
 appmenuitem-passwords =
     .label = Passwords
-appmenuitem-addons-and-themes =
-    .label = Add-ons and themes
+appmenuitem-extensions-and-themes =
+    .label = Extensions and themes
+appmenuitem-extensions =
+    .label = Extensions
 appmenuitem-print =
   .label = Print…
 appmenuitem-find-in-page =
@@ -127,19 +129,13 @@ appmenuitem-save-page =
 appmenuitem-fxa-sync-off-title = Sync is off
 appmenuitem-fxa-sync-off-description = Protect and access your bookmarks, passwords, and more anywhere.
 
-## What's New panel in App menu.
-
-whatsnew-panel-header = What’s New
-
-# Checkbox displayed at the bottom of the What's New panel, allowing users to
-# enable/disable What's New notifications.
-whatsnew-panel-footer-checkbox =
-  .label = Notify about new features
-  .accesskey = f
-
 ## The Firefox Profiler – The popup is the UI to turn on the profiler, and record
 ## performance profiles. To enable it go to profiler.firefox.com and click
 ## "Enable Profiler Menu Button".
+
+profiler-button-dropmarker =
+    .label = Open the profiler panel
+    .tooltiptext = Open the profiler panel
 
 profiler-popup-button-idle =
   .label = Profiler
@@ -220,6 +216,10 @@ profiler-popup-presets-media-description2 = Preset for investigating audio and v
 profiler-popup-presets-media-label =
   .label = Media
 
+profiler-popup-presets-ml-description = Preset for investigating machine learning bugs in { -brand-shorter-name }.
+profiler-popup-presets-ml-label =
+  .label = Machine Learning
+
 profiler-popup-presets-networking-description = Preset for investigating networking bugs in { -brand-shorter-name }.
 profiler-popup-presets-networking-label =
   .label = Networking
@@ -232,6 +232,10 @@ profiler-popup-presets-power-label =
 profiler-popup-presets-debug-description = Preset for debugging in { -brand-shorter-name }. High overhead, do not use for performance work but use for focusing on understanding browser behavior.
 profiler-popup-presets-debug-label =
   .label = Debug
+
+profiler-popup-presets-web-compat-description = Recommended preset for debugging web compatibility issues in websites, rather than tracking performance.
+profiler-popup-presets-web-compat-label =
+  .label = Web Compat
 
 profiler-popup-presets-custom-label =
   .label = Custom
@@ -266,8 +270,6 @@ appmenu-get-help =
 appmenu-help-more-troubleshooting-info =
     .label = More troubleshooting information
     .accesskey = t
-appmenu-help-report-site-issue =
-    .label = Report site issue…
 appmenu-help-share-ideas =
     .label = Share ideas and feedback…
     .accesskey = S
@@ -315,10 +317,13 @@ appmenuitem-relay-title = { -relay-brand-short-name }
 appmenuitem-relay-description = Mask your real email and phone
 appmenuitem-services-relay-description = Launch email masks dashboard
 appmenuitem-vpn-title = { -mozilla-vpn-brand-name }
-appmenuitem-vpn-description = Protect your online activity
+appmenuitem-vpn-description-2 = Get whole-device protection
 
 appmenu-services-header = My services
-appmenu-other-protection-header = Try other protection tools from { -vendor-short-name }:
+# "Mozilla" is intentionally hardcoded to prevent forks from replacing it
+# with their own vendor name, since these tools are created and maintained by
+# Mozilla.
+appmenu-other-protection-header2 = Try other protection tools from Mozilla:
 
 ## Profiles panel
 
@@ -327,6 +332,8 @@ appmenu-profiles-2 =
 appmenu-other-profiles = Other profiles
 appmenu-manage-profiles =
     .label = Manage profiles
+appmenu-copy-profile =
+    .label = Copy this profile
 appmenu-create-profile =
     .label = New profile
 appmenu-edit-profile =

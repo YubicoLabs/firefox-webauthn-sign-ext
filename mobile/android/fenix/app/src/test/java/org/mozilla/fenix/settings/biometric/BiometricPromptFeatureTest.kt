@@ -4,8 +4,6 @@
 
 package org.mozilla.fenix.settings.biometric
 
-import android.os.Build.VERSION_CODES.M
-import android.os.Build.VERSION_CODES.N
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -15,9 +13,7 @@ import androidx.biometric.BiometricPrompt
 import androidx.fragment.app.Fragment
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkStatic
 import io.mockk.slot
-import io.mockk.unmockkStatic
 import io.mockk.verify
 import mozilla.components.support.test.robolectric.createAddedTestFragment
 import mozilla.components.support.test.robolectric.testContext
@@ -29,46 +25,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
 import org.mozilla.fenix.settings.biometric.ext.isEnrolled
 import org.mozilla.fenix.settings.biometric.ext.isHardwareAvailable
-import org.robolectric.annotation.Config
+import org.robolectric.RobolectricTestRunner
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class BiometricPromptFeatureTest {
 
     lateinit var fragment: Fragment
+    lateinit var manager: BiometricManager
 
     @Before
     fun setup() {
         fragment = createAddedTestFragment { Fragment() }
+        manager = mockk()
     }
 
-    @Config(sdk = [N])
-    @Test
-    fun `canUseFeature checks for SDK compatible`() {
-        assertFalse(BiometricPromptFeature.canUseFeature(testContext))
-    }
-
-    @Config(sdk = [M])
     @Test
     fun `canUseFeature checks for hardware capabilities`() {
-        mockkStatic(BiometricManager::class)
-        val manager: BiometricManager = mockk()
-        every { BiometricManager.from(any()) } returns manager
         every { manager.canAuthenticate(any()) } returns BIOMETRIC_SUCCESS
 
-        assertTrue(BiometricPromptFeature.canUseFeature(testContext))
+        assertTrue(BiometricPromptFeature.canUseFeature(manager))
 
         every { manager.canAuthenticate(any()) } returns BIOMETRIC_ERROR_HW_UNAVAILABLE
 
-        assertFalse(BiometricPromptFeature.canUseFeature(testContext))
+        assertFalse(BiometricPromptFeature.canUseFeature(manager))
 
         verify { manager.isEnrolled() }
         verify { manager.isHardwareAvailable() }
-
-        // cleanup
-        unmockkStatic(BiometricManager::class)
     }
 
     @Test
@@ -99,6 +83,16 @@ class BiometricPromptFeatureTest {
         verify { prompt.authenticate(capture(promptInfo)) }
         assertEquals(BIOMETRIC_WEAK or DEVICE_CREDENTIAL, promptInfo.captured.allowedAuthenticators)
         assertEquals("test", promptInfo.captured.title)
+    }
+
+    @Test
+    fun `ensureBiometricPromptInitialized returns a new prompt when feature prompt is null`() {
+        val feature = BiometricPromptFeature(testContext, fragment, {}, {})
+        feature.biometricPrompt = null
+
+        feature.ensureBiometricPromptInitialized()
+
+        assertNotNull(feature.biometricPrompt)
     }
 
     @Test

@@ -4,19 +4,20 @@
 
 package org.mozilla.fenix.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.ReadOnlyComposable
 import mozilla.components.compose.base.theme.AcornColors
 import mozilla.components.compose.base.theme.AcornTheme
 import mozilla.components.compose.base.theme.AcornTypography
+import mozilla.components.compose.base.theme.acornDarkColorScheme
+import mozilla.components.compose.base.theme.acornLightColorScheme
+import mozilla.components.compose.base.theme.acornPrivateColorScheme
 import mozilla.components.compose.base.theme.darkColorPalette
 import mozilla.components.compose.base.theme.layout.AcornLayout
 import mozilla.components.compose.base.theme.layout.AcornWindowSize
 import mozilla.components.compose.base.theme.lightColorPalette
 import mozilla.components.compose.base.theme.privateColorPalette
-import mozilla.components.compose.base.utils.inComposePreview
-import org.mozilla.fenix.ext.settings
 
 /**
  * The theme for Mozilla Firefox for Android (Fenix).
@@ -26,51 +27,26 @@ import org.mozilla.fenix.ext.settings
  */
 @Composable
 fun FirefoxTheme(
-    theme: Theme = Theme.getTheme(),
+    theme: Theme = getThemeProvider().provideTheme(),
     content: @Composable () -> Unit,
 ) {
-    val colors = when (theme) {
+    val colors: AcornColors = when (theme) {
         Theme.Light -> lightColorPalette
         Theme.Dark -> darkColorPalette
         Theme.Private -> privateColorPalette
     }
 
+    val colorScheme: ColorScheme = when (theme) {
+        Theme.Light -> acornLightColorScheme()
+        Theme.Dark -> acornDarkColorScheme()
+        Theme.Private -> acornPrivateColorScheme()
+    }
+
     AcornTheme(
         colors = colors,
+        colorScheme = colorScheme,
         content = content,
     )
-}
-
-/**
- * Indicates the theme that is displayed.
- */
-enum class Theme {
-    Light,
-    Dark,
-    Private,
-    ;
-
-    companion object {
-        /**
-         * Returns the current [Theme] that is displayed.
-         *
-         * @param allowPrivateTheme Boolean used to control whether [Theme.Private] is an option
-         * for [FirefoxTheme] colors.
-         * @return the current [Theme] that is displayed.
-         */
-        @Composable
-        fun getTheme(allowPrivateTheme: Boolean = true) =
-            if (allowPrivateTheme &&
-                !inComposePreview &&
-                LocalContext.current.settings().lastKnownMode.isPrivate
-            ) {
-                Private
-            } else if (isSystemInDarkTheme()) {
-                Dark
-            } else {
-                Light
-            }
-    }
 }
 
 /**
@@ -79,6 +55,7 @@ enum class Theme {
 object FirefoxTheme {
     val colors: AcornColors
         @Composable
+        @ReadOnlyComposable
         get() = AcornTheme.colors
 
     val typography: AcornTypography
@@ -86,9 +63,11 @@ object FirefoxTheme {
 
     val layout: AcornLayout
         @Composable
+        @ReadOnlyComposable
         get() = AcornTheme.layout
 
     val windowSize: AcornWindowSize
         @Composable
+        @ReadOnlyComposable
         get() = AcornTheme.windowSize
 }

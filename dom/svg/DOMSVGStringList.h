@@ -7,10 +7,9 @@
 #ifndef DOM_SVG_DOMSVGSTRINGLIST_H_
 #define DOM_SVG_DOMSVGSTRINGLIST_H_
 
-#include "nsCycleCollectionParticipant.h"
 #include "SVGElement.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/RefPtr.h"
+#include "nsCycleCollectionParticipant.h"
 
 namespace mozilla {
 
@@ -108,6 +107,12 @@ class DOMSVGStringList final : public nsISupports, public nsWrapperCache {
   uint8_t mAttrEnum;
 
   bool mIsConditionalProcessingAttribute;
+
+  // Tracks whether we're in the tearoff table. Initialized to true, since all
+  // new instances are added to the table right after construction. Updated to
+  // false when we're removed from the table (at which point we're being
+  // destructed or soon-to-be destructed).
+  bool mIsInTearoffTable = true;
 };
 
 }  // namespace dom

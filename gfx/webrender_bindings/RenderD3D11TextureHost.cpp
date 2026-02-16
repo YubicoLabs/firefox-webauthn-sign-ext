@@ -6,19 +6,21 @@
 
 #include "RenderD3D11TextureHost.h"
 
+#include <dcomp.h>
+
 #include "GLContextEGL.h"
 #include "GLLibraryEGL.h"
 #include "RenderThread.h"
 #include "RenderCompositor.h"
 #include "RenderCompositorD3D11SWGL.h"
 #include "ScopedGLHelpers.h"
-#include "mozilla/DebugOnly.h"
 #include "mozilla/gfx/CanvasManagerParent.h"
 #include "mozilla/gfx/DeviceManagerDx.h"
+#include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/layers/FenceD3D11.h"
-#include "mozilla/layers/GpuProcessD3D11QueryMap.h"
 #include "mozilla/layers/GpuProcessD3D11TextureMap.h"
+#include "mozilla/layers/CompositeProcessD3D11FencesHolderMap.h"
 #include "mozilla/layers/TextureD3D11.h"
 
 namespace mozilla {
@@ -30,11 +32,9 @@ RenderDXGITextureHost::RenderDXGITextureHost(
     const uint32_t aArrayIndex, const gfx::SurfaceFormat aFormat,
     const gfx::ColorSpace2 aColorSpace, const gfx::ColorRange aColorRange,
     const gfx::IntSize aSize, bool aHasKeyedMutex,
-    const gfx::FenceInfo& aAcquireFenceInfo,
-    const Maybe<layers::GpuProcessQueryId>& aGpuProcessQueryId)
+    const Maybe<layers::CompositeProcessFencesHolderId>& aFencesHolderId)
     : mHandle(aHandle),
       mGpuProcessTextureId(aGpuProcessTextureId),
-      mGpuProcessQueryId(aGpuProcessQueryId),
       mArrayIndex(aArrayIndex),
       mSurface(0),
       mStream(0),
@@ -44,7 +44,7 @@ RenderDXGITextureHost::RenderDXGITextureHost(
       mColorRange(aColorRange),
       mSize(aSize),
       mHasKeyedMutex(aHasKeyedMutex),
-      mAcquireFenceInfo(aAcquireFenceInfo),
+      mFencesHolderId(aFencesHolderId),
       mLocked(false) {
   MOZ_COUNT_CTOR_INHERITED(RenderDXGITextureHost, RenderTextureHost);
   MOZ_ASSERT((mFormat != gfx::SurfaceFormat::NV12 &&
@@ -59,22 +59,74 @@ RenderDXGITextureHost::~RenderDXGITextureHost() {
   DeleteTextureHandle();
 }
 
-RefPtr<ID3D11Query> RenderDXGITextureHost::GetQuery() {
-  if (mGpuProcessQueryId.isNothing()) {
+/* static */
+bool RenderDXGITextureHost::UseDCompositionTextureOverlay(
+    gfx::SurfaceFormat aFormat) {
+  if (!gfx::gfxVars::UseWebRenderDCompositionTextureOverlayWin()) {
+    return false;
+  }
+
+  if (!gfx::DeviceManagerDx::Get()->CanUseDCompositionTexture()) {
+    return false;
+  }
+
+  if (aFormat != gfx::SurfaceFormat::B8G8R8A8 &&
+      aFormat != gfx::SurfaceFormat::B8G8R8X8) {
+    return false;
+  }
+
+  return true;
+}
+
+IDCompositionTexture* RenderDXGITextureHost::GetDCompositionTexture() {
+  if (mDCompositionTexture) {
+    return mDCompositionTexture;
+  }
+
+  if (!UseDCompositionTextureOverlay(mFormat)) {
     return nullptr;
   }
 
-  auto* queryMap = layers::GpuProcessD3D11QueryMap::Get();
-  if (!queryMap) {
+  if (mFencesHolderId.isNothing()) {
+    MOZ_ASSERT_UNREACHABLE("Unexpected to be called!");
     return nullptr;
   }
 
-  auto query = queryMap->GetQuery(mGpuProcessQueryId.ref());
-  if (!query) {
-    gfxCriticalNoteOnce << "Failed to get ID3D11Query";
+  HRESULT hr;
+  RefPtr<IDCompositionDevice2> dcomp =
+      gfx::DeviceManagerDx::Get()->GetDirectCompositionDevice();
+  if (!dcomp) {
+    MOZ_ASSERT_UNREACHABLE("Unexpected to be called!");
+    gfxCriticalNoteOnce << "Failed to get DirectCompositionDevice";
+    return nullptr;
   }
 
-  return query;
+  RefPtr<IDCompositionDevice4> dcomp4;
+  hr = dcomp->QueryInterface((IDCompositionDevice4**)getter_AddRefs(dcomp4));
+  if (FAILED(hr)) {
+    MOZ_ASSERT_UNREACHABLE("Unexpected to be called!");
+    gfxCriticalNoteOnce << "Failed to get DCompositionDevice4";
+    return nullptr;
+  }
+
+  RefPtr<ID3D11Texture2D> texture2D = GetD3D11Texture2DWithGL();
+  if (!texture2D) {
+    gfxCriticalNoteOnce << "Failed to get D3D11Texture";
+    return nullptr;
+  }
+
+  RefPtr<IDCompositionTexture> dcompTexture;
+  hr =
+      dcomp4->CreateCompositionTexture(texture2D, getter_AddRefs(dcompTexture));
+  if (FAILED(hr)) {
+    gfxCriticalNoteOnce << "CreateCompositionTexture failed:  "
+                        << gfx::hexa(hr);
+    return nullptr;
+  }
+
+  mDCompositionTexture = dcompTexture;
+
+  return mDCompositionTexture;
 }
 
 ID3D11Texture2D* RenderDXGITextureHost::GetD3D11Texture2DWithGL() {
@@ -95,11 +147,40 @@ ID3D11Texture2D* RenderDXGITextureHost::GetD3D11Texture2DWithGL() {
 }
 
 size_t RenderDXGITextureHost::GetPlaneCount() const {
-  if (mFormat == gfx::SurfaceFormat::NV12 ||
-      mFormat == gfx::SurfaceFormat::P010 ||
-      mFormat == gfx::SurfaceFormat::P016) {
-    return 2;
+  switch (mFormat) {
+    case gfx::SurfaceFormat::NV12:
+    case gfx::SurfaceFormat::P010:
+    case gfx::SurfaceFormat::P016: {
+      return 2;
+    }
+    case gfx::SurfaceFormat::B8G8R8A8:
+    case gfx::SurfaceFormat::B8G8R8X8:
+    case gfx::SurfaceFormat::R8G8B8A8:
+    case gfx::SurfaceFormat::R8G8B8X8:
+    case gfx::SurfaceFormat::A8R8G8B8:
+    case gfx::SurfaceFormat::X8R8G8B8:
+    case gfx::SurfaceFormat::R8G8B8:
+    case gfx::SurfaceFormat::B8G8R8:
+    case gfx::SurfaceFormat::R5G6B5_UINT16:
+    case gfx::SurfaceFormat::R10G10B10A2_UINT32:
+    case gfx::SurfaceFormat::R10G10B10X2_UINT32:
+    case gfx::SurfaceFormat::R16G16B16A16F:
+    case gfx::SurfaceFormat::A8:
+    case gfx::SurfaceFormat::A16:
+    case gfx::SurfaceFormat::R8G8:
+    case gfx::SurfaceFormat::R16G16:
+    case gfx::SurfaceFormat::YUV420:
+    case gfx::SurfaceFormat::YUV420P10:
+    case gfx::SurfaceFormat::YUV422P10:
+    case gfx::SurfaceFormat::NV16:
+    case gfx::SurfaceFormat::YUY2:
+    case gfx::SurfaceFormat::HSV:
+    case gfx::SurfaceFormat::Lab:
+    case gfx::SurfaceFormat::Depth:
+    case gfx::SurfaceFormat::UNKNOWN:
+      return 1;
   }
+  MOZ_ASSERT_UNREACHABLE("unhandled enum value for gfx::SurfaceFormat");
   return 1;
 }
 
@@ -387,19 +468,21 @@ wr::WrExternalImage RenderDXGITextureHost::Lock(uint8_t aChannelIndex,
 }
 
 bool RenderDXGITextureHost::LockInternal() {
-  if (!mLocked) {
-    if (mAcquireFenceInfo.mFenceHandle) {
-      if (!mAcquireFence) {
-        mAcquireFence = layers::FenceD3D11::CreateFromHandle(
-            mAcquireFenceInfo.mFenceHandle);
-      }
-      if (mAcquireFence) {
-        MOZ_ASSERT(mAcquireFenceInfo.mFenceHandle == mAcquireFence->mHandle);
+  MOZ_ASSERT(mTexture);
 
-        mAcquireFence->Update(mAcquireFenceInfo.mFenceValue);
-        RefPtr<ID3D11Device> d3d11Device =
-            gfx::DeviceManagerDx::Get()->GetCompositorDevice();
-        mAcquireFence->Wait(d3d11Device);
+  if (!mLocked) {
+    if (mFencesHolderId.isSome()) {
+      auto* fencesHolderMap =
+          layers::CompositeProcessD3D11FencesHolderMap::Get();
+      if (!fencesHolderMap) {
+        MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+        return false;
+      }
+      RefPtr<ID3D11Device> device;
+      mTexture->GetDevice(getter_AddRefs(device));
+
+      if (!fencesHolderMap->WaitWriteFence(mFencesHolderId.ref(), device)) {
+        return false;
       }
     }
     if (mKeyedMutex) {
@@ -488,13 +571,15 @@ gfx::IntSize RenderDXGITextureHost::GetSize(uint8_t aChannelIndex) const {
 
 bool RenderDXGITextureHost::SyncObjectNeeded() {
   return mGpuProcessTextureId.isNothing() && !mHasKeyedMutex &&
-         !mAcquireFenceInfo.mFenceHandle;
+         mFencesHolderId.isNothing();
 }
 
 RenderDXGIYCbCrTextureHost::RenderDXGIYCbCrTextureHost(
-    RefPtr<gfx::FileHandleWrapper> (&aHandles)[3],
-    gfx::YUVColorSpace aYUVColorSpace, gfx::ColorDepth aColorDepth,
-    gfx::ColorRange aColorRange, gfx::IntSize aSizeY, gfx::IntSize aSizeCbCr)
+    const RefPtr<gfx::FileHandleWrapper> (&aHandles)[3],
+    const gfx::YUVColorSpace aYUVColorSpace, const gfx::ColorDepth aColorDepth,
+    const gfx::ColorRange aColorRange, const gfx::IntSize aSizeY,
+    const gfx::IntSize aSizeCbCr,
+    const layers::CompositeProcessFencesHolderId aFencesHolderId)
     : mHandles{aHandles[0], aHandles[1], aHandles[2]},
       mSurfaces{0},
       mStreams{0},
@@ -504,7 +589,7 @@ RenderDXGIYCbCrTextureHost::RenderDXGIYCbCrTextureHost(
       mColorRange(aColorRange),
       mSizeY(aSizeY),
       mSizeCbCr(aSizeCbCr),
-      mLocked(false) {
+      mFencesHolderId(aFencesHolderId) {
   MOZ_COUNT_CTOR_INHERITED(RenderDXGIYCbCrTextureHost, RenderTextureHost);
   // Assume the chroma planes are rounded up if the luma plane is odd sized.
   MOZ_ASSERT((mSizeCbCr.width == mSizeY.width ||
@@ -652,25 +737,20 @@ bool RenderDXGIYCbCrTextureHost::EnsureD3D11Texture2D(ID3D11Device* aDevice) {
     }
   }
 
-  for (int i = 0; i < 3; ++i) {
-    mTextures[i]->QueryInterface(
-        (IDXGIKeyedMutex**)getter_AddRefs(mKeyedMutexs[i]));
-  }
+  mDevice = aDevice;
+
   return true;
 }
 
 bool RenderDXGIYCbCrTextureHost::LockInternal() {
   if (!mLocked) {
-    if (mKeyedMutexs[0]) {
-      for (const auto& mutex : mKeyedMutexs) {
-        HRESULT hr = mutex->AcquireSync(0, 10000);
-        if (hr != S_OK) {
-          gfxCriticalError()
-              << "RenderDXGIYCbCrTextureHost AcquireSync timeout, hr="
-              << gfx::hexa(hr);
-          return false;
-        }
-      }
+    auto* fencesHolderMap = layers::CompositeProcessD3D11FencesHolderMap::Get();
+    if (!fencesHolderMap) {
+      MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+      return false;
+    }
+    if (!fencesHolderMap->WaitWriteFence(mFencesHolderId, mDevice)) {
+      return false;
     }
     mLocked = true;
   }
@@ -709,11 +789,6 @@ wr::WrExternalImage RenderDXGIYCbCrTextureHost::Lock(uint8_t aChannelIndex,
 
 void RenderDXGIYCbCrTextureHost::Unlock() {
   if (mLocked) {
-    if (mKeyedMutexs[0]) {
-      for (const auto& mutex : mKeyedMutexs) {
-        mutex->ReleaseSync(0);
-      }
-    }
     mLocked = false;
   }
 }
@@ -757,7 +832,6 @@ void RenderDXGIYCbCrTextureHost::DeleteTextureHandle() {
     for (int i = 0; i < 3; ++i) {
       mTextureHandles[i] = 0;
       mTextures[i] = nullptr;
-      mKeyedMutexs[i] = nullptr;
 
       if (mSurfaces[i]) {
         egl->fDestroySurface(mSurfaces[i]);
@@ -769,6 +843,7 @@ void RenderDXGIYCbCrTextureHost::DeleteTextureHandle() {
       }
     }
   }
+  mDevice = nullptr;
 }
 
 }  // namespace wr

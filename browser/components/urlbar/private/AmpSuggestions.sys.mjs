@@ -2,30 +2,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { SuggestProvider } from "resource:///modules/urlbar/private/SuggestFeature.sys.mjs";
+import { SuggestProvider } from "moz-src:///browser/components/urlbar/private/SuggestFeature.sys.mjs";
 
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  AmpMatchingStrategy: "resource://gre/modules/RustSuggest.sys.mjs",
+  AmpMatchingStrategy:
+    "moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustSuggest.sys.mjs",
   CONTEXTUAL_SERVICES_PING_TYPES:
     "resource:///modules/PartnerLinkAttribution.sys.mjs",
-  QuickSuggest: "resource:///modules/QuickSuggest.sys.mjs",
-  rawSuggestionUrlMatches: "resource://gre/modules/RustSuggest.sys.mjs",
-  UrlbarPrefs: "resource:///modules/UrlbarPrefs.sys.mjs",
-  UrlbarResult: "resource:///modules/UrlbarResult.sys.mjs",
-  UrlbarUtils: "resource:///modules/UrlbarUtils.sys.mjs",
-});
-
-// `contextId` is a unique identifier used by Contextual Services
-const CONTEXT_ID_PREF = "browser.contextual-services.contextId";
-ChromeUtils.defineLazyGetter(lazy, "contextId", () => {
-  let _contextId = Services.prefs.getStringPref(CONTEXT_ID_PREF, null);
-  if (!_contextId) {
-    _contextId = String(Services.uuid.generateUUID());
-    Services.prefs.setStringPref(CONTEXT_ID_PREF, _contextId);
-  }
-  return _contextId;
+  ContextId: "moz-src:///browser/modules/ContextId.sys.mjs",
+  QuickSuggest: "moz-src:///browser/components/urlbar/QuickSuggest.sys.mjs",
+  rawSuggestionUrlMatches:
+    "moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustSuggest.sys.mjs",
+  Region: "resource://gre/modules/Region.sys.mjs",
+  UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
+  UrlbarResult: "moz-src:///browser/components/urlbar/UrlbarResult.sys.mjs",
+  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
 });
 
 const TIMESTAMP_TEMPLATE = "%YYYYMMDDHH%";
@@ -37,7 +30,16 @@ const TIMESTAMP_REGEXP = /^\d{10}$/;
  */
 export class AmpSuggestions extends SuggestProvider {
   get enablingPreferences() {
-    return ["suggest.quicksuggest.sponsored"];
+    return [
+      "ampFeatureGate",
+      "suggest.amp",
+      "suggest.quicksuggest.all",
+      "suggest.quicksuggest.sponsored",
+    ];
+  }
+
+  get primaryUserControlledPreferences() {
+    return ["suggest.amp"];
   }
 
   get merinoProvider() {
@@ -89,85 +91,101 @@ export class AmpSuggestions extends SuggestProvider {
     }
   }
 
-  makeResult(queryContext, suggestion) {
-    let originalUrl;
-    if (suggestion.source == "rust") {
-      // The Rust backend replaces URL timestamp templates for us, and it
-      // includes the original URL as `rawUrl`.
-      originalUrl = suggestion.rawUrl;
-    } else {
-      // Replace URL timestamp templates, but first save the original URL.
-      originalUrl = suggestion.url;
-      this.#replaceSuggestionTemplates(suggestion);
-
-      // Normalize the Merino suggestion so it has camelCased properties like
-      // Rust suggestions.
-      suggestion = {
-        title: suggestion.title,
-        url: suggestion.url,
-        fullKeyword: suggestion.full_keyword,
-        impressionUrl: suggestion.impression_url,
-        clickUrl: suggestion.click_url,
-        blockId: suggestion.block_id,
-        advertiser: suggestion.advertiser,
-        iabCategory: suggestion.iab_category,
-        requestId: suggestion.request_id,
-      };
+  makeResult(queryContext, suggestion, searchString) {
+    if (
+      this.showLessFrequentlyCount &&
+      searchString.length < this.#minKeywordLength
+    ) {
+      return null;
     }
 
-    let payload = {
-      originalUrl,
-      url: suggestion.url,
-      title: suggestion.title,
-      requestId: suggestion.requestId,
-      urlTimestampIndex: suggestion.urlTimestampIndex,
-      sponsoredImpressionUrl: suggestion.impressionUrl,
-      sponsoredClickUrl: suggestion.clickUrl,
-      sponsoredBlockId: suggestion.blockId,
-      sponsoredAdvertiser: suggestion.advertiser,
-      sponsoredIabCategory: suggestion.iabCategory,
-      isBlockable: true,
-      isManageable: true,
-    };
+    let normalized = Object.assign({}, suggestion);
+    if (suggestion.source == "merino") {
+      // Normalize the Merino suggestion so it has the same properties as Rust
+      // AMP suggestions: camelCased properties plus a `rawUrl` property whose
+      // value is `url` without replacing the timestamp template.
+      normalized.rawUrl = suggestion.url;
+      normalized.fullKeyword = suggestion.full_keyword;
+      normalized.impressionUrl = suggestion.impression_url;
+      normalized.clickUrl = suggestion.click_url;
+      normalized.blockId = suggestion.block_id;
+      normalized.iabCategory = suggestion.iab_category;
+      normalized.requestId = suggestion.request_id;
+
+      // Replace URL timestamp templates inline. This isn't necessary for Rust
+      // AMP suggestions because the Rust component handles it.
+      this.#replaceSuggestionTemplates(normalized);
+    }
 
     let isTopPick =
-      lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") &&
-      lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") <=
-        queryContext.trimmedLowerCaseSearchString.length;
+      (lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") &&
+        lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") <=
+          queryContext.trimmedLowerCaseSearchString.length) ||
+      lazy.UrlbarPrefs.get("quickSuggestSponsoredPriority");
 
-    payload.qsSuggestion = [
-      suggestion.fullKeyword,
-      isTopPick
-        ? lazy.UrlbarUtils.HIGHLIGHT.TYPED
-        : lazy.UrlbarUtils.HIGHLIGHT.SUGGESTED,
-    ];
+    return new lazy.UrlbarResult({
+      type: lazy.UrlbarUtils.RESULT_TYPE.URL,
+      source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
+      isNovaSuggestion: true,
+      isBestMatch: isTopPick,
+      // If the result is a top pick, set the icon size to undefined so that
+      // `UrlbarProviderQuickSuggest` sets the default top-pick icon size.
+      richSuggestionIconSize: isTopPick ? undefined : 16,
+      payload: {
+        url: normalized.url,
+        originalUrl: normalized.rawUrl,
+        title: normalized.fullKeyword,
+        subtitle: normalized.title,
+        bottomTextL10n: {
+          id: "urlbar-result-action-sponsored",
+        },
+        requestId: normalized.requestId,
+        urlTimestampIndex: normalized.urlTimestampIndex,
+        sponsoredImpressionUrl: normalized.impressionUrl,
+        sponsoredClickUrl: normalized.clickUrl,
+        sponsoredBlockId: normalized.blockId,
+        sponsoredAdvertiser: normalized.advertiser,
+        sponsoredIabCategory: normalized.iabCategory,
+      },
+    });
+  }
 
-    let result = new lazy.UrlbarResult(
-      lazy.UrlbarUtils.RESULT_TYPE.URL,
-      lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
-      ...lazy.UrlbarResult.payloadAndSimpleHighlights(
-        queryContext.tokens,
-        payload
-      )
-    );
+  getResultCommands() {
+    /** @type {UrlbarResultCommand[]} */
+    const commands = [];
 
-    result.isRichSuggestion = true;
-    if (isTopPick) {
-      result.isBestMatch = true;
-      result.suggestedIndex = 1;
-    } else {
-      if (lazy.UrlbarPrefs.get("quickSuggestSponsoredPriority")) {
-        result.isBestMatch = true;
-        result.suggestedIndex = 1;
-      } else {
-        result.richSuggestionIconSize = 16;
-      }
-      result.payload.descriptionL10n = {
-        id: "urlbar-result-action-sponsored",
-      };
+    if (this.canShowLessFrequently) {
+      commands.push({
+        name: "show_less_frequently",
+        l10n: {
+          id: "urlbar-result-menu-show-less-frequently",
+        },
+      });
     }
 
-    return result;
+    commands.push(
+      {
+        name: "dismiss",
+        l10n: {
+          id: "urlbar-result-menu-dismiss-suggestion",
+        },
+      },
+      { name: "separator" },
+      {
+        name: "manage",
+        l10n: {
+          id: "urlbar-result-menu-manage-firefox-suggest",
+        },
+      },
+      {
+        name: "help",
+        l10n: {
+          id: "urlbar-result-menu-learn-more",
+        },
+      }
+    );
+
+    return commands;
   }
 
   onImpression(state, queryContext, controller, featureResults, details) {
@@ -186,15 +204,30 @@ export class AmpSuggestions extends SuggestProvider {
     }
   }
 
-  onEngagement(queryContext, controller, details, _searchString) {
+  onEngagement(queryContext, controller, details, searchString) {
     let { result } = details;
 
-    // Handle commands. These suggestions support the Dismissal and Manage
-    // commands. Dismissal is the only one we need to handle here. `UrlbarInput`
-    // handles Manage.
-    if (details.selType == "dismiss") {
-      lazy.QuickSuggest.blockedSuggestions.blockResult(result);
-      controller.removeResult(result);
+    switch (details.selType) {
+      case "help":
+      case "manage": {
+        // "manage" and "help" are handled by UrlbarInput, no need to do
+        // anything here.
+        return;
+      }
+      case "dismiss": {
+        lazy.QuickSuggest.dismissResult(result);
+        controller.removeResult(result);
+        break;
+      }
+      case "show_less_frequently": {
+        controller.view.acknowledgeFeedback(result);
+        this.incrementShowLessFrequentlyCount();
+        if (!this.canShowLessFrequently) {
+          controller.view.invalidateResultMenuCommands();
+        }
+        lazy.UrlbarPrefs.set("amp.minKeywordLength", searchString.length + 1);
+        break;
+      }
     }
 
     // A `quick-suggest` impression ping must always be submitted on engagement
@@ -224,6 +257,30 @@ export class AmpSuggestions extends SuggestProvider {
     if (pingData) {
       this.#submitQuickSuggestPing({ queryContext, result, ...pingData });
     }
+  }
+
+  incrementShowLessFrequentlyCount() {
+    if (this.canShowLessFrequently) {
+      lazy.UrlbarPrefs.set(
+        "amp.showLessFrequentlyCount",
+        this.showLessFrequentlyCount + 1
+      );
+    }
+  }
+
+  get showLessFrequentlyCount() {
+    const count = lazy.UrlbarPrefs.get("amp.showLessFrequentlyCount") || 0;
+    return Math.max(count, 0);
+  }
+
+  get canShowLessFrequently() {
+    const cap = lazy.QuickSuggest.config.showLessFrequentlyCap || 0;
+    return !cap || this.showLessFrequentlyCount < cap;
+  }
+
+  get #minKeywordLength() {
+    let minLength = lazy.UrlbarPrefs.get("amp.minKeywordLength");
+    return Math.max(minLength, 0);
   }
 
   isUrlEquivalentToResultUrl(url, result) {
@@ -267,28 +324,36 @@ export class AmpSuggestions extends SuggestProvider {
     return TIMESTAMP_REGEXP.test(maybeTimestamp);
   }
 
-  #submitQuickSuggestPing({ queryContext, result, pingType, ...pingData }) {
+  async #submitQuickSuggestPing({
+    queryContext,
+    result,
+    pingType,
+    ...pingData
+  }) {
     if (queryContext.isPrivate) {
       return;
     }
 
     let allPingData = {
       pingType,
+      // Suggest initialization awaits `Region.init()`, so safe to assume it's
+      // already been initialized here.
+      country: lazy.Region.home,
       ...pingData,
       matchType: result.isBestMatch ? "best-match" : "firefox-suggest",
       // Always use lowercase to make the reporting consistent.
       advertiser: result.payload.sponsoredAdvertiser.toLocaleLowerCase(),
       blockId: result.payload.sponsoredBlockId,
-      improveSuggestExperience: lazy.UrlbarPrefs.get(
-        "quicksuggest.dataCollection.enabled"
-      ),
+      improveSuggestExperience:
+        lazy.UrlbarPrefs.get("quickSuggestOnlineAvailable") &&
+        lazy.UrlbarPrefs.get("quicksuggest.online.enabled"),
       // `position` is 1-based, unlike `rowIndex`, which is zero-based.
       position: result.rowIndex + 1,
       suggestedIndex: result.suggestedIndex.toString(),
       suggestedIndexRelativeToGroup: !!result.isSuggestedIndexRelativeToGroup,
       requestId: result.payload.requestId,
       source: result.payload.source,
-      contextId: lazy.contextId,
+      contextId: await lazy.ContextId.request(),
     };
 
     for (let [gleanKey, value] of Object.entries(allPingData)) {
@@ -313,9 +378,15 @@ export class AmpSuggestions extends SuggestProvider {
     });
   }
 
-  #submitQuickSuggestDeletionRequestPing() {
-    Glean.quickSuggest.contextId.set(lazy.contextId);
-    GleanPings.quickSuggestDeletionRequest.submit();
+  async #submitQuickSuggestDeletionRequestPing() {
+    if (lazy.ContextId.rotationEnabled) {
+      // The ContextId module will take care of sending the appropriate
+      // deletion requests if rotation is enabled.
+      lazy.ContextId.forceRotation();
+    } else {
+      Glean.quickSuggest.contextId.set(await lazy.ContextId.request());
+      GleanPings.quickSuggestDeletionRequest.submit();
+    }
   }
 
   /**
@@ -344,7 +415,7 @@ export class AmpSuggestions extends SuggestProvider {
     let timestamp = timestampParts
       .map(n => n.toString().padStart(2, "0"))
       .join("");
-    for (let key of ["url", "click_url"]) {
+    for (let key of ["url", "clickUrl"]) {
       let value = suggestion[key];
       if (!value) {
         continue;

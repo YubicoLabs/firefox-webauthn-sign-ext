@@ -88,6 +88,113 @@ function flipBackslashes(aUnsafeStr) {
     : aUnsafeStr.replace(/\\/g, "/");
 }
 
+// Implements the Squarify treemap algorithm. As a rough overview, we add
+// items in alternating vertical/horizontal rows, creating a new row once
+// adding an item to an existing row would worsen the worst aspect ratio
+// in the row.
+function squarify(items, rect) {
+  // We sort the input items in descending order of their weights, which
+  // will be proportional to their areas.
+  items.sort((a, b) => b.weight - a.weight);
+
+  let totalWeight = 0;
+  for (let i = 0; i < items.length; i++) {
+    totalWeight += items[i].weight;
+  }
+  let rectArea = rect.width * rect.height;
+  let area = index => (items[index].weight / totalWeight) * rectArea;
+
+  let startIndex = 0;
+  let result = [];
+  let remainingRect = rect;
+
+  // Computes the worst aspect ratio in a row, i.e., widest or narrowest.
+  // The width of any given item in the row is given by:
+  //    itemWidth = (itemArea / sum) * width,
+  // and its height is given by:
+  //    itemHeight = sum / width
+  // So its aspect ratio is given by
+  //    aspectRatio = ((itemArea / sum) * width) / (sum / width)
+  //    -> aspectRatio = (itemArea * width^2) / sum^2
+  // And we are trying to minimize the following:
+  //    max(aspectRatio, 1 / aspectRatio)
+  // Given that our items are sorted in decreasing order of area, to get
+  // the worst ratio in a row, we can just check the above formula for the
+  // first item in the list, and the inverse of it for the last item in the
+  // list.
+  function worst(firstArea, lastArea, sum, width) {
+    let sumSq = sum * sum;
+    let widthSq = width * width;
+    return Math.max(
+      (widthSq * firstArea) / sumSq,
+      sumSq / (widthSq * lastArea)
+    );
+  }
+
+  while (items.length > startIndex) {
+    let fillingVertically = remainingRect.width > remainingRect.height;
+    let width = fillingVertically ? remainingRect.height : remainingRect.width;
+
+    let endIndex = startIndex;
+    let rowSum = area(startIndex);
+
+    let startArea = area(startIndex);
+
+    // We continue adding items to a row until adding one would worsen the
+    // worst aspect ratio in the row, and then we add result entries for each
+    // item in the row, since at that point their positions and sizes will be
+    // locked in.
+    while (items.length > endIndex + 1) {
+      let nextArea = area(endIndex + 1);
+      let nextSum = rowSum + nextArea;
+
+      let worstPrevAspectRatio = worst(
+        startArea,
+        area(endIndex),
+        rowSum,
+        width
+      );
+      let worstNextAspectRatio = worst(startArea, nextArea, nextSum, width);
+
+      if (worstNextAspectRatio > worstPrevAspectRatio) {
+        break;
+      }
+
+      rowSum += area(++endIndex);
+    }
+
+    let rowHeight = rowSum / width;
+
+    let offset = 0;
+    for (let i = startIndex; i <= endIndex; i++) {
+      let itemWidth = area(i) / rowHeight;
+      let itemRect = {
+        x: fillingVertically ? remainingRect.x : remainingRect.x + offset,
+        y: fillingVertically ? remainingRect.y + offset : remainingRect.y,
+        width: fillingVertically ? rowHeight : itemWidth,
+        height: fillingVertically ? itemWidth : rowHeight,
+      };
+      result.push({
+        rect: itemRect,
+        item: items[i].item,
+      });
+      offset += itemWidth;
+    }
+
+    if (fillingVertically) {
+      remainingRect.x += rowHeight;
+      remainingRect.width -= rowHeight;
+    } else {
+      remainingRect.y += rowHeight;
+      remainingRect.height -= rowHeight;
+    }
+
+    startIndex = endIndex + 1;
+  }
+
+  return result;
+}
+
 const gAssertionFailureMsgPrefix = "aboutMemory.js assertion failed: ";
 
 // This is used for things that should never fail, and indicate a defect in
@@ -327,13 +434,28 @@ window.onload = function () {
         // onchange handler to be re-called without having to go via the file
         // picker.
         if (!aElem.skipClick) {
+          // Attempts to reopen the picker immediately might fail because the
+          // focus may not have switched back on some platform, so explicitly
+          //  wait for focus here.
+          if (!this.ownerDocument.hasFocus()) {
+            let input = this;
+            this.ownerDocument.addEventListener(
+              "focus",
+              () => {
+                input.click();
+              },
+              { once: true }
+            );
+            return;
+          }
           this.click();
         }
-      } else {
-        let filename1 = this.filename1;
-        delete this.filename1;
-        updateAboutMemoryFromTwoFiles(filename1, file.mozFullPath);
+        return;
       }
+
+      let filename1 = this.filename1;
+      delete this.filename1;
+      updateAboutMemoryFromTwoFiles(filename1, file.mozFullPath);
     }
   );
 
@@ -508,19 +630,11 @@ window.onload = function () {
   appendElementWithText(gFooter, "div", "legend", legendText1);
   appendElementWithText(gFooter, "div", "legend hiddenOnMobile", legendText2);
 
-  // See if we're loading from a file.  (Because about:memory is a non-standard
-  // URL, location.search is undefined, so we have to use location.href
-  // instead.)
-  let search = location.href.split("?")[1];
-  if (search) {
-    let searchSplit = search.split("&");
-    for (let s of searchSplit) {
-      if (s.toLowerCase().startsWith("file=")) {
-        let filename = s.substring("file=".length);
-        updateAboutMemoryFromFile(decodeURIComponent(filename));
-        return;
-      }
-    }
+  // See if we're loading from a file.
+  let { searchParams } = URL.fromURI(document.documentURIObject);
+  let fileParam = searchParams.get("file");
+  if (fileParam) {
+    updateAboutMemoryFromFile(fileParam);
   }
 };
 
@@ -1254,6 +1368,9 @@ function appendAboutMemoryMain(
     if (aUnsafePath == "resident") {
       infoByProcess[process].resident = aAmount;
     }
+    if (aUnsafePath == "resident-unique") {
+      infoByProcess[process].residentUnique = aAmount;
+    }
 
     // Ignore reports that don't match the current filter.
     if (!stringMatchesFilter(aUnsafePath, aFilter)) {
@@ -1290,9 +1407,9 @@ function appendAboutMemoryMain(
         if (!u) {
           u = new TreeNode(unsafeName, aUnits, isDegenerate);
           if (!t._kids) {
-            t._kids = [];
+            t._kids = new Map();
           }
-          t._kids.push(u);
+          t._kids.set(unsafeName, u);
         }
         t = u;
       }
@@ -1314,6 +1431,101 @@ function appendAboutMemoryMain(
       t._description = aDescription;
       if (aPresence !== undefined) {
         t._presence = aPresence;
+      }
+    }
+  }
+
+  function showTreemapReportSummary(sections, processes) {
+    let processesToIndices = [];
+    for (let [i, process] of processes.entries()) {
+      processesToIndices[process] = i;
+    }
+    let totalMemoryUsed = 0;
+    let treemapItems = Object.entries(infoByProcess)
+      .map(([k, v]) => {
+        // Count the resident-unique memory for child processes and the
+        // resident memory on the parent process on the assumption that the
+        // bulk of memory shared between our processes is shared with the
+        // parent process. This isn't bullet proof but it's easy and probably
+        // close enough to what we actually care about.
+        let approxMemory = v.residentUnique;
+        if (k.startsWith(gMainProcessPrefix) || !approxMemory) {
+          approxMemory = v.resident;
+        }
+        approxMemory = approxMemory || 0;
+        totalMemoryUsed += approxMemory;
+        return { item: k, weight: approxMemory };
+      })
+      .filter(item => item.weight > 0);
+
+    // We just bake in a 16:9 rect, and then scale that up as necessary to
+    // fit the available area.
+    let rectAspectRatio = 16 / 9;
+    let rect = { x: 0, y: 0, width: 1, height: 1 / rectAspectRatio };
+    let treemapEntries = squarify(treemapItems, rect);
+
+    let sectionStyles = getComputedStyle(sections.firstChild);
+    let sectionPadding =
+      parseFloat(sectionStyles.paddingLeft) +
+      parseFloat(sectionStyles.paddingRight) +
+      parseFloat(sectionStyles.borderLeft) +
+      parseFloat(sectionStyles.borderRight);
+    let availableWidth = sections.firstChild.clientWidth - sectionPadding;
+
+    let treemapSection = newElement("div", "section");
+
+    // Here and below, we keep widths as a percentage but keep heights fixed.
+    // This will leave us with a treemap which is generated to look good for a
+    // 16:9 aspect ratio but which can still stretch horizontally without
+    // breaking if the user decides to resize the window.
+    treemapSection.style.width = `calc(100% - ${sectionPadding}px)`;
+    treemapSection.style.height = `calc(${(availableWidth * 1) / rectAspectRatio}px + 4em)`;
+    sections.prepend(treemapSection);
+    appendElementWithText(
+      treemapSection,
+      "h1",
+      "",
+      "Total resident memory (approximate) -- " + formatBytes(totalMemoryUsed)
+    );
+    let treemapDiv = appendElement(treemapSection, "div", "treemap");
+    const margin = 0.002;
+    for (let entry of treemapEntries) {
+      let entryEl = appendElement(treemapDiv, "a", "treemapEntry");
+      entryEl.style.left = `${(entry.rect.x + margin) * 100}%`;
+      entryEl.style.top = `${(entry.rect.y + margin) * availableWidth}px`;
+      entryEl.style.width = `${(entry.rect.width - 2 * margin) * 100}%`;
+      entryEl.style.height = `${(entry.rect.height - 2 * margin) * availableWidth}px`;
+
+      let pcolls = pcollsByProcess[entry.item];
+      if (pcolls) {
+        entryEl.href = "#start" + processesToIndices[entry.item];
+      }
+
+      const pidPrefix = "(pid ";
+      let content = appendElement(entryEl, "div", "treemapEntryContent");
+      let splitProcessName = entry.item.split(pidPrefix);
+      let processName = splitProcessName[0];
+      processName = processName.replace(/webIsolated=(?:https?:\/\/)?/i, "");
+
+      appendElementWithText(
+        content,
+        "div",
+        "treemapEntryText treemapEntryProcessName",
+        processName
+      );
+      appendElementWithText(
+        content,
+        "div",
+        "treemapEntryText treemapEntryMemoryUsed",
+        formatBytes(infoByProcess[entry.item].residentUnique)
+      );
+      if (splitProcessName[1]) {
+        appendElementWithText(
+          content,
+          "div",
+          "treemapEntryText treemapEntryPid",
+          pidPrefix + splitProcessName[1]
+        );
       }
     }
   }
@@ -1378,6 +1590,8 @@ function appendAboutMemoryMain(
     // Generate the main process sections.
     let sections = newElement("div", "sections");
     sections.setAttribute("role", "main");
+
+    requestAnimationFrame(() => showTreemapReportSummary(sections, processes));
 
     for (let [i, process] of processes.entries()) {
       let pcolls = pcollsByProcess[process];
@@ -1510,16 +1724,17 @@ function TreeNode(aUnsafeName, aUnits, aIsDegenerate) {
   // - _description
   // - _hideKids (only defined if true)
   // - _maxAbsDescendant (on-demand, only when gIsDiff is set)
+  //
+  // NOTE: The _kids property is collected as a Map while loading the report,
+  // for efficient lookup by name; then during sortTreeAndInsertAggregateNodes(),
+  // it is converted into an array that is sorted by (decreasing) _amount, for
+  // displaying the report.
 }
 
 TreeNode.prototype = {
   findKid(aUnsafeName) {
     if (this._kids) {
-      for (let kid of this._kids) {
-        if (kid._unsafeName === aUnsafeName) {
-          return kid;
-        }
-      }
+      return this._kids.get(aUnsafeName);
     }
     return undefined;
   },
@@ -1543,7 +1758,7 @@ TreeNode.prototype = {
 
     // Compute the maximum absolute value of all descendants.
     let max = Math.abs(this._amount);
-    for (let kid of this._kids) {
+    for (let kid of this._kids.values()) {
       max = Math.max(max, kid.maxAbsDescendant());
     }
     this._maxAbsDescendant = max;
@@ -1604,10 +1819,10 @@ function fillInTree(aRoot) {
   function fillInNonLeafNodes(aT) {
     if (!aT._kids) {
       // Leaf node.  Has already been filled in.
-    } else if (aT._kids.length === 1 && aT != aRoot) {
+    } else if (aT._kids.size === 1 && aT != aRoot) {
       // Non-root, non-leaf node with one child.  Merge the child with the node
       // to avoid redundant entries.
-      let kid = aT._kids[0];
+      let kid = aT._kids.values().next().value;
       let kidBytes = fillInNonLeafNodes(kid);
       aT._unsafeName += "/" + kid._unsafeName;
       if (kid._kids) {
@@ -1625,7 +1840,7 @@ function fillInTree(aRoot) {
       // Non-leaf node with multiple children.  Derive its _amount and
       // _description entirely from its children...
       let kidsBytes = 0;
-      for (let kid of aT._kids) {
+      for (let kid of aT._kids.values()) {
         kidsBytes += fillInNonLeafNodes(kid);
       }
 
@@ -1643,7 +1858,7 @@ function fillInTree(aRoot) {
         let fake = new TreeNode("(fake child)", aT._units);
         fake._presence = DReport.ADDED_FOR_BALANCE;
         fake._amount = aT._amount - kidsBytes;
-        aT._kids.push(fake);
+        aT._kids.set(fake._unsafeName, fake);
         delete aT._presence;
       } else {
         assert(
@@ -1692,7 +1907,7 @@ function addHeapUnclassifiedNode(aT, aHeapAllocatedNode, aHeapTotal) {
     "Memory not classified by a more specific report. This includes " +
     "slop bytes due to internal fragmentation in the heap allocator " +
     "(caused when the allocator rounds up request sizes).";
-  aT._kids.push(heapUnclassifiedT);
+  aT._kids.set(heapUnclassifiedT._unsafeName, heapUnclassifiedT);
   aT._amount += heapUnclassifiedT._amount;
   return true;
 }
@@ -1724,35 +1939,37 @@ function sortTreeAndInsertAggregateNodes(aTotalBytes, aT) {
     return;
   }
 
-  aT._kids.sort(TreeNode.compareAmounts);
+  let sortedKids = aT._kids.values().toArray();
+  sortedKids.sort(TreeNode.compareAmounts);
 
   // If the first child is insignificant, they all are, and there's no point
   // creating an aggregate node that lacks siblings.  Just set the parent's
   // _hideKids property and process all children.
-  if (isInsignificant(aT._kids[0])) {
+  if (isInsignificant(sortedKids[0])) {
     aT._hideKids = true;
-    for (let kid of aT._kids) {
+    for (let kid of sortedKids) {
       sortTreeAndInsertAggregateNodes(aTotalBytes, kid);
     }
+    aT._kids = sortedKids;
     return;
   }
 
   // Look at all children except the last one.
   let i;
-  for (i = 0; i < aT._kids.length - 1; i++) {
-    if (isInsignificant(aT._kids[i])) {
+  for (i = 0; i < sortedKids.length - 1; i++) {
+    if (isInsignificant(sortedKids[i])) {
       // This child is below the significance threshold.  If there are other
       // (smaller) children remaining, move them under an aggregate node.
       let i0 = i;
-      let nAgg = aT._kids.length - i0;
+      let nAgg = sortedKids.length - i0;
       // Create an aggregate node.  Inherit units from the parent;  everything
       // in the tree should have the same units anyway (we test this later).
       let aggT = new TreeNode(`(${nAgg} tiny)`, aT._units);
       aggT._kids = [];
       let aggBytes = 0;
-      for (; i < aT._kids.length; i++) {
-        aggBytes += aT._kids[i]._amount;
-        aggT._kids.push(aT._kids[i]);
+      for (; i < sortedKids.length; i++) {
+        aggBytes += sortedKids[i]._amount;
+        aggT._kids.push(sortedKids[i]);
       }
       aggT._hideKids = true;
       aggT._amount = aggBytes;
@@ -1761,23 +1978,27 @@ function sortTreeAndInsertAggregateNodes(aTotalBytes, aT) {
         " sub-trees that are below the " +
         kSignificanceThresholdPerc +
         "% significance threshold.";
-      aT._kids.splice(i0, nAgg, aggT);
-      aT._kids.sort(TreeNode.compareAmounts);
+      sortedKids.splice(i0, nAgg, aggT);
+      sortedKids.sort(TreeNode.compareAmounts);
 
       // Process the moved children.
-      for (let kid of aggT._kids) {
+      for (let kid of aggT._kids.values()) {
         sortTreeAndInsertAggregateNodes(aTotalBytes, kid);
       }
+      aT._kids = sortedKids;
       return;
     }
 
-    sortTreeAndInsertAggregateNodes(aTotalBytes, aT._kids[i]);
+    sortTreeAndInsertAggregateNodes(aTotalBytes, sortedKids[i]);
   }
 
   // The first n-1 children were significant.  Don't consider if the last child
   // is significant;  there's no point creating an aggregate node that only has
   // one child.  Just process it.
-  sortTreeAndInsertAggregateNodes(aTotalBytes, aT._kids[i]);
+  sortTreeAndInsertAggregateNodes(aTotalBytes, sortedKids[i]);
+
+  // Replace the hashmap of kids with the sorted array.
+  aT._kids = sortedKids;
 }
 
 // Global variable indicating if we've seen any invalid values for this
@@ -2062,7 +2283,7 @@ function formatPercentage(aPerc100x) {
   return formatNum(aPerc100x / 10000, kPercFormatter);
 }
 
-/*
+/**
  * Converts a tree fraction to an appropriate string representation.
  *
  * @param aNum
@@ -2383,7 +2604,8 @@ function appendTreeElements(aP, aRoot, aProcess, aPadText) {
       d.setAttribute("role", "list");
 
       let tlThisForMost, tlKidsForMost;
-      if (aT._kids.length > 1) {
+      let kidCount = aT._kids.length;
+      if (kidCount > 1) {
         tlThisForMost = aTlKids + "├──";
         tlKidsForMost = aTlKids + "│  ";
       }
@@ -2391,7 +2613,7 @@ function appendTreeElements(aP, aRoot, aProcess, aPadText) {
       let tlKidsForLast = aTlKids + "   ";
 
       for (let [i, kid] of aT._kids.entries()) {
-        let isLast = i == aT._kids.length - 1;
+        let isLast = i == kidCount - 1;
         aUnsafeNames.push(kid._unsafeName);
         appendTreeElements2(
           d,

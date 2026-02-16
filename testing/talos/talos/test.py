@@ -31,7 +31,7 @@ def test_dict():
     return _TESTS
 
 
-class Test(object):
+class Test:
     """abstract base class for a Talos test case"""
 
     __test__ = False  # not pytest
@@ -146,7 +146,7 @@ class TsBase(Test):
     ]
 
     def __init__(self, **kw):
-        super(TsBase, self).__init__(**kw)
+        super().__init__(**kw)
 
         # Unless set to False explicitly, all TsBase tests will have the blocklist
         # enabled by default in order to more accurately test the startup paths.
@@ -987,7 +987,7 @@ class tp5n(PageloaderTest):
     setup = "${talos}/xtalos/start_xperf.py -c ${talos}/bcontroller.json"
     cleanup = "${talos}/xtalos/parse_xperf.py -c ${talos}/bcontroller.json"
     preferences = {
-        "extensions.enabledScopes": "",
+        "extensions.enabledScopes": 5,
         "talos.logfile": "browser_output.txt",
     }
     unit = "ms"
@@ -1040,7 +1040,8 @@ class tp5o_scroll(PageloaderTest):
         "docshell.event_starvation_delay_hint": 1,
         "dom.send_after_paint_to_content": True,
         "apz.paint_skipping.enabled": False,
-        "layout.css.scroll-behavior.spring-constant": "'10'",
+        "layout.css.scroll-snap.spring-constant": "'10'",
+        "layout.css.scroll-behavior.same-physics-as-user-input": False,
         "toolkit.framesRecording.bufferSize": 10000,
     }
     filters = filter.ignore_first.prepare(1) + filter.median.prepare()
@@ -1058,7 +1059,8 @@ class tp5o_scroll_paint_skip(tp5o_scroll):
         "docshell.event_starvation_delay_hint": 1,
         "dom.send_after_paint_to_content": True,
         "apz.paint_skipping.enabled": True,
-        "layout.css.scroll-behavior.spring-constant": "'10'",
+        "layout.css.scroll-snap.spring-constant": "'10'",
+        "layout.css.scroll-behavior.same-physics-as-user-input": False,
         "toolkit.framesRecording.bufferSize": 10000,
     }
 
@@ -1286,7 +1288,8 @@ class tscrollx(PageloaderTest):
         "docshell.event_starvation_delay_hint": 1,
         "dom.send_after_paint_to_content": True,
         "apz.paint_skipping.enabled": False,
-        "layout.css.scroll-behavior.spring-constant": "'10'",
+        "layout.css.scroll-snap.spring-constant": "'10'",
+        "layout.css.scroll-behavior.same-physics-as-user-input": False,
         "toolkit.framesRecording.bufferSize": 10000,
     }
     filters = filter.ignore_first.prepare(5) + filter.median.prepare()
@@ -1305,7 +1308,8 @@ class tscrollx_paint_skip(tscrollx):
         "docshell.event_starvation_delay_hint": 1,
         "dom.send_after_paint_to_content": True,
         "apz.paint_skipping.enabled": True,
-        "layout.css.scroll-behavior.spring-constant": "'10'",
+        "layout.css.scroll-snap.spring-constant": "'10'",
+        "layout.css.scroll-behavior.same-physics-as-user-input": False,
         "toolkit.framesRecording.bufferSize": 10000,
     }
 

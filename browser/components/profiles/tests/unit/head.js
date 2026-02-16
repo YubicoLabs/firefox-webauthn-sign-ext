@@ -4,25 +4,24 @@
 
 "use strict";
 
-const { SelectableProfile } = ChromeUtils.importESModule(
-  "resource:///modules/profiles/SelectableProfile.sys.mjs"
-);
-const { Sqlite } = ChromeUtils.importESModule(
-  "resource://gre/modules/Sqlite.sys.mjs"
-);
-
 const lazy = {};
 
-ChromeUtils.defineLazyGetter(lazy, "SelectableProfileService", () => {
-  const { SelectableProfileService } = ChromeUtils.importESModule(
-    "resource:///modules/profiles/SelectableProfileService.sys.mjs"
+ChromeUtils.defineESModuleGetters(lazy, {
+  SelectableProfileService:
+    "resource:///modules/profiles/SelectableProfileService.sys.mjs",
+  Sqlite: "resource://gre/modules/Sqlite.sys.mjs",
+});
+
+ChromeUtils.defineLazyGetter(lazy, "ProfilesDatastoreService", () => {
+  const { ProfilesDatastoreService } = ChromeUtils.importESModule(
+    "moz-src:///toolkit/profile/ProfilesDatastoreService.sys.mjs"
   );
 
-  SelectableProfileService.overrideDirectoryService({
+  ProfilesDatastoreService.overrideDirectoryService({
     ProfD: getProfileService().currentProfile.rootDir,
   });
 
-  return SelectableProfileService;
+  return ProfilesDatastoreService;
 });
 
 let gProfileServiceInitialised = false;
@@ -43,6 +42,10 @@ function getSelectableProfileService() {
   return lazy.SelectableProfileService;
 }
 
+function getProfilesDatastoreService() {
+  return lazy.ProfilesDatastoreService;
+}
+
 /**
  * Starts the selectable profile service and creates the group store for the
  * current profile.
@@ -51,8 +54,12 @@ async function initSelectableProfileService() {
   startProfileService();
 
   const SelectableProfileService = getSelectableProfileService();
+  const ProfilesDatastoreService = getProfilesDatastoreService();
+
+  await ProfilesDatastoreService.init();
 
   await SelectableProfileService.init();
+
   await SelectableProfileService.maybeSetupDataStore();
 }
 
@@ -85,7 +92,7 @@ async function openDatabase() {
   let dbFile = Services.dirsvc.get("UAppData", Ci.nsIFile);
   dbFile.append("Profile Groups");
   dbFile.append(`${getProfileService().currentProfile.storeID}.sqlite`);
-  return Sqlite.openConnection({
+  return lazy.Sqlite.openConnection({
     path: dbFile.path,
     openNotExclusive: true,
   });

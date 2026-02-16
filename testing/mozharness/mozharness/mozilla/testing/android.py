@@ -4,6 +4,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
+import errno
 import functools
 import glob
 import os
@@ -14,8 +15,6 @@ import subprocess
 import tempfile
 import time
 from threading import Timer
-
-import six
 
 from mozharness.base.script import PostScriptAction, PreScriptAction
 from mozharness.mozilla.automation import EXIT_STATUS_DICT, TBPL_RETRY
@@ -31,7 +30,7 @@ def ensure_dir(dir):
                 raise
 
 
-class AndroidMixin(object):
+class AndroidMixin:
     """
     Mixin class used by Android test scripts.
     """
@@ -41,14 +40,16 @@ class AndroidMixin(object):
         self._device = None
         self.app_name = None
         self.device_name = os.environ.get("DEVICE_NAME", None)
-        self.device_serial = os.environ.get("DEVICE_SERIAL", None)
+        self.device_serial = os.environ.get("ANDROID_SERIAL") or os.environ.get(
+            "DEVICE_SERIAL"
+        )
         self.device_ip = os.environ.get("DEVICE_IP", None)
         self.logcat_proc = None
         self.logcat_file = None
         self.use_gles3 = False
         self.use_root = True
         self.xre_path = None
-        super(AndroidMixin, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     @property
     def adb_path(self):
@@ -162,7 +163,7 @@ class AndroidMixin(object):
             # The ini file points to the absolute path to the emulator folder,
             # which might be different, so we need to update it.
             old_config = ""
-            with open(avd_config_path, "r") as config_file:
+            with open(avd_config_path) as config_file:
                 old_config = config_file.readlines()
                 self.info("Old Config: %s" % old_config)
             with open(avd_config_path, "w") as config_file:
@@ -521,7 +522,8 @@ class AndroidMixin(object):
 
     def kill_processes(self, process_name):
         self.info("Killing every process called %s" % process_name)
-        process_name = six.ensure_binary(process_name)
+        if isinstance(process_name, str):
+            process_name = process_name.encode("utf-8")
         out = subprocess.check_output(["ps", "-A"])
         for line in out.splitlines():
             if process_name in line:

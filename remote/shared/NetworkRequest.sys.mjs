@@ -9,13 +9,13 @@ ChromeUtils.defineESModuleGetters(lazy, {
   NetworkUtils:
     "resource://devtools/shared/network-observer/NetworkUtils.sys.mjs",
 
-  Log: "chrome://remote/content/shared/Log.sys.mjs",
+  generateUUID: "chrome://remote/content/shared/UUID.sys.mjs",
+  NavigableManager: "chrome://remote/content/shared/NavigableManager.sys.mjs",
+  NavigationState: "chrome://remote/content/shared/NavigationManager.sys.mjs",
+  NetworkDataBytes: "chrome://remote/content/shared/NetworkDataBytes.sys.mjs",
   notifyNavigationStarted:
     "chrome://remote/content/shared/NavigationManager.sys.mjs",
-  TabManager: "chrome://remote/content/shared/TabManager.sys.mjs",
 });
-
-ChromeUtils.defineLazyGetter(lazy, "logger", () => lazy.Log.get());
 
 /**
  * The NetworkRequest class is a wrapper around the internal channel which
@@ -30,11 +30,20 @@ export class NetworkRequest {
   #isDataURL;
   #navigationId;
   #navigationManager;
+  #postData;
+  #postDataSize;
   #rawHeaders;
   #redirectCount;
   #requestId;
   #timedChannel;
   #wrappedChannel;
+
+  /**
+   * NetworkRequest relies on WrappedChannel's id to identify requests. However
+   * this id is generated based on a counter in each process. Therefore we can
+   * have overlaps for network requests handled in different processes
+   */
+  static UNIQUE_ID_SUFFIX = lazy.generateUUID();
 
   /**
    *
@@ -81,12 +90,19 @@ export class NetworkRequest {
     this.#wrappedChannel = ChannelWrapper.get(channel);
 
     this.#redirectCount = this.#timedChannel.redirectCount;
+
     // The wrappedChannel id remains identical across redirects, whereas
     // nsIChannel.channelId is different for each and every request.
-    this.#requestId = this.#wrappedChannel.id.toString();
+    // Add a suffix unique to the process where the event is handled.
+    this.#requestId = `${this.#wrappedChannel.id.toString()}-${NetworkRequest.UNIQUE_ID_SUFFIX}`;
 
     this.#contextId = this.#getContextId();
     this.#navigationId = this.#getNavigationId();
+
+    // The postData will no longer be available after the channel is closed.
+    // Compute the postData and postDataSize properties, to be updated later if
+    // `setRequestBody` is used.
+    this.#updatePostData();
   }
 
   get alreadyCompleted() {
@@ -102,10 +118,6 @@ export class NetworkRequest {
   }
 
   get destination() {
-    if (this.#isTopLevelDocumentLoad()) {
-      return "";
-    }
-
     return this.#channel.loadInfo?.fetchDestination;
   }
 
@@ -150,13 +162,12 @@ export class NetworkRequest {
     return this.#navigationId;
   }
 
+  get postData() {
+    return this.#postData;
+  }
+
   get postDataSize() {
-    const charset = lazy.NetworkUtils.getCharset(this.#channel);
-    const sentBody = lazy.NetworkHelper.readPostTextFromRequest(
-      this.#channel,
-      charset
-    );
-    return sentBody ? sentBody.length : 0;
+    return this.#postDataSize;
   }
 
   get redirectCount() {
@@ -213,6 +224,19 @@ export class NetworkRequest {
   }
 
   /**
+   * Returns the NetworkDataBytes instance representing the request body for
+   * this request.
+   *
+   * @returns {NetworkDataBytes}
+   */
+  readAndProcessRequestBody = () => {
+    return new lazy.NetworkDataBytes({
+      getBytesValue: () => this.#postData.text,
+      isBase64: this.#postData.isBase64,
+    });
+  };
+
+  /**
    * Redirect the request to another provided URL.
    *
    * @param {string} url
@@ -249,6 +273,7 @@ export class NetworkRequest {
     } finally {
       // Make sure to reset the flag once the modification was attempted.
       this.#channel.requestObserversCalled = true;
+      this.#updatePostData();
     }
   }
 
@@ -332,6 +357,7 @@ export class NetworkRequest {
       initiatorType: this.initiatorType,
       method: this.method,
       navigationId: this.navigationId,
+      postData: this.postData,
       postDataSize: this.postDataSize,
       redirectCount: this.redirectCount,
       requestId: this.requestId,
@@ -374,7 +400,7 @@ export class NetworkRequest {
   #getContextId() {
     const id = lazy.NetworkUtils.getChannelBrowsingContextID(this.#channel);
     const browsingContext = BrowsingContext.get(id);
-    return lazy.TabManager.getIdForBrowsingContext(browsingContext);
+    return lazy.NavigableManager.getIdForBrowsingContext(browsingContext);
   }
 
   /**
@@ -387,7 +413,6 @@ export class NetworkRequest {
   #getFetchTimings() {
     const {
       asyncOpenTime,
-      channelCreationTime,
       redirectStartTime,
       redirectEndTime,
       dispatchFetchEventStartTime,
@@ -415,25 +440,9 @@ export class NetworkRequest {
     // available in the parent process, so for now we will use 0.
     const timeOrigin = 0;
 
-    let requestTime;
-    if (asyncOpenTime == 0) {
-      lazy.logger.warn(
-        `[NetworkRequest] Invalid asyncOpenTime=0 for channel [id: ${
-          this.#channel.channelId
-        }, url: ${
-          this.#channel.URI.spec
-        }], falling back to channelCreationTime=${
-          this.#timedChannel.channelCreationTime
-        }.`
-      );
-      requestTime = channelCreationTime;
-    } else {
-      requestTime = asyncOpenTime;
-    }
-
     return {
       timeOrigin,
-      requestTime: this.#convertTimestamp(requestTime, timeOrigin),
+      requestTime: this.#convertTimestamp(asyncOpenTime, timeOrigin),
       redirectStart: this.#convertTimestamp(redirectStartTime, timeOrigin),
       redirectEnd: this.#convertTimestamp(redirectEndTime, timeOrigin),
       fetchStart: this.#convertTimestamp(fetchStartTime, timeOrigin),
@@ -490,7 +499,7 @@ export class NetworkRequest {
       return null;
     }
 
-    const browsingContext = lazy.TabManager.getBrowsingContextById(
+    const browsingContext = lazy.NavigableManager.getBrowsingContextById(
       this.#contextId
     );
 
@@ -500,7 +509,7 @@ export class NetworkRequest {
     // `onBeforeRequestSent` might be too early for the NavigationManager.
     // If there is no ongoing navigation, create one ourselves.
     // TODO: Bug 1835704 to detect navigations earlier and avoid this.
-    if (!navigation || navigation.state !== "started") {
+    if (!navigation || navigation.state !== lazy.NavigationState.Started) {
       navigation = lazy.notifyNavigationStarted({
         contextDetails: { context: browsingContext },
         url: this.serializedURL,
@@ -515,9 +524,36 @@ export class NetworkRequest {
       return false;
     }
 
-    const browsingContext = lazy.TabManager.getBrowsingContextById(
+    const browsingContext = lazy.NavigableManager.getBrowsingContextById(
       this.#contextId
     );
     return !browsingContext.parent;
+  }
+
+  #readPostDataFromRequestAsUTF8() {
+    const postData = lazy.NetworkHelper.readPostDataFromRequest(
+      this.#channel,
+      "UTF-8"
+    );
+
+    if (postData === null || postData.data === null) {
+      return null;
+    }
+
+    return {
+      text: postData.isDecodedAsText ? postData.data : btoa(postData.data),
+      isBase64: !postData.isDecodedAsText,
+    };
+  }
+
+  #updatePostData() {
+    const sentBody = this.#readPostDataFromRequestAsUTF8();
+    if (sentBody) {
+      this.#postData = sentBody;
+      this.#postDataSize = sentBody.text.length;
+    } else {
+      this.#postData = null;
+      this.#postDataSize = 0;
+    }
   }
 }

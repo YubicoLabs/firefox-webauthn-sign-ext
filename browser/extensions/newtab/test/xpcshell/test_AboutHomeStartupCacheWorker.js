@@ -18,6 +18,9 @@ const { TestUtils } = ChromeUtils.importESModule(
 const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
 );
+const { NimbusTestUtils } = ChromeUtils.importESModule(
+  "resource://testing-common/NimbusTestUtils.sys.mjs"
+);
 
 SearchTestUtils.init(this);
 
@@ -33,6 +36,8 @@ ChromeUtils.defineESModuleGetters(this, {
 
 const CACHE_WORKER_URL = "resource://newtab/lib/cache.worker.js";
 const NEWTAB_RENDER_URL = "resource://newtab/data/content/newtab-render.js";
+
+NimbusTestUtils.init(this);
 
 /**
  * In order to make this test less brittle, much of Activity Stream is
@@ -68,17 +73,6 @@ add_setup(async function () {
   );
   Services.prefs.setBoolPref(
     "browser.newtabpage.activity-stream.newtabWallpapers.enabled",
-    false
-  );
-  Services.prefs.setBoolPref(
-    "browser.newtabpage.activity-stream.newtabWallpapers.v2.enabled",
-    false
-  );
-  // While this is on in nightly only, we still want to be testing what's going to release.
-  // Once this is on in release, we should update this test to also test against the new data,
-  // including updating the static data in topstories.json to match what Merino returns.
-  Services.prefs.setBoolPref(
-    "browser.newtabpage.activity-stream.discoverystream.merino-provider.enabled",
     false
   );
 
@@ -122,10 +116,12 @@ add_setup(async function () {
     { setAsDefault: true }
   );
 
-  // Initialize Activity Stream, and pretend that a new window has been loaded
-  // to kick off initializing all of the feeds.
-  AboutNewTab.init();
-  AboutNewTab.onBrowserReady();
+  const { cleanup: nimbusTestCleanup } = await NimbusTestUtils.setupTest();
+  registerCleanupFunction(nimbusTestCleanup);
+
+  // Pretend that a new window has been loaded to kick off initializing all of
+  // the feeds.
+  await AboutNewTab.onBrowserReady();
 
   // Much of Activity Stream initializes asynchronously. This is the easiest way
   // I could find to ensure that enough of the feeds had initialized to produce
@@ -210,7 +206,13 @@ add_task(async function test_cache_worker() {
   // it through ReactDOMServer by setting App.isForStartupCache to true.
   // This allows React components to change their behaviour if the cache
   // is being generated.
-  state.App.isForStartupCache = true;
+  state.App.isForStartupCache = {
+    App: true,
+    TopSites: true,
+    DiscoveryStream: true,
+    Weather: true,
+    Wallpaper: true,
+  };
 
   // Some of the properties on the state might have values set to undefined.
   // There is no way to express a named undefined property on an object in

@@ -23,7 +23,7 @@ def setup_state_dir(monkeymodule, tmp_path_factory, run_mach):
         dedent(
             """
           [try]
-          default=syntax
+          default=fuzzy
           """
         ).lstrip()
     )
@@ -73,26 +73,24 @@ def target_task_set():
 @pytest.fixture
 def full_task_set(target_task_set):
     full_task_set = deepcopy(target_task_set)
-    full_task_set.update(
-        {
-            "test/bar-opt": {
-                "kind": "test",
-                "label": "test/bar-opt",
-                "attributes": {},
-                "task": {},
-                "optimization": {},
-                "dependencies": {},
-            },
-            "test/bar-debug": {
-                "kind": "test",
-                "label": "test/bar-debug",
-                "attributes": {},
-                "task": {},
-                "optimization": {},
-                "dependencies": {},
-            },
-        }
-    )
+    full_task_set.update({
+        "test/bar-opt": {
+            "kind": "test",
+            "label": "test/bar-opt",
+            "attributes": {},
+            "task": {},
+            "optimization": {},
+            "dependencies": {},
+        },
+        "test/bar-debug": {
+            "kind": "test",
+            "label": "test/bar-debug",
+            "attributes": {},
+            "task": {},
+            "optimization": {},
+            "dependencies": {},
+        },
+    })
     return full_task_set
 
 
@@ -245,7 +243,7 @@ def full_task_set(target_task_set):
                 """
               preset saved, run with: --preset=foo
               Commit message:
-              Fuzzy query='test&query='opt&query='test
+              Fuzzy (preset: foo) query='test&query='opt&query='test
 
               mach try command: `./mach try fuzzy --preset foo -xq 'test`
 
@@ -613,144 +611,6 @@ def full_task_set(target_task_set):
             id="message fuzzy",
         ),
         pytest.param(
-            "syntax",
-            ["try", "syntax", "-p", "linux", "-u", "mochitests", "--message", "Foobar"],
-            dedent(
-                """
-              Commit message:
-              Foobar
-
-              try: -b do -p linux -u mochitests
-
-              mach try command: `./mach try syntax -p linux -u mochitests --message Foobar`
-
-              Pushed via `mach try syntax`
-            """
-            ).lstrip(),
-            id="message syntax",
-        ),
-        pytest.param(
-            "syntax",
-            ["try", "syntax", "-p", "linux", "-u", "mochitests", "-m", "Foobar: {msg}"],
-            dedent(
-                """
-              Commit message:
-              Foobar: try: -b do -p linux -u mochitests
-
-              mach try command: `./mach try syntax -p linux -u mochitests -m Foobar: {msg}`
-
-              Pushed via `mach try syntax`
-            """
-            ).lstrip(),
-            id="message syntax",
-        ),
-        pytest.param(
-            "syntax",
-            [
-                [
-                    "try",
-                    "--save",
-                    "foo",
-                    "-b",
-                    "do",
-                    "-p",
-                    "linux",
-                    "-u",
-                    "mochitests",
-                    "-t",
-                    "none",
-                    "--tag",
-                    "foo",
-                ],
-                ["try", "--preset", "foo"],
-                ["try", "syntax", "--preset", "foo"],
-                ["try", "--edit-presets"],
-            ],
-            dedent(
-                """
-              preset saved, run with: --preset=foo
-              Commit message:
-              try: -b do -p linux -u mochitests -t none --tag foo
-
-              mach try command: `./mach try --preset foo`
-
-              Pushed via `mach try syntax`
-              Commit message:
-              try: -b do -p linux -u mochitests -t none --tag foo
-
-              mach try command: `./mach try syntax --preset foo`
-
-              Pushed via `mach try syntax`
-              foo:
-                dry_run: true
-                platforms:
-                - linux
-                selector: syntax
-                tags:
-                - foo
-                talos:
-                - none
-                tests:
-                - mochitests
-                """
-            ).lstrip(),
-            id="preset with no subcommand",
-        ),
-        pytest.param(
-            "syntax",
-            [
-                [
-                    "try",
-                    "syntax",
-                    "--save",
-                    "foo",
-                    "-b",
-                    "do",
-                    "-p",
-                    "linux",
-                    "-u",
-                    "mochitests",
-                    "-t",
-                    "none",
-                    "--tag",
-                    "foo",
-                ],
-                ["try", "--preset", "foo"],
-                ["try", "syntax", "--preset", "foo"],
-                ["try", "--edit-presets"],
-            ],
-            dedent(
-                """
-              preset saved, run with: --preset=foo
-              Commit message:
-              try: -b do -p linux -u mochitests -t none --tag foo
-
-              mach try command: `./mach try --preset foo`
-
-              Pushed via `mach try syntax`
-              Commit message:
-              try: -b do -p linux -u mochitests -t none --tag foo
-
-              mach try command: `./mach try syntax --preset foo`
-
-              Pushed via `mach try syntax`
-              foo:
-                dry_run: true
-                no_artifact: true
-                platforms:
-                - linux
-                selector: syntax
-                tags:
-                - foo
-                talos:
-                - none
-                tests:
-                - mochitests
-                """
-            ).lstrip(),
-            id="preset with syntax subcommand",
-        ),
-        pytest.param(
             "fuzzy",
             [
                 ["try", "fuzzy", "--save", "foo", "-q", "'foo", "--rebuild", "5"],
@@ -762,7 +622,7 @@ def full_task_set(target_task_set):
                 """
               preset saved, run with: --preset=foo
               Commit message:
-              Fuzzy query='foo
+              Fuzzy (preset: foo) query='foo
 
               mach try command: `./mach try fuzzy --preset foo`
 
@@ -786,7 +646,7 @@ def full_task_set(target_task_set):
               }
 
               Commit message:
-              Fuzzy query='foo
+              Fuzzy (preset: foo) query='foo
 
               mach try command: `./mach try --preset foo`
 
@@ -824,14 +684,14 @@ def full_task_set(target_task_set):
             "fuzzy",
             [
                 ["try", "fuzzy", "--save", "foo", "-q", "'foo", "--rebuild", "5"],
-                ["try", "fuzzy", "--preset", "foo", "-q" "'build"],
-                ["try", "fuzzy", "--preset", "foo", "-xq" "'opt"],
+                ["try", "fuzzy", "--preset", "foo", "-q'build"],
+                ["try", "fuzzy", "--preset", "foo", "-xq'opt"],
             ],
             dedent(
                 """
               preset saved, run with: --preset=foo
               Commit message:
-              Fuzzy query='foo&query='build
+              Fuzzy (preset: foo) query='foo&query='build
 
               mach try command: `./mach try fuzzy --preset foo -q'build`
 
@@ -856,7 +716,7 @@ def full_task_set(target_task_set):
               }
 
               Commit message:
-              Fuzzy query='foo&query='opt
+              Fuzzy (preset: foo) query='foo&query='opt
 
               mach try command: `./mach try fuzzy --preset foo -xq'opt`
 
@@ -898,7 +758,7 @@ def full_task_set(target_task_set):
                 """
               preset saved, run with: --preset=foo
               Commit message:
-              Fuzzy query='foo
+              Fuzzy (preset: foo) query='foo
 
               mach try command: `./mach try fuzzy --preset foo --gecko-profile-features=nostacksampling,cpu`
 
@@ -948,7 +808,7 @@ def full_task_set(target_task_set):
                 """
               preset saved, run with: --preset=foo
               Commit message:
-              Fuzzy query='foo
+              Fuzzy (preset: foo) query='foo
 
               mach try command: `./mach try fuzzy --preset foo`
 
@@ -1000,7 +860,6 @@ def test_run_mach(
     """These tests were initially converted from the `cramtest` framework. It's
     likely there is duplication of test coverage between here and the specific
     selector tests."""
-    mocker.patch("tryselect.push.display_push_estimates")
     capfd.readouterr()
     if isinstance(commands[0], str):
         commands = [commands]

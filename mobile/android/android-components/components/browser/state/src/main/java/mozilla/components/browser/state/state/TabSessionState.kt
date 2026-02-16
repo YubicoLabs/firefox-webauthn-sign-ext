@@ -97,7 +97,6 @@ fun createTab(
     lastMediaAccessState: LastMediaAccessState = LastMediaAccessState(),
     source: SessionState.Source = SessionState.Source.Internal.None,
     restored: Boolean = false,
-    isProductUrl: Boolean = false,
     engineSession: EngineSession? = null,
     engineSessionState: EngineSessionState? = null,
     crashed: Boolean = false,
@@ -111,6 +110,9 @@ fun createTab(
     previewImageUrl: String? = null,
     hasFormData: Boolean = false,
     originalInput: String? = null,
+    initialTextDirectiveUserActivation: Boolean = false,
+    trackingProtection: TrackingProtectionState = TrackingProtectionState(),
+    securityInfo: SecurityInfo = SecurityInfo.Unknown,
 ): TabSessionState {
     return TabSessionState(
         id = id,
@@ -118,12 +120,12 @@ fun createTab(
             url,
             private,
             title = title,
+            securityInfo = securityInfo,
             webAppManifest = webAppManifest,
             searchTerms = searchTerms,
             desktopMode = desktopMode,
             previewImageUrl = previewImageUrl,
             hasFormData = hasFormData,
-            isProductUrl = isProductUrl,
         ),
         parentId = parentId ?: parent?.id,
         extensionState = extensions,
@@ -140,10 +142,12 @@ fun createTab(
             crashed = crashed,
             initialLoadFlags = initialLoadFlags,
             initialAdditionalHeaders = initialAdditionalHeaders,
+            initialTextDirectiveUserActivation = initialTextDirectiveUserActivation,
         ),
         mediaSessionState = mediaSessionState,
         historyMetadata = historyMetadata,
         originalInput = originalInput,
+        trackingProtection = trackingProtection,
     )
 }
 

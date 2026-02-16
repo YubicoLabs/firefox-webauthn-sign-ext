@@ -12,9 +12,8 @@
 #include "mozilla/Vector.h"  // for Vector
 
 #include <algorithm>
-#include <string.h>     // for size_t, strlen
-#include <type_traits>  // for remove_reference<>::type
-#include <utility>      // for move
+#include <string.h>  // for size_t, strlen
+#include <utility>   // for move
 
 #include "jsapi.h"  // for CallArgs, RootedObject, Rooted
 
@@ -168,6 +167,7 @@ struct MOZ_STACK_CLASS DebuggerObject::CallData {
   bool boundArgumentsGetter();
   bool allocationSiteGetter();
   bool isErrorGetter();
+  bool isMutedErrorGetter();
   bool errorMessageNameGetter();
   bool errorNotesGetter();
   bool errorLineNumberGetter();
@@ -505,6 +505,11 @@ bool DebuggerObject::CallData::errorMessageNameGetter() {
 
 bool DebuggerObject::CallData::isErrorGetter() {
   args.rval().setBoolean(object->isError());
+  return true;
+}
+
+bool DebuggerObject::CallData::isMutedErrorGetter() {
+  args.rval().setBoolean(object->isMutedError(cx));
   return true;
 }
 
@@ -1514,6 +1519,7 @@ const JSPropertySpec DebuggerObject::properties_[] = {
     JS_DEBUG_PSG("boundArguments", boundArgumentsGetter),
     JS_DEBUG_PSG("allocationSite", allocationSiteGetter),
     JS_DEBUG_PSG("isError", isErrorGetter),
+    JS_DEBUG_PSG("isMutedError", isMutedErrorGetter),
     JS_DEBUG_PSG("errorMessageName", errorMessageNameGetter),
     JS_DEBUG_PSG("errorNotes", errorNotesGetter),
     JS_DEBUG_PSG("errorLineNumber", errorLineNumberGetter),
@@ -1688,6 +1694,31 @@ bool DebuggerObject::isError() const {
   }
 
   return referent->is<ErrorObject>();
+}
+
+bool DebuggerObject::isMutedError(JSContext* cx) const {
+  JS::Rooted<JSObject*> referent(cx, this->referent());
+
+  if (IsCrossCompartmentWrapper(referent)) {
+    // We only check for error classes, so CheckedUnwrapStatic is OK.
+    referent = CheckedUnwrapStatic(referent);
+    if (!referent) {
+      return false;
+    }
+  }
+
+  if (!referent->is<ErrorObject>()) {
+    return false;
+  }
+
+  JSErrorReport* report = referent->as<ErrorObject>().getErrorReport();
+  if (!report) {
+    // If the error report was missing, isMuted field can never be true,
+    // and just returning false is OK.
+    return false;
+  }
+
+  return report->isMuted;
 }
 
 /* static */
@@ -2529,6 +2560,7 @@ bool DebuggerObject::forceLexicalInitializationByName(
         v.whyMagic() == JS_UNINITIALIZED_LEXICAL) {
       globalLexical->as<NativeObject>().setSlot(propInfo.slot(),
                                                 UndefinedValue());
+      cx->hasDebuggerForcedLexicalInit = true;
       result = true;
     }
   }

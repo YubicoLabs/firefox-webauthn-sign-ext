@@ -33,14 +33,14 @@ XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "gUpdateTimerManager",
   "@mozilla.org/updates/timer-manager;1",
-  "nsIUpdateTimerManager"
+  Ci.nsIUpdateTimerManager
 );
 
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "PageThumbsStorageService",
   "@mozilla.org/thumbnails/pagethumbs-service;1",
-  "nsIPageThumbsStorageService"
+  Ci.nsIPageThumbsStorageService
 );
 
 /**
@@ -50,9 +50,10 @@ const TaskUtils = {
   /**
    * Read the bytes from a blob, asynchronously.
    *
-   * @return {Promise}
-   * @resolve {ArrayBuffer} In case of success, the bytes contained in the blob.
-   * @reject {DOMException} In case of error, the underlying DOMException.
+   * @return {Promise<ArrayBuffer>}
+   *   Resolves to the bytes contained in the blob.
+   * @rejects {DOMException}
+   *   In case of error, the underlying DOMException.
    */
   readBlob: function readBlob(blob) {
     return new Promise((resolve, reject) => {
@@ -146,6 +147,7 @@ export var PageThumbs = {
 
   /**
    * Gets the thumbnail image's url for a given web page's url.
+   *
    * @param aUrl The web page's url that is depicted in the thumbnail.
    * @return The thumbnail image's url.
    */
@@ -179,8 +181,8 @@ export var PageThumbs = {
    *
    * @param aBrowser The <browser> to capture a thumbnail from.
    * @param aArgs See captureToCanvas for accepted arguments.
-   * @return {Promise}
-   * @resolve {Blob} The thumbnail, as a Blob.
+   * @return {Promise<Blob>}
+   *   Resolves to the thumbnail, as a Blob.
    */
   captureToBlob: function PageThumbs_captureToBlob(aBrowser, aArgs) {
     if (!this._prefEnabled()) {
@@ -204,6 +206,7 @@ export var PageThumbs = {
    * Note, when dealing with remote content, this api draws into the passed
    * canvas asynchronously. Pass aCallback to receive an async callback after
    * canvas painting has completed.
+   *
    * @param aBrowser The browser to capture a thumbnail from.
    * @param aCanvas The canvas to draw to. The thumbnail will be scaled to match
    *   the dimensions of this canvas. If callers pass a 0x0 canvas, the canvas
@@ -355,16 +358,17 @@ export var PageThumbs = {
       "canvas"
     );
 
-    let image;
+    let ctx = thumbnail.getContext("2d");
     if (contentInfo.imageData) {
       thumbnail.width = contentWidth;
       thumbnail.height = contentHeight;
 
-      image = new aBrowser.ownerGlobal.Image();
-      await new Promise(resolve => {
-        image.onload = resolve;
-        image.src = contentInfo.imageData;
-      });
+      let imageData = new aBrowser.ownerGlobal.ImageData(
+        contentInfo.imageData,
+        contentWidth,
+        contentHeight
+      );
+      ctx.putImageData(imageData, 0, 0);
     } else {
       let fullScale = aArgs ? aArgs.fullScale : false;
       let targetWidth = aArgs.targetWidth ? aArgs.targetWidth : aWidth;
@@ -383,7 +387,7 @@ export var PageThumbs = {
         scale = Math.min(targetScale, 1);
       }
 
-      image = await aBrowser.drawSnapshot(
+      let image = await aBrowser.drawSnapshot(
         0,
         0,
         contentWidth,
@@ -403,15 +407,15 @@ export var PageThumbs = {
         thumbnail.width = fullScale ? contentWidth : aWidth;
         thumbnail.height = fullScale ? contentHeight : aHeight;
       }
+      ctx.drawImage(image, 0, 0);
     }
-
-    thumbnail.getContext("2d").drawImage(image, 0, 0);
 
     return thumbnail;
   },
 
   /**
    * Captures a thumbnail for the given browser and stores it to the cache.
+   *
    * @param aBrowser The browser to capture a thumbnail for.
    */
   captureAndStore: async function PageThumbs_captureAndStore(aBrowser) {
@@ -607,6 +611,7 @@ export var PageThumbs = {
 
   /**
    * Unregister an expiration filter.
+   *
    * @param aFilter A filter that was previously passed to addExpirationFilter.
    */
   removeExpirationFilter: function PageThumbs_removeExpirationFilter(aFilter) {
@@ -615,6 +620,7 @@ export var PageThumbs = {
 
   /**
    * Creates a new hidden canvas element.
+   *
    * @param aWindow The document of this window will be used to create the
    *                canvas.  If not given, the hidden window will be used.
    * @return The newly created canvas.

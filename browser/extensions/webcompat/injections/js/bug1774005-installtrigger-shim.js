@@ -12,15 +12,11 @@
  * be applied to multiple domains, see bug 1774005 for more information.
  */
 
-/* globals exportFunction */
+if (!window.InstallTrigger) {
+  console.info(
+    "window.InstallTrigger has been shimmed for compatibility reasons. See https://bugzilla.mozilla.org/show_bug.cgi?id=1774005 for details."
+  );
 
-console.info(
-  "The InstallTrigger has been shimmed for compatibility reasons. See https://bugzilla.mozilla.org/show_bug.cgi?id=1774005 for details."
-);
-
-Object.defineProperty(window.wrappedJSObject, "InstallTrigger", {
-  get: exportFunction(function () {
-    return "This property has been shimmed for Web Compatibility reasons.";
-  }, window),
-  set: exportFunction(function (_) {}, window),
-});
+  window.InstallTrigger =
+    "This property has been shimmed for Web Compatibility reasons.";
+}

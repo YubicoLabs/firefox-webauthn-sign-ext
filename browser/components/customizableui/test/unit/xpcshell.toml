@@ -1,6 +1,8 @@
 [DEFAULT]
+run-if = [
+  "os != 'android'",
+]
 head =  ''
-skip-if = ["os == 'android'"] # bug 1730213
 firefox-appdir = "browser"
 
 ["test_unified_extensions_migration.js"]

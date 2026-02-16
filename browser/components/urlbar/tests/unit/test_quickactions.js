@@ -6,9 +6,7 @@
 
 ChromeUtils.defineESModuleGetters(this, {
   ActionsProviderQuickActions:
-    "resource:///modules/ActionsProviderQuickActions.sys.mjs",
-  UrlbarProviderInterventions:
-    "resource:///modules/UrlbarProviderInterventions.sys.mjs",
+    "moz-src:///browser/components/urlbar/ActionsProviderQuickActions.sys.mjs",
 });
 
 add_setup(async () => {
@@ -27,13 +25,37 @@ add_setup(async () => {
 add_task(async function nomatch() {
   let context = createContext("this doesnt match", {});
   let results = await ActionsProviderQuickActions.queryActions(context);
-  Assert.ok(results === null, "there were no matches");
+  Assert.strictEqual(results, null, "there were no matches");
 });
 
 add_task(async function quickactions_match() {
   let context = createContext("new", {});
   let results = await ActionsProviderQuickActions.queryActions(context);
-  Assert.ok(results[0].key == "newaction", "Matched the new action");
+  Assert.equal(results[0].key, "newaction", "Matched the new action");
+});
+
+add_task(async function quickactions_match_multiple() {
+  ActionsProviderQuickActions.addAction("multiaction", {
+    commands: ["testcommand1", "commandtest2"],
+  });
+
+  let context = createContext("testcommand1", {});
+  let results = await ActionsProviderQuickActions.queryActions(context);
+  Assert.equal(
+    results[0].key,
+    "multiaction",
+    "Matched the action with first keyword"
+  );
+
+  context = createContext("commandtest2", {});
+  results = await ActionsProviderQuickActions.queryActions(context);
+  Assert.equal(
+    results[0].key,
+    "multiaction",
+    "Matched the action with first keyword"
+  );
+
+  ActionsProviderQuickActions.removeAction("multiaction");
 });
 
 add_task(async function duplicate_matches() {
@@ -44,7 +66,7 @@ add_task(async function duplicate_matches() {
   let context = createContext("test", {});
   let results = await ActionsProviderQuickActions.queryActions(context);
 
-  Assert.ok(results[0].key == "testaction", "Matched the test action");
+  Assert.equal(results[0].key, "testaction", "Matched the test action");
 
   ActionsProviderQuickActions.removeAction("testaction");
 });
@@ -58,7 +80,7 @@ add_task(async function remove_action() {
   let context = createContext("test", {});
   let result = await ActionsProviderQuickActions.queryActions(context);
 
-  Assert.ok(result === null, "there were no matches");
+  Assert.strictEqual(result, null, "there were no matches");
 });
 
 add_task(async function minimum_search_string() {
@@ -69,10 +91,10 @@ add_task(async function minimum_search_string() {
     for (let i = 1; i < 4; i++) {
       let context = createContext(searchString.substring(0, i), {});
       let result = await ActionsProviderQuickActions.queryActions(context);
-      let isActive = ActionsProviderQuickActions.isActive(context);
+      let isActive = await ActionsProviderQuickActions.isActive(context);
 
       if (i >= minimumSearchString) {
-        Assert.ok(result[0].key == "newaction", "Matched the new action");
+        Assert.equal(result[0].key, "newaction", "Matched the new action");
         Assert.equal(isActive, true, "Provider is active");
       } else {
         Assert.equal(isActive, false, "Provider is not active");
@@ -83,9 +105,38 @@ add_task(async function minimum_search_string() {
 });
 
 add_task(async function interventions_disabled() {
+  let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+  let interventionsProvider = providersManager.getProvider(
+    "UrlbarProviderInterventions"
+  );
+  // Mock the relevent method of Query so we don't have to start a real one.
+  interventionsProvider.queryInstance = {
+    getProvider: name => providersManager.getProvider(name),
+  };
   let context = createContext("test", { isPrivate: false });
+
   Assert.ok(
-    !UrlbarProviderInterventions.isActive(context),
+    !(await interventionsProvider.isActive(context)),
     "Urlbar interventions are disabled when actions are enabled"
   );
+  interventionsProvider.queryInstance = null;
+});
+
+add_task(async function test_multiple_exact_matches() {
+  ActionsProviderQuickActions.addAction("multiaction1", {
+    commands: ["testcommand1"],
+  });
+  ActionsProviderQuickActions.addAction("multiaction2", {
+    commands: ["testcommand1"],
+  });
+
+  let context = createContext("testcommand1", {});
+  let results = await ActionsProviderQuickActions.queryActions(context);
+
+  Assert.equal(results.length, 2, "Matched both actions");
+  Assert.equal(results[0].key, "multiaction1", "Matched the test action");
+  Assert.equal(results[1].key, "multiaction2", "Matched the test action");
+
+  ActionsProviderQuickActions.removeAction("multiaction1");
+  ActionsProviderQuickActions.removeAction("multiaction2");
 });

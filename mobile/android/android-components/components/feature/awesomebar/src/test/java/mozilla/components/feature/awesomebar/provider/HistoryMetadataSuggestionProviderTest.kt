@@ -6,7 +6,6 @@ package mozilla.components.feature.awesomebar.provider
 
 import androidx.core.net.toUri
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import mozilla.components.concept.engine.Engine
 import mozilla.components.concept.storage.DocumentType
@@ -36,7 +35,6 @@ import org.mockito.Mockito.never
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 
-@ExperimentalCoroutinesApi // for runTest
 @RunWith(AndroidJUnit4::class)
 class HistoryMetadataSuggestionProviderTest {
     private val historyEntry = HistoryMetadata(
@@ -63,17 +61,17 @@ class HistoryMetadataSuggestionProviderTest {
     }
 
     @Test
-    fun `provider cleanups all previous read operations when text is empty`() = runTest {
+    fun `WHEN onInputChanged is called THEN do not cancel any read operations until after sanity check`() = runTest {
         val provider = HistoryMetadataSuggestionProvider(mock(), mock())
 
         provider.onInputChanged("")
 
         verify(provider.historyStorage, never()).cancelReads()
-        verify(provider.historyStorage).cancelReads("")
+        verify(provider.historyStorage, never()).cancelReads("")
     }
 
     @Test
-    fun `provider cleanups all previous read operations when text is not empty`() = runTest {
+    fun `WHEN onInputChanged is called with non empty text THEN cancel all previous read operations with the same input`() = runTest {
         val storage: HistoryMetadataStorage = mock()
         doReturn(listOf(historyEntry)).`when`(storage).queryHistoryMetadata(anyString(), anyInt())
         val provider = HistoryMetadataSuggestionProvider(storage, mock())

@@ -4,6 +4,13 @@
 
 "use strict";
 
+/* import-globals-from ../../../mochitest/role.js */
+/* import-globals-from ../../../mochitest/states.js */
+loadScripts(
+  { name: "role.js", dir: MOCHITESTS_DIR },
+  { name: "states.js", dir: MOCHITESTS_DIR }
+);
+
 /* eslint-disable camelcase */
 // From https://learn.microsoft.com/en-us/windows/win32/winauto/landmark-type-identifiers
 const UIA_CustomLandmarkTypeId = 80000;
@@ -452,4 +459,155 @@ addUiaTask(
       "none has correct LocalizedLandmarkType"
     );
   }
+);
+
+/**
+ * Test the AcceleratorKey property.
+ */
+addUiaTask(
+  `
+  <div id="button" role="button" aria-keyshortcuts="Alt+Shift+f">foo</div>
+  `,
+  async function testAcceleratorKey() {
+    await definePyVar("doc", `getDocUia()`);
+    is(
+      await runPython(`findUiaByDomId(doc, "button").CurrentAcceleratorKey`),
+      "Alt+Shift+f",
+      "button has correct AcceleratorKey"
+    );
+  },
+  { uiaEnabled: true, uiaDisabled: false }
+);
+
+/**
+ * Test the IsOffscreen property.
+ */
+addUiaTask(
+  `
+<button id="onscreen">onscreen</button>
+<button id="offscreen" style="position: absolute; left: -10000px;">offscreen</button>
+  `,
+  async function testIsOffscreen(browser, docAcc) {
+    await definePyVar("doc", `getDocUia()`);
+    ok(
+      !(await runPython(`findUiaByDomId(doc, "onscreen").CurrentIsOffscreen`)),
+      "onscreen has correct IsOffscreen"
+    );
+    ok(
+      await runPython(`findUiaByDomId(doc, "offscreen").CurrentIsOffscreen`),
+      "offscreen has correct IsOffscreen"
+    );
+    ok(
+      !(await runPython(`doc.CurrentIsOffscreen`)),
+      "doc has correct IsOffscreen"
+    );
+    info("Opening a new tab");
+    await BrowserTestUtils.withNewTab("", async () => {
+      // withNewTab (nor a focus event) isn't enough to guarantee the new tab is
+      // fully active in the foreground yet.
+      await untilCacheOk(() => {
+        const [state] = getStates(docAcc);
+        return state & STATE_OFFSCREEN;
+      }, "doc is offscreen in cross-platform tree");
+      // doc is now a background tab, so it should be offscreen.
+      ok(
+        await runPython(`doc.CurrentIsOffscreen`),
+        "doc has correct IsOffscreen"
+      );
+    });
+  },
+  { uiaEnabled: true, uiaDisabled: true }
+);
+
+/**
+ * Test the IsPassword property.
+ */
+addUiaTask(
+  `
+<input type="text" id="text">
+<input type="password" id="password">
+  `,
+  async function testIsPassword() {
+    await definePyVar("doc", `getDocUia()`);
+    ok(
+      !(await runPython(`findUiaByDomId(doc, "text").CurrentIsPassword`)),
+      "text has correct IsPassword"
+    );
+    ok(
+      await runPython(`findUiaByDomId(doc, "password").CurrentIsPassword`),
+      "password has correct IsPassword"
+    );
+    ok(
+      !(await runPython(`doc.CurrentIsPassword`)),
+      "doc has correct IsPassword"
+    );
+  },
+  { uiaEnabled: true, uiaDisabled: true }
+);
+
+/**
+ * Test exposure of aria-current via the AriaProperties property.
+ */
+addUiaTask(
+  `
+<button id="missing">missing</button>
+<button id="false" aria-current="false">false</button>
+<button id="undefined" aria-current="undefined">undefined</button>
+<button id="true" aria-current="true">false</button>
+<button id="page" aria-current="page">page</button>
+<button id="unrecognized" aria-current="unrecognized">unrecognized</button>
+  `,
+  async function testCurrent() {
+    await definePyVar("doc", `getDocUia()`);
+    let result = await runPython(
+      `findUiaByDomId(doc, "missing").CurrentAriaProperties`
+    );
+    is(
+      result.indexOf("current="),
+      -1,
+      "AriaProperties for missing doesn't contain current"
+    );
+    result = await runPython(
+      `findUiaByDomId(doc, "false").CurrentAriaProperties`
+    );
+    is(
+      result.indexOf("current="),
+      -1,
+      "AriaProperties for false doesn't contain current"
+    );
+    result = await runPython(
+      `findUiaByDomId(doc, "undefined").CurrentAriaProperties`
+    );
+    is(
+      result.indexOf("current="),
+      -1,
+      "AriaProperties for undefined doesn't contain current"
+    );
+    result = await runPython(
+      `findUiaByDomId(doc, "true").CurrentAriaProperties`
+    );
+    isnot(
+      result.indexOf("current=true"),
+      -1,
+      "AriaProperties for true contains current=true"
+    );
+    result = await runPython(
+      `findUiaByDomId(doc, "page").CurrentAriaProperties`
+    );
+    isnot(
+      result.indexOf("current=page"),
+      -1,
+      "AriaProperties for page contains current=page"
+    );
+    result = await runPython(
+      `findUiaByDomId(doc, "unrecognized").CurrentAriaProperties`
+    );
+    isnot(
+      result.indexOf("current=true"),
+      -1,
+      "AriaProperties for unrecognized contains current=true"
+    );
+  },
+  // The IA2 -> UIA proxy doesn't support aria-current.
+  { uiaEnabled: true, uiaDisabled: false }
 );

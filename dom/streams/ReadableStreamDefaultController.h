@@ -12,17 +12,17 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/QueuingStrategyBinding.h"
+#include "mozilla/dom/Nullable.h"
 #include "mozilla/dom/QueueWithSizes.h"
-#include "mozilla/dom/ReadableStreamController.h"
+#include "mozilla/dom/QueuingStrategyBinding.h"
 #include "mozilla/dom/ReadRequest.h"
+#include "mozilla/dom/ReadableStreamControllerBase.h"
 #include "mozilla/dom/UnderlyingSourceCallbackHelpers.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsIGlobalObject.h"
 #include "nsISupports.h"
-#include "nsWrapperCache.h"
-#include "mozilla/dom/Nullable.h"
 #include "nsTArray.h"
+#include "nsWrapperCache.h"
 
 namespace mozilla::dom {
 
@@ -31,12 +31,13 @@ class ReadableStreamDefaultReader;
 struct UnderlyingSource;
 class ReadableStreamGenericReader;
 
-class ReadableStreamDefaultController final : public ReadableStreamController,
-                                              public nsWrapperCache {
+class ReadableStreamDefaultController final
+    : public ReadableStreamControllerBase,
+      public nsWrapperCache {
  public:
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_INHERITED(
-      ReadableStreamDefaultController, ReadableStreamController)
+      ReadableStreamDefaultController, ReadableStreamControllerBase)
 
  public:
   explicit ReadableStreamDefaultController(nsIGlobalObject* aGlobal);

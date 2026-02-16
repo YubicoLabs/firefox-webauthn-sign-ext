@@ -6,8 +6,9 @@ import { makeTestGroup } from '../../../common/framework/test_group.js';
 import { skipTestCase } from '../../../common/util/util.js';
 import { kCanvasAlphaModes } from '../../capability_info.js';
 import {
-  kTextureFormatInfo,
-  kValidTextureFormatsForCopyE2T,
+  getBaseFormatForRegularTextureFormat,
+  isTextureFormatPossiblyUsableWithCopyExternalImageToTexture,
+  kRegularTextureFormats,
   RegularTextureFormat,
 } from '../../format_info.js';
 import { TextureUploadingUtils } from '../../util/copy_to_texture.js';
@@ -126,7 +127,7 @@ class F extends TextureUploadingUtils {
     const canvas = createCanvas(this, canvasType, width, height);
 
     let canvasContext = null;
-    canvasContext = canvas.getContext('2d');
+    canvasContext = canvas.getContext('2d') as CanvasRenderingContext2D;
 
     if (canvasContext === null) {
       this.skip(canvasType + ' canvas 2d context not available');
@@ -413,8 +414,8 @@ class F extends TextureUploadingUtils {
     });
 
     // Construct expected value for different dst color format
-    const info = kTextureFormatInfo[p.dstColorFormat];
-    const expFormat = info.baseFormat ?? p.dstColorFormat;
+    const baseFormat = getBaseFormatForRegularTextureFormat(p.dstColorFormat);
+    const expFormat = baseFormat ?? p.dstColorFormat;
 
     // For 2d canvas, get expected pixels with getImageData(), which returns unpremultiplied
     // values.
@@ -486,18 +487,18 @@ g.test('copy_contents_from_2d_context_canvas')
   .params(u =>
     u
       .combine('canvasType', kAllCanvasTypes)
-      .combine('dstColorFormat', kValidTextureFormatsForCopyE2T)
+      .combine('dstColorFormat', kRegularTextureFormats)
+      .filter(t => isTextureFormatPossiblyUsableWithCopyExternalImageToTexture(t.dstColorFormat))
       .combine('dstAlphaMode', kCanvasAlphaModes)
       .combine('srcDoFlipYDuringCopy', [true, false])
       .beginSubcases()
       .combine('width', [1, 2, 4, 15])
       .combine('height', [1, 2, 4, 15])
   )
-  .beforeAllSubcases(t => {
-    t.skipIfTextureFormatNotSupported(t.params.dstColorFormat);
-  })
   .fn(t => {
-    const { width, height, canvasType, dstAlphaMode } = t.params;
+    const { width, height, canvasType, dstAlphaMode, dstColorFormat } = t.params;
+    t.skipIfTextureFormatNotSupported(dstColorFormat);
+    t.skipIfTextureFormatPossiblyNotUsableWithCopyExternalImageToTexture(dstColorFormat);
 
     const { canvas, expectedSourceData } = t.init2DCanvasContent({
       canvasType,
@@ -549,7 +550,8 @@ g.test('copy_contents_from_gl_context_canvas')
     u
       .combine('canvasType', kAllCanvasTypes)
       .combine('contextName', ['webgl', 'webgl2'] as const)
-      .combine('dstColorFormat', kValidTextureFormatsForCopyE2T)
+      .combine('dstColorFormat', kRegularTextureFormats)
+      .filter(t => isTextureFormatPossiblyUsableWithCopyExternalImageToTexture(t.dstColorFormat))
       .combine('srcPremultiplied', [true, false])
       .combine('dstAlphaMode', kCanvasAlphaModes)
       .combine('srcDoFlipYDuringCopy', [true, false])
@@ -557,11 +559,18 @@ g.test('copy_contents_from_gl_context_canvas')
       .combine('width', [1, 2, 4, 15])
       .combine('height', [1, 2, 4, 15])
   )
-  .beforeAllSubcases(t => {
-    t.skipIfTextureFormatNotSupported(t.params.dstColorFormat);
-  })
   .fn(t => {
-    const { width, height, canvasType, contextName, srcPremultiplied, dstAlphaMode } = t.params;
+    const {
+      width,
+      height,
+      canvasType,
+      contextName,
+      srcPremultiplied,
+      dstAlphaMode,
+      dstColorFormat,
+    } = t.params;
+    t.skipIfTextureFormatNotSupported(dstColorFormat);
+    t.skipIfTextureFormatPossiblyNotUsableWithCopyExternalImageToTexture(dstColorFormat);
 
     const { canvas, expectedSourceData } = t.initGLCanvasContent({
       canvasType,
@@ -617,7 +626,8 @@ g.test('copy_contents_from_gpu_context_canvas')
     u
       .combine('canvasType', kAllCanvasTypes)
       .combine('srcAndDstInSameGPUDevice', [true, false])
-      .combine('dstColorFormat', kValidTextureFormatsForCopyE2T)
+      .combine('dstColorFormat', kRegularTextureFormats)
+      .filter(t => isTextureFormatPossiblyUsableWithCopyExternalImageToTexture(t.dstColorFormat))
       // .combine('srcAlphaMode', kCanvasAlphaModes)
       .combine('srcAlphaMode', ['premultiplied'] as const)
       .combine('dstAlphaMode', kCanvasAlphaModes)
@@ -627,12 +637,20 @@ g.test('copy_contents_from_gpu_context_canvas')
       .combine('height', [1, 2, 4, 15])
   )
   .beforeAllSubcases(t => {
-    t.skipIfTextureFormatNotSupported(t.params.dstColorFormat);
-    t.selectMismatchedDeviceOrSkipTestCase(undefined);
+    t.usesMismatchedDevice();
   })
   .fn(t => {
-    const { width, height, canvasType, srcAndDstInSameGPUDevice, srcAlphaMode, dstAlphaMode } =
-      t.params;
+    const {
+      width,
+      height,
+      canvasType,
+      srcAndDstInSameGPUDevice,
+      srcAlphaMode,
+      dstAlphaMode,
+      dstColorFormat,
+    } = t.params;
+    t.skipIfTextureFormatNotSupported(dstColorFormat);
+    t.skipIfTextureFormatPossiblyNotUsableWithCopyExternalImageToTexture(dstColorFormat);
 
     const device = srcAndDstInSameGPUDevice ? t.device : t.mismatchedDevice;
     const { canvas: source, expectedSourceData } = t.initSourceWebGPUCanvas({
@@ -685,18 +703,18 @@ g.test('copy_contents_from_bitmaprenderer_context_canvas')
   .params(u =>
     u
       .combine('canvasType', kAllCanvasTypes)
-      .combine('dstColorFormat', kValidTextureFormatsForCopyE2T)
+      .combine('dstColorFormat', kRegularTextureFormats)
+      .filter(t => isTextureFormatPossiblyUsableWithCopyExternalImageToTexture(t.dstColorFormat))
       .combine('dstAlphaMode', kCanvasAlphaModes)
       .combine('srcDoFlipYDuringCopy', [true, false])
       .beginSubcases()
       .combine('width', [1, 2, 4, 15])
       .combine('height', [1, 2, 4, 15])
   )
-  .beforeAllSubcases(t => {
-    t.skipIfTextureFormatNotSupported(t.params.dstColorFormat);
-  })
   .fn(async t => {
-    const { width, height, canvasType, dstAlphaMode } = t.params;
+    const { width, height, canvasType, dstAlphaMode, dstColorFormat } = t.params;
+    t.skipIfTextureFormatNotSupported(dstColorFormat);
+    t.skipIfTextureFormatPossiblyNotUsableWithCopyExternalImageToTexture(dstColorFormat);
 
     const canvas = createCanvas(t, canvasType, width, height);
 
@@ -761,16 +779,14 @@ g.test('color_space_conversion')
     u
       .combine('srcColorSpace', ['srgb', 'display-p3'] as const)
       .combine('dstColorSpace', ['srgb', 'display-p3'] as const)
-      .combine('dstColorFormat', kValidTextureFormatsForCopyE2T)
+      .combine('dstColorFormat', kRegularTextureFormats)
+      .filter(t => isTextureFormatPossiblyUsableWithCopyExternalImageToTexture(t.dstColorFormat))
       .combine('dstPremultiplied', [true, false])
       .combine('srcDoFlipYDuringCopy', [true, false])
       .beginSubcases()
       .combine('width', [1, 2, 4, 15, 255, 256])
       .combine('height', [1, 2, 4, 15, 255, 256])
   )
-  .beforeAllSubcases(t => {
-    t.skipIfTextureFormatNotSupported(t.params.dstColorFormat);
-  })
   .fn(t => {
     const {
       width,
@@ -781,6 +797,8 @@ g.test('color_space_conversion')
       dstPremultiplied,
       srcDoFlipYDuringCopy,
     } = t.params;
+    t.skipIfTextureFormatNotSupported(dstColorFormat);
+    t.skipIfTextureFormatPossiblyNotUsableWithCopyExternalImageToTexture(dstColorFormat);
     const { canvas, expectedSourceData } = t.init2DCanvasContentWithColorSpace({
       width,
       height,
@@ -802,7 +820,7 @@ g.test('color_space_conversion')
       dstSize: [width, height],
       subRectSize: [width, height],
       // copyExternalImageToTexture does not perform gamma-encoding into `-srgb` formats.
-      format: kTextureFormatInfo[dstColorFormat].baseFormat ?? dstColorFormat,
+      format: getBaseFormatForRegularTextureFormat(dstColorFormat) ?? dstColorFormat,
       flipSrcBeforeCopy: false,
       srcDoFlipYDuringCopy,
       conversion: {
@@ -818,8 +836,15 @@ g.test('color_space_conversion')
       maxDiffULPsForNormFormat: 1,
     };
     if (srcColorSpace !== dstColorSpace) {
-      // Color space conversion seems prone to errors up to about 0.0003 on f32, 0.0007 on f16.
-      texelCompareOptions.maxFractionalDiff = 0.001;
+      if (dstColorFormat.endsWith('32float')) {
+        texelCompareOptions.maxFractionalDiff = 0.0003;
+      } else if (dstColorFormat.endsWith('16float')) {
+        texelCompareOptions.maxFractionalDiff = 0.0007;
+      } else if (dstColorFormat === 'rg11b10ufloat') {
+        texelCompareOptions.maxFractionalDiff = 0.015;
+      } else {
+        texelCompareOptions.maxFractionalDiff = 0.001;
+      }
     } else {
       texelCompareOptions.maxDiffULPsForFloatFormat = 1;
     }

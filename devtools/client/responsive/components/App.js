@@ -2,16 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-env browser */
-
 "use strict";
 
 const {
   createFactory,
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   connect,
 } = require("resource://devtools/client/shared/vendor/react-redux.js");
@@ -176,20 +174,17 @@ class App extends PureComponent {
     this.props.dispatch(changeUserAgent(userAgent));
   }
 
-  onChangeViewportOrientation(id, type, angle, isViewportRotated = false) {
+  onChangeViewportOrientation(id, type, angle) {
     window.postMessage(
       {
         type: "viewport-orientation-change",
         orientationType: type,
         angle,
-        isViewportRotated,
       },
       "*"
     );
 
-    if (isViewportRotated) {
-      this.props.dispatch(changeViewportAngle(id, angle));
-    }
+    this.props.dispatch(changeViewportAngle(id, angle));
   }
 
   onDeviceListUpdate(devices) {
@@ -264,7 +259,7 @@ class App extends PureComponent {
    * Dispatches the rotateViewport action creator. This utilized by the RDM toolbar as
    * a prop.
    *
-   * @param {Number} id
+   * @param {number} id
    *        The viewport ID.
    */
   onRotateViewport(id) {

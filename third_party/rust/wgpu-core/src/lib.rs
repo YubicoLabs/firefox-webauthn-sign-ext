@@ -17,7 +17,7 @@
     ),
     allow(unused, clippy::let_and_return)
 )]
-#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(
     // It is much clearer to assert negative conditions with eq! false
     clippy::bool_assert_comparison,
@@ -33,13 +33,12 @@
     clippy::needless_update,
     // Need many arguments for some core functions to be able to re-use code in many situations.
     clippy::too_many_arguments,
-    // For some reason `rustc` can warn about these in const generics even
-    // though they are required.
-    unused_braces,
     // It gets in the way a lot and does not prevent bugs in practice.
     clippy::pattern_type_mismatch,
     // `wgpu-core` isn't entirely user-facing, so it's useful to document internal items.
-    rustdoc::private_intra_doc_links
+    rustdoc::private_intra_doc_links,
+    // We should investigate these.
+    clippy::result_large_err
 )]
 #![warn(
     clippy::alloc_instead_of_core,
@@ -58,26 +57,27 @@
 // this doesn't make a difference.
 // Therefore, this is only really a concern for users targeting WebGL
 // (the only reason to use wgpu-core on the web in the first place) that have atomics enabled.
+//
+// NOTE: Keep this in sync with `wgpu`.
 #![cfg_attr(not(send_sync), allow(clippy::arc_with_non_send_sync))]
 
 extern crate alloc;
-// TODO(https://github.com/gfx-rs/wgpu/issues/6826): this should be optional
+#[cfg(feature = "std")]
 extern crate std;
 extern crate wgpu_hal as hal;
 extern crate wgpu_types as wgt;
 
+mod as_hal;
 pub mod binding_model;
 pub mod command;
 mod conv;
 pub mod device;
 pub mod error;
 pub mod global;
-pub mod hal_api;
 mod hash_utils;
 pub mod hub;
 pub mod id;
 pub mod identity;
-#[cfg(feature = "indirect-validation")]
 mod indirect_validation;
 mod init_tracker;
 pub mod instance;
@@ -91,6 +91,7 @@ pub mod registry;
 pub mod resource;
 mod snatch;
 pub mod storage;
+mod timestamp_normalization;
 mod track;
 mod weak_vec;
 // This is public for users who pre-compile shaders while still wanting to
@@ -109,7 +110,6 @@ use alloc::{
     borrow::{Cow, ToOwned as _},
     string::String,
 };
-use std::os::raw::c_char;
 
 pub(crate) use hash_utils::*;
 
@@ -121,7 +121,7 @@ pub type SubmissionIndex = hal::FenceValue;
 type Index = u32;
 type Epoch = u32;
 
-pub type RawString = *const c_char;
+pub type RawString = *const core::ffi::c_char;
 pub type Label<'a> = Option<Cow<'a, str>>;
 
 trait LabelHelpers<'a> {
@@ -141,7 +141,7 @@ impl<'a> LabelHelpers<'a> for Label<'a> {
     }
 }
 
-pub fn hal_label(opt: Option<&str>, flags: wgt::InstanceFlags) -> Option<&str> {
+pub fn hal_label<T: AsRef<str>>(opt: Option<T>, flags: wgt::InstanceFlags) -> Option<T> {
     if flags.contains(wgt::InstanceFlags::DISCARD_HAL_LABELS) {
         return None;
     }
@@ -225,17 +225,27 @@ pub(crate) fn get_greatest_common_divisor(mut a: u32, mut b: u32) -> u32 {
     }
 }
 
-#[test]
-fn test_lcd() {
-    assert_eq!(get_lowest_common_denom(2, 2), 2);
-    assert_eq!(get_lowest_common_denom(2, 3), 6);
-    assert_eq!(get_lowest_common_denom(6, 4), 12);
-}
+#[cfg(not(feature = "std"))]
+use core::cell::OnceCell as OnceCellOrLock;
+#[cfg(feature = "std")]
+use std::sync::OnceLock as OnceCellOrLock;
 
-#[test]
-fn test_gcd() {
-    assert_eq!(get_greatest_common_divisor(5, 1), 1);
-    assert_eq!(get_greatest_common_divisor(4, 2), 2);
-    assert_eq!(get_greatest_common_divisor(6, 4), 2);
-    assert_eq!(get_greatest_common_divisor(7, 7), 7);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lcd() {
+        assert_eq!(get_lowest_common_denom(2, 2), 2);
+        assert_eq!(get_lowest_common_denom(2, 3), 6);
+        assert_eq!(get_lowest_common_denom(6, 4), 12);
+    }
+
+    #[test]
+    fn test_gcd() {
+        assert_eq!(get_greatest_common_divisor(5, 1), 1);
+        assert_eq!(get_greatest_common_divisor(4, 2), 2);
+        assert_eq!(get_greatest_common_divisor(6, 4), 2);
+        assert_eq!(get_greatest_common_divisor(7, 7), 7);
+    }
 }

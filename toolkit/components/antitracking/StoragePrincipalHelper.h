@@ -7,7 +7,6 @@
 #ifndef mozilla_StoragePrincipalHelper_h
 #define mozilla_StoragePrincipalHelper_h
 
-#include <cstdint>
 #include "ErrorList.h"
 #include "nsStringFwd.h"
 
@@ -359,6 +358,11 @@ class StoragePrincipalHelper final {
   // "(https,foo.com)", true -> "(https,foo.com,f)"
   static void UpdatePartitionKeyWithForeignAncestorBit(
       nsAString& aKey, bool aForeignByAncestorContext);
+
+  // Generate a partition-key for an expanded principal to be used for any
+  // injected resources by add-on content scripts.
+  static nsString PartitionKeyForExpandedPrincipal(
+      nsIPrincipal* aExpandedPrincipal);
 };
 
 }  // namespace mozilla

@@ -8,76 +8,82 @@
 
 #include "JSOracleParent.h"
 #include "ThirdPartyUtil.h"
+#include "VsyncSource.h"
+#include "WrapperFactory.h"
+#include "imgLoader.h"
 #include "js/CallAndConstruct.h"  // JS::Call
-#include "js/ColumnNumber.h"  // JS::TaggedColumnNumberOneOrigin, JS::ColumnNumberOneOrigin
 #include "js/CharacterEncoding.h"
-#include "js/Date.h"                // JS::IsISOStyleDate
+#include "js/ColumnNumber.h"  // JS::TaggedColumnNumberOneOrigin, JS::ColumnNumberOneOrigin
+#include "js/Date.h"  // JS::IsISOStyleDate
+#include "js/JSON.h"
 #include "js/Object.h"              // JS::GetClass
 #include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_DefinePropertyById, JS_Enumerate, JS_GetProperty, JS_GetPropertyById, JS_SetProperty, JS_SetPropertyById, JS::IdVector
 #include "js/PropertyDescriptor.h"  // JS::PropertyDescriptor, JS_GetOwnPropertyDescriptorById
 #include "js/SavedFrameAPI.h"
 #include "js/Value.h"  // JS::Value, JS::StringValue
 #include "jsfriendapi.h"
-#include "WrapperFactory.h"
-
+#include "mozJSModuleLoader.h"
 #include "mozilla/Base64.h"
+#include "mozilla/ControllerCommand.h"
 #include "mozilla/CycleCollectedJSRuntime.h"
 #include "mozilla/ErrorNames.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/FormAutofillNative.h"
 #include "mozilla/IntentionalCrash.h"
+#include "mozilla/KeySystemConfig.h"
 #include "mozilla/PerfStats.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/ProcInfo.h"
-#include "mozilla/ResultExtensions.h"
+#include "mozilla/ProfilerLabels.h"
+#include "mozilla/ProfilerMarkers.h"
+#include "mozilla/RemoteMediaManagerChild.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/ScrollingMetrics.h"
 #include "mozilla/SharedStyleSheetCache.h"
-#include "mozilla/dom/SharedScriptCache.h"
 #include "mozilla/SpinEventLoopUntil.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/WheelHandlingHelper.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/IdleDeadline.h"
 #include "mozilla/dom/InProcessParent.h"
 #include "mozilla/dom/JSActorService.h"
 #include "mozilla/dom/MediaSessionBinding.h"
 #include "mozilla/dom/PBrowserParent.h"
-#include "mozilla/dom/Performance.h"
 #include "mozilla/dom/PopupBlocker.h"
 #include "mozilla/dom/Promise.h"
-#include "mozilla/dom/quota/QuotaManager.h"
 #include "mozilla/dom/Record.h"
 #include "mozilla/dom/ReportingHeader.h"
+#include "mozilla/dom/SharedScriptCache.h"
 #include "mozilla/dom/UnionTypes.h"
 #include "mozilla/dom/WindowBinding.h"  // For IdleRequestCallback/Options
 #include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/dom/WorkerScope.h"
+#include "mozilla/dom/quota/QuotaManager.h"
+#include "mozilla/image/FetchDecodedImage.h"
 #include "mozilla/ipc/GeckoChildProcessHost.h"
-#include "mozilla/ipc/UtilityProcessSandboxing.h"
-#include "mozilla/ipc/UtilityProcessManager.h"
 #include "mozilla/ipc/UtilityProcessHost.h"
+#include "mozilla/ipc/UtilityProcessManager.h"
+#include "mozilla/ipc/UtilityProcessSandboxing.h"
+#include "mozilla/layers/WebRenderBridgeChild.h"
+#include "mozilla/layers/WebRenderLayerManager.h"
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
-#include "mozilla/RemoteDecoderManagerChild.h"
-#include "mozilla/KeySystemConfig.h"
-#include "mozilla/WheelHandlingHelper.h"
-#include "nsIRFPTargetSetIDL.h"
-#include "nsString.h"
-#include "nsNativeTheme.h"
-#include "nsThreadUtils.h"
-#include "mozJSModuleLoader.h"
-#include "mozilla/ProfilerLabels.h"
-#include "mozilla/ProfilerMarkers.h"
+#include "nsContentUtils.h"
+#include "nsControllerCommandTable.h"
 #include "nsDocShell.h"
 #include "nsIException.h"
-#include "VsyncSource.h"
-#include "imgLoader.h"
+#include "nsIRFPTargetSetIDL.h"
+#include "nsIWidget.h"
+#include "nsNativeTheme.h"
+#include "nsRFPTargetSetIDL.h"
+#include "nsString.h"
+#include "nsThreadUtils.h"
 
 #ifdef XP_UNIX
 #  include <errno.h>
-#  include <unistd.h>
 #  include <fcntl.h>
 #  include <poll.h>
 #  include <sys/wait.h>
+#  include <unistd.h>
 
 #  ifdef XP_LINUX
 #    include <sys/prctl.h>
@@ -86,6 +92,10 @@
 
 #ifdef MOZ_WMF_CDM
 #  include "mozilla/MFCDMParent.h"
+#endif
+
+#ifdef MOZ_WIDGET_ANDROID
+#  include "mozilla/java/GeckoAppShellWrappers.h"
 #endif
 
 namespace mozilla::dom {
@@ -214,10 +224,78 @@ void ChromeUtils::ReleaseAssert(GlobalObject& aGlobal, bool aCondition,
 }
 
 /* static */
+void ChromeUtils::RegisterMarkerSchema(GlobalObject& aGlobal,
+                                       JS::Handle<JSObject*> aSchema,
+                                       ErrorResult& aRv) {
+  JSContext* cx = aGlobal.Context();
+  JS::Rooted<JSObject*> schemaObj(cx, aSchema);
+
+  JS::Rooted<JS::Value> nameVal(cx);
+  if (!JS_GetProperty(cx, schemaObj, "name", &nameVal) || !nameVal.isString()) {
+    aRv.ThrowTypeError("Schema must contain a 'name' field (string)");
+    return;
+  }
+
+  JS::Rooted<JSString*> nameStr(cx, nameVal.toString());
+  nsAutoJSString schemaName;
+  if (!schemaName.init(cx, nameStr)) {
+    aRv.ThrowTypeError("Failed to extract schema name");
+    return;
+  }
+
+  nsString jsonString;
+
+  auto callback = [](const char16_t* buf, uint32_t len, void* data) {
+    static_cast<nsString*>(data)->Append(buf, len);
+    return true;
+  };
+
+  if (!JS::ToJSONMaybeSafely(cx, schemaObj, callback, &jsonString)) {
+    aRv.ThrowTypeError("Failed to serialize schema");
+    return;
+  }
+
+  NS_ConvertUTF16toUTF8 schemaNameUTF8(schemaName);
+  profiler_register_marker_schema(schemaNameUTF8, jsonString);
+}
+
+// Wrapper marker type for custom markers from JavaScript.
+// Uses an empty name for two reasons:
+// 1. Avoids writing a "type" field in marker data (the user's type wins)
+// 2. Prevents this wrapper's schema from appearing in profile.meta.markerSchema
+//    (empty-name markers are filtered out during schema streaming)
+struct JSCustomMarker : public ::mozilla::BaseMarkerType<JSCustomMarker> {
+  static constexpr const char* Name = "";
+  static constexpr bool StoreName = true;
+
+  using MS = ::mozilla::MarkerSchema;
+
+  static constexpr MS::PayloadField PayloadFields[] = {};
+  static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
+                                               MS::Location::MarkerTable};
+
+  static void StreamJSONMarkerData(baseprofiler::SpliceableJSONWriter& aWriter,
+                                   const ProfilerString8View& aJSON) {
+    // Splice the user's JSON properties directly into the marker data.
+    // By setting Name = "" above, we avoid having the profiler infrastructure
+    // write its own "type" field, so the only "type" field comes from the
+    // user's data object (e.g., "CustomMarker").
+    auto stringView = aJSON.StringView();
+    const char* data = stringView.data();
+    size_t length = stringView.length();
+
+    if (length >= 2 && data[0] == '{' && data[length - 1] == '}') {
+      // Skip the opening '{' and closing '}'
+      aWriter.Splice(data + 1, length - 2);
+    }
+  }
+};
+
+/* static */
 void ChromeUtils::AddProfilerMarker(
     GlobalObject& aGlobal, const nsACString& aName,
     const ProfilerMarkerOptionsOrDouble& aOptions,
-    const Optional<nsACString>& aText) {
+    const Optional<UTF8StringOrObject>& aData) {
   if (!profiler_thread_is_being_profiled_for_markers()) {
     return;
   }
@@ -270,31 +348,9 @@ void ChromeUtils::AddProfilerMarker(
     }
   }
   if (startTime) {
-    RefPtr<Performance> performance;
-
-    if (NS_IsMainThread()) {
-      nsCOMPtr<nsPIDOMWindowInner> ownerWindow =
-          do_QueryInterface(aGlobal.GetAsSupports());
-      if (ownerWindow) {
-        performance = ownerWindow->GetPerformance();
-      }
-    } else {
-      JSContext* cx = aGlobal.Context();
-      WorkerPrivate* workerPrivate = GetWorkerPrivateFromContext(cx);
-      if (workerPrivate) {
-        performance = workerPrivate->GlobalScope()->GetPerformance();
-      }
-    }
-
-    if (performance) {
-      options.Set(MarkerTiming::IntervalUntilNowFrom(
-          performance->CreationTimeStamp() +
-          TimeDuration::FromMilliseconds(startTime)));
-    } else {
-      options.Set(MarkerTiming::IntervalUntilNowFrom(
-          TimeStamp::ProcessCreation() +
-          TimeDuration::FromMilliseconds(startTime)));
-    }
+    options.Set(MarkerTiming::IntervalUntilNowFrom(
+        TimeStamp::ProcessCreation() +
+        TimeDuration::FromMilliseconds(startTime)));
   }
 
   if (innerWindowId) {
@@ -305,10 +361,35 @@ void ChromeUtils::AddProfilerMarker(
 
   {
     AUTO_PROFILER_STATS(ChromeUtils_AddProfilerMarker);
-    if (aText.WasPassed()) {
-      profiler_add_marker(aName, category, std::move(options),
-                          ::geckoprofiler::markers::TextMarker{},
-                          aText.Value());
+    if (aData.WasPassed()) {
+      const auto& data = aData.Value();
+
+      if (data.IsUTF8String()) {
+        profiler_add_marker(aName, category, std::move(options),
+                            ::geckoprofiler::markers::TextMarker{},
+                            data.GetAsUTF8String());
+      } else {
+        JSContext* cx = aGlobal.Context();
+        JS::Rooted<JS::Value> objValue(cx,
+                                       JS::ObjectValue(*data.GetAsObject()));
+
+        nsString jsonString;
+        auto callback = [](const char16_t* buf, uint32_t len, void* d) {
+          static_cast<nsString*>(d)->Append(buf, len);
+          return true;
+        };
+
+        JS::Rooted<JSObject*> obj(cx, &objValue.toObject());
+        if (!JS::ToJSONMaybeSafely(cx, obj, callback, &jsonString)) {
+          return;
+        }
+
+        NS_ConvertUTF16toUTF8 jsonUTF8(jsonString);
+
+        profiler_add_marker(
+            aName, category, std::move(options), JSCustomMarker{},
+            ProfilerString8View::WrapNullTerminatedString(jsonUTF8.get()));
+      }
     } else {
       profiler_add_marker(aName, category, std::move(options));
     }
@@ -1281,25 +1362,6 @@ void ChromeUtils::ClearRecentJSDevError(GlobalObject&) {
 }
 #endif  // NIGHTLY_BUILD
 
-void ChromeUtils::ClearStyleSheetCacheByPrincipal(GlobalObject&,
-                                                  nsIPrincipal* aForPrincipal) {
-  SharedStyleSheetCache::Clear(Nothing(), Some(aForPrincipal));
-}
-
-void ChromeUtils::ClearStyleSheetCacheBySite(
-    GlobalObject&, const nsACString& aSchemelessSite,
-    const dom::OriginAttributesPatternDictionary& aPattern) {
-  SharedStyleSheetCache::Clear(Nothing(), Nothing(),
-                               Some(nsCString(aSchemelessSite)),
-                               Some(OriginAttributesPattern(aPattern)));
-}
-
-void ChromeUtils::ClearStyleSheetCache(GlobalObject&,
-                                       const Optional<bool>& aChrome) {
-  SharedStyleSheetCache::Clear(aChrome.WasPassed() ? Some(aChrome.Value())
-                                                   : Nothing());
-}
-
 void ChromeUtils::ClearMessagingLayerSecurityStateByPrincipal(
     GlobalObject&, nsIPrincipal* aPrincipal, ErrorResult& aRv) {
   MOZ_LOG(gMlsLog, LogLevel::Debug,
@@ -1594,31 +1656,148 @@ void ChromeUtils::ClearMessagingLayerSecurityState(GlobalObject&,
   MOZ_LOG(gMlsLog, LogLevel::Debug, ("Successfully cleared all MLS state"));
 }
 
-void ChromeUtils::ClearScriptCacheByPrincipal(GlobalObject&,
-                                              nsIPrincipal* aForPrincipal) {
-  SharedScriptCache::Clear(Nothing(), Some(aForPrincipal));
+void ChromeUtils::ClearResourceCache(
+    GlobalObject& aGlobal, const dom::ClearResourceCacheOptions& aOptions,
+    ErrorResult& aRv) {
+  bool clearStyleSheet = false;
+  bool clearScript = false;
+  bool clearImage = false;
+
+  if (aOptions.mTypes.WasPassed()) {
+    for (const auto& type : aOptions.mTypes.Value()) {
+      switch (type) {
+        case ResourceCacheType::Stylesheet:
+          clearStyleSheet = true;
+          break;
+        case ResourceCacheType::Script:
+          clearScript = true;
+          break;
+        case ResourceCacheType::Image:
+          clearImage = true;
+          break;
+      }
+    }
+  } else {
+    clearStyleSheet = true;
+    clearScript = true;
+    clearImage = true;
+  }
+
+  int filterCount = 0;
+  if (aOptions.mTarget.WasPassed()) {
+    filterCount++;
+  }
+  if (aOptions.mPrincipal.WasPassed()) {
+    filterCount++;
+  }
+  if (aOptions.mSchemelessSite.WasPassed()) {
+    filterCount++;
+  }
+  if (aOptions.mUrl.WasPassed()) {
+    filterCount++;
+  }
+  if (filterCount > 1) {
+    aRv.ThrowInvalidStateError(
+        "target, principal, schemelessSite, and url properties are mutually "
+        "exclusive");
+    return;
+  }
+
+  if (aOptions.mTarget.WasPassed()) {
+    Maybe<bool> chrome;
+    switch (aOptions.mTarget.Value()) {
+      case ResourceCacheTarget::Chrome:
+        chrome.emplace(true);
+        break;
+      case ResourceCacheTarget::Content:
+        chrome.emplace(false);
+        break;
+    }
+
+    if (clearStyleSheet) {
+      SharedStyleSheetCache::Clear(chrome);
+    }
+    if (clearScript) {
+      SharedScriptCache::Clear(chrome);
+    }
+    if (clearImage) {
+      imgLoader::ClearCache(Nothing(), chrome);
+    }
+    return;
+  }
+
+  if (aOptions.mPrincipal.WasPassed()) {
+    nsCOMPtr<nsIPrincipal> principal = aOptions.mPrincipal.Value().get();
+
+    if (clearStyleSheet) {
+      SharedStyleSheetCache::Clear(Nothing(), Some(principal));
+    }
+    if (clearScript) {
+      SharedScriptCache::Clear(Nothing(), Some(principal));
+    }
+    if (clearImage) {
+      imgLoader::ClearCache(Nothing(), Nothing(), Some(principal));
+    }
+    return;
+  }
+
+  if (aOptions.mSchemelessSite.WasPassed()) {
+    nsCString schemelessSite(aOptions.mSchemelessSite.Value());
+    mozilla::OriginAttributesPattern pattern(aOptions.mPattern);
+
+    if (clearStyleSheet) {
+      SharedStyleSheetCache::Clear(Nothing(), Nothing(), Some(schemelessSite),
+                                   Some(pattern));
+    }
+    if (clearScript) {
+      SharedScriptCache::Clear(Nothing(), Nothing(), Some(schemelessSite),
+                               Some(pattern));
+    }
+    if (clearImage) {
+      imgLoader::ClearCache(Nothing(), Nothing(), Nothing(),
+                            Some(schemelessSite), Some(pattern));
+    }
+    return;
+  }
+
+  if (aOptions.mUrl.WasPassed()) {
+    nsCString url(aOptions.mUrl.Value());
+
+    if (clearStyleSheet) {
+      SharedStyleSheetCache::Clear(Nothing(), Nothing(), Nothing(), Nothing(),
+                                   Some(url));
+    }
+    if (clearScript) {
+      SharedScriptCache::Clear(Nothing(), Nothing(), Nothing(), Nothing(),
+                               Some(url));
+    }
+    if (clearImage) {
+      imgLoader::ClearCache(Nothing(), Nothing(), Nothing(), Nothing(),
+                            Nothing(), Some(url));
+    }
+    return;
+  }
+
+  if (clearStyleSheet) {
+    SharedStyleSheetCache::Clear();
+  }
+  if (clearScript) {
+    SharedScriptCache::Clear();
+  }
+  if (clearImage) {
+    imgLoader::ClearCache();
+  }
 }
 
-void ChromeUtils::ClearScriptCacheBySite(
-    GlobalObject&, const nsACString& aSchemelessSite,
-    const dom::OriginAttributesPatternDictionary& aPattern) {
-  SharedScriptCache::Clear(Nothing(), Nothing(),
-                           Some(nsCString(aSchemelessSite)), Some(aPattern));
+void ChromeUtils::InvalidateResourceCache(GlobalObject& aGlobal,
+                                          ErrorResult& aRv) {
+  SharedScriptCache::Invalidate();
 }
 
-void ChromeUtils::ClearScriptCache(GlobalObject&,
-                                   const Optional<bool>& aChrome) {
-  SharedScriptCache::Clear(aChrome.WasPassed() ? Some(aChrome.Value())
-                                               : Nothing());
-}
-
-void ChromeUtils::ClearResourceCache(GlobalObject&,
-                                     const Optional<bool>& aChrome) {
-  Maybe<bool> chrome = aChrome.WasPassed() ? Some(aChrome.Value()) : Nothing();
-  SharedStyleSheetCache::Clear(chrome);
-  SharedScriptCache::Clear(chrome);
-  imgLoader::PrivateBrowsingLoader()->ClearCache(chrome);
-  imgLoader::NormalLoader()->ClearCache(chrome);
+void ChromeUtils::ClearBfcacheByPrincipal(GlobalObject& aGlobal,
+                                          nsIPrincipal* aPrincipal,
+                                          ErrorResult& aRv) {
+  aRv = CanonicalBrowsingContext::ClearBfcacheByPrincipal(aPrincipal);
 }
 
 #define PROCTYPE_TO_WEBIDL_CASE(_procType, _webidl) \
@@ -1776,10 +1955,10 @@ already_AddRefed<Promise> ChromeUtils::RequestProcInfo(GlobalObject& aGlobal,
                                                          // DOM windows.
             /* aUtilityInfo = */ std::move(utilityActors),
             /* aChild = */ 0  // Without a ContentProcess, no ChildId.
-#ifdef XP_DARWIN
+#ifdef XP_MACOSX
             ,
             /* aChildTask = */ aGeckoProcess->GetChildTask()
-#endif  // XP_DARWIN
+#endif  // XP_MACOSX
         );
       });
 
@@ -1880,10 +2059,10 @@ already_AddRefed<Promise> ChromeUtils::RequestProcInfo(GlobalObject& aGlobal,
         /* aWindowInfo = */ std::move(windows),
         /* aUtilityInfo = */ nsTArray<UtilityInfo>(),
         /* aChild = */ contentParent->ChildID()
-#ifdef XP_DARWIN
+#ifdef XP_MACOSX
             ,
         /* aChildTask = */ contentParent->Process()->GetChildTask()
-#endif  // XP_DARWIN
+#endif  // XP_MACOSX
     );
   }
 
@@ -1975,13 +2154,49 @@ already_AddRefed<Promise> ChromeUtils::RequestProcInfo(GlobalObject& aGlobal,
 }
 
 /* static */
+uint64_t ChromeUtils::GetCurrentProcessMemoryUsage(GlobalObject& aGlobal,
+                                                   ErrorResult& aRv) {
+  uint64_t retVal = 0;
+  nsresult rv = mozilla::GetCurrentProcessMemoryUsage(&retVal);
+  if (NS_FAILED(rv)) {
+    aRv.Throw(rv);
+  }
+  return retVal;
+}
+
+/* static */
+uint64_t ChromeUtils::GetCpuTimeSinceProcessStart(GlobalObject& aGlobal,
+                                                  ErrorResult& aRv) {
+  uint64_t retVal = 0;
+  nsresult rv = mozilla::GetCpuTimeSinceProcessStartInMs(&retVal);
+  if (NS_FAILED(rv)) {
+    aRv.Throw(rv);
+  }
+  return retVal;
+}
+
+/* static */
 bool ChromeUtils::VsyncEnabled(GlobalObject& aGlobal) {
   return mozilla::gfx::VsyncSource::GetFastestVsyncRate().isSome();
 }
 
-void ChromeUtils::SetPerfStatsCollectionMask(GlobalObject& aGlobal,
-                                             uint64_t aMask) {
-  PerfStats::SetCollectionMask(static_cast<PerfStats::MetricMask>(aMask));
+void ChromeUtils::EnableAllPerfStatsFeatures(GlobalObject& aGlobal) {
+  PerfStats::MetricMask mask =
+      std::numeric_limits<PerfStats::MetricMask>::max();
+  PerfStats::SetCollectionMask(mask);
+}
+
+void ChromeUtils::SetPerfStatsFeatures(GlobalObject& aGlobal,
+                                       const Sequence<nsString>& aMetrics) {
+  // Convert string array to bitmask
+  PerfStats::MetricMask mask = 0;
+  for (const auto& metricName : aMetrics) {
+    // Convert string to corresponding enum value and set bit
+    NS_ConvertUTF16toUTF8 utf8MetricName(metricName);
+    mask |= PerfStats::GetFeatureMask(utf8MetricName.get());
+  }
+
+  PerfStats::SetCollectionMask(mask);
 }
 
 already_AddRefed<Promise> ChromeUtils::CollectPerfStats(GlobalObject& aGlobal,
@@ -2158,12 +2373,63 @@ void ChromeUtils::ResetLastExternalProtocolIframeAllowed(
 }
 
 /* static */
-void ChromeUtils::EndWheelTransaction(GlobalObject& aGlobal) {
+already_AddRefed<Promise> ChromeUtils::EndWheelTransaction(
+    GlobalObject& aGlobal, WindowProxyHolder& aWindow, ErrorResult& aRv) {
+  nsCOMPtr<nsIGlobalObject> global = do_QueryInterface(aGlobal.GetAsSupports());
+  MOZ_ASSERT(global);
+
+  RefPtr<Promise> promise = Promise::Create(global, aRv);
+  if (aRv.Failed()) {
+    return nullptr;
+  }
+
   // This allows us to end the current wheel transaction from the browser
   // chrome. We do not need to perform any checks before calling
   // EndTransaction(), as it should do nothing in the case that there is
   // no current wheel transaction.
   WheelTransaction::EndTransaction();
+
+  // We also need to end the wheel transaction in APZ.
+  nsIDocShell* docShell = aWindow.get()->GetDocShell();
+  if (!docShell) {
+    promise->MaybeResolveWithUndefined();
+    return promise.forget();
+  }
+
+  nsIWidget* widget =
+      nsContentUtils::GetWidget(docShell->GetPresShell(), nullptr);
+  if (!widget) {
+    promise->MaybeResolveWithUndefined();
+    return promise.forget();
+  }
+
+  WindowRenderer* renderer = widget->GetWindowRenderer();
+  if (!renderer) {
+    promise->MaybeResolveWithUndefined();
+    return promise.forget();
+  }
+
+  layers::WebRenderLayerManager* wr = renderer->AsWebRender();
+  if (!wr) {
+    promise->MaybeResolveWithUndefined();
+    return promise.forget();
+  }
+
+  layers::WebRenderBridgeChild* wrbc = wr->WrBridge();
+  if (!wrbc) {
+    promise->MaybeResolveWithUndefined();
+    return promise.forget();
+  }
+
+  wrbc->SendEndWheelTransaction()->Then(
+      GetCurrentSerialEventTarget(), __func__,
+      [promise](bool) { promise->MaybeResolveWithUndefined(); },
+      [promise](mozilla::ipc::ResponseRejectReason) {
+        promise->MaybeRejectWithUnknownError(
+            "actor died while ending wheel transaction");
+      });
+
+  return promise.forget();
 }
 
 /* static */
@@ -2353,6 +2619,11 @@ bool ChromeUtils::IsDarkBackground(GlobalObject&, Element& aElement) {
 double ChromeUtils::DateNow(GlobalObject&) { return JS_Now() / 1000.0; }
 
 /* static */
+double ChromeUtils::Now(GlobalObject&) {
+  return (TimeStamp::Now() - TimeStamp::ProcessCreation()).ToMilliseconds();
+}
+
+/* static */
 void ChromeUtils::EnsureJSOracleStarted(GlobalObject&) {
   if (StaticPrefs::browser_opaqueResponseBlocking_javascriptValidator()) {
     JSOracleParent::WithJSOracle([](JSOracleParent* aParent) {});
@@ -2382,19 +2653,20 @@ bool ChromeUtils::ShouldResistFingerprinting(
     nsIRFPTargetSetIDL* aOverriddenFingerprintingSettings,
     const Optional<bool>& aIsPBM) {
   RFPTarget target;
+#define JSRFP_TARGET_TO_RFP_TARGET(rfptarget) \
+  case JSRFPTarget::rfptarget:                \
+    target = RFPTarget::rfptarget;            \
+    break;
   switch (aTarget) {
-    case JSRFPTarget::RoundWindowSize:
-      target = RFPTarget::RoundWindowSize;
-      break;
-    case JSRFPTarget::SiteSpecificZoom:
-      target = RFPTarget::SiteSpecificZoom;
-      break;
-    case JSRFPTarget::CSSPrefersColorScheme:
-      target = RFPTarget::CSSPrefersColorScheme;
-      break;
+    JSRFP_TARGET_TO_RFP_TARGET(RoundWindowSize);
+    JSRFP_TARGET_TO_RFP_TARGET(SiteSpecificZoom);
+    JSRFP_TARGET_TO_RFP_TARGET(CSSPrefersColorScheme);
+    JSRFP_TARGET_TO_RFP_TARGET(JSLocalePrompt);
+    JSRFP_TARGET_TO_RFP_TARGET(HttpUserAgent);
     default:
       MOZ_CRASH("Unhandled JSRFPTarget enum value");
   }
+#undef JSRFP_TARGET_TO_RFP_TARGET
 
   bool isPBM = false;
   if (aIsPBM.WasPassed()) {
@@ -2415,14 +2687,9 @@ bool ChromeUtils::ShouldResistFingerprinting(
 
   Maybe<RFPTargetSet> overriddenFingerprintingSettings;
   if (aOverriddenFingerprintingSettings) {
-    uint64_t low, hi;
-    aOverriddenFingerprintingSettings->GetLow(&low);
-    aOverriddenFingerprintingSettings->GetHigh(&hi);
-    std::bitset<128> bitset;
-    bitset |= hi;
-    bitset <<= 64;
-    bitset |= low;
-    overriddenFingerprintingSettings.emplace(RFPTargetSet(bitset));
+    overriddenFingerprintingSettings.emplace(
+        static_cast<nsRFPTargetSetIDL*>(aOverriddenFingerprintingSettings)
+            ->ToRFPTargetSet());
   }
 
   // This global object appears to be the global window, not for individual
@@ -2432,27 +2699,91 @@ bool ChromeUtils::ShouldResistFingerprinting(
                                        overriddenFingerprintingSettings);
 }
 
-std::atomic<uint32_t> ChromeUtils::sDevToolsOpenedCount = 0;
+/* static */
+void ChromeUtils::CallFunctionAndLogException(
+    GlobalObject& aGlobal, JS::Handle<JS::Value> aTargetGlobal,
+    JS::Handle<JS::Value> aFunction, JS::MutableHandle<JS::Value> aRetVal,
+    ErrorResult& aRv) {
+  JSContext* cx = aGlobal.Context();
+  if (!aTargetGlobal.isObject() || !aFunction.isObject()) {
+    aRv.Throw(NS_ERROR_INVALID_ARG);
+    return;
+  }
+
+  JS::Rooted<JS::Realm*> contextRealm(cx, JS::GetCurrentRealmOrNull(cx));
+  if (!contextRealm) {
+    aRv.Throw(NS_ERROR_INVALID_ARG);
+    return;
+  }
+
+  JS::Rooted<JSObject*> global(
+      cx, js::CheckedUnwrapDynamic(&aTargetGlobal.toObject(), cx));
+  if (!global) {
+    aRv.Throw(NS_ERROR_INVALID_ARG);
+    return;
+  }
+
+  // Use AutoJSAPI in order to trigger AutoJSAPI::ReportException
+  // which will do most of the work required for this function.
+  //
+  // We only have to pick the right global for which we want to flag
+  // the exception against.
+  dom::AutoJSAPI jsapi;
+  if (!jsapi.Init(global)) {
+    aRv.Throw(NS_ERROR_UNEXPECTED);
+    return;
+  }
+  JSContext* ccx = jsapi.cx();
+
+  // AutoJSAPI picks `aTargetGlobal` as execution compartment
+  // whereas we expect to run `aFunction` from the callsites compartment.
+  JSAutoRealm ar(ccx, JS::GetRealmGlobalOrNull(contextRealm));
+
+  JS::Rooted<JS::Value> funVal(ccx, aFunction);
+  if (!JS_WrapValue(ccx, &funVal)) {
+    aRv.Throw(NS_ERROR_FAILURE);
+    return;
+  }
+  if (!JS_CallFunctionValue(ccx, nullptr, funVal, JS::HandleValueArray::empty(),
+                            aRetVal)) {
+    // Ensure re-throwing the exception which may have been thrown by
+    // `aFunction`
+    if (JS_IsExceptionPending(ccx)) {
+      JS::Rooted<JS::Value> exception(cx);
+      if (JS_GetPendingException(ccx, &exception)) {
+        if (JS_WrapValue(cx, &exception)) {
+          aRv.MightThrowJSException();
+          aRv.ThrowJSException(cx, exception);
+        }
+      }
+    }
+  }
+}
+
+static Atomic<uint32_t, Relaxed> sDevToolsOpenedCount{0};
 
 /* static */
-bool ChromeUtils::IsDevToolsOpened() {
-  return ChromeUtils::sDevToolsOpenedCount > 0;
-}
+bool ChromeUtils::IsDevToolsOpened() { return sDevToolsOpenedCount > 0; }
 
 /* static */
 bool ChromeUtils::IsDevToolsOpened(GlobalObject& aGlobal) {
-  return ChromeUtils::IsDevToolsOpened();
+  return IsDevToolsOpened();
 }
 
 /* static */
 void ChromeUtils::NotifyDevToolsOpened(GlobalObject& aGlobal) {
-  ChromeUtils::sDevToolsOpenedCount++;
+  sDevToolsOpenedCount++;
 }
 
 /* static */
 void ChromeUtils::NotifyDevToolsClosed(GlobalObject& aGlobal) {
-  MOZ_ASSERT(ChromeUtils::sDevToolsOpenedCount >= 1);
-  ChromeUtils::sDevToolsOpenedCount--;
+  MOZ_ASSERT(sDevToolsOpenedCount >= 1);
+  sDevToolsOpenedCount--;
+}
+
+/* static */
+bool ChromeUtils::IsJSIdentifier(GlobalObject& aGlobal, const nsAString& aStr) {
+  return JS_IsIdentifier(aStr.BeginReading(), aStr.Length());
 }
 
 #ifdef MOZ_WMF_CDM
@@ -2482,6 +2813,98 @@ already_AddRefed<Promise> ChromeUtils::GetGMPContentDecryptionModuleInformation(
   MOZ_ASSERT(domPromise);
   KeySystemConfig::GetGMPKeySystemConfigs(domPromise);
   return domPromise.forget();
+}
+
+void ChromeUtils::AndroidMoveTaskToBack(GlobalObject& aGlobal) {
+#ifdef MOZ_WIDGET_ANDROID
+  MOZ_RELEASE_ASSERT(XRE_IsParentProcess());
+  java::GeckoAppShell::MoveTaskToBack();
+#endif
+}
+
+already_AddRefed<nsIContentSecurityPolicy> ChromeUtils::CreateCSPFromHeader(
+    GlobalObject& aGlobal, const nsAString& aHeader, nsIURI* aSelfURI,
+    nsIPrincipal* aLoadingPrincipal, ErrorResult& aRv) {
+  return CSP_CreateFromHeader(aHeader, aSelfURI, aLoadingPrincipal, aRv);
+}
+
+Nullable<bool> ChromeUtils::GetGlobalWindowCommandEnabled(
+    GlobalObject&, const nsACString& aName) {
+  const auto* table = nsControllerCommandTable::WindowCommandTable();
+  RefPtr handler = table->FindCommandHandler(aName);
+  if (!handler) {
+    return nullptr;
+  }
+  return handler->IsCommandEnabled(aName, nullptr);
+}
+
+already_AddRefed<Promise> ChromeUtils::FetchDecodedImage(GlobalObject& aGlobal,
+                                                         nsIURI* aURI,
+                                                         nsIChannel* aChannel,
+                                                         ErrorResult& aRv) {
+  nsCOMPtr<nsIGlobalObject> global = do_QueryInterface(aGlobal.GetAsSupports());
+  MOZ_ASSERT(global);
+  RefPtr<Promise> domPromise = Promise::Create(global, aRv);
+  if (NS_WARN_IF(aRv.Failed())) {
+    return nullptr;
+  }
+
+  image::FetchDecodedImage(aURI, aChannel, gfx::IntSize{})
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [global, domPromise](already_AddRefed<imgIContainer> aImage) {
+            nsCOMPtr<imgIContainer> image(std::move(aImage));
+
+            AutoJSAPI jsapi;
+            if (!jsapi.Init(global)) {
+              domPromise->MaybeRejectWithUndefined();
+              return;
+            }
+
+            JS::Rooted<JS::Value> value(jsapi.cx());
+            if (!WrapObject(jsapi.cx(), image, &NS_GET_IID(imgIContainer),
+                            &value)) {
+              domPromise->MaybeRejectWithUndefined();
+              return;
+            }
+
+            domPromise->MaybeResolve(value);
+          },
+          [domPromise](nsresult aStatus) { domPromise->MaybeReject(aStatus); });
+
+  return domPromise.forget();
+}
+
+void ChromeUtils::EncodeURIForSrcset(GlobalObject&, const nsACString& aIn,
+                                     nsACString& aOut) {
+  const auto inputLen = aIn.Length();
+  if (!inputLen) {
+    return;
+  }
+  size_t start = 0;
+  while (true) {
+    auto idx = aIn.View().find_first_of(nsContentUtils::kHTMLWhitespace, start);
+    if (idx == std::string_view::npos) {
+      break;
+    }
+    aOut.Append(Substring(aIn, start, idx - start));
+    aOut.AppendPrintf("%%%x", aIn.CharAt(idx));
+    start = idx + 1;
+    if (start == inputLen) {
+      return;
+    }
+  }
+  if (start == 0) {
+    aOut.Assign(aIn);
+  } else {
+    aOut.Append(Substring(aIn, start));
+  }
+}
+
+void ChromeUtils::GetLastOOMStackTrace(GlobalObject& aGlobal,
+                                       nsAString& aRetval) {
+  JSContext* cx = aGlobal.Context();
+  aRetval = NS_ConvertUTF8toUTF16(JS_GetLastOOMStackTrace(cx));
 }
 
 }  // namespace mozilla::dom

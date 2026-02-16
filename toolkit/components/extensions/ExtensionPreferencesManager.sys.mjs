@@ -21,23 +21,20 @@
 
 export let ExtensionPreferencesManager;
 
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 import { Management } from "resource://gre/modules/Extension.sys.mjs";
 
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   ExtensionCommon: "resource://gre/modules/ExtensionCommon.sys.mjs",
   ExtensionSettingsStore:
     "resource://gre/modules/ExtensionSettingsStore.sys.mjs",
   Preferences: "resource://gre/modules/Preferences.sys.mjs",
+  defaultPreferences: () => new lazy.Preferences({ defaultBranch: true }),
 });
+
 import { ExtensionUtils } from "resource://gre/modules/ExtensionUtils.sys.mjs";
 
 const { ExtensionError } = ExtensionUtils;
-
-ChromeUtils.defineLazyGetter(lazy, "defaultPreferences", function () {
-  return new lazy.Preferences({ defaultBranch: true });
-});
 
 /* eslint-disable mozilla/balanced-listeners */
 Management.on("uninstall", async (type, { id }) => {

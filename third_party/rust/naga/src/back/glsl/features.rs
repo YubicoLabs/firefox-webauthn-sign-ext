@@ -1,10 +1,11 @@
+use core::fmt::Write;
+
 use super::{BackendResult, Error, Version, Writer};
 use crate::{
     back::glsl::{Options, WriterFlags},
     AddressSpace, Binding, Expression, Handle, ImageClass, ImageDimension, Interpolation,
     SampleLevel, Sampling, Scalar, ScalarKind, ShaderStage, StorageFormat, Type, TypeInner,
 };
-use std::fmt::Write;
 
 bitflags::bitflags! {
     /// Structure used to encode additions to GLSL that aren't supported by all versions.
@@ -54,6 +55,8 @@ bitflags::bitflags! {
         const SUBGROUP_OPERATIONS = 1 << 24;
         /// Image atomics
         const TEXTURE_ATOMICS = 1 << 25;
+        /// Image atomics
+        const SHADER_BARYCENTRICS = 1 << 26;
     }
 }
 
@@ -61,7 +64,7 @@ bitflags::bitflags! {
 /// [`Module`](crate::Module)
 ///
 /// Provides helper methods to check for availability and writing required extensions
-pub struct FeaturesManager(Features);
+pub(crate) struct FeaturesManager(Features);
 
 impl FeaturesManager {
     /// Creates a new [`FeaturesManager`] instance
@@ -75,7 +78,7 @@ impl FeaturesManager {
     }
 
     /// Checks if the list of features [`Features`] contains the specified [`Features`]
-    pub fn contains(&mut self, features: Features) -> bool {
+    pub const fn contains(&mut self, features: Features) -> bool {
         self.0.contains(features)
     }
 
@@ -279,11 +282,20 @@ impl FeaturesManager {
                 out,
                 "#extension GL_KHR_shader_subgroup_shuffle_relative : require"
             )?;
+            writeln!(out, "#extension GL_KHR_shader_subgroup_quad : require")?;
         }
 
         if self.0.contains(Features::TEXTURE_ATOMICS) {
             // https://www.khronos.org/registry/OpenGL/extensions/OES/OES_shader_image_atomic.txt
             writeln!(out, "#extension GL_OES_shader_image_atomic : require")?;
+        }
+
+        if self.0.contains(Features::SHADER_BARYCENTRICS) {
+            // https://github.com/KhronosGroup/GLSL/blob/main/extensions/ext/GLSL_EXT_fragment_shader_barycentric.txt
+            writeln!(
+                out,
+                "#extension GL_EXT_fragment_shader_barycentric : require"
+            )?;
         }
 
         Ok(())
@@ -299,14 +311,16 @@ impl<W> Writer<'_, W> {
     pub(super) fn collect_required_features(&mut self) -> BackendResult {
         let ep_info = self.info.get_entry_point(self.entry_point_idx as usize);
 
-        if let Some(depth_test) = self.entry_point.early_depth_test {
-            // If IMAGE_LOAD_STORE is supported for this version of GLSL
-            if self.options.version.supports_early_depth_test() {
-                self.features.request(Features::IMAGE_LOAD_STORE);
-            }
-
-            if depth_test.conservative.is_some() {
-                self.features.request(Features::CONSERVATIVE_DEPTH);
+        if let Some(early_depth_test) = self.entry_point.early_depth_test {
+            match early_depth_test {
+                crate::EarlyDepthTest::Force => {
+                    if self.options.version.supports_early_depth_test() {
+                        self.features.request(Features::IMAGE_LOAD_STORE);
+                    }
+                }
+                crate::EarlyDepthTest::Allow { .. } => {
+                    self.features.request(Features::CONSERVATIVE_DEPTH);
+                }
             }
         }
 
@@ -417,14 +431,15 @@ impl<W> Writer<'_, W> {
                             _ => {}
                         },
                         ImageClass::Sampled { multi: false, .. }
-                        | ImageClass::Depth { multi: false } => {}
+                        | ImageClass::Depth { multi: false }
+                        | ImageClass::External => {}
                     }
                 }
                 _ => {}
             }
         }
 
-        let mut push_constant_used = false;
+        let mut immediates_used = false;
 
         for (handle, global) in self.module.global_variables.iter() {
             if ep_info[handle].is_empty() {
@@ -433,11 +448,11 @@ impl<W> Writer<'_, W> {
             match global.space {
                 AddressSpace::WorkGroup => self.features.request(Features::COMPUTE_SHADER),
                 AddressSpace::Storage { .. } => self.features.request(Features::BUFFER_STORAGE),
-                AddressSpace::PushConstant => {
-                    if push_constant_used {
-                        return Err(Error::MultiplePushConstants);
+                AddressSpace::Immediate => {
+                    if immediates_used {
+                        return Err(Error::MultipleImmediateData);
                     }
-                    push_constant_used = true;
+                    immediates_used = true;
                 }
                 _ => {}
             }
@@ -462,7 +477,7 @@ impl<W> Writer<'_, W> {
             .functions
             .iter()
             .map(|(h, f)| (&f.expressions, &info[h]))
-            .chain(std::iter::once((
+            .chain(core::iter::once((
                 &entry_point.function.expressions,
                 info.get_entry_point(entry_point_idx as usize),
             )))
@@ -559,7 +574,7 @@ impl<W> Writer<'_, W> {
             .functions
             .iter()
             .map(|(_, f)| &f.body)
-            .chain(std::iter::once(&entry_point.function.body))
+            .chain(core::iter::once(&entry_point.function.body))
         {
             for (stmt, _) in blocks.span_iter() {
                 match *stmt {
@@ -598,13 +613,17 @@ impl<W> Writer<'_, W> {
                     crate::BuiltIn::InstanceIndex | crate::BuiltIn::DrawID => {
                         self.features.request(Features::INSTANCE_INDEX)
                     }
+                    crate::BuiltIn::Barycentric { .. } => {
+                        self.features.request(Features::SHADER_BARYCENTRICS)
+                    }
                     _ => {}
                 },
                 Binding::Location {
                     location: _,
                     interpolation,
                     sampling,
-                    second_blend_source,
+                    blend_src,
+                    per_primitive: _,
                 } => {
                     if interpolation == Some(Interpolation::Linear) {
                         self.features.request(Features::NOPERSPECTIVE_QUALIFIER);
@@ -612,7 +631,7 @@ impl<W> Writer<'_, W> {
                     if sampling == Some(Sampling::Sample) {
                         self.features.request(Features::SAMPLE_QUALIFIER);
                     }
-                    if second_blend_source {
+                    if blend_src.is_some() {
                         self.features.request(Features::DUAL_SOURCE_BLENDING);
                     }
                 }

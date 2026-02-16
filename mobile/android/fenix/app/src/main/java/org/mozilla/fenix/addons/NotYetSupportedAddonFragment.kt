@@ -5,9 +5,9 @@
 package org.mozilla.fenix.addons
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import androidx.core.net.toUri
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
@@ -18,6 +18,7 @@ import org.mozilla.fenix.R
 import org.mozilla.fenix.databinding.FragmentNotYetSupportedAddonsBinding
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.showToolbar
+import mozilla.components.feature.addons.R as addonsR
 
 private const val LEARN_MORE_URL =
     "https://support.mozilla.org/kb/add-compatibility-firefox-preview"
@@ -48,19 +49,19 @@ class NotYetSupportedAddonFragment :
         }
 
         binding.learnMoreLabel.setOnClickListener {
-            val intent = Intent(Intent.ACTION_VIEW).setData(Uri.parse(LEARN_MORE_URL))
+            val intent = Intent(Intent.ACTION_VIEW).setData(LEARN_MORE_URL.toUri())
             startActivity(intent)
         }
     }
 
     override fun onResume() {
         super.onResume()
-        showToolbar(getString(R.string.mozac_feature_addons_unavailable_section))
+        showToolbar(getString(addonsR.string.mozac_feature_addons_unavailable_section))
     }
 
     override fun onUninstallError(addonId: String, throwable: Throwable) {
         this@NotYetSupportedAddonFragment.view?.let { view ->
-            showSnackBar(view, getString(R.string.mozac_feature_addons_failed_to_remove, ""))
+            showSnackBar(view, getString(addonsR.string.mozac_feature_addons_failed_to_remove, ""))
         }
 
         if (unsupportedAddonsAdapter?.itemCount == 0) {
@@ -70,7 +71,7 @@ class NotYetSupportedAddonFragment :
 
     override fun onUninstallSuccess() {
         this@NotYetSupportedAddonFragment.view?.let { view ->
-            showSnackBar(view, getString(R.string.mozac_feature_addons_successfully_removed, ""))
+            showSnackBar(view, getString(addonsR.string.mozac_feature_addons_successfully_removed, ""))
         }
     }
 }

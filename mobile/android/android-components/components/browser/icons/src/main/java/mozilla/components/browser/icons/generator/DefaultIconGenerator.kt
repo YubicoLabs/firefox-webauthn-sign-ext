@@ -6,7 +6,6 @@ package mozilla.components.browser.icons.generator
 
 import android.content.Context
 import android.content.res.Resources
-import android.graphics.Bitmap
 import android.graphics.Bitmap.Config.ARGB_8888
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -17,6 +16,7 @@ import androidx.annotation.ColorInt
 import androidx.annotation.ColorRes
 import androidx.annotation.DimenRes
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.createBitmap
 import mozilla.components.browser.icons.Icon
 import mozilla.components.browser.icons.IconRequest
 import mozilla.components.browser.icons.R
@@ -29,16 +29,16 @@ import kotlin.math.abs
  * representing the URL.
  */
 class DefaultIconGenerator(
-    @DimenRes private val cornerRadiusDimen: Int? = R.dimen.mozac_browser_icons_generator_default_corner_radius,
-    @ColorRes private val textColorRes: Int = R.color.mozac_browser_icons_generator_default_text_color,
-    @ArrayRes private val backgroundColorsRes: Int = R.array.mozac_browser_icons_photon_palette,
+    @param:DimenRes private val cornerRadiusDimen: Int? = R.dimen.mozac_browser_icons_generator_default_corner_radius,
+    @param:ColorRes private val textColorRes: Int = R.color.mozac_browser_icons_generator_default_text_color,
+    @param:ArrayRes private val backgroundColorsRes: Int = R.array.mozac_browser_icons_photon_palette,
 ) : IconGenerator {
 
     override fun generate(context: Context, request: IconRequest): Icon {
         val size = context.resources.getDimension(request.size.dimen)
         val sizePx = size.toInt()
 
-        val bitmap = Bitmap.createBitmap(sizePx, sizePx, ARGB_8888)
+        val bitmap = createBitmap(sizePx, sizePx, ARGB_8888)
         val canvas = Canvas(bitmap)
 
         val backgroundColor = request.color ?: pickColor(context.resources, request.url)

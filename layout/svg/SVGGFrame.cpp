@@ -8,8 +8,8 @@
 #include "SVGGFrame.h"
 
 // Keep others in (case-insensitive) order:
-#include "mozilla/dom/SVGElement.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/dom/SVGElement.h"
 #include "nsGkAtoms.h"
 #include "nsIFrame.h"
 
@@ -43,13 +43,13 @@ void SVGGFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
 // ISVGDisplayableFrame methods
 
 nsresult SVGGFrame::AttributeChanged(int32_t aNameSpaceID, nsAtom* aAttribute,
-                                     int32_t aModType) {
+                                     AttrModType aModType) {
   if (aNameSpaceID == kNameSpaceID_None && aAttribute == nsGkAtoms::transform) {
     // We don't invalidate for transform changes (the layers code does that).
     // Also note that SVGTransformableElement::GetAttributeChangeHint will
     // return nsChangeHint_UpdateOverflow for "transform" attribute changes
     // and cause DoApplyRenderingChangeToTree to make the SchedulePaint call.
-    NotifySVGChanged(TRANSFORM_CHANGED);
+    NotifySVGChanged(ChangeFlag::TransformChanged);
   }
 
   return NS_OK;

@@ -7,7 +7,6 @@ package org.mozilla.fenix.onboarding.view
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.mozilla.fenix.R
-import org.mozilla.fenix.onboarding.store.OnboardingAddonStatus
 
 class OnboardingMapperTest {
 
@@ -19,6 +18,7 @@ class OnboardingMapperTest {
             description = "default browser body with link text",
             primaryButton = Action("default browser primary button text", unitLambda),
             secondaryButton = Action("default browser secondary button text", unitLambda),
+            shouldShowElevation = true,
         )
 
         val onboardingPageUiData = OnboardingPageUiData(
@@ -40,10 +40,10 @@ class OnboardingMapperTest {
             onNotificationPermissionSkipClick = {},
             onAddFirefoxWidgetClick = {},
             onAddFirefoxWidgetSkipClick = {},
-            onAddOnsButtonClick = {},
             onCustomizeToolbarButtonClick = {},
             onCustomizeThemeClick = {},
             onTermsOfServiceButtonClick = {},
+            shouldShowElevation = true,
         )
 
         assertEquals(expected, actual)
@@ -57,6 +57,7 @@ class OnboardingMapperTest {
             description = "sync body",
             primaryButton = Action("sync primary button text", unitLambda),
             secondaryButton = Action("sync secondary button text", unitLambda),
+            shouldShowElevation = true,
         )
 
         val onboardingPageUiData = OnboardingPageUiData(
@@ -78,10 +79,10 @@ class OnboardingMapperTest {
             onNotificationPermissionSkipClick = {},
             onAddFirefoxWidgetClick = {},
             onAddFirefoxWidgetSkipClick = {},
-            onAddOnsButtonClick = {},
             onCustomizeToolbarButtonClick = {},
             onCustomizeThemeClick = {},
             onTermsOfServiceButtonClick = {},
+            shouldShowElevation = true,
         )
 
         assertEquals(expected, actual)
@@ -95,6 +96,7 @@ class OnboardingMapperTest {
             description = "notification body",
             primaryButton = Action("notification primary button text", unitLambda),
             secondaryButton = Action("notification secondary button text", unitLambda),
+            shouldShowElevation = true,
         )
 
         val onboardingPageUiData = OnboardingPageUiData(
@@ -116,10 +118,10 @@ class OnboardingMapperTest {
             onNotificationPermissionSkipClick = unitLambda,
             onAddFirefoxWidgetClick = {},
             onAddFirefoxWidgetSkipClick = {},
-            onAddOnsButtonClick = {},
             onCustomizeToolbarButtonClick = {},
             onCustomizeThemeClick = {},
             onTermsOfServiceButtonClick = {},
+            shouldShowElevation = true,
         )
 
         assertEquals(expected, actual)
@@ -133,6 +135,7 @@ class OnboardingMapperTest {
             description = "add search widget body with link text",
             primaryButton = Action("add search widget primary button text", unitLambda),
             secondaryButton = Action("add search widget secondary button text", unitLambda),
+            shouldShowElevation = true,
         )
 
         val onboardingPageUiData = OnboardingPageUiData(
@@ -154,80 +157,10 @@ class OnboardingMapperTest {
             onNotificationPermissionSkipClick = {},
             onAddFirefoxWidgetClick = unitLambda,
             onAddFirefoxWidgetSkipClick = unitLambda,
-            onAddOnsButtonClick = {},
             onCustomizeToolbarButtonClick = {},
             onCustomizeThemeClick = {},
             onTermsOfServiceButtonClick = {},
-        )
-
-        assertEquals(expected, actual)
-    }
-
-    @Test
-    fun `GIVEN an add-ons page WHEN mapToOnboardingPageState is called THEN creates the expected OnboardingPageState`() {
-        val addOns = listOf(
-            OnboardingAddOn(
-                id = "add-on-1",
-                iconRes = R.drawable.ic_extensions_onboarding,
-                name = "test add-on 1",
-                description = "test 1 add-on description",
-                averageRating = "5",
-                reviewCount = "12,345",
-                installUrl = "url1",
-                status = OnboardingAddonStatus.NOT_INSTALLED,
-            ),
-            OnboardingAddOn(
-                id = "add-on-2",
-                iconRes = R.drawable.ic_extensions_onboarding,
-                name = "test add-on 2",
-                description = "test 2 add-on description",
-                averageRating = "4.5",
-                reviewCount = "1,234",
-                installUrl = "url2",
-                status = OnboardingAddonStatus.NOT_INSTALLED,
-            ),
-            OnboardingAddOn(
-                id = "add-on-2",
-                iconRes = R.drawable.ic_extensions_onboarding,
-                name = "test add-on 3",
-                description = "test 3 add-on description",
-                averageRating = "4",
-                reviewCount = "123",
-                installUrl = "url3",
-                status = OnboardingAddonStatus.NOT_INSTALLED,
-            ),
-        )
-        val expected = OnboardingPageState(
-            imageRes = R.drawable.ic_onboarding_add_ons,
-            title = "add-ons title",
-            description = "add-ons body",
-            primaryButton = Action("add-ons primary button text", unitLambda),
-            addOns = addOns,
-        )
-
-        val onboardingPageUiData = OnboardingPageUiData(
-            type = OnboardingPageUiData.Type.ADD_ONS,
-            imageRes = R.drawable.ic_onboarding_add_ons,
-            title = "add-ons title",
-            description = "add-ons body",
-            primaryButtonLabel = "add-ons primary button text",
-            addOns = addOns,
-        )
-
-        val actual = mapToOnboardingPageState(
-            onboardingPageUiData = onboardingPageUiData,
-            onMakeFirefoxDefaultClick = {},
-            onMakeFirefoxDefaultSkipClick = {},
-            onSignInButtonClick = {},
-            onSignInSkipClick = {},
-            onNotificationPermissionButtonClick = {},
-            onNotificationPermissionSkipClick = {},
-            onAddFirefoxWidgetClick = {},
-            onAddFirefoxWidgetSkipClick = {},
-            onAddOnsButtonClick = unitLambda,
-            onCustomizeToolbarButtonClick = {},
-            onCustomizeThemeClick = {},
-            onTermsOfServiceButtonClick = {},
+            shouldShowElevation = true,
         )
 
         assertEquals(expected, actual)
@@ -254,6 +187,7 @@ class OnboardingMapperTest {
             description = "Keep searches within reach",
             primaryButton = Action("Save and continue", unitLambda),
             toolbarOptions = toolbarOptions,
+            shouldShowElevation = true,
         )
 
         val onboardingPageUiData = OnboardingPageUiData(
@@ -275,11 +209,11 @@ class OnboardingMapperTest {
             onNotificationPermissionSkipClick = {},
             onAddFirefoxWidgetClick = {},
             onAddFirefoxWidgetSkipClick = {},
-            onAddOnsButtonClick = {},
             onCustomizeToolbarButtonClick = unitLambda,
             onCustomizeThemeClick = {},
             onTermsOfServiceButtonClick = {},
             onMarketingDataContinueClick = {},
+            shouldShowElevation = true,
         )
 
         assertEquals(expected, actual)
@@ -299,6 +233,7 @@ class OnboardingMapperTest {
             description = "marketing data body",
             primaryButton = Action("marketing data button text", unitLambda),
             marketingData = marketingData,
+            shouldShowElevation = true,
         )
 
         val onboardingPageUiData = OnboardingPageUiData(
@@ -320,11 +255,11 @@ class OnboardingMapperTest {
             onNotificationPermissionSkipClick = {},
             onAddFirefoxWidgetClick = {},
             onAddFirefoxWidgetSkipClick = {},
-            onAddOnsButtonClick = {},
             onCustomizeToolbarButtonClick = {},
             onCustomizeThemeClick = {},
             onTermsOfServiceButtonClick = {},
             onMarketingDataContinueClick = unitLambda,
+            shouldShowElevation = true,
         )
 
         assertEquals(expected, actual)
@@ -371,6 +306,7 @@ class OnboardingMapperTest {
             description = description,
             primaryButton = Action(primaryButtonLabel, unitLambda),
             themeOptions = themeOptions,
+            shouldShowElevation = true,
         )
 
         val actualPageState = mapToOnboardingPageState(
@@ -383,10 +319,10 @@ class OnboardingMapperTest {
             onNotificationPermissionSkipClick = {},
             onAddFirefoxWidgetClick = {},
             onAddFirefoxWidgetSkipClick = {},
-            onAddOnsButtonClick = {},
             onCustomizeToolbarButtonClick = {},
             onCustomizeThemeClick = unitLambda,
             onTermsOfServiceButtonClick = {},
+            shouldShowElevation = true,
         )
 
         assertEquals(expectedPageState, actualPageState)

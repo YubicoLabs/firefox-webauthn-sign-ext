@@ -7,16 +7,16 @@ package org.mozilla.fenix.utils
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
+import org.robolectric.RobolectricTestRunner
 import java.util.Locale
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class LocaleUtilsTest {
 
     @Test
     fun `WHEN using getDisplayName on a 'de' locale THEN get the expected default name`() {
         val localizedLanguageName = LocaleUtils.getDisplayName(
-            locale = Locale("de"),
+            locale = Locale.forLanguageTag("de"),
         )
         assertEquals("Deutsch", localizedLanguageName)
     }
@@ -24,8 +24,8 @@ class LocaleUtilsTest {
     @Test
     fun `WHEN using getLocalizedDisplayName with an 'en' locale on a 'de' locale THEN get the expected localized name`() {
         val localizedLanguageName = LocaleUtils.getLocalizedDisplayName(
-            userLocale = Locale("en"),
-            languageLocale = Locale("de"),
+            userLocale = Locale.forLanguageTag("en"),
+            languageLocale = Locale.forLanguageTag("de"),
         )
         assertEquals("German", localizedLanguageName)
     }

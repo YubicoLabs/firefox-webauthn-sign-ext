@@ -2,7 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import json
 import os
 import re
 import sys
@@ -12,6 +11,7 @@ from urllib.parse import quote, urlencode, urlunparse
 import requests
 import requests_unixsocket
 from mozbuild.util import memoize
+from taskgraph.util import json
 from taskgraph.util.yaml import load_yaml
 
 from .. import GECKO
@@ -21,9 +21,14 @@ IMAGE_DIR = os.path.join(GECKO, "taskcluster", "docker")
 
 def docker_url(path, **kwargs):
     docker_socket = os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock")
-    return urlunparse(
-        ("http+unix", quote(docker_socket, safe=""), path, "", urlencode(kwargs), "")
-    )
+    return urlunparse((
+        "http+unix",
+        quote(docker_socket, safe=""),
+        path,
+        "",
+        urlencode(kwargs),
+        "",
+    ))
 
 
 def post_to_docker(tar, api_path, **kwargs):
@@ -141,12 +146,9 @@ class ImagePathsMap(Mapping):
         return len(self.__dict__)
 
     def __update_image_paths(self, jobs, image_dir):
-        self.__dict__.update(
-            {
-                k: os.path.join(image_dir, v.get("definition", k))
-                for k, v in jobs.items()
-            }
-        )
+        self.__dict__.update({
+            k: os.path.join(image_dir, v.get("definition", k)) for k, v in jobs.items()
+        })
 
     def register(self, jobs_config_path, image_dir):
         """Register additional image_paths. In this case, there is no 'jobs'
@@ -181,8 +183,7 @@ def parse_volumes(image):
             v = line.split(None, 1)[1]
             if v.startswith(b"["):
                 raise ValueError(
-                    "cannot parse array syntax for VOLUME; "
-                    "convert to multiple entries"
+                    "cannot parse array syntax for VOLUME; convert to multiple entries"
                 )
 
             volumes |= {v.decode("utf-8") for v in v.split()}

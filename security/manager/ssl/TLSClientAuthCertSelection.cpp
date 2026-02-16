@@ -9,27 +9,37 @@
 // identifying SSLGetClientAuthDataHook as the function to call when a TLS
 // server requests a client authentication certificate.
 //
-// In the general case, SSLGetClientAuthDataHook (running on the socket thread),
-// dispatches an event to the main thread to ask the user to select a client
-// authentication certificate. Meanwhile, it returns SECWouldBlock so that other
-// network I/O can occur. When the user selects a client certificate (or opts
-// not to send one), an event is dispatched to the socket thread that gives NSS
-// the appropriate information to proceed with the TLS connection.
+// In the general case, SSLGetClientAuthDataHook (running on the socket
+// thread), does next to nothing. It may return early if it determines it would
+// not be suitable to send a client authentication certificate on this
+// connection (particularly for speculative connections, which also get
+// canceled at this time), but otherwise it notes that a certificate was
+// requested and returns an indication that the connection would block to NSS.
 //
-// If networking is being done on the socket process, SSLGetClientAuthDataHook
-// sends an IPC call to the parent process to ask the user to select a
-// certificate. Meanwhile, it again returns SECWouldBlock so other network I/O
-// can occur. When a certificate (or no certificate) has been selected, the
-// parent process sends an IPC call back to the socket process, which causes an
-// event to be dispatched to the socket thread to continue to the TLS
-// connection.
+// When the server certificate verifies successfully, nsSSLIOLayerPoll (running
+// on the socket thread) will see that a certificate has been requested on that
+// connection, whereupon it calls DoSelectClientAuthCertificate to do the work
+// of selecting a certificate. In general, this involves dispatching an event
+// to the main thread to ask the user to select a client authentication
+// certificate. When the user selects a client certificate (or opts not to send
+// one), an event is dispatched to the socket thread that gives NSS the
+// appropriate information to proceed with the TLS connection.
+//
+// If networking is being done on the socket process,
+// DoSelectClientAuthCertificate sends an IPC call to the parent process to ask
+// the user to select a certificate. When a certificate (or no certificate) has
+// been selected, the parent process sends an IPC call back to the socket
+// process, which causes an event to be dispatched to the socket thread to
+// continue to the TLS connection.
 
 #include "TLSClientAuthCertSelection.h"
 #include "cert_storage/src/cert_storage.h"
 #include "mozilla/Logging.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/glean/SecurityManagerSslMetrics.h"
 #include "mozilla/ipc/Endpoint.h"
+#include "mozilla/net/DocumentLoadListener.h"
 #include "mozilla/net/SocketProcessBackgroundChild.h"
 #include "mozilla/psm/SelectTLSClientAuthCertChild.h"
 #include "mozilla/psm/SelectTLSClientAuthCertParent.h"
@@ -48,6 +58,10 @@
 #include "mozpkix/pkix.h"
 #include "secerr.h"
 #include "sslerr.h"
+
+#ifdef MOZ_WIDGET_ANDROID
+#  include "mozilla/java/ClientAuthCertificateManagerWrappers.h"
+#endif  // MOZ_WIDGET_ANDROID
 
 using namespace mozilla;
 using namespace mozilla::pkix;
@@ -175,8 +189,7 @@ class ClientAuthCertNonverifyingTrustDomain final : public TrustDomain {
       EndEntityOrCA endEntityOrCA, const pkix::CertID& certID, Time time,
       mozilla::pkix::Duration validityDuration,
       /*optional*/ const Input* stapledOCSPresponse,
-      /*optional*/ const Input* aiaExtension,
-      /*optional*/ const Input* sctExtension) override {
+      /*optional*/ const Input* aiaExtension) override {
     return pkix::Success;
   }
 
@@ -217,12 +230,6 @@ class ClientAuthCertNonverifyingTrustDomain final : public TrustDomain {
       pkix::Time notBefore, pkix::Time notAfter,
       pkix::EndEntityOrCA endEntityOrCA,
       pkix::KeyPurposeId keyPurpose) override {
-    return pkix::Success;
-  }
-  virtual mozilla::pkix::Result NetscapeStepUpMatchesServerAuth(
-      pkix::Time notBefore,
-      /*out*/ bool& matches) override {
-    matches = true;
     return pkix::Success;
   }
   virtual void NoteAuxiliaryExtension(pkix::AuxiliaryExtension extension,
@@ -530,6 +537,27 @@ void SelectClientAuthCertificate::DispatchContinuation(
   nsTArray<nsTArray<uint8_t>> selectedCertChainBytes;
   // Attempt to find a pre-built certificate chain corresponding to the
   // selected certificate.
+  // On Android, there are no pre-built certificate chains, so use what the OS
+  // says is the issuer certificate chain.
+#ifdef MOZ_WIDGET_ANDROID
+  if (jni::IsAvailable()) {
+    jni::ByteArray::LocalRef certBytes = jni::ByteArray::New(
+        reinterpret_cast<const int8_t*>(selectedCertBytes.Elements()),
+        selectedCertBytes.Length());
+    jni::ObjectArray::LocalRef issuersBytes =
+        java::ClientAuthCertificateManager::GetCertificateIssuersBytes(
+            certBytes);
+    if (issuersBytes) {
+      for (size_t i = 0; i < issuersBytes->Length(); i++) {
+        jni::ByteArray::LocalRef issuer = issuersBytes->GetElement(i);
+        nsTArray<uint8_t> issuerBytes(
+            reinterpret_cast<uint8_t*>(issuer->GetElements().Elements()),
+            issuer->Length());
+        selectedCertChainBytes.AppendElement(std::move(issuerBytes));
+      }
+    }
+  }
+#else
   for (const auto& clientCertificateChain : mPotentialClientCertificateChains) {
     if (clientCertificateChain.Length() > 0 &&
         clientCertificateChain[0] == selectedCertBytes) {
@@ -539,6 +567,7 @@ void SelectClientAuthCertificate::DispatchContinuation(
       break;
     }
   }
+#endif  // MOZ_WIDGET_ANDROID
   mContinuation->SetSelectedClientAuthData(std::move(selectedCertBytes),
                                            std::move(selectedCertChainBytes));
   nsCOMPtr<nsIEventTarget> socketThread(
@@ -611,8 +640,9 @@ class ClientAuthDialogCallback : public nsIClientAuthDialogCallback {
 NS_IMPL_ISUPPORTS(ClientAuthDialogCallback, nsIClientAuthDialogCallback)
 
 NS_IMETHODIMP
-ClientAuthDialogCallback::CertificateChosen(nsIX509Cert* cert,
-                                            bool rememberDecision) {
+ClientAuthDialogCallback::CertificateChosen(
+    nsIX509Cert* cert,
+    nsIClientAuthRememberService::Duration rememberDuration) {
   MOZ_ASSERT(mSelectClientAuthCertificate);
   if (!mSelectClientAuthCertificate) {
     return NS_ERROR_FAILURE;
@@ -620,10 +650,9 @@ ClientAuthDialogCallback::CertificateChosen(nsIX509Cert* cert,
   const ClientAuthInfo& info = mSelectClientAuthCertificate->Info();
   nsCOMPtr<nsIClientAuthRememberService> clientAuthRememberService(
       do_GetService(NS_CLIENTAUTHREMEMBERSERVICE_CONTRACTID));
-  if (info.ProviderTlsFlags() == 0 && rememberDecision &&
-      clientAuthRememberService) {
+  if (info.ProviderTlsFlags() == 0 && clientAuthRememberService) {
     (void)clientAuthRememberService->RememberDecision(
-        info.HostName(), info.OriginAttributesRef(), cert);
+        info.HostName(), info.OriginAttributesRef(), cert, rememberDuration);
   }
   nsTArray<uint8_t> selectedCertBytes;
   if (cert) {
@@ -647,13 +676,6 @@ SelectClientAuthCertificate::Run() {
   MOZ_ASSERT(NS_IsMainThread());
 
   nsTArray<uint8_t> selectedCertBytes;
-  if (!mPotentialClientCertificates ||
-      CERT_LIST_EMPTY(mPotentialClientCertificates)) {
-    MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
-            ("no potential client certificates available"));
-    DispatchContinuation(std::move(selectedCertBytes));
-    return NS_OK;
-  }
 
   // find valid user cert and key pair
   if (nsGetUserCertChoice() == UserCertChoice::Auto) {
@@ -707,15 +729,36 @@ SelectClientAuthCertificate::Run() {
     DispatchContinuation(std::move(selectedCertBytes));
     return NS_ERROR_FAILURE;
   }
-  nsCOMPtr<nsILoadContext> loadContext = nullptr;
-  if (mBrowserId != 0) {
-    loadContext =
+
+  RefPtr<mozilla::dom::BrowsingContext> browsingContext;
+  if (mBrowserId) {
+    browsingContext =
         mozilla::dom::BrowsingContext::GetCurrentTopByBrowserId(mBrowserId);
   }
+
+  // Prevent HTTPS-Only/-First from downgrading the load in the browsing context
+  // while the dialog is open by setting HTTPS_ONLY_TOP_LEVEL_LOAD_IN_PROGRESS
+  // early. Otherwise this would only get set once
+  // DocumentLoadListener::DoOnStartRequest is reached.
+  if (browsingContext) {
+    RefPtr<net::DocumentLoadListener> loadListener =
+        browsingContext->Canonical()->GetCurrentLoad();
+    if (loadListener) {
+      nsCOMPtr<nsIHttpChannel> channel =
+          do_QueryInterface(loadListener->GetChannel());
+      if (channel) {
+        nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
+        uint32_t httpsOnlyStatus = loadInfo->GetHttpsOnlyStatus();
+        httpsOnlyStatus |= nsILoadInfo::HTTPS_ONLY_TOP_LEVEL_LOAD_IN_PROGRESS;
+        loadInfo->SetHttpsOnlyStatus(httpsOnlyStatus);
+      }
+    }
+  }
+
   RefPtr<nsIClientAuthDialogCallback> callback(
       new ClientAuthDialogCallback(this));
   nsresult rv = clientAuthDialogService->ChooseCertificate(
-      mInfo.HostName(), certArray, loadContext, callback);
+      mInfo.HostName(), certArray, browsingContext, mCANames, callback);
   if (NS_FAILED(rv)) {
     DispatchContinuation(std::move(selectedCertBytes));
     return rv;
@@ -728,7 +771,7 @@ SECStatus SSLGetClientAuthDataHook(void* arg, PRFileDesc* socket,
                                    CERTCertificate** pRetCert,
                                    SECKEYPrivateKey** pRetKey) {
   MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
-          ("[%p] SSLGetClientAuthDataHook", socket));
+          ("[%p][%p] SSLGetClientAuthDataHook", socket, arg));
 
   if (!arg || !socket || !caNamesDecoded || !pRetCert || !pRetKey) {
     PR_SetError(PR_INVALID_ARGUMENT_ERROR, 0);
@@ -757,19 +800,43 @@ SECStatus SSLGetClientAuthDataHook(void* arg, PRFileDesc* socket,
     return SECSuccess;
   }
 
+  // If the connection corresponding to this socket hasn't been claimed, it is
+  // a speculative connection. The connection will block until the "choose a
+  // client auth certificate" dialog has been shown. The dialog will only be
+  // shown when this connection gets claimed. However, necko will never claim
+  // the connection as long as it is blocking. Thus, this connection can't
+  // proceed, so it's best to cancel it. Necko will create a new,
+  // non-speculative connection instead.
+  if (info->CancelIfNotClaimed()) {
+    MOZ_LOG(
+        gPIPNSSLog, LogLevel::Debug,
+        ("[%p] Cancelling unclaimed connection with client certificate request",
+         socket));
+    return SECSuccess;
+  }
+
   UniqueCERTCertificate serverCert(SSL_PeerCertificate(socket));
   if (!serverCert) {
     PR_SetError(SSL_ERROR_NO_CERTIFICATE, 0);
     return SECFailure;
   }
 
+  nsTArray<nsTArray<uint8_t>> caNames(CollectCANames(caNamesDecoded));
+  info->SetClientAuthCertificateRequest(std::move(serverCert),
+                                        std::move(caNames));
+  PR_SetError(PR_WOULD_BLOCK_ERROR, 0);
+  return SECWouldBlock;
+}
+
+void DoSelectClientAuthCertificate(NSSSocketControl* info,
+                                   UniqueCERTCertificate&& serverCert,
+                                   nsTArray<nsTArray<uint8_t>>&& caNames) {
+  MOZ_ASSERT(info);
   uint64_t browserId;
   if (NS_FAILED(info->GetBrowserId(&browserId))) {
-    PR_SetError(SEC_ERROR_LIBRARY_FAILURE, 0);
-    return SECFailure;
+    info->SetCanceled(SEC_ERROR_LIBRARY_FAILURE);
+    return;
   }
-
-  nsTArray<nsTArray<uint8_t>> caNames(CollectCANames(caNamesDecoded));
 
   RefPtr<ClientAuthCertificateSelected> continuation(
       new ClientAuthCertificateSelected(info));
@@ -817,7 +884,7 @@ SECStatus SSLGetClientAuthDataHook(void* arg, PRFileDesc* socket,
                        serverCertBytes(std::move(serverCertBytes)),
                        caNamesBytes(std::move(caNamesBytes)), browserId](
                           net::SocketProcessBackgroundChild* aActor) mutable {
-                        Unused << aActor->SendInitSelectTLSClientAuthCert(
+                        (void)aActor->SendInitSelectTLSClientAuthCert(
                             std::move(endpoint), hostname, originAttributes,
                             port, providerFlags, providerTlsFlags,
                             ByteArray(serverCertBytes), caNamesBytes,
@@ -830,10 +897,8 @@ SECStatus SSLGetClientAuthDataHook(void* arg, PRFileDesc* socket,
                 return;
               }
             }));
-    info->SetPendingSelectClientAuthCertificate(
-        std::move(remoteSelectClientAuthCertificate));
-    PR_SetError(PR_WOULD_BLOCK_ERROR, 0);
-    return SECWouldBlock;
+    (void)NS_DispatchToMainThread(remoteSelectClientAuthCertificate);
+    return;
   }
 
   ClientAuthInfo authInfo(info->GetHostName(), info->GetOriginAttributes(),
@@ -847,43 +912,50 @@ SECStatus SSLGetClientAuthDataHook(void* arg, PRFileDesc* socket,
                              rememberedCertBytes, rememberedCertChainBytes)) {
     continuation->SetSelectedClientAuthData(
         std::move(rememberedCertBytes), std::move(rememberedCertChainBytes));
-    nsresult rv = NS_DispatchToCurrentThread(continuation);
-    if (NS_FAILED(rv)) {
-      PR_SetError(SEC_ERROR_LIBRARY_FAILURE, 0);
-      return SECFailure;
-    }
-    PR_SetError(PR_WOULD_BLOCK_ERROR, 0);
-    return SECWouldBlock;
+    (void)continuation->Run();
+    return;
   }
 
   // Instantiating certificates in NSS is not thread-safe and has performance
   // implications, so search for them here (on the socket thread).
   UniqueCERTCertList potentialClientCertificates(
       FindClientCertificatesWithPrivateKeys());
+  if (!potentialClientCertificates) {
+    MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
+            ("[%p] FindClientCertificatesWithPrivateKeys() returned null (out "
+             "of memory?)",
+             &info));
+    info->SetCanceled(SEC_ERROR_LIBRARY_FAILURE);
+    return;
+  }
 
   nsTArray<nsTArray<nsTArray<uint8_t>>> potentialClientCertificateChains;
+
+  // On Android, gathering potential client certificates and filtering them by
+  // issuer is handled by the OS, so `potentialClientCertificates` is expected
+  // to be empty here.
+#ifndef MOZ_WIDGET_ANDROID
   FilterPotentialClientCertificatesByCANames(potentialClientCertificates,
                                              caNames, enterpriseCertificates,
                                              potentialClientCertificateChains);
-  if (!potentialClientCertificates ||
-      CERT_LIST_EMPTY(potentialClientCertificates)) {
-    MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
-            ("[%p] no client certificates available after filtering by CA",
-             socket));
-    return SECSuccess;
+  if (CERT_LIST_EMPTY(potentialClientCertificates)) {
+    MOZ_LOG(
+        gPIPNSSLog, LogLevel::Debug,
+        ("[%p] no client certificates available after filtering by CA", &info));
+    // By default, the continuation will continue the connection with no client
+    // auth certificate.
+    (void)continuation->Run();
+    return;
   }
+#endif  // MOZ_WIDGET_ANDROID
+
   nsCOMPtr<nsIRunnable> selectClientAuthCertificate(
       new SelectClientAuthCertificate(
           std::move(authInfo), std::move(serverCert),
           std::move(potentialClientCertificates),
-          std::move(potentialClientCertificateChains), continuation,
-          browserId));
-  info->SetPendingSelectClientAuthCertificate(
-      std::move(selectClientAuthCertificate));
-
-  // Meanwhile, tell NSS this connection is blocking for now.
-  PR_SetError(PR_WOULD_BLOCK_ERROR, 0);
-  return SECWouldBlock;
+          std::move(potentialClientCertificateChains), std::move(caNames),
+          continuation, browserId));
+  (void)NS_DispatchToMainThread(selectClientAuthCertificate);
 }
 
 // Helper continuation for when a client authentication certificate has been
@@ -986,9 +1058,9 @@ bool SelectTLSClientAuthCertParent::Dispatch(
             new SelectClientAuthCertificate(
                 std::move(authInfo), std::move(serverCert),
                 std::move(potentialClientCertificates),
-                std::move(potentialClientCertificateChains), continuation,
-                browserId));
-        Unused << NS_DispatchToMainThread(selectClientAuthCertificate);
+                std::move(potentialClientCertificateChains),
+                std::move(caNamesArray), continuation, browserId));
+        (void)NS_DispatchToMainThread(selectClientAuthCertificate);
       }));
   return NS_SUCCEEDED(rv);
 }
@@ -1005,8 +1077,8 @@ void SelectTLSClientAuthCertParent::TLSClientAuthCertSelected(
     selectedCertChainBytes.AppendElement(ByteArray(certBytes));
   }
 
-  Unused << SendTLSClientAuthCertSelected(aSelectedCertBytes,
-                                          selectedCertChainBytes);
+  (void)SendTLSClientAuthCertSelected(aSelectedCertBytes,
+                                      selectedCertChainBytes);
   Close();
 }
 
@@ -1037,7 +1109,7 @@ ipc::IPCResult SelectTLSClientAuthCertChild::RecvTLSClientAuthCertSelected(
     return IPC_OK();
   }
   nsresult rv = socketThread->Dispatch(mContinuation, NS_DISPATCH_NORMAL);
-  Unused << NS_WARN_IF(NS_FAILED(rv));
+  (void)NS_WARN_IF(NS_FAILED(rv));
 
   return IPC_OK();
 }

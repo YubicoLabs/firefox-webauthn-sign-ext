@@ -3,25 +3,26 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "txXPathTreeWalker.h"
-#include "nsAtom.h"
-#include "nsINode.h"
-#include "nsPrintfCString.h"
-#include "nsReadableUtils.h"
-#include "nsString.h"
-#include "nsTextFragment.h"
-#include "txXMLUtils.h"
-#include "txLog.h"
-#include "nsUnicharUtils.h"
-#include "nsAttrName.h"
-#include "nsNameSpaceManager.h"
-#include "nsTArray.h"
+#include <stdint.h>
+
+#include <algorithm>
+
 #include "mozilla/Maybe.h"
 #include "mozilla/dom/Attr.h"
 #include "mozilla/dom/CharacterData.h"
 #include "mozilla/dom/Element.h"
-#include <stdint.h>
-#include <algorithm>
+#include "nsAtom.h"
+#include "nsAttrName.h"
+#include "nsINode.h"
+#include "nsNameSpaceManager.h"
+#include "nsPrintfCString.h"
+#include "nsReadableUtils.h"
+#include "nsString.h"
+#include "nsTArray.h"
+#include "nsUnicharUtils.h"
+#include "txLog.h"
+#include "txXMLUtils.h"
+#include "txXPathTreeWalker.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -134,7 +135,7 @@ bool txXPathTreeWalker::moveToNamedAttribute(nsAtom* aLocalName,
 
   const nsAttrName* name;
   uint32_t i;
-  for (i = 0; (name = element->GetAttrNameAt(i)); ++i) {
+  for (i = 0; element->GetAttrNameAt(i, &name); ++i) {
     if (name->Equals(aLocalName, aNSID)) {
       mPosition.mIndex = i;
 

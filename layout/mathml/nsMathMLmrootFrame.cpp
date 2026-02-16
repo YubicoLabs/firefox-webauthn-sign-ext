@@ -6,12 +6,14 @@
 
 #include "nsMathMLmrootFrame.h"
 
-#include "mozilla/PresShell.h"
-#include "nsLayoutUtils.h"
-#include "nsPresContext.h"
 #include <algorithm>
+
 #include "gfxContext.h"
 #include "gfxMathTable.h"
+#include "mozilla/PresShell.h"
+#include "mozilla/StaticPrefs_mathml.h"
+#include "nsLayoutUtils.h"
+#include "nsPresContext.h"
 
 using namespace mozilla;
 
@@ -45,7 +47,7 @@ void nsMathMLmrootFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
 }
 
 bool nsMathMLmrootFrame::ShouldUseRowFallback() {
-  bool isRootWithIndex = GetContent()->IsMathMLElement(nsGkAtoms::mroot_);
+  bool isRootWithIndex = GetContent()->IsMathMLElement(nsGkAtoms::mroot);
   if (!isRootWithIndex) {
     return false;
   }
@@ -59,7 +61,7 @@ bool nsMathMLmrootFrame::ShouldUseRowFallback() {
 }
 
 bool nsMathMLmrootFrame::IsMrowLike() {
-  bool isRootWithIndex = GetContent()->IsMathMLElement(nsGkAtoms::mroot_);
+  bool isRootWithIndex = GetContent()->IsMathMLElement(nsGkAtoms::mroot);
   if (isRootWithIndex) {
     return false;
   }
@@ -70,9 +72,10 @@ NS_IMETHODIMP
 nsMathMLmrootFrame::InheritAutomaticData(nsIFrame* aParent) {
   nsMathMLContainerFrame::InheritAutomaticData(aParent);
 
-  bool isRootWithIndex = GetContent()->IsMathMLElement(nsGkAtoms::mroot_);
+  bool isRootWithIndex = GetContent()->IsMathMLElement(nsGkAtoms::mroot);
   if (!isRootWithIndex) {
-    mPresentationData.flags |= NS_MATHML_STRETCH_ALL_CHILDREN_VERTICALLY;
+    mPresentationData.flags +=
+        MathMLPresentationFlag::StretchAllChildrenVertically;
   }
 
   return NS_OK;
@@ -80,24 +83,31 @@ nsMathMLmrootFrame::InheritAutomaticData(nsIFrame* aParent) {
 
 NS_IMETHODIMP
 nsMathMLmrootFrame::TransmitAutomaticData() {
-  bool isRootWithIndex = GetContent()->IsMathMLElement(nsGkAtoms::mroot_);
+  bool isRootWithIndex = GetContent()->IsMathMLElement(nsGkAtoms::mroot);
   if (isRootWithIndex) {
     // 1. The REC says:
     //    The <mroot> element increments scriptlevel by 2, and sets displaystyle
     //    to "false", within index, but leaves both attributes unchanged within
     //    base.
     // 2. The TeXbook (Ch 17. p.141) says \sqrt is compressed
-    UpdatePresentationDataFromChildAt(1, 1, NS_MATHML_COMPRESSED,
-                                      NS_MATHML_COMPRESSED);
-    UpdatePresentationDataFromChildAt(0, 0, NS_MATHML_COMPRESSED,
-                                      NS_MATHML_COMPRESSED);
+    if (!StaticPrefs::mathml_math_shift_enabled()) {
+      UpdatePresentationDataFromChildAt(1, 1,
+                                        MathMLPresentationFlag::Compressed,
+                                        MathMLPresentationFlag::Compressed);
+      UpdatePresentationDataFromChildAt(0, 0,
+                                        MathMLPresentationFlag::Compressed,
+                                        MathMLPresentationFlag::Compressed);
+    }
 
     PropagateFrameFlagFor(mFrames.LastChild(),
                           NS_FRAME_MATHML_SCRIPT_DESCENDANT);
   } else {
     // The TeXBook (Ch 17. p.141) says that \sqrt is cramped
-    UpdatePresentationDataFromChildAt(0, -1, NS_MATHML_COMPRESSED,
-                                      NS_MATHML_COMPRESSED);
+    if (!StaticPrefs::mathml_math_shift_enabled()) {
+      UpdatePresentationDataFromChildAt(0, -1,
+                                        MathMLPresentationFlag::Compressed,
+                                        MathMLPresentationFlag::Compressed);
+    }
   }
 
   return NS_OK;
@@ -159,9 +169,9 @@ void nsMathMLmrootFrame::GetRadicalXOffsets(nscoord aIndexWidth,
   }
 }
 
-nsresult nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
-                                   const PlaceFlags& aFlags,
-                                   ReflowOutput& aDesiredSize) {
+void nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
+                               const PlaceFlags& aFlags,
+                               ReflowOutput& aDesiredSize) {
   if (ShouldUseRowFallback()) {
     // report an error, encourage people to get their markups in order
     if (!aFlags.contains(PlaceFlag::MeasureOnly)) {
@@ -170,7 +180,7 @@ nsresult nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
     return PlaceAsMrow(aDrawTarget, aFlags, aDesiredSize);
   }
 
-  const bool isRootWithIndex = GetContent()->IsMathMLElement(nsGkAtoms::mroot_);
+  const bool isRootWithIndex = GetContent()->IsMathMLElement(nsGkAtoms::mroot);
   nsBoundingMetrics bmSqr, bmBase, bmIndex;
   nsIFrame *baseFrame = nullptr, *indexFrame = nullptr;
   nsMargin baseMargin, indexMargin;
@@ -189,11 +199,7 @@ nsresult nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
     PlaceFlags flags = aFlags + PlaceFlag::MeasureOnly +
                        PlaceFlag::IgnoreBorderPadding +
                        PlaceFlag::DoNotAdjustForWidthAndHeight;
-    nsresult rv = nsMathMLContainerFrame::Place(aDrawTarget, flags, baseSize);
-    if (NS_FAILED(rv)) {
-      DidReflowChildren(PrincipalChildList().FirstChild());
-      return rv;
-    }
+    nsMathMLContainerFrame::Place(aDrawTarget, flags, baseSize);
     bmBase = baseSize.mBoundingMetrics;
   }
 
@@ -248,8 +254,8 @@ nsresult nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
     bmSqr.ascent = bmSqr.descent = 0;
   } else {
     mSqrChar.Stretch(this, aDrawTarget, fontSizeInflation,
-                     NS_STRETCH_DIRECTION_VERTICAL, contSize, radicalSize,
-                     NS_STRETCH_LARGER,
+                     StretchDirection::Vertical, contSize, radicalSize,
+                     MathMLStretchFlag::Larger,
                      StyleVisibility()->mDirection == StyleDirection::Rtl);
     // radicalSize have changed at this point, and should match with
     // the bounding metrics of the char
@@ -385,8 +391,6 @@ nsresult nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
 
   mReference.x = 0;
   mReference.y = aDesiredSize.BlockStartAscent();
-
-  return NS_OK;
 }
 
 void nsMathMLmrootFrame::DidSetComputedStyle(ComputedStyle* aOldStyle) {

@@ -13,7 +13,6 @@ import sys
 import textwrap
 from collections import namedtuple
 
-import six
 from ply import lex, yacc
 
 """A type conforms to the following pattern:
@@ -49,12 +48,10 @@ def attlistToIDL(attlist):
     attlist = list(attlist)
     attlist.sort(key=lambda a: a[0])
 
-    return "[%s] " % ",".join(
-        [
-            "%s%s" % (name, value is not None and "(%s)" % value or "")
-            for name, value, aloc in attlist
-        ]
-    )
+    return "[%s] " % ",".join([
+        "%s%s" % (name, value is not None and "(%s)" % value or "")
+        for name, value, aloc in attlist
+    ])
 
 
 _paramsHardcode = {
@@ -84,12 +81,10 @@ def paramAttlistToIDL(attlist):
 
     sorted.extend(attlist)
 
-    return "[%s] " % ", ".join(
-        [
-            "%s%s" % (name, value is not None and " (%s)" % value or "")
-            for name, value, aloc in sorted
-        ]
-    )
+    return "[%s] " % ", ".join([
+        "%s%s" % (name, value is not None and " (%s)" % value or "")
+        for name, value, aloc in sorted
+    ])
 
 
 def unaliasType(t):
@@ -110,7 +105,7 @@ def getBuiltinOrNativeTypeName(t):
         return None
 
 
-class BuiltinLocation(object):
+class BuiltinLocation:
     def get(self):
         return "<builtin type>"
 
@@ -118,7 +113,7 @@ class BuiltinLocation(object):
         return self.get()
 
 
-class Builtin(object):
+class Builtin:
     kind = "builtin"
     location = BuiltinLocation
 
@@ -234,7 +229,7 @@ for alias, name in builtinAlias:
     builtinMap[alias] = builtinMap[name]
 
 
-class Location(object):
+class Location:
     _line = None
 
     def __init__(self, lexer, lineno, lexpos):
@@ -267,6 +262,10 @@ class Location(object):
         self.resolve()
         return "%s line %s:%s" % (self._file, self._lineno, self._colno)
 
+    def lineno(self):
+        self.resolve()
+        return self._lineno
+
     def __str__(self):
         self.resolve()
         return "%s line %s:%s\n%s\n%s" % (
@@ -278,7 +277,7 @@ class Location(object):
         )
 
 
-class NameMap(object):
+class NameMap:
     """Map of name -> object. Each object must have a .name and .location property.
     Setting the same name twice throws an error."""
 
@@ -291,7 +290,7 @@ class NameMap(object):
         return self._d[key]
 
     def __iter__(self):
-        return six.itervalues(self._d)
+        return iter(self._d.values())
 
     def __contains__(self, key):
         return key in builtinMap or key in self._d
@@ -369,7 +368,7 @@ class IDLError(Exception):
         return error
 
 
-class Include(object):
+class Include:
     kind = "include"
 
     def __init__(self, filename, location):
@@ -411,7 +410,7 @@ class Include(object):
         raise IDLError("File '%s' not found" % self.filename, self.location)
 
 
-class IDL(object):
+class IDL:
     def __init__(self, productions):
         self.hasSequence = False
         self.productions = productions
@@ -467,12 +466,14 @@ class IDL(object):
         return False
 
 
-class CDATA(object):
+class CDATA:
     kind = "cdata"
-    _re = re.compile(r"\n+")
+    _trailing_spaces_re = re.compile("\n? *$")
 
     def __init__(self, data, location):
-        self.data = self._re.sub("\n", data)
+        # the '// %{C++' comment generated in the header.py assumes the
+        # text exactly matches the input.
+        self.data = data
         self.location = location
 
     def resolve(self, parent):
@@ -497,8 +498,25 @@ class CDATA(object):
     def count(self):
         return 0
 
+    def data_with_comment(self):
+        # generate a comment for the searchfox analysis.
+        #
+        # self.location.lineno() points the "%{C++" line.
+        # self.data starts from the next line, excluding the "%}" part.
+        #
+        # Normalize the body, by removing the possible newline before the "%}",
+        # and also removing the indent before the "%}" part.
+        body = self._trailing_spaces_re.sub("", self.data)
 
-class Typedef(object):
+        # "first" should point the line after the "%{C++" line,
+        # and the "last" should point the line before the "%}" part.
+        first = self.location.lineno() + 1
+        last = first + len(body.split("\n")) - 1
+
+        return "// %%{C++:%d-%d\n%s\n// %%}\n" % (first, last, body)
+
+
+class Typedef:
     kind = "typedef"
 
     def __init__(self, type, name, attlist, location, doccomments):
@@ -532,7 +550,7 @@ class Typedef(object):
         return "typedef %s %s\n" % (self.type, self.name)
 
 
-class Forward(object):
+class Forward:
     kind = "forward"
 
     def __init__(self, name, location, doccomments):
@@ -576,7 +594,7 @@ class Forward(object):
         return "forward-declared %s\n" % self.name
 
 
-class Native(object):
+class Native:
     kind = "native"
 
     modifier = None
@@ -599,19 +617,19 @@ class Native(object):
         self.nativename = nativename
         self.location = location
 
-        for name, value, aloc in attlist:
+        for attr_name, value, aloc in attlist:
             if value is not None:
                 raise IDLError("Unexpected attribute value", aloc)
-            if name in ("ptr", "ref"):
+            if attr_name in ("ptr", "ref"):
                 if self.modifier is not None:
                     raise IDLError("More than one ptr/ref modifier", aloc)
-                self.modifier = name
-            elif name in self.specialtypes.keys():
+                self.modifier = attr_name
+            elif attr_name in self.specialtypes.keys():
                 if self.specialtype is not None:
                     raise IDLError("More than one special type", aloc)
-                self.specialtype = name
-                if self.specialtypes[name] is not None:
-                    self.nativename = self.specialtypes[name]
+                self.specialtype = attr_name
+                if self.specialtypes[attr_name] is not None:
+                    self.nativename = self.specialtypes[attr_name]
             else:
                 raise IDLError("Unexpected attribute", aloc)
 
@@ -768,7 +786,7 @@ class Native(object):
         return "native %s(%s)\n" % (self.name, self.nativename)
 
 
-class WebIDL(object):
+class WebIDL:
     kind = "webidl"
 
     def __init__(self, name, location):
@@ -784,9 +802,9 @@ class WebIDL(object):
         # interfaces.
         # TODO: More explicit compile-time checks?
 
-        assert (
-            parent.webidlconfig is not None
-        ), "WebIDL declarations require passing webidlconfig to resolve."
+        assert parent.webidlconfig is not None, (
+            "WebIDL declarations require passing webidlconfig to resolve."
+        )
 
         # Resolve our native name according to the WebIDL configs.
         config = parent.webidlconfig.get(self.name, {})
@@ -819,7 +837,7 @@ class WebIDL(object):
         return "webidl %s\n" % self.name
 
 
-class Interface(object):
+class Interface:
     kind = "interface"
 
     def __init__(self, name, attlist, base, members, location, doccomments):
@@ -993,7 +1011,7 @@ class Interface(object):
         return self.name
 
 
-class InterfaceAttributes(object):
+class InterfaceAttributes:
     uuid = None
     scriptable = False
     builtinclass = False
@@ -1066,7 +1084,7 @@ class InterfaceAttributes(object):
         return "".join(l)
 
 
-class ConstMember(object):
+class ConstMember:
     kind = "const"
 
     def __init__(self, type, name, value, location, doccomments):
@@ -1112,7 +1130,7 @@ class ConstMember(object):
 
 
 # Represents a single name/value pair in a CEnum
-class CEnumVariant(object):
+class CEnumVariant:
     # Treat CEnumVariants as consts in terms of value resolution, so we can
     # do things like binary operation values for enum members.
     kind = "const"
@@ -1126,7 +1144,7 @@ class CEnumVariant(object):
         return self.value
 
 
-class CEnum(object):
+class CEnum:
     kind = "cenum"
 
     def __init__(self, width, name, variants, location, doccomments):
@@ -1332,7 +1350,7 @@ def ensureNoscriptIfNeeded(methodOrAttribute):
                 )
 
 
-class Attribute(object):
+class Attribute:
     kind = "attribute"
     noscript = False
     notxpcom = False
@@ -1358,8 +1376,8 @@ class Attribute(object):
         self.location = location
         self.doccomments = doccomments
 
-        for name, value, aloc in attlist:
-            if name == "binaryname":
+        for attr_name, value, aloc in attlist:
+            if attr_name == "binaryname":
                 if value is None:
                     raise IDLError("binaryname attribute requires a value", aloc)
 
@@ -1369,21 +1387,21 @@ class Attribute(object):
             if value is not None:
                 raise IDLError("Unexpected attribute value", aloc)
 
-            if name == "noscript":
+            if attr_name == "noscript":
                 self.noscript = True
-            elif name == "notxpcom":
+            elif attr_name == "notxpcom":
                 self.notxpcom = True
-            elif name == "symbol":
+            elif attr_name == "symbol":
                 self.symbol = True
-            elif name == "implicit_jscontext":
+            elif attr_name == "implicit_jscontext":
                 self.implicit_jscontext = True
-            elif name == "nostdcall":
+            elif attr_name == "nostdcall":
                 self.nostdcall = True
-            elif name == "must_use":
+            elif attr_name == "must_use":
                 self.must_use = True
-            elif name == "infallible":
+            elif attr_name == "infallible":
                 self.infallible = True
-            elif name == "can_run_script":
+            elif attr_name == "can_run_script":
                 if (
                     self.explicit_setter_can_run_script
                     or self.explicit_getter_can_run_script
@@ -1396,22 +1414,22 @@ class Attribute(object):
                     )
                 self.explicit_setter_can_run_script = True
                 self.explicit_getter_can_run_script = True
-            elif name == "setter_can_run_script":
+            elif attr_name == "setter_can_run_script":
                 if self.explicit_setter_can_run_script:
                     raise IDLError(
-                        "Redundant setter_can_run_script annotation " "on attribute",
+                        "Redundant setter_can_run_script annotation on attribute",
                         aloc,
                     )
                 self.explicit_setter_can_run_script = True
-            elif name == "getter_can_run_script":
+            elif attr_name == "getter_can_run_script":
                 if self.explicit_getter_can_run_script:
                     raise IDLError(
-                        "Redundant getter_can_run_script annotation " "on attribute",
+                        "Redundant getter_can_run_script annotation on attribute",
                         aloc,
                     )
                 self.explicit_getter_can_run_script = True
             else:
-                raise IDLError("Unexpected attribute '%s'" % name, aloc)
+                raise IDLError("Unexpected attribute '%s'" % attr_name, aloc)
 
     def resolve(self, iface):
         self.iface = iface
@@ -1442,7 +1460,7 @@ class Attribute(object):
         return self.readonly and 1 or 2
 
 
-class Method(object):
+class Method:
     kind = "method"
     noscript = False
     notxpcom = False
@@ -1466,8 +1484,8 @@ class Method(object):
         self.doccomments = doccomments
         self.raises = raises
 
-        for name, value, aloc in attlist:
-            if name == "binaryname":
+        for attr_name, value, aloc in attlist:
+            if attr_name == "binaryname":
                 if value is None:
                     raise IDLError("binaryname attribute requires a value", aloc)
 
@@ -1477,26 +1495,26 @@ class Method(object):
             if value is not None:
                 raise IDLError("Unexpected attribute value", aloc)
 
-            if name == "noscript":
+            if attr_name == "noscript":
                 self.noscript = True
-            elif name == "notxpcom":
+            elif attr_name == "notxpcom":
                 self.notxpcom = True
-            elif name == "symbol":
+            elif attr_name == "symbol":
                 self.symbol = True
-            elif name == "implicit_jscontext":
+            elif attr_name == "implicit_jscontext":
                 self.implicit_jscontext = True
-            elif name == "optional_argc":
+            elif attr_name == "optional_argc":
                 self.optional_argc = True
-            elif name == "nostdcall":
+            elif attr_name == "nostdcall":
                 self.nostdcall = True
-            elif name == "must_use":
+            elif attr_name == "must_use":
                 self.must_use = True
-            elif name == "can_run_script":
+            elif attr_name == "can_run_script":
                 self.explicit_can_run_script = True
-            elif name == "infallible":
+            elif attr_name == "infallible":
                 self.infallible = True
             else:
-                raise IDLError("Unexpected attribute '%s'" % name, aloc)
+                raise IDLError("Unexpected attribute '%s'" % attr_name, aloc)
 
         self.namemap = NameMap()
         for p in paramlist:
@@ -1590,7 +1608,7 @@ class Method(object):
         return 1
 
 
-class Param(object):
+class Param:
     size_is = None
     iid_is = None
     const = False
@@ -1608,36 +1626,38 @@ class Param(object):
         self.location = location
         self.realtype = realtype
 
-        for name, value, aloc in attlist:
+        for attr_name, value, aloc in attlist:
             # Put the value-taking attributes first!
-            if name == "size_is":
+            if attr_name == "size_is":
                 if value is None:
                     raise IDLError("'size_is' must specify a parameter", aloc)
                 self.size_is = value
-            elif name == "iid_is":
+            elif attr_name == "iid_is":
                 if value is None:
                     raise IDLError("'iid_is' must specify a parameter", aloc)
                 self.iid_is = value
-            elif name == "default":
+            elif attr_name == "default":
                 if value is None:
                     raise IDLError("'default' must specify a default value", aloc)
                 self.default_value = value
             else:
                 if value is not None:
-                    raise IDLError("Unexpected value for attribute '%s'" % name, aloc)
+                    raise IDLError(
+                        "Unexpected value for attribute '%s'" % attr_name, aloc
+                    )
 
-                if name == "const":
+                if attr_name == "const":
                     self.const = True
-                elif name == "array":
+                elif attr_name == "array":
                     self.array = True
-                elif name == "retval":
+                elif attr_name == "retval":
                     self.retval = True
-                elif name == "shared":
+                elif attr_name == "shared":
                     self.shared = True
-                elif name == "optional":
+                elif attr_name == "optional":
                     self.optional = True
                 else:
-                    raise IDLError("Unexpected attribute '%s'" % name, aloc)
+                    raise IDLError("Unexpected attribute '%s'" % attr_name, aloc)
 
     def resolve(self, method):
         self.realtype = method.iface.idl.getName(self.type, self.location)
@@ -1688,12 +1708,12 @@ class Param(object):
         type = self.realtype.tsType()
         if self.paramtype == "inout":
             return f"InOutParam<{type}>"
-        if self.paramtype == "out":
+        if self.paramtype == "out" and not self.retval:
             return f"OutParam<{type}>"
         return type
 
 
-class LegacyArray(object):
+class LegacyArray:
     kind = "legacyarray"
 
     def __init__(self, basetype):
@@ -1730,7 +1750,7 @@ class LegacyArray(object):
         return self.type.tsType() + "[]"
 
 
-class Array(object):
+class Array:
     kind = "array"
 
     def __init__(self, type, location):
@@ -1787,7 +1807,7 @@ TypeId.__str__ = lambda self: (
 TypeId.__new__.__defaults__ = (None,)
 
 
-class IDLParser(object):
+class IDLParser:
     keywords = {
         "cenum": "CENUM",
         "const": "CONST",
@@ -1852,8 +1872,8 @@ class IDLParser(object):
     def t_LCDATA(self, t):
         r"%\{[ ]*C\+\+[ ]*\n(?P<cdata>(\n|.)*?\n?)%\}[ ]*(C\+\+)?"
         t.type = "CDATA"
-        t.value = t.lexer.lexmatch.group("cdata")
         t.lexer.lineno += t.value.count("\n")
+        t.value = t.lexer.lexmatch.group("cdata")
         return t
 
     def t_INCLUDE(self, t):

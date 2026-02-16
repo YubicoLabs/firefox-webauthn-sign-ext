@@ -21,6 +21,7 @@ mod perf;
 mod png;
 mod premultiply;
 mod rawtest;
+mod rawtests;
 mod reftest;
 mod test_invalidation;
 mod test_shaders;
@@ -487,12 +488,11 @@ impl RenderNotifier for Notifier {
 
     fn new_frame_ready(&self,
                        _: DocumentId,
-                       _scrolled: bool,
-                       composite_needed: bool,
-                       _: FramePublishId) {
+                       _: FramePublishId,
+                       params: &FrameReadyParams) {
         // TODO(gw): Refactor wrench so that it can take advantage of cases
         //           where no composite is required when appropriate.
-        self.wake_up(composite_needed);
+        self.wake_up(params.render);
     }
 }
 
@@ -677,10 +677,14 @@ pub fn main() {
             glutin::GlRequest::Specific(glutin::Api::OpenGl, opengl_version)
         }
         Some("default") | None => {
-            if cfg!(target_os = "android") {
-                // Some Android devices successfully allow binding the OpenGL API but then fail to
-                // return any available configs, meaning context creation always fails. So just
-                // request GLES by default on Android.
+            if args.is_present("angle") || cfg!(target_os = "android") {
+                // GlThenGles first attempts to bind OpenGL using eglBindAPI(),
+                // falling back to GLES if that fails. Angle, including Android
+                // devices who use Angle as their GL driver, successfully allow
+                // binding the OpenGL API but will subsequently fail to return
+                // any available configs, meaning context creation will always
+                // fail. To avoid this by deault just request Gles on Angle and
+                // Android. See bug 1928322 and bug 1971545.
                 glutin::GlRequest::Specific(glutin::Api::OpenGlEs, opengles_version)
             } else {
                 glutin::GlRequest::GlThenGles {
@@ -783,7 +787,6 @@ pub fn main() {
     } else if let Some(subargs) = args.subcommand_matches("png") {
         let surface = match subargs.value_of("surface") {
             Some("screen") | None => png::ReadSurface::Screen,
-            Some("gpu-cache") => png::ReadSurface::GpuCache,
             _ => panic!("Unknown surface argument value")
         };
         let output_path = subargs.value_of("OUTPUT").map(PathBuf::from);
@@ -833,7 +836,10 @@ pub fn main() {
             rx.unwrap(),
         );
 
-        harness.run();
+        let num_failures = harness.run();
+        if num_failures > 0 {
+            process::exit(num_failures as _);
+        }
     } else if let Some(subargs) = args.subcommand_matches("compare_perf") {
         let first_filename = subargs.value_of("first_filename").unwrap();
         let second_filename = subargs.value_of("second_filename").unwrap();

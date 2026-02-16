@@ -5,11 +5,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/ConsoleInstance.h"
+
 #include "Console.h"
-#include "mozilla/dom/ConsoleBinding.h"
-#include "mozilla/Preferences.h"
 #include "ConsoleCommon.h"
 #include "ConsoleUtils.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/dom/ConsoleBinding.h"
 #include "nsContentUtils.h"
 
 namespace mozilla::dom {
@@ -160,6 +161,9 @@ JSObject* ConsoleInstance::WrapObject(JSContext* aCx,
   void ConsoleInstance::name(JSContext* aCx,                     \
                              const Sequence<JS::Value>& aData) { \
     RefPtr<Console> console(mConsole);                           \
+    if (MOZ_UNLIKELY(!console)) {                                \
+      return;                                                    \
+    }                                                            \
     console->MethodInternal(aCx, Console::Method##name,          \
                             nsLiteralString(string), aData);     \
   }
@@ -261,7 +265,8 @@ void ConsoleInstance::Clear(JSContext* aCx) {
 
 bool ConsoleInstance::ShouldLog(ConsoleLogLevel aLevel) {
   return mConsole->mCurrentLogLevel <=
-         mConsole->WebIDLLogLevelToInteger(aLevel);
+             mConsole->WebIDLLogLevelToInteger(aLevel) ||
+         mConsole->ShouldLogToMozLog(aLevel);
 }
 
 void ConsoleInstance::ReportForServiceWorkerScope(const nsAString& aScope,

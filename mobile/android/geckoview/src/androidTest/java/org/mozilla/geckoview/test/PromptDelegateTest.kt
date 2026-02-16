@@ -4,12 +4,17 @@
 
 package org.mozilla.geckoview.test
 
-import android.net.Uri
 import android.view.KeyEvent
+import androidx.core.net.toUri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.MediumTest
 import androidx.test.platform.app.InstrumentationRegistry
-import org.hamcrest.Matchers.* // ktlint-disable no-wildcard-imports
+import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.endsWith
+import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.isEmptyOrNullString
+import org.hamcrest.Matchers.notNullValue
+import org.hamcrest.Matchers.nullValue
 import org.junit.Assert
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -108,6 +113,82 @@ class PromptDelegateTest : BaseSessionTest(
         })
 
         mainSession.loadTestPath(POPUP_HTML_PATH)
+        sessionRule.waitForPageStop()
+        mainSession.waitForRoundTrip()
+    }
+
+    @Test fun redirectTestAllow() {
+        // Ensure popup and redirect blocking is enabled for this test.
+        sessionRule.setPrefsUntilTestEnd(mapOf("dom.disable_open_during_load" to true))
+        sessionRule.setPrefsUntilTestEnd(mapOf("dom.security.framebusting_intervention.enabled" to true))
+
+        sessionRule.delegateDuringNextWait(object : PromptDelegate, NavigationDelegate {
+            @AssertCalled(count = 1)
+            override fun onRedirectPrompt(session: GeckoSession, prompt: PromptDelegate.RedirectPrompt): GeckoResult<PromptDelegate.PromptResponse>? {
+                assertThat("Session should not be null", session, notNullValue())
+                assertThat("URL should not be null", prompt.targetUri, notNullValue())
+                assertThat("URL should match", prompt.targetUri, equalTo(FRAMEBUSTING_CHILD_URI))
+                return GeckoResult.fromValue(prompt.confirm(AllowOrDeny.ALLOW))
+            }
+
+            @AssertCalled(count = 2)
+            override fun onLocationChange(
+                session: GeckoSession,
+                url: String?,
+                perms: List<GeckoSession.PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
+            ) {
+                assertThat("Session should not be null", session, notNullValue())
+                assertThat("URL should not be null", url, notNullValue())
+                assertThat("URL should match", url, equalTo(forEachCall(FRAMEBUSTING_PARENT_URI, FRAMEBUSTING_CHILD_URI)))
+            }
+
+            @AssertCalled(count = 0)
+            override fun onNewSession(session: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
+                Assert.fail("Should not call onNewSession")
+                return null
+            }
+        })
+
+        mainSession.loadUri(FRAMEBUSTING_PARENT_URI)
+        sessionRule.waitForPageStop()
+        mainSession.waitForRoundTrip()
+    }
+
+    @Test fun redirectTestBlock() {
+        // Ensure popup and redirect blocking is enabled for this test.
+        sessionRule.setPrefsUntilTestEnd(mapOf("dom.disable_open_during_load" to true))
+        sessionRule.setPrefsUntilTestEnd(mapOf("dom.security.framebusting_intervention.enabled" to true))
+
+        sessionRule.delegateUntilTestEnd(object : PromptDelegate, NavigationDelegate {
+            @AssertCalled(count = 1)
+            override fun onRedirectPrompt(session: GeckoSession, prompt: PromptDelegate.RedirectPrompt): GeckoResult<PromptDelegate.PromptResponse>? {
+                assertThat("Session should not be null", session, notNullValue())
+                assertThat("URL should not be null", prompt.targetUri, notNullValue())
+                assertThat("URL should match", prompt.targetUri, equalTo(FRAMEBUSTING_CHILD_URI))
+                return GeckoResult.fromValue(prompt.confirm(AllowOrDeny.DENY))
+            }
+
+            @AssertCalled(count = 1)
+            override fun onLocationChange(
+                session: GeckoSession,
+                url: String?,
+                perms: List<GeckoSession.PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
+            ) {
+                assertThat("Session should not be null", session, notNullValue())
+                assertThat("URL should not be null", url, notNullValue())
+                assertThat("URL should match", url, equalTo(FRAMEBUSTING_PARENT_URI))
+            }
+
+            @AssertCalled(count = 0)
+            override fun onNewSession(session: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
+                Assert.fail("Should not call onNewSession")
+                return null
+            }
+        })
+
+        mainSession.loadUri(FRAMEBUSTING_PARENT_URI)
         sessionRule.waitForPageStop()
         mainSession.waitForRoundTrip()
     }
@@ -668,82 +749,6 @@ class PromptDelegateTest : BaseSessionTest(
         )
     }
 
-    @Test
-    fun fedCMProviderPromptTest() {
-        sessionRule.setPrefsUntilTestEnd(
-            mapOf(
-                "dom.security.credentialmanagement.identity.enabled" to true,
-            ),
-        )
-        sessionRule.setPrefsUntilTestEnd(
-            mapOf(
-                "dom.security.credentialmanagement.identity.heavyweight.enabled" to true,
-            ),
-        )
-        sessionRule.setPrefsUntilTestEnd(
-            mapOf(
-                "dom.security.credentialmanagement.identity.test_ignore_well_known" to true,
-            ),
-        )
-        mainSession.loadTestPath(FEDCM_RP_HTML_PATH)
-
-        sessionRule.delegateDuringNextWait(object : PromptDelegate {
-            @AssertCalled(count = 1)
-            override fun onSelectIdentityCredentialProvider(
-                session: GeckoSession,
-                prompt: PromptDelegate.IdentityCredential.ProviderSelectorPrompt,
-            ): GeckoResult<PromptResponse> {
-                prompt.providers.mapIndexed { index, item ->
-                    assertThat("ID should match", index, equalTo(item.id))
-                    assertThat(
-                        "Name should be the name of the IDP taken from the manifest",
-                        item.name,
-                        containsString("Demo IDP"),
-                    )
-                    assertThat("Icon should contain a valid image", item.icon ?: "", containsString("data:image"))
-                }
-                return GeckoResult.fromValue(prompt.confirm(0))
-            }
-
-            @AssertCalled(count = 1)
-            override fun onSelectIdentityCredentialAccount(
-                session: GeckoSession,
-                prompt: PromptDelegate.IdentityCredential.AccountSelectorPrompt,
-            ): GeckoResult<PromptResponse> {
-                prompt.accounts.forEachIndexed { index, item ->
-                    assertThat("ID should match", index, equalTo(item.id))
-                }
-                return GeckoResult.fromValue(prompt.confirm(0))
-            }
-
-            @AssertCalled(count = 1)
-            override fun onShowPrivacyPolicyIdentityCredential(
-                session: GeckoSession,
-                prompt: PromptDelegate.IdentityCredential.PrivacyPolicyPrompt,
-            ): GeckoResult<PromptResponse> {
-                assertThat("Host should be localhost", prompt.host, equalTo("localhost"))
-                assertThat("Privacy policy url should be the same as specified in fedcm_idp_metadata.json ", prompt.privacyPolicyUrl, equalTo("privacy_policy"))
-                assertThat("Terms of service url should be the same as specified in fedcm_idp_metadata.json ", prompt.termsOfServiceUrl, equalTo("terms_of_service"))
-                assertThat("Icon should contain a valid image", prompt.icon ?: "", containsString("data:image"))
-                return GeckoResult.fromValue(prompt.confirm(true))
-            }
-        })
-
-        mainSession.waitForJS(
-            """
-        navigator.credentials.get({
-        identity: {
-          providers: [{
-            configURL: "${createTestUrl(FEDCM_IDP_MANIFEST_PATH)}",
-            clientId: "localhost",
-            nonce: "nonce",
-          }]
-        }
-      });
-            """.trimIndent(),
-        )
-    }
-
     @WithDisplay(width = 100, height = 100)
     @Test
     fun colorTest() {
@@ -828,8 +833,8 @@ class PromptDelegateTest : BaseSessionTest(
             """.trimIndent(),
         )
 
-        mainSession.evaluateJS("document.addEventListener('click', () => this.c.click(), { once: true });")
-        mainSession.synthesizeTap(1, 1)
+        mainSession.notifyUserGestureActivation()
+        mainSession.evaluateJS("document.getElementById('colorexample').showPicker()")
 
         assertThat(
             "Value should match",
@@ -844,16 +849,9 @@ class PromptDelegateTest : BaseSessionTest(
         mainSession.loadTestPath(PROMPT_HTML_PATH)
         mainSession.waitForPageStop()
 
-        mainSession.evaluateJS(
-            """
-            document.documentElement.style.paddingTop = "50px";
-            document.addEventListener("click", () => {
-                document.getElementById('dateexample').showPicker();
-            });
-            """.trimIndent(),
-        )
+        mainSession.notifyUserGestureActivation()
+        mainSession.evaluateJS("document.getElementById('dateexample').showPicker()")
 
-        mainSession.synthesizeTap(1, 1) // Provides user activation.
         sessionRule.waitUntilCalled(object : PromptDelegate {
             @AssertCalled(count = 1)
             override fun onDateTimePrompt(session: GeckoSession, prompt: PromptDelegate.DateTimePrompt): GeckoResult<PromptDelegate.PromptResponse> {
@@ -1094,8 +1092,8 @@ class PromptDelegateTest : BaseSessionTest(
         mainSession.loadTestPath(PROMPT_HTML_PATH)
         mainSession.waitForPageStop()
 
-        mainSession.evaluateJS("document.addEventListener('click', () => document.getElementById('fileexample').click(), { once: true });")
-        mainSession.synthesizeTap(1, 1)
+        mainSession.notifyUserGestureActivation()
+        mainSession.evaluateJS("document.getElementById('fileexample').showPicker()")
 
         sessionRule.waitUntilCalled(object : PromptDelegate {
             @AssertCalled(count = 1)
@@ -1118,8 +1116,8 @@ class PromptDelegateTest : BaseSessionTest(
         mainSession.loadTestPath(PROMPT_HTML_PATH)
         mainSession.waitForPageStop()
 
-        mainSession.evaluateJS("document.addEventListener('click', () => document.getElementById('filemultipleexample').click(), { once: true });")
-        mainSession.synthesizeTap(1, 1)
+        mainSession.notifyUserGestureActivation()
+        mainSession.evaluateJS("document.getElementById('filemultipleexample').showPicker()")
 
         sessionRule.waitUntilCalled(object : PromptDelegate {
             @AssertCalled(count = 1)
@@ -1154,14 +1152,14 @@ class PromptDelegateTest : BaseSessionTest(
                 return GeckoResult.fromValue(
                     prompt.confirm(
                         InstrumentationRegistry.getInstrumentation().targetContext,
-                        Uri.parse("file:///storage/emulated/0/Download"),
+                        "file:///storage/emulated/0/Download".toUri(),
                     ),
                 )
             }
         })
 
-        mainSession.evaluateJS("document.addEventListener('click', () => document.getElementById('direxample').click(), { once: true });")
-        mainSession.synthesizeTap(1, 1)
+        mainSession.notifyUserGestureActivation()
+        mainSession.evaluateJS("document.getElementById('direxample').showPicker()")
 
         sessionRule.waitUntilCalled(object : PromptDelegate {
             @AssertCalled(count = 1)

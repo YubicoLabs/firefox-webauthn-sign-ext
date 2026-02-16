@@ -76,6 +76,16 @@ void WebRenderBridgeChild::AddWebRenderParentCommand(
   mParentCommands.AppendElement(aCmd);
 }
 
+void WebRenderBridgeChild::AddWebRenderParentDestroyCommand(
+    const WebRenderParentCommand& aCmd) {
+  mParentDestroyCommands.AppendElement(aCmd);
+}
+
+void WebRenderBridgeChild::MergeWebRenderParentCommands() {
+  mParentCommands.AppendElements(std::move(mParentDestroyCommands));
+  mParentDestroyCommands.Clear();
+}
+
 void WebRenderBridgeChild::BeginTransaction() {
   MOZ_ASSERT(!mDestroyed);
 
@@ -106,7 +116,7 @@ void WebRenderBridgeChild::UpdateResources(
 bool WebRenderBridgeChild::EndTransaction(
     DisplayListData&& aDisplayListData, TransactionId aTransactionId,
     bool aContainsSVGGroup, const mozilla::VsyncId& aVsyncId,
-    const mozilla::TimeStamp& aVsyncStartTime,
+    bool aRenderOffscreen, const mozilla::TimeStamp& aVsyncStartTime,
     const mozilla::TimeStamp& aRefreshStartTime,
     const mozilla::TimeStamp& aTxnStartTime, const nsCString& aTxnURL) {
   MOZ_ASSERT(!mDestroyed);
@@ -114,6 +124,9 @@ bool WebRenderBridgeChild::EndTransaction(
 
   TimeStamp fwdTime = TimeStamp::Now();
 
+  if (!aRenderOffscreen) {
+    MergeWebRenderParentCommands();
+  }
   aDisplayListData.mCommands = std::move(mParentCommands);
   aDisplayListData.mIdNamespace = mIdNamespace;
 
@@ -126,7 +139,8 @@ bool WebRenderBridgeChild::EndTransaction(
   bool ret = this->SendSetDisplayList(
       std::move(aDisplayListData), mDestroyedActors, GetFwdTransactionId(),
       aTransactionId, aContainsSVGGroup, aVsyncId, aVsyncStartTime,
-      aRefreshStartTime, aTxnStartTime, aTxnURL, fwdTime, payloads);
+      aRefreshStartTime, aTxnStartTime, aTxnURL, fwdTime, payloads,
+      aRenderOffscreen);
 
   // With multiple render roots, we may not have sent all of our
   // mParentCommands, so go ahead and go through our mParentCommands and ensure
@@ -150,6 +164,7 @@ void WebRenderBridgeChild::EndEmptyTransaction(
   TimeStamp fwdTime = TimeStamp::Now();
 
   if (aTransactionData) {
+    MergeWebRenderParentCommands();
     aTransactionData->mCommands = std::move(mParentCommands);
   }
 
@@ -174,7 +189,8 @@ void WebRenderBridgeChild::EndEmptyTransaction(
 void WebRenderBridgeChild::ProcessWebRenderParentCommands() {
   MOZ_ASSERT(!mDestroyed);
 
-  if (!mParentCommands.IsEmpty()) {
+  if (HasWebRenderParentCommands()) {
+    MergeWebRenderParentCommands();
     this->SendParentCommands(mIdNamespace, mParentCommands);
     mParentCommands.Clear();
   }
@@ -189,7 +205,8 @@ void WebRenderBridgeChild::AddPipelineIdForCompositable(
 
 void WebRenderBridgeChild::RemovePipelineIdForCompositable(
     const wr::PipelineId& aPipelineId) {
-  AddWebRenderParentCommand(OpRemovePipelineIdForCompositable(aPipelineId));
+  AddWebRenderParentDestroyCommand(
+      OpRemovePipelineIdForCompositable(aPipelineId));
 }
 
 wr::ExternalImageId WebRenderBridgeChild::GetNextExternalImageId() {
@@ -200,7 +217,7 @@ wr::ExternalImageId WebRenderBridgeChild::GetNextExternalImageId() {
 }
 
 void WebRenderBridgeChild::ReleaseTextureOfImage(const wr::ImageKey& aKey) {
-  AddWebRenderParentCommand(OpReleaseTextureOfImage(aKey));
+  AddWebRenderParentDestroyCommand(OpReleaseTextureOfImage(aKey));
 }
 
 struct FontFileDataSink {
@@ -411,7 +428,7 @@ void WebRenderBridgeChild::RemoveTextureFromCompositable(
     return;
   }
 
-  AddWebRenderParentCommand(CompositableOperation(
+  AddWebRenderParentDestroyCommand(CompositableOperation(
       aCompositable->GetIPCHandle(),
       OpRemoveTexture(WrapNotNull(aTexture->GetIPDLActor()))));
 }

@@ -23,8 +23,6 @@ import traceback
 from datetime import datetime
 from queue import Empty, Queue
 
-import six
-
 # Set the MOZPROCESS_DEBUG environment variable to 1 to see some debugging output
 MOZPROCESS_DEBUG = os.getenv("MOZPROCESS_DEBUG")
 
@@ -48,7 +46,7 @@ if isWin:
     )
 
 
-class ProcessHandlerMixin(object):
+class ProcessHandlerMixin:
     """
     A class for launching and manipulating local processes.
 
@@ -154,7 +152,7 @@ class ProcessHandlerMixin(object):
             if not MOZPROCESS_DEBUG:
                 return
             thread = threading.current_thread().name
-            print("DBG::MOZPROC PID:{} ({}) | {}".format(self.pid, thread, msg))
+            print(f"DBG::MOZPROC PID:{self.pid} ({thread}) | {msg}")
 
         def __del__(self):
             if isWin:
@@ -185,7 +183,7 @@ class ProcessHandlerMixin(object):
                         winprocess.TerminateProcess(
                             self._handle, winprocess.ERROR_CONTROL_C_EXIT
                         )
-                except WindowsError:
+                except OSError:
                     self._cleanup()
 
                     traceback.print_exc()
@@ -208,8 +206,9 @@ class ProcessHandlerMixin(object):
                             if retries < 1 and getattr(e, "errno", None) == errno.EPERM:
                                 try:
                                     os.waitpid(-pid, 0)
-                                finally:
-                                    return send_sig(sig, retries + 1)
+                                except OSError:
+                                    pass
+                                return send_sig(sig, retries + 1)
 
                             # ESRCH is a "no such process" failure, which is fine because the
                             # application might already have been terminated itself. Any other
@@ -293,7 +292,7 @@ class ProcessHandlerMixin(object):
                     errwrite,
                     *_,
                 ) = args_tuple
-                if not isinstance(args, six.string_types):
+                if not isinstance(args, str):
                     args = subprocess.list2cmdline(args)
 
                 # Always or in the create new process group
@@ -538,7 +537,6 @@ falling back to not using job objects for managing child processes""",
                                 file=sys.stderr,
                             )
                             raise WinError(errcode)
-                            break
 
                     if compkey.value == winprocess.COMPKEY_TERMINATE.value:
                         self.debug("compkeyterminate detected")
@@ -678,7 +676,7 @@ falling back to not using job objects for managing child processes""",
                         pass
                     elif rc == winprocess.WAIT_OBJECT_0:
                         # We caught WAIT_OBJECT_0, which indicates all is well
-                        print("Single process terminated successfully")
+                        self.debug("Single process terminated successfully")
                         self.returncode = winprocess.GetExitCodeProcess(self._handle)
                     else:
                         # An error occured we should probably throw
@@ -763,7 +761,7 @@ falling back to not using job objects for managing child processes""",
         processStderrLine=(),
         onTimeout=(),
         onFinish=(),
-        **kwargs
+        **kwargs,
     ):
         self.cmd = cmd
         self.args = args
@@ -820,7 +818,7 @@ falling back to not using job objects for managing child processes""",
         if not MOZPROCESS_DEBUG:
             return
         cmd = self.cmd.split(os.sep)[-1:]
-        print("DBG::MOZPROC ProcessHandlerMixin {} | {}".format(cmd, msg))
+        print(f"DBG::MOZPROC ProcessHandlerMixin {cmd} | {msg}")
 
     @property
     def timedOut(self):
@@ -999,7 +997,7 @@ falling back to not using job objects for managing child processes""",
                 )
                 return winprocess.GetExitCodeProcess(process) == winprocess.STILL_ACTIVE
 
-            except WindowsError as e:
+            except OSError as e:
                 # no such process
                 if e.winerror == winprocess.ERROR_INVALID_PARAMETER:
                     return False
@@ -1063,7 +1061,7 @@ class CallableList(list):
         return CallableList(list.__add__(self, lst))
 
 
-class ProcessReader(object):
+class ProcessReader:
     def __init__(
         self,
         stdout_callback=None,
@@ -1086,7 +1084,7 @@ class ProcessReader(object):
     def debug(self, msg):
         if not MOZPROCESS_DEBUG:
             return
-        print("DBG::MOZPROC ProcessReader | {}".format(msg))
+        print(f"DBG::MOZPROC ProcessReader | {msg}")
 
     def _create_stream_reader(self, name, stream, queue, callback):
         thread = threading.Thread(
@@ -1098,11 +1096,22 @@ class ProcessReader(object):
 
     def _read_stream(self, stream, queue, callback):
         sentinel = "" if isinstance(stream, io.TextIOBase) else b""
-        for line in iter(stream.readline, sentinel):
-            queue.put((line, callback))
+        try:
+            for line in iter(stream.readline, sentinel):
+                queue.put((line, callback))
+        except ValueError as e:
+            if "I/O operation on closed file" in str(e):
+                # Stream was closed by the process, this is normal
+                pass
+            else:
+                raise
         # Give a chance to the reading loop to exit without a timeout.
         queue.put((b"", None))
-        stream.close()
+        try:
+            stream.close()
+        except ValueError:
+            # Stream might already be closed
+            pass
 
     def start(self, proc):
         queue = Queue()
@@ -1185,7 +1194,7 @@ class ProcessReader(object):
 # these should be callables that take the output line
 
 
-class StoreOutput(object):
+class StoreOutput:
     """accumulate stdout"""
 
     def __init__(self):
@@ -1195,7 +1204,7 @@ class StoreOutput(object):
         self.output.append(line)
 
 
-class StreamOutput(object):
+class StreamOutput:
     """pass output to a stream and flush"""
 
     def __init__(self, stream, text=True):
@@ -1203,9 +1212,16 @@ class StreamOutput(object):
         self.text = text
 
     def __call__(self, line):
-        ensure = six.ensure_text if self.text else six.ensure_binary
+        if self.text:
+            if isinstance(line, bytes):
+                line = line.decode(errors="ignore")
+            line += "\n"
+        else:
+            if isinstance(line, str):
+                line = line.encode(errors="ignore")
+            line += b"\n"
         try:
-            self.stream.write(ensure(line, errors="ignore") + ensure("\n"))
+            self.stream.write(line)
         except TypeError:
             print(
                 "HEY! If you're reading this, you're about to encounter a "

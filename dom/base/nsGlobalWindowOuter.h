@@ -4,52 +4,48 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsGlobalWindowOuter_h___
-#define nsGlobalWindowOuter_h___
+#ifndef nsGlobalWindowOuter_h_
+#define nsGlobalWindowOuter_h_
 
+#include "nsHashKeys.h"
+#include "nsInterfaceHashtable.h"
 #include "nsNodeInfoManager.h"
 #include "nsPIDOMWindow.h"
-
-#include "nsTHashtable.h"
-#include "nsHashKeys.h"
 #include "nsRefPtrHashtable.h"
-#include "nsInterfaceHashtable.h"
+#include "nsTHashtable.h"
 
 // Local Includes
 // Helper Classes
 #include "nsCOMPtr.h"
-#include "nsWeakReference.h"
-#include "nsTHashMap.h"
 #include "nsCycleCollectionParticipant.h"
+#include "nsTHashMap.h"
+#include "nsWeakReference.h"
 
 // Interfaces Needed
-#include "nsIBrowserDOMWindow.h"
-#include "nsIInterfaceRequestor.h"
-#include "nsIScriptGlobalObject.h"
-#include "nsIScriptObjectPrincipal.h"
+#include "Units.h"
+#include "X11UndefineNone.h"
+#include "mozilla/Attributes.h"
 #include "mozilla/EventListenerManager.h"
-#include "nsIPrincipal.h"
-#include "nsSize.h"
 #include "mozilla/FlushType.h"
-#include "prclist.h"
 #include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/ChromeMessageBroadcaster.h"
+#include "mozilla/dom/EventTarget.h"
+#include "mozilla/dom/ImageBitmapSource.h"
 #include "mozilla/dom/PopupBlocker.h"
 #include "mozilla/dom/StorageEvent.h"
 #include "mozilla/dom/StorageEventBinding.h"
-#include "mozilla/dom/UnionTypes.h"
-#include "mozilla/Attributes.h"
-#include "mozilla/LinkedList.h"
-#include "nsWrapperCacheInlines.h"
-#include "mozilla/dom/EventTarget.h"
 #include "mozilla/dom/WindowBinding.h"
-#include "Units.h"
-#include "nsComponentManagerUtils.h"
 #include "nsCheapSets.h"
-#include "mozilla/dom/ImageBitmapSource.h"
-#include "mozilla/UniquePtr.h"
-#include "mozilla/dom/BrowsingContext.h"
-#include "X11UndefineNone.h"
+#include "nsComponentManagerUtils.h"
+#include "nsIBrowserDOMWindow.h"
+#include "nsIInterfaceRequestor.h"
+#include "nsIPrincipal.h"
+#include "nsIScriptGlobalObject.h"
+#include "nsIScriptObjectPrincipal.h"
+#include "nsSize.h"
+#include "nsWrapperCacheInlines.h"
+#include "prclist.h"
 
 class nsDocShell;
 class nsIArray;
@@ -102,7 +98,6 @@ class IntlUtils;
 class Location;
 class MediaQueryList;
 class Navigator;
-class OwningExternalOrWindowProxy;
 class Promise;
 class PostMessageData;
 class PostMessageEvent;
@@ -289,10 +284,7 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
       mozilla::dom::EventTarget* aChromeEventHandler) override;
 
   // Outer windows only.
-  virtual void SetInitialPrincipal(
-      nsIPrincipal* aNewWindowPrincipal, nsIContentSecurityPolicy* aCSP,
-      const mozilla::Maybe<nsILoadInfo::CrossOriginEmbedderPolicy>& aCoep)
-      override;
+  virtual void SetInitialPrincipal(nsIPrincipal* aNewWindowPrincipal) override;
 
   virtual already_AddRefed<nsISupports> SaveWindowState() override;
   MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual nsresult RestoreWindowState(
@@ -339,7 +331,6 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   virtual bool DispatchCustomEvent(
       const nsAString& aEventName,
       mozilla::ChromeOnlyDispatch aChromeOnlyDispatch) override;
-  bool DispatchResizeEvent(const mozilla::CSSIntSize& aSize);
 
   // For accessing protected field mFullscreen
   friend class FullscreenTransitionTask;
@@ -456,8 +447,9 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   bool IsCleanedUp() const { return mCleanedUp; }
 
   virtual void FirePopupBlockedEvent(
-      Document* aDoc, nsIURI* aPopupURI, const nsAString& aPopupWindowName,
+      nsIURI* aPopupURI, const nsAString& aPopupWindowName,
       const nsAString& aPopupWindowFeatures) override;
+  virtual void FireRedirectBlockedEvent(nsIURI* aRedirectURI) override;
 
   void AddSizeOfIncludingThis(nsWindowSizes& aWindowSizes) const;
 
@@ -504,7 +496,7 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   }
 #define WINDOW_ONLY_EVENT EVENT
 #define TOUCH_EVENT EVENT
-#include "mozilla/EventNameList.h"
+#include "mozilla/EventNameList.inc"
 #undef TOUCH_EVENT
 #undef WINDOW_ONLY_EVENT
 #undef BEFOREUNLOAD_EVENT
@@ -605,6 +597,9 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   void ResizeByOuter(int32_t aWidthDif, int32_t aHeightDif,
                      mozilla::dom::CallerType aCallerType,
                      mozilla::ErrorResult& aError);
+  void MoveResizeOuter(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight,
+                       mozilla::dom::CallerType aCallerType,
+                       mozilla::ErrorResult& aError);
   double GetScrollXOuter();
   double GetScrollYOuter();
 
@@ -652,16 +647,16 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   virtual bool IsInSyncOperation() override;
 
  public:
-  double GetInnerWidthOuter(mozilla::ErrorResult& aError);
+  MOZ_CAN_RUN_SCRIPT double GetInnerWidthOuter(mozilla::ErrorResult& aError);
 
  protected:
-  nsresult GetInnerWidth(double* aInnerWidth) override;
+  MOZ_CAN_RUN_SCRIPT nsresult GetInnerWidth(double* aInnerWidth) override;
 
  public:
-  double GetInnerHeightOuter(mozilla::ErrorResult& aError);
+  MOZ_CAN_RUN_SCRIPT double GetInnerHeightOuter(mozilla::ErrorResult& aError);
 
  protected:
-  nsresult GetInnerHeight(double* aInnerHeight) override;
+  MOZ_CAN_RUN_SCRIPT nsresult GetInnerHeight(double* aInnerHeight) override;
   int32_t GetScreenXOuter(mozilla::dom::CallerType aCallerType,
                           mozilla::ErrorResult& aError);
   int32_t GetScreenYOuter(mozilla::dom::CallerType aCallerType,
@@ -764,9 +759,6 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
  public:
   mozilla::dom::PopupBlocker::PopupControlState RevisePopupAbuseLevel(
       mozilla::dom::PopupBlocker::PopupControlState aState);
-  void FireAbuseEvents(const nsACString& aPopupURL,
-                       const nsAString& aPopupWindowName,
-                       const nsAString& aPopupWindowFeatures);
 
   void FlushPendingNotifications(mozilla::FlushType aType);
 
@@ -792,7 +784,8 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
 
   // Outer windows only.
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
-  bool CanMoveResizeWindows(mozilla::dom::CallerType aCallerType);
+  bool CanMoveResizeWindows(mozilla::dom::CallerType aCallerType, bool aIsMove,
+                            mozilla::ErrorResult& aError);
 
   // If aDoFlush is true, we'll flush our own layout; otherwise we'll try to
   // just flush our parent and only flush ourselves if we think we need to.
@@ -802,7 +795,7 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   int32_t GetScrollBoundaryOuter(mozilla::Side aSide);
 
   // Outer windows only.
-  nsresult GetInnerSize(mozilla::CSSSize& aSize);
+  MOZ_CAN_RUN_SCRIPT nsresult GetInnerSize(mozilla::CSSSize& aSize);
   mozilla::CSSIntSize GetOuterSize(mozilla::dom::CallerType aCallerType,
                                    mozilla::ErrorResult& aError);
   nsRect GetInnerScreenRect();
@@ -850,7 +843,7 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
 
  protected:
   // Helper for getComputedStyle and getDefaultComputedStyle
-  already_AddRefed<nsICSSDeclaration> GetComputedStyleHelperOuter(
+  already_AddRefed<nsDOMCSSDeclaration> GetComputedStyleHelperOuter(
       mozilla::dom::Element& aElt, const nsAString& aPseudoElt,
       bool aDefaultStylesOnly, mozilla::ErrorResult& aRv);
 
@@ -965,8 +958,6 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   nsresult GetInterfaceInternal(const nsIID& aIID, void** aSink);
 
   void MaybeAllowStorageForOpenedWindow(nsIURI* aURI);
-
-  bool IsOnlyTopLevelDocumentInSHistory();
 
   void MaybeResetWindowName(Document* aNewDocument);
 
@@ -1145,4 +1136,4 @@ inline void nsGlobalWindowOuter::MaybeClearInnerWindow(
   }
 }
 
-#endif /* nsGlobalWindowOuter_h___ */
+#endif /* nsGlobalWindowOuter_h_ */

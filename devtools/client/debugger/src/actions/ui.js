@@ -7,7 +7,7 @@ import {
   getPaneCollapse,
   getQuickOpenEnabled,
   getSource,
-  getSourceTextContent,
+  getSourceTextContentForLocation,
   getIgnoreListSourceUrls,
   getSourceByURL,
   getBreakpointsForSource,
@@ -147,12 +147,12 @@ export function togglePaneCollapse(position, paneCollapsed) {
 /**
  * Highlight one or many lines in CodeMirror for a given source.
  *
- * @param {Object} location
- * @param {String} location.sourceId
+ * @param {object} location
+ * @param {string} location.sourceId
  *        The precise source to highlight.
- * @param {Number} location.start
+ * @param {number} location.start
  *        The 1-based index of first line to highlight.
- * @param {Number} location.end
+ * @param {number} location.end
  *        The 1-based index of last line to highlight.
  */
 export function highlightLineRange(location) {
@@ -197,12 +197,12 @@ export function updateViewport() {
   const editor = getEditor();
   return {
     type: "SET_VIEWPORT",
-    viewport: editor.getLocationsInViewport(),
+    // The viewport locations are set and used for rendering  column breakpoints
+    // markers correctly within the viewport.
+    // The offsets value represents an allowance of characters or lines offscreen to improve
+    // perceived performance of column breakpoint rendering.
+    viewport: editor.getLocationsInViewport(100, 20),
   };
-}
-
-export function updateCursorPosition(cursorPosition) {
-  return { type: "SET_CURSOR_POSITION", cursorPosition };
 }
 
 export function setOrientation(orientation) {
@@ -215,7 +215,7 @@ export function setSearchOptions(searchKey, searchOptions) {
 
 export function copyToClipboard(location) {
   return ({ getState }) => {
-    const content = getSourceTextContent(getState(), location);
+    const content = getSourceTextContentForLocation(getState(), location);
     if (content && isFulfilled(content) && content.value.type === "text") {
       copyToTheClipboard(content.value.value);
     }
@@ -242,5 +242,12 @@ export function toggleSourceMapIgnoreList(shouldEnable) {
       type: "ENABLE_SOURCEMAP_IGNORELIST",
       shouldEnable,
     });
+  };
+}
+
+export function togglePausedOverlay(shouldEnable) {
+  return {
+    type: "ENABLE_PAUSED_OVERLAY",
+    shouldEnable,
   };
 }

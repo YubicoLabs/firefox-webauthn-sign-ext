@@ -3,12 +3,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsHttpTransaction_h__
-#define nsHttpTransaction_h__
+#ifndef nsHttpTransaction_h_
+#define nsHttpTransaction_h_
 
 #include "ARefBase.h"
 #include "EventTokenBucket.h"
-#include "Http2Push.h"
 #include "HttpTransactionShell.h"
 #include "TimingStruct.h"
 #include "mozilla/StaticPrefs_security.h"
@@ -17,6 +16,7 @@
 #include "nsAHttpConnection.h"
 #include "nsAHttpTransaction.h"
 #include "nsCOMPtr.h"
+#include "nsContentPermissionHelper.h"
 #include "nsHttp.h"
 #include "nsIAsyncOutputStream.h"
 #include "nsIClassOfService.h"
@@ -91,6 +91,7 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   void RemoveConnection();
   void SetIsHttp2Websocket(bool h2ws) override { mIsHttp2Websocket = h2ws; }
   bool IsHttp2Websocket() override { return mIsHttp2Websocket; }
+  bool Closed() { return mClosed; }
 
   void SetTRRInfo(nsIRequest::TRRMode aMode,
                   TRRSkippedReason aSkipReason) override {
@@ -144,13 +145,6 @@ class nsHttpTransaction final : public nsAHttpTransaction,
 
   nsHttpTransaction* QueryHttpTransaction() override { return this; }
 
-  already_AddRefed<Http2PushedStreamWrapper> GetPushedStream() {
-    return do_AddRef(mPushedStream);
-  }
-  already_AddRefed<Http2PushedStreamWrapper> TakePushedStream() {
-    return mPushedStream.forget();
-  }
-
   uint32_t InitialRwin() const { return mInitialRwin; };
   bool ChannelPipeFull() { return mWaitingOnPipeOut; }
 
@@ -178,11 +172,6 @@ class nsHttpTransaction final : public nsAHttpTransaction,
 
   void OnProxyConnectComplete(int32_t aResponseCode) override;
   void SetFlat407Headers(const nsACString& aHeaders);
-
-  // This is only called by Http2PushedStream::TryOnPush when a new pushed
-  // stream is available. The newly added stream will be taken by another
-  // transaction.
-  void OnPush(Http2PushedStreamWrapper* aStream);
 
   void UpdateConnectionInfo(nsHttpConnectionInfo* aConnInfo);
 
@@ -265,8 +254,7 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   void MaybeReportFailedSVCDomain(nsresult aReason,
                                   nsHttpConnectionInfo* aFailedConnInfo);
 
-  already_AddRefed<Http2PushedStreamWrapper> TakePushedStreamById(
-      uint32_t aStreamId);
+  void FinalizeConnInfo();
 
   // IMPORTANT: when adding new values, always add them to the end, otherwise
   // it will mess up telemetry.
@@ -286,6 +274,7 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   void OnHttp3BackupTimer();
   void OnBackupConnectionReady(bool aTriggeredByHTTPSRR);
   void OnFastFallbackTimer();
+  void OnHttp3TunnelFallbackTimer();
   void HandleFallback(nsHttpConnectionInfo* aFallbackConnInfo);
   void MaybeCancelFallbackTimer();
 
@@ -391,7 +380,6 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   // so far been skipped.
   uint32_t mInvalidResponseBytesRead{0};
 
-  RefPtr<Http2PushedStreamWrapper> mPushedStream;
   uint32_t mInitialRwin{0};
 
   nsHttpChunkedDecoder* mChunkedDecoder{nullptr};
@@ -492,6 +480,11 @@ class nsHttpTransaction final : public nsAHttpTransaction,
 
   uint64_t mBrowserId{0};
 
+  // IP address space of the browsing context that triggered this request
+  nsILoadInfo::IPAddressSpace mParentIPAddressSpace{
+      nsILoadInfo::IPAddressSpace::Unknown};
+  struct LNAPerms mLnaPermissionStatus{};
+
   // For Rate Pacing via an EventTokenBucket
  public:
   // called by the connection manager to run this transaction through the
@@ -520,6 +513,9 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   // class has been set while Leader, Unblocked, DontThrottle has not.
   bool EligibleForThrottling() const;
 
+  bool AllowedToConnectToIpAddressSpace(
+      nsILoadInfo::IPAddressSpace aTargetIpAddressSpace) override;
+
  private:
   bool mSubmittedRatePacing{false};
   bool mPassedRatePacing{false};
@@ -546,6 +542,8 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   TransactionObserverFunc mTransactionObserver;
   NetAddr mSelfAddr;
   NetAddr mPeerAddr;
+  nsILoadInfo::IPAddressSpace mTargetIpAddressSpace{
+      nsILoadInfo::IPAddressSpace::Unknown};
   bool mResolvedByTRR{false};
   Atomic<nsIRequest::TRRMode, Relaxed> mEffectiveTRRMode{
       nsIRequest::TRR_DEFAULT_MODE};
@@ -564,9 +562,6 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   HttpTrafficCategory mTrafficCategory{HttpTrafficCategory::eInvalid};
   Atomic<int32_t> mProxyConnectResponseCode{0};
 
-  OnPushCallback mOnPushCallback;
-  nsTHashMap<uint32_t, RefPtr<Http2PushedStreamWrapper>> mIDToStreamMap;
-
   nsCOMPtr<nsICancelable> mDNSRequest;
   Atomic<uint32_t, Relaxed> mHTTPSSVCReceivedStage{HTTPSSVC_NOT_USED};
   bool m421Received = false;
@@ -575,9 +570,14 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   bool mDontRetryWithDirectRoute = false;
   bool mFastFallbackTriggered = false;
   bool mHttp3BackupTimerCreated = false;
+  bool mHttp3TunnelFallbackTimerCreated = false;
   nsCOMPtr<nsITimer> mFastFallbackTimer;
   nsCOMPtr<nsITimer> mHttp3BackupTimer;
+  nsCOMPtr<nsITimer> mHttp3TunnelFallbackTimer;
   RefPtr<nsHttpConnectionInfo> mBackupConnInfo;
+  // A clone of mConnInfo taken when this transaction is activated.
+  // Describes the server that the associated connection is connected to.
+  RefPtr<nsHttpConnectionInfo> mFinalizedConnInfo;
   RefPtr<HTTPSRecordResolver> mResolver;
   TRANSACTION_RESTART_REASON mRestartReason = TRANSACTION_RESTART_NONE;
 
@@ -614,4 +614,4 @@ class nsHttpTransaction final : public nsAHttpTransaction,
 
 }  // namespace mozilla::net
 
-#endif  // nsHttpTransaction_h__
+#endif  // nsHttpTransaction_h_

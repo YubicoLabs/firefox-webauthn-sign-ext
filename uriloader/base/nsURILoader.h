@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsURILoader_h__
-#define nsURILoader_h__
+#ifndef nsURILoader_h_
+#define nsURILoader_h_
 
 #include "nsCURILoader.h"
 #include "nsISupportsUtils.h"
@@ -14,7 +14,6 @@
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsString.h"
 #include "nsIWeakReference.h"
-#include "mozilla/Attributes.h"
 #include "nsIStreamListener.h"
 #include "nsIThreadRetargetableStreamListener.h"
 #include "nsIExternalHelperAppService.h"
@@ -79,6 +78,11 @@ class nsDocumentOpenInfo : public nsIThreadRetargetableStreamListener {
    * method.
    */
   nsresult Prepare();
+
+  // Check for a page with empty body + missing/any content-length.
+  // Return NS_ERROR_NET_ERROR_RESPONSE for 5xx and NS_ERROR_NET_EMPTY_RESPONSE
+  // for 4xx, respectively. Otherwise, return NS_OK.
+  nsresult CheckContentLengthDiscrepancy(nsIRequest* request);
 
   // Call this (from OnStartRequest) to attempt to find an nsIStreamListener to
   // take the data off our hands.
@@ -213,6 +217,13 @@ class nsDocumentOpenInfo : public nsIThreadRetargetableStreamListener {
    * docshell
    */
   bool mAllowListenerConversions = true;
+
+  /**
+   * Tracks whether any data was received in OnDataAvailable.
+   * Used to detect cases where the response has no Content-Length
+   * header and an empty body.
+   */
+  bool mReceivedData = false;
 };
 
-#endif /* nsURILoader_h__ */
+#endif /* nsURILoader_h_ */

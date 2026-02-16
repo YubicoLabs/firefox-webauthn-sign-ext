@@ -91,7 +91,6 @@ class Symbol
   static const JS::TraceKind TraceKind = JS::TraceKind::Symbol;
 
   void traceChildren(JSTracer* trc);
-  void finalize(JS::GCContext* gcx) {}
 
   // Override base class implementation to tell GC about well-known symbols.
   bool isPermanentAndMayBeShared() const { return isWellKnownSymbol(); }
@@ -111,6 +110,7 @@ class Symbol
 #endif
 
   static constexpr size_t offsetOfHash() { return offsetof(Symbol, hash_); }
+  static constexpr size_t offsetOfCode() { return offsetof(Symbol, code_); }
 };
 
 } /* namespace JS */

@@ -22,9 +22,7 @@ GLEAN_METRIC_TEMPLATE = """
     notification_emails:{emails_alias}{emails_list}
     expires: {expiry}
     {extra}telemetry_mirror: {legacy_enum}
-""".strip(
-    "\n"
-)
+""".strip("\n")
 
 EXTRA_KEY_DESCRIPTION_INDENT = DESCRIPTION_INDENT + "    "
 VALUE_EXTRA_DESCRIPTION = "The `value` of the event. Mirrors to the Legacy Telemetry event's `value` parameter."
@@ -33,9 +31,7 @@ EXTRA_KEY_TEMPLATE = """
         description: >
 {description}
         type: string
-""".strip(
-    "\n"
-)
+""".strip("\n")
 
 
 @Command(
@@ -175,10 +171,7 @@ def mach_gifft(command_context, telemetry_probe_name):
                         emails_alias=generate_alias(emails_list, emails_alias),
                         emails_list=emails_list,
                         expiry=expiry,
-                        extra="extra_keys:{extra_alias}{extra_keys}\n    ".format(
-                            extra_alias=generate_alias(extra_keys, extra_alias),
-                            extra_keys=extra_keys,
-                        ),
+                        extra=f"extra_keys:{generate_alias(extra_keys, extra_alias)}{extra_keys}\n    ",
                         legacy_enum=legacy_enum,
                     )
                 )

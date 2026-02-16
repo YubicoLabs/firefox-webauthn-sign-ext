@@ -6,16 +6,17 @@
 
 #include "nsMathMLmmultiscriptsFrame.h"
 
-#include "mozilla/dom/Document.h"
-#include "mozilla/dom/Element.h"
-#include "mozilla/PresShell.h"
-#include "mozilla/StaticPrefs_mathml.h"
-#include "nsLayoutUtils.h"
-#include "nsPresContext.h"
 #include <algorithm>
+
 #include "gfxContext.h"
 #include "gfxMathTable.h"
 #include "gfxTextRun.h"
+#include "mozilla/PresShell.h"
+#include "mozilla/StaticPrefs_mathml.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/Element.h"
+#include "nsLayoutUtils.h"
+#include "nsPresContext.h"
 
 using namespace mozilla;
 
@@ -42,7 +43,7 @@ uint8_t nsMathMLmmultiscriptsFrame::ScriptIncrement(nsIFrame* aFrame) {
   }
   if (mFrames.ContainsFrame(aFrame)) {
     if (mFrames.FirstChild() == aFrame ||
-        aFrame->GetContent()->IsMathMLElement(nsGkAtoms::mprescripts_)) {
+        aFrame->GetContent()->IsMathMLElement(nsGkAtoms::mprescripts)) {
       return 0;  // No script increment for base frames or prescript markers
     }
     return 1;
@@ -61,12 +62,12 @@ nsMathMLmmultiscriptsFrame::TransmitAutomaticData() {
   // the compression flag in them.
 
   int32_t count = 0;
-  bool isSubScript = !mContent->IsMathMLElement(nsGkAtoms::msup_);
+  bool isSubScript = !mContent->IsMathMLElement(nsGkAtoms::msup);
 
   AutoTArray<nsIFrame*, 8> subScriptFrames;
   nsIFrame* childFrame = mFrames.FirstChild();
   while (childFrame) {
-    if (childFrame->GetContent()->IsMathMLElement(nsGkAtoms::mprescripts_)) {
+    if (childFrame->GetContent()->IsMathMLElement(nsGkAtoms::mprescripts)) {
       // mprescripts frame
     } else if (0 == count) {
       // base frame
@@ -84,19 +85,22 @@ nsMathMLmmultiscriptsFrame::TransmitAutomaticData() {
     count++;
     childFrame = childFrame->GetNextSibling();
   }
-  for (int32_t i = subScriptFrames.Length() - 1; i >= 0; i--) {
-    childFrame = subScriptFrames[i];
-    PropagatePresentationDataFor(childFrame, NS_MATHML_COMPRESSED,
-                                 NS_MATHML_COMPRESSED);
+  if (!StaticPrefs::mathml_math_shift_enabled()) {
+    for (int32_t i = subScriptFrames.Length() - 1; i >= 0; i--) {
+      childFrame = subScriptFrames[i];
+      PropagatePresentationDataFor(childFrame,
+                                   MathMLPresentationFlag::Compressed,
+                                   MathMLPresentationFlag::Compressed);
+    }
   }
 
   return NS_OK;
 }
 
 /* virtual */
-nsresult nsMathMLmmultiscriptsFrame::Place(DrawTarget* aDrawTarget,
-                                           const PlaceFlags& aFlags,
-                                           ReflowOutput& aDesiredSize) {
+void nsMathMLmmultiscriptsFrame::Place(DrawTarget* aDrawTarget,
+                                       const PlaceFlags& aFlags,
+                                       ReflowOutput& aDesiredSize) {
   nscoord subScriptShift = 0;
   nscoord supScriptShift = 0;
   float fontSizeInflation = nsLayoutUtils::FontSizeInflationFor(this);
@@ -108,7 +112,7 @@ nsresult nsMathMLmmultiscriptsFrame::Place(DrawTarget* aDrawTarget,
 
 // exported routine that both munderover and mmultiscripts share.
 // munderover uses this when movablelimits is set.
-nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
+void nsMathMLmmultiscriptsFrame::PlaceMultiScript(
     nsPresContext* aPresContext, DrawTarget* aDrawTarget,
     const PlaceFlags& aFlags, ReflowOutput& aDesiredSize,
     nsMathMLContainerFrame* aFrame, nscoord aUserSubScriptShift,
@@ -118,12 +122,12 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
   // This function deals with both munderover etc. as well as msubsup etc.
   // As the former behaves identically to the later, we treat it as such
   // to avoid additional checks later.
-  if (aFrame->GetContent()->IsMathMLElement(nsGkAtoms::mover_)) {
-    tag = nsGkAtoms::msup_;
-  } else if (aFrame->GetContent()->IsMathMLElement(nsGkAtoms::munder_)) {
-    tag = nsGkAtoms::msub_;
-  } else if (aFrame->GetContent()->IsMathMLElement(nsGkAtoms::munderover_)) {
-    tag = nsGkAtoms::msubsup_;
+  if (aFrame->GetContent()->IsMathMLElement(nsGkAtoms::mover)) {
+    tag = nsGkAtoms::msup;
+  } else if (aFrame->GetContent()->IsMathMLElement(nsGkAtoms::munder)) {
+    tag = nsGkAtoms::msub;
+  } else if (aFrame->GetContent()->IsMathMLElement(nsGkAtoms::munderover)) {
+    tag = nsGkAtoms::msubsup;
   }
 
   nsBoundingMetrics bmFrame;
@@ -138,7 +142,7 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
   nsIFrame* baseFrame = aFrame->PrincipalChildList().FirstChild();
 
   if (!baseFrame) {
-    if (tag == nsGkAtoms::mmultiscripts_) {
+    if (tag == nsGkAtoms::mmultiscripts) {
       aFrame->ReportErrorToConsole("NoBase");
     } else {
       aFrame->ReportChildCountError();
@@ -194,7 +198,7 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
     nscoord subScriptShift1, subScriptShift2;
     // Get subScriptShift{1,2} default from font
     GetSubScriptShifts(fm, subScriptShift1, subScriptShift2);
-    if (tag == nsGkAtoms::msub_) {
+    if (tag == nsGkAtoms::msub) {
       subScriptShift = subScriptShift1;
     } else {
       subScriptShift = std::max(subScriptShift1, subScriptShift2);
@@ -212,13 +216,16 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
   nscoord supScriptShift;
   nsPresentationData presentationData;
   aFrame->GetPresentationData(presentationData);
+  bool compressed =
+      StaticPrefs::mathml_math_shift_enabled()
+          ? font->mMathShift == StyleMathShift::Compact
+          : presentationData.flags.contains(MathMLPresentationFlag::Compressed);
   if (mathFont) {
     // Try and get the super script shift from the MATH table. Note that
     // contrary to TeX we only have two parameters.
     supScriptShift = mathFont->MathTable()->Constant(
-        NS_MATHML_IS_COMPRESSED(presentationData.flags)
-            ? gfxMathTable::SuperscriptShiftUpCramped
-            : gfxMathTable::SuperscriptShiftUp,
+        compressed ? gfxMathTable::SuperscriptShiftUpCramped
+                   : gfxMathTable::SuperscriptShiftUp,
         oneDevPixel);
   } else {
     // supScriptShift{1,2,3}
@@ -234,10 +241,10 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
     // get sup script shift depending on current script level and display style
     // Rule 18c, App. G, TeXbook
     if (font->mMathDepth == 0 && font->mMathStyle == StyleMathStyle::Normal &&
-        !NS_MATHML_IS_COMPRESSED(presentationData.flags)) {
+        !compressed) {
       // Style D in TeXbook
       supScriptShift = supScriptShift1;
-    } else if (NS_MATHML_IS_COMPRESSED(presentationData.flags)) {
+    } else if (compressed) {
       // Style C' in TeXbook = D',T',S',SS'
       supScriptShift = supScriptShift3;
     } else {
@@ -279,6 +286,7 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
   bmMultiSub.ascent = bmMultiSup.ascent = -0x7FFFFFFF;
   bmMultiSub.descent = bmMultiSup.descent = -0x7FFFFFFF;
   nscoord italicCorrection = 0;
+  nscoord largeOpItalicCorrection = 0;
 
   nsBoundingMetrics boundingMetrics;
   boundingMetrics.width = 0;
@@ -289,14 +297,14 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
 
   // Boolean to determine whether the current child is a subscript.
   // Note that only msup starts with a superscript.
-  bool isSubScript = (tag != nsGkAtoms::msup_);
+  bool isSubScript = (tag != nsGkAtoms::msup);
 
   nsIFrame* childFrame = aFrame->PrincipalChildList().FirstChild();
   while (childFrame) {
-    if (childFrame->GetContent()->IsMathMLElement(nsGkAtoms::mprescripts_)) {
-      if (tag != nsGkAtoms::mmultiscripts_) {
+    if (childFrame->GetContent()->IsMathMLElement(nsGkAtoms::mprescripts)) {
+      if (tag != nsGkAtoms::mmultiscripts) {
         if (!aFlags.contains(PlaceFlag::MeasureOnly)) {
-          aFrame->ReportInvalidChildError(nsGkAtoms::mprescripts_);
+          aFrame->ReportInvalidChildError(nsGkAtoms::mprescripts);
         }
         return aFrame->PlaceAsMrow(aDrawTarget, aFlags, aDesiredSize);
       }
@@ -323,7 +331,7 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
       GetReflowAndBoundingMetricsFor(baseFrame, baseSize, bmBase);
       baseMargin = GetMarginForPlace(aFlags, baseFrame);
 
-      if (tag != nsGkAtoms::msub_) {
+      if (tag != nsGkAtoms::msub) {
         // Apply italics correction if there is the potential for a
         // postsupscript.
         GetItalicCorrection(bmBase, italicCorrection);
@@ -331,6 +339,19 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
         // (see TeXbook Ch.11, p.64), as we estimate the italic creation
         // ourselves and it isn't the same as TeX.
         italicCorrection += onePixel;
+      }
+
+      if (tag != nsGkAtoms::msup) {
+        // If the base is a largeop, determine its italic correction.
+        // https://w3c.github.io/mathml-core/#base-with-subscript
+        if (nsIMathMLFrame* mathMLFrame = do_QueryFrame(baseFrame)) {
+          nsEmbellishData baseFrameEmbellishData;
+          mathMLFrame->GetEmbellishData(baseFrameEmbellishData);
+          if (baseFrameEmbellishData.flags.contains(
+                  MathMLEmbellishFlag::LargeOp)) {
+            largeOpItalicCorrection = mathMLFrame->ItalicCorrection();
+          }
+        }
       }
 
       // we update boundingMetrics.{ascent,descent} with that
@@ -372,7 +393,7 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
         }
         rightBearing = bmSubScript.rightBearing + subScriptMargin.LeftRight();
 
-        if (tag == nsGkAtoms::msub_) {
+        if (tag == nsGkAtoms::msub) {
           boundingMetrics.rightBearing = boundingMetrics.width + rightBearing;
           boundingMetrics.width += width;
 
@@ -454,7 +475,7 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
         // negotiate between the various shifts so that
         // there is enough gap between the sup and subscripts
         // Rule 18e, App. G, TeXbook
-        if (tag == nsGkAtoms::mmultiscripts_ || tag == nsGkAtoms::msubsup_) {
+        if (tag == nsGkAtoms::mmultiscripts || tag == nsGkAtoms::msubsup) {
           nscoord subSuperscriptGapMin;
           if (mathFont) {
             subSuperscriptGapMin = mathFont->MathTable()->Constant(
@@ -506,14 +527,13 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
   }
 
   // NoBase error may also have been reported above
-  if ((count != 2 && (tag == nsGkAtoms::msup_ || tag == nsGkAtoms::msub_)) ||
-      (count != 3 && tag == nsGkAtoms::msubsup_) || !baseFrame ||
-      (!isSubScript && tag == nsGkAtoms::mmultiscripts_)) {
+  if ((count != 2 && (tag == nsGkAtoms::msup || tag == nsGkAtoms::msub)) ||
+      (count != 3 && tag == nsGkAtoms::msubsup) || !baseFrame ||
+      (!isSubScript && tag == nsGkAtoms::mmultiscripts)) {
     // report an error, encourage people to get their markups in order
     if (!aFlags.contains(PlaceFlag::MeasureOnly)) {
-      if ((count != 2 &&
-           (tag == nsGkAtoms::msup_ || tag == nsGkAtoms::msub_)) ||
-          (count != 3 && tag == nsGkAtoms::msubsup_)) {
+      if ((count != 2 && (tag == nsGkAtoms::msup || tag == nsGkAtoms::msub)) ||
+          (count != 3 && tag == nsGkAtoms::msubsup)) {
         aFrame->ReportChildCountError();
       } else if (!baseFrame) {
         aFrame->ReportErrorToConsole("NoBase");
@@ -538,14 +558,14 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
   }
 
   // we left out the base during our bounding box updates, so ...
-  if (tag == nsGkAtoms::msub_) {
+  if (tag == nsGkAtoms::msub) {
     boundingMetrics.ascent = std::max(bmBase.ascent + baseMargin.top,
                                       bmMultiSub.ascent - maxSubScriptShift);
   } else {
     boundingMetrics.ascent = std::max(bmBase.ascent + baseMargin.top,
                                       (bmMultiSup.ascent + maxSupScriptShift));
   }
-  if (tag == nsGkAtoms::msup_) {
+  if (tag == nsGkAtoms::msup) {
     boundingMetrics.descent = std::max(bmBase.descent + baseMargin.bottom,
                                        bmMultiSup.descent - maxSupScriptShift);
   } else {
@@ -596,7 +616,7 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
     // With msub and msup there is only one element and
     // subscriptFrame/supScriptFrame have already been set above where
     // relevant.  In these cases we skip to the reflow part.
-    if (tag == nsGkAtoms::msub_ || tag == nsGkAtoms::msup_) {
+    if (tag == nsGkAtoms::msub || tag == nsGkAtoms::msup) {
       count = 1;
     } else {
       count = 0;
@@ -640,7 +660,7 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
           subScriptFrame = childFrame;
           count = 1;
         } else if (1 == count) {
-          if (tag != nsGkAtoms::msub_) {
+          if (tag != nsGkAtoms::msub) {
             supScriptFrame = childFrame;
           }
           count = 0;
@@ -668,6 +688,10 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
             // https://bugzilla.mozilla.org/show_bug.cgi?id=928675
             if (isPreScript) {
               x += width - subScriptSize.Width() - subScriptMargin.LeftRight();
+            } else {
+              // post subscripts are shifted by the largeOpItalicCorrection
+              // value.
+              x -= largeOpItalicCorrection;
             }
             dy = aDesiredSize.BlockStartAscent() -
                  subScriptSize.BlockStartAscent() + maxSubScriptShift;
@@ -701,6 +725,4 @@ nsresult nsMathMLmmultiscriptsFrame::PlaceMultiScript(
       childFrame = childFrame->GetNextSibling();
     } while (prescriptsFrame != childFrame);
   }
-
-  return NS_OK;
 }

@@ -23,7 +23,8 @@ pub mod codes {
     pub const UNIFFI_TRAIT: u8 = 11;
     pub const TRAIT_INTERFACE: u8 = 12;
     pub const CALLBACK_TRAIT_INTERFACE: u8 = 13;
-    //pub const UNKNOWN: u8 = 255;
+    pub const OBJECT_TRAIT_IMPL: u8 = 14;
+    pub const CUSTOM_TYPE: u8 = 15;
 
     // Type codes
     pub const TYPE_U8: u8 = 0;
@@ -62,6 +63,11 @@ pub mod codes {
     pub const LIT_NONE: u8 = 4;
     pub const LIT_SOME: u8 = 5;
     pub const LIT_EMPTY_SEQ: u8 = 6;
+    pub const LIT_EMPTY_MAP: u8 = 7;
+
+    // DefaultValue codes
+    pub const DEFVALUE_DEFAULT: u8 = 0;
+    pub const DEFVALUE_LITERAL: u8 = 1;
 }
 
 // Create a checksum for a MetadataBuffer

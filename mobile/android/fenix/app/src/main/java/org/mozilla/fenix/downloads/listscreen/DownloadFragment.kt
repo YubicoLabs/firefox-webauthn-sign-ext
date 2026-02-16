@@ -4,205 +4,76 @@
 
 package org.mozilla.fenix.downloads.listscreen
 
-import android.content.Context
 import android.os.Bundle
-import android.text.SpannableString
-import android.view.Menu
-import android.view.MenuInflater
-import android.view.MenuItem
+import android.view.LayoutInflater
 import android.view.View
-import androidx.appcompat.widget.Toolbar
-import androidx.compose.runtime.Composable
-import androidx.core.content.ContextCompat
-import androidx.core.view.MenuProvider
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers.IO
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.flow.distinctUntilChangedBy
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
-import mozilla.components.browser.state.state.content.DownloadState
+import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import androidx.fragment.compose.content
+import androidx.lifecycle.viewModelScope
+import androidx.navigation.fragment.findNavController
 import mozilla.components.feature.downloads.AbstractFetchDownloadService
-import mozilla.components.lib.state.ext.flow
-import mozilla.components.support.base.feature.UserInteractionHandler
-import mozilla.components.support.ktx.android.content.getColorFromAttr
-import org.mozilla.fenix.HomeActivity
-import org.mozilla.fenix.R
-import org.mozilla.fenix.browser.browsingmode.BrowsingMode
-import org.mozilla.fenix.components.lazyStore
-import org.mozilla.fenix.compose.ComposeFragment
+import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
+import mozilla.components.lib.state.helpers.StoreProvider.Companion.storeProvider
+import org.mozilla.fenix.components.appstate.AppAction
+import org.mozilla.fenix.components.appstate.SupportedMenuNotifications
 import org.mozilla.fenix.compose.snackbar.Snackbar
 import org.mozilla.fenix.compose.snackbar.SnackbarState
-import org.mozilla.fenix.downloads.dialog.DynamicDownloadDialog
-import org.mozilla.fenix.downloads.listscreen.middleware.DownloadUIMapperMiddleware
-import org.mozilla.fenix.downloads.listscreen.store.DownloadUIAction
+import org.mozilla.fenix.downloads.getCannotOpenFileErrorMessage
+import org.mozilla.fenix.downloads.listscreen.di.DownloadUIMiddlewareProvider
 import org.mozilla.fenix.downloads.listscreen.store.DownloadUIState
 import org.mozilla.fenix.downloads.listscreen.store.DownloadUIStore
 import org.mozilla.fenix.downloads.listscreen.store.FileItem
 import org.mozilla.fenix.ext.components
-import org.mozilla.fenix.ext.getRootView
-import org.mozilla.fenix.ext.requireComponents
-import org.mozilla.fenix.ext.setTextColor
-import org.mozilla.fenix.ext.setToolbarColors
-import org.mozilla.fenix.ext.showToolbar
+import org.mozilla.fenix.ext.hideToolbar
 import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.utils.allowUndo
 
 /**
  * Fragment for displaying and managing the downloads list.
  */
-@SuppressWarnings("TooManyFunctions", "LargeClass")
-class DownloadFragment : ComposeFragment(), UserInteractionHandler, MenuProvider {
+class DownloadFragment : Fragment() {
 
-    private val downloadStore by lazyStore { viewModelScope ->
-        DownloadUIStore(
-            initialState = DownloadUIState.INITIAL,
-            middleware = listOf(
-                DownloadUIMapperMiddleware(
-                    browserStore = requireComponents.core.store,
-                    scope = viewModelScope,
-                ),
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        requireContext().applicationContext.components.appStore.dispatch(
+            AppAction.MenuNotification.RemoveMenuNotification(
+                SupportedMenuNotifications.Downloads,
             ),
         )
     }
 
-    @Composable
-    override fun UI() {
+    private val downloadStore by fragmentStore(DownloadUIState.INITIAL) {
+        DownloadUIStore(
+            initialState = it,
+            middleware = DownloadUIMiddlewareProvider.provideMiddleware(
+                coroutineScope = storeProvider.viewModelScope,
+                applicationContext = requireContext().applicationContext,
+                navController = findNavController(),
+            ),
+        )
+    }
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
+    ): View? = content {
         FirefoxTheme {
             DownloadsScreen(
                 downloadsStore = downloadStore,
                 onItemClick = { openItem(it) },
-                onItemDeleteClick = { deleteFileItems(setOf(it)) },
             )
         }
     }
 
-    private fun invalidateOptionsMenu() {
-        activity?.invalidateOptionsMenu()
-    }
-
-    /**
-     * Schedules [items] for deletion.
-     * Note: When tapping on a download item's "trash" button
-     * (itemView.overflow_menu) this [items].size() will be 1.
-     */
-    private fun deleteFileItems(items: Set<FileItem>) {
-        updatePendingDownloadToDelete(items)
-        MainScope().allowUndo(
-            requireActivity().getRootView()!!,
-            getMultiSelectSnackBarMessage(items),
-            getString(R.string.bookmark_undo_deletion),
-            onCancel = {
-                undoPendingDeletion(items)
-            },
-            operation = getDeleteFileItemsOperation(items),
-        )
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-        requireActivity().addMenuProvider(this, viewLifecycleOwner, Lifecycle.State.RESUMED)
-
-        observeModeChanges()
-    }
-
-    private fun observeModeChanges() {
-        viewLifecycleOwner.lifecycleScope.launch {
-            downloadStore.flow()
-                .distinctUntilChangedBy { it.mode }
-                .map { it.mode }
-                .collect { mode ->
-                    invalidateOptionsMenu()
-                    when (mode) {
-                        is DownloadUIState.Mode.Editing -> {
-                            updateToolbarForSelectingMode(
-                                title = getString(
-                                    R.string.download_multi_select_title,
-                                    mode.selectedItems.size,
-                                ),
-                            )
-                        }
-
-                        DownloadUIState.Mode.Normal -> {
-                            updateToolbarForNormalMode(title = getString(R.string.library_downloads))
-                        }
-                    }
-                }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        showToolbar(getString(R.string.library_downloads))
-    }
-
-    override fun onCreateMenu(menu: Menu, inflater: MenuInflater) {
-        val menuRes = when (downloadStore.state.mode) {
-            is DownloadUIState.Mode.Normal -> return
-            is DownloadUIState.Mode.Editing -> R.menu.download_select_multi
-        }
-        inflater.inflate(menuRes, menu)
-
-        menu.findItem(R.id.delete_downloads_multi_select)?.title =
-            SpannableString(getString(R.string.download_delete_item_1)).apply {
-                setTextColor(requireContext(), R.attr.textCritical)
-            }
-    }
-
-    override fun onMenuItemSelected(item: MenuItem): Boolean = when (item.itemId) {
-        R.id.delete_downloads_multi_select -> {
-            deleteFileItems(downloadStore.state.mode.selectedItems)
-            downloadStore.dispatch(DownloadUIAction.ExitEditMode)
-            true
-        }
-
-        R.id.select_all_downloads_multi_select -> {
-            downloadStore.dispatch(DownloadUIAction.AddAllItemsForRemoval)
-            true
-        }
-        // other options are not handled by this menu provider
-        else -> false
-    }
-
-    /**
-     * Provides a message to the Undo snackbar.
-     */
-    private fun getMultiSelectSnackBarMessage(fileItems: Set<FileItem>): String {
-        return if (fileItems.size > 1) {
-            getString(R.string.download_delete_multiple_items_snackbar_1)
-        } else {
-            String.format(
-                requireContext().getString(R.string.download_delete_single_item_snackbar),
-                fileItems.first().fileName,
-            )
-        }
-    }
-
-    override fun onBackPressed(): Boolean {
-        return if (downloadStore.state.mode is DownloadUIState.Mode.Editing) {
-            downloadStore.dispatch(DownloadUIAction.ExitEditMode)
-            true
-        } else {
-            false
-        }
-    }
-
-    private fun openItem(item: FileItem, mode: BrowsingMode? = null) {
-        mode?.let { (activity as HomeActivity).browsingModeManager.mode = it }
+    private fun openItem(item: FileItem) {
         context?.let {
-            val downloadState = DownloadState(
-                id = item.id,
-                url = item.url,
-                fileName = item.fileName,
-                contentType = item.contentType,
-                status = item.status,
-            )
-
             val canOpenFile = AbstractFetchDownloadService.openFile(
                 applicationContext = it.applicationContext,
-                download = downloadState,
+                packageName = it.applicationContext.packageName,
+                downloadFileName = item.fileName,
+                downloadFilePath = item.filePath,
+                downloadContentType = item.contentType,
             )
 
             val rootView = view
@@ -210,9 +81,9 @@ class DownloadFragment : ComposeFragment(), UserInteractionHandler, MenuProvider
                 Snackbar.make(
                     snackBarParentView = rootView,
                     snackbarState = SnackbarState(
-                        message = DynamicDownloadDialog.getCannotOpenFileErrorMessage(
+                        message = getCannotOpenFileErrorMessage(
                             context = it,
-                            download = downloadState,
+                            filePath = item.filePath,
                         ),
                     ),
                 ).show()
@@ -220,71 +91,8 @@ class DownloadFragment : ComposeFragment(), UserInteractionHandler, MenuProvider
         }
     }
 
-    private fun getDeleteFileItemsOperation(
-        items: Set<FileItem>,
-    ): (suspend (context: Context) -> Unit) {
-        return { context ->
-            CoroutineScope(IO).launch {
-                downloadStore.dispatch(DownloadUIAction.EnterDeletionMode)
-                context.let {
-                    for (item in items) {
-                        it.components.useCases.downloadUseCases.removeDownload(item.id)
-                    }
-                }
-                downloadStore.dispatch(DownloadUIAction.ExitDeletionMode)
-            }
-        }
-    }
-
-    private fun updatePendingDownloadToDelete(items: Set<FileItem>) {
-        val ids = items.map { item -> item.id }.toSet()
-        downloadStore.dispatch(DownloadUIAction.AddPendingDeletionSet(ids))
-    }
-
-    private fun undoPendingDeletion(items: Set<FileItem>) {
-        val ids = items.map { item -> item.id }.toSet()
-        downloadStore.dispatch(DownloadUIAction.UndoPendingDeletionSet(ids))
-    }
-
-    private fun updateToolbarForNormalMode(title: String?) {
-        context?.let {
-            updateToolbar(
-                title = title,
-                foregroundColor = it.getColorFromAttr(R.attr.textPrimary),
-                backgroundColor = it.getColorFromAttr(R.attr.layer1),
-            )
-        }
-    }
-
-    private fun updateToolbarForSelectingMode(title: String?) {
-        context?.let {
-            updateToolbar(
-                title = title,
-                foregroundColor = ContextCompat.getColor(
-                    it,
-                    R.color.fx_mobile_text_color_oncolor_primary,
-                ),
-                backgroundColor = it.getColorFromAttr(R.attr.accent),
-            )
-        }
-    }
-
-    private fun updateToolbar(title: String?, foregroundColor: Int, backgroundColor: Int) {
-        activity?.title = title
-        val toolbar = activity?.findViewById<Toolbar>(R.id.navigationToolbar)
-        toolbar?.setToolbarColors(foregroundColor, backgroundColor)
-        toolbar?.setNavigationIcon(R.drawable.ic_back_button)
-        toolbar?.navigationIcon?.setTint(foregroundColor)
-    }
-
-    override fun onDetach() {
-        super.onDetach()
-        context?.let {
-            activity?.title = getString(R.string.app_name)
-            activity?.findViewById<Toolbar>(R.id.navigationToolbar)?.setToolbarColors(
-                it.getColorFromAttr(R.attr.textPrimary),
-                it.getColorFromAttr(R.attr.layer1),
-            )
-        }
+    override fun onResume() {
+        super.onResume()
+        hideToolbar()
     }
 }

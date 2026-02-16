@@ -1,15 +1,15 @@
-use std::{
+use alloc::borrow::ToOwned;
+use alloc::{
     borrow::Cow,
-    ffi,
-    mem::{self, size_of, size_of_val},
-    num::NonZeroU32,
-    ptr, slice,
     string::{String, ToString as _},
     sync::Arc,
-    time::{Duration, Instant},
     vec::Vec,
 };
+use arrayvec::ArrayVec;
+use core::{ffi, num::NonZeroU32, ptr, time::Duration};
+use std::time::Instant;
 
+use bytemuck::TransparentWrapper;
 use parking_lot::Mutex;
 use windows::{
     core::Interface as _,
@@ -22,26 +22,36 @@ use windows::{
 
 use super::{conv, descriptor, D3D12Lib};
 use crate::{
-    auxil::{self, dxgi::result::HResult},
+    auxil::{
+        self,
+        dxgi::{name::ObjectExt as _, result::HResult as _},
+    },
     dx12::{
-        borrow_optional_interface_temporarily, shader_compilation, DynamicStorageBufferOffsets,
-        Event,
+        borrow_optional_interface_temporarily, pipeline_desc::RenderPipelineStateStreamDesc,
+        shader_compilation, suballocation, DCompLib, DynamicStorageBufferOffsets, Event,
+        ShaderCacheKey, ShaderCacheValue,
     },
     AccelerationStructureEntries, TlasInstance,
 };
 
 // this has to match Naga's HLSL backend, and also needs to be null-terminated
-const NAGA_LOCATION_SEMANTIC: &[u8] = b"LOC\0";
+const NAGA_LOCATION_SEMANTIC: &[u8] = c"LOC".to_bytes();
 
 impl super::Device {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
+        adapter: auxil::dxgi::factory::DxgiAdapter,
         raw: Direct3D12::ID3D12Device,
         present_queue: Direct3D12::ID3D12CommandQueue,
+        features: wgt::Features,
         limits: &wgt::Limits,
         memory_hints: &wgt::MemoryHints,
         private_caps: super::PrivateCapabilities,
         library: &Arc<D3D12Lib>,
-        dxc_container: Option<Arc<shader_compilation::DxcContainer>>,
+        dcomp_lib: &Arc<DCompLib>,
+        memory_budget_thresholds: wgt::MemoryBudgetThresholds,
+        compiler_container: Arc<shader_compilation::CompilerContainer>,
+        backend_options: wgt::Dx12BackendOptions,
     ) -> Result<Self, crate::DeviceError> {
         if private_caps
             .instance_flags
@@ -50,7 +60,8 @@ impl super::Device {
             auxil::dxgi::exception::register_exception_handler();
         }
 
-        let mem_allocator = super::suballocation::create_allocator_wrapper(&raw, memory_hints)?;
+        let mem_allocator =
+            suballocation::Allocator::new(&raw, memory_hints, memory_budget_thresholds)?;
 
         let idle_fence: Direct3D12::ID3D12Fence = unsafe {
             profiling::scope!("ID3D12Device::CreateFence");
@@ -107,7 +118,26 @@ impl super::Device {
         // maximum number of CBV/SRV/UAV descriptors in heap for Tier 1
         let capacity_views = limits.max_non_sampler_bindings as u64;
 
+        let draw_mesh = if features
+            .features_wgpu
+            .contains(wgt::FeaturesWGPU::EXPERIMENTAL_MESH_SHADER)
+        {
+            Some(Self::create_command_signature(
+                &raw,
+                None,
+                size_of::<wgt::DispatchIndirectArgs>(),
+                &[Direct3D12::D3D12_INDIRECT_ARGUMENT_DESC {
+                    Type: Direct3D12::D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH,
+                    ..Default::default()
+                }],
+                0,
+            )?)
+        } else {
+            None
+        };
+
         let shared = super::DeviceShared {
+            adapter,
             zero_buffer,
             cmd_signatures: super::CommandSignatures {
                 draw: Self::create_command_signature(
@@ -130,6 +160,7 @@ impl super::Device {
                     }],
                     0,
                 )?,
+                draw_mesh,
                 dispatch: Self::create_command_signature(
                     &raw,
                     None,
@@ -147,6 +178,7 @@ impl super::Device {
                 capacity_views,
             )?,
             sampler_heap: super::sampler::SamplerHeap::new(&raw, &private_caps)?,
+            private_caps,
         };
 
         let mut rtv_pool =
@@ -174,13 +206,10 @@ impl super::Device {
         Ok(super::Device {
             raw: raw.clone(),
             present_queue,
-            idler: super::Idler {
-                fence: idle_fence,
-                event: Event::create(false, false)?,
-            },
-            private_caps,
+            idler: super::Idler { fence: idle_fence },
+            features,
             shared: Arc::new(shared),
-            rtv_pool: Mutex::new(rtv_pool),
+            rtv_pool: Arc::new(Mutex::new(rtv_pool)),
             dsv_pool: Mutex::new(descriptor::CpuPool::new(
                 raw.clone(),
                 Direct3D12::D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
@@ -189,12 +218,15 @@ impl super::Device {
                 raw.clone(),
                 Direct3D12::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
             )),
+            options: backend_options,
             library: Arc::clone(library),
+            dcomp_lib: Arc::clone(dcomp_lib),
             #[cfg(feature = "renderdoc")]
             render_doc: Default::default(),
             null_rtv_handle,
             mem_allocator,
-            dxc_container,
+            compiler_container,
+            shader_cache: Default::default(),
             counters: Default::default(),
         })
     }
@@ -232,16 +264,14 @@ impl super::Device {
             return Err(crate::DeviceError::Lost);
         }
 
+        let event = Event::create(false, false)?;
+
         let value = cur_value + 1;
         unsafe { self.present_queue.Signal(&self.idler.fence, value) }
             .into_device_result("Signal")?;
-        let hr = unsafe {
-            self.idler
-                .fence
-                .SetEventOnCompletion(value, self.idler.event.0)
-        };
+        let hr = unsafe { self.idler.fence.SetEventOnCompletion(value, event.0) };
         hr.into_device_result("Set event")?;
-        unsafe { Threading::WaitForSingleObject(self.idler.event.0, Threading::INFINITE) };
+        unsafe { Threading::WaitForSingleObject(event.0, Threading::INFINITE) };
         Ok(())
     }
 
@@ -255,106 +285,157 @@ impl super::Device {
         naga_stage: naga::ShaderStage,
         fragment_stage: Option<&crate::ProgrammableStage<super::ShaderModule>>,
     ) -> Result<super::CompiledShader, crate::PipelineError> {
-        use naga::back::hlsl;
-
-        let frag_ep = fragment_stage
-            .map(|fs_stage| {
-                hlsl::FragmentEntryPoint::new(&fs_stage.module.naga.module, fs_stage.entry_point)
-                    .ok_or(crate::PipelineError::EntryPoint(
-                        naga::ShaderStage::Fragment,
-                    ))
-            })
-            .transpose()?;
-
         let stage_bit = auxil::map_naga_stage(naga_stage);
-
-        let (module, info) = naga::back::pipeline_constants::process_overrides(
-            &stage.module.naga.module,
-            &stage.module.naga.info,
-            stage.constants,
-        )
-        .map_err(|e| crate::PipelineError::PipelineConstants(stage_bit, format!("HLSL: {e:?}")))?;
 
         let needs_temp_options = stage.zero_initialize_workgroup_memory
             != layout.naga_options.zero_initialize_workgroup_memory
             || stage.module.runtime_checks.bounds_checks != layout.naga_options.restrict_indexing
             || stage.module.runtime_checks.force_loop_bounding
-                != layout.naga_options.force_loop_bounding;
+                != layout.naga_options.force_loop_bounding
+            || stage
+                .module
+                .runtime_checks
+                .ray_query_initialization_tracking
+                != layout.naga_options.ray_query_initialization_tracking;
         let mut temp_options;
         let naga_options = if needs_temp_options {
             temp_options = layout.naga_options.clone();
             temp_options.zero_initialize_workgroup_memory = stage.zero_initialize_workgroup_memory;
             temp_options.restrict_indexing = stage.module.runtime_checks.bounds_checks;
             temp_options.force_loop_bounding = stage.module.runtime_checks.force_loop_bounding;
+            temp_options.ray_query_initialization_tracking = stage
+                .module
+                .runtime_checks
+                .ray_query_initialization_tracking;
             &temp_options
         } else {
             &layout.naga_options
         };
 
-        //TODO: reuse the writer
-        let mut source = String::new();
-        let mut writer = hlsl::Writer::new(&mut source, naga_options);
-        let reflection_info = {
-            profiling::scope!("naga::back::hlsl::write");
-            writer
-                .write(&module, &info, frag_ep.as_ref())
-                .map_err(|e| crate::PipelineError::Linkage(stage_bit, format!("HLSL: {e:?}")))?
+        let key = match &stage.module.source {
+            super::ShaderModuleSource::Naga(naga_shader) => {
+                use naga::back::hlsl;
+
+                let frag_ep = match fragment_stage {
+                    Some(crate::ProgrammableStage {
+                        module:
+                            super::ShaderModule {
+                                source: super::ShaderModuleSource::Naga(naga_shader),
+                                ..
+                            },
+                        entry_point,
+                        ..
+                    }) => Some(
+                        hlsl::FragmentEntryPoint::new(&naga_shader.module, entry_point).ok_or(
+                            crate::PipelineError::EntryPoint(naga::ShaderStage::Fragment),
+                        ),
+                    ),
+                    _ => None,
+                }
+                .transpose()?;
+                let (module, info) = naga::back::pipeline_constants::process_overrides(
+                    &naga_shader.module,
+                    &naga_shader.info,
+                    Some((naga_stage, stage.entry_point)),
+                    stage.constants,
+                )
+                .map_err(|e| {
+                    crate::PipelineError::PipelineConstants(stage_bit, format!("HLSL: {e:?}"))
+                })?;
+
+                let pipeline_options = hlsl::PipelineOptions {
+                    entry_point: Some((naga_stage, stage.entry_point.to_string())),
+                };
+
+                //TODO: reuse the writer
+                let (source, entry_point) = {
+                    let mut source = String::new();
+                    let mut writer =
+                        hlsl::Writer::new(&mut source, naga_options, &pipeline_options);
+
+                    profiling::scope!("naga::back::hlsl::write");
+                    let mut reflection_info = writer
+                        .write(&module, &info, frag_ep.as_ref())
+                        .map_err(|e| {
+                            crate::PipelineError::Linkage(stage_bit, format!("HLSL: {e:?}"))
+                        })?;
+
+                    assert_eq!(reflection_info.entry_point_names.len(), 1);
+
+                    let entry_point = reflection_info
+                        .entry_point_names
+                        .pop()
+                        .unwrap()
+                        .map_err(|e| crate::PipelineError::Linkage(stage_bit, format!("{e}")))?;
+
+                    (source, entry_point)
+                };
+                log::debug!(
+                    "Naga generated shader for {entry_point:?} at {naga_stage:?}:\n{source}"
+                );
+
+                ShaderCacheKey {
+                    source,
+                    entry_point,
+                    stage: naga_stage,
+                    shader_model: naga_options.shader_model,
+                }
+            }
+            super::ShaderModuleSource::HlslPassthrough(passthrough) => ShaderCacheKey {
+                source: passthrough.shader.clone(),
+                entry_point: passthrough.entry_point.clone(),
+                stage: naga_stage,
+                shader_model: naga_options.shader_model,
+            },
+
+            super::ShaderModuleSource::DxilPassthrough(passthrough) => {
+                return Ok(super::CompiledShader::Precompiled(
+                    passthrough.shader.clone(),
+                ))
+            }
         };
 
-        let full_stage = format!(
-            "{}_{}",
-            naga_stage.to_hlsl_str(),
-            naga_options.shader_model.to_str()
-        );
-
-        let ep_index = module
-            .entry_points
-            .iter()
-            .position(|ep| ep.stage == naga_stage && ep.name == stage.entry_point)
-            .ok_or(crate::PipelineError::EntryPoint(naga_stage))?;
-
-        let raw_ep = reflection_info.entry_point_names[ep_index]
-            .as_ref()
-            .map_err(|e| crate::PipelineError::Linkage(stage_bit, format!("{e}")))?;
+        {
+            let mut shader_cache = self.shader_cache.lock();
+            let nr_of_shaders_compiled = shader_cache.nr_of_shaders_compiled;
+            if let Some(value) = shader_cache.entries.get_mut(&key) {
+                value.last_used = nr_of_shaders_compiled;
+                return Ok(value.shader.clone());
+            }
+        }
 
         let source_name = stage.module.raw_name.as_deref();
 
-        // Compile with DXC if available, otherwise fall back to FXC
-        let result = if let Some(ref dxc_container) = self.dxc_container {
-            shader_compilation::compile_dxc(
-                self,
-                &source,
-                source_name,
-                raw_ep,
-                stage_bit,
-                &full_stage,
-                dxc_container,
-            )
-        } else {
-            shader_compilation::compile_fxc(
-                self,
-                &source,
-                source_name,
-                raw_ep,
-                stage_bit,
-                &full_stage,
-            )
-        };
+        let full_stage = format!("{}_{}", naga_stage.to_hlsl_str(), key.shader_model.to_str());
 
-        let log_level = if result.is_ok() {
-            log::Level::Info
-        } else {
-            log::Level::Error
-        };
+        let compiled_shader = self.compiler_container.compile(
+            self,
+            &key.source,
+            source_name,
+            &key.entry_point,
+            stage_bit,
+            &full_stage,
+        )?;
 
-        log::log!(
-            log_level,
-            "Naga generated shader for {:?} at {:?}:\n{}",
-            raw_ep,
-            naga_stage,
-            source
-        );
-        result
+        {
+            let mut shader_cache = self.shader_cache.lock();
+            shader_cache.nr_of_shaders_compiled += 1;
+            let nr_of_shaders_compiled = shader_cache.nr_of_shaders_compiled;
+            let value = ShaderCacheValue {
+                last_used: nr_of_shaders_compiled,
+                shader: compiled_shader.clone(),
+            };
+            shader_cache.entries.insert(key, value);
+
+            // Retain all entries that have been used since we compiled the last 100 shaders.
+            if shader_cache.entries.len() > 200 {
+                shader_cache
+                    .entries
+                    .retain(|_, v| v.last_used >= nr_of_shaders_compiled - 100);
+            }
+        }
+
+        Ok(compiled_shader)
     }
 
     pub fn raw_device(&self) -> &Direct3D12::ID3D12Device {
@@ -380,7 +461,10 @@ impl super::Device {
             size,
             mip_level_count,
             sample_count,
-            allocation: None,
+            allocation: suballocation::Allocation::none(
+                suballocation::AllocationType::Texture,
+                format.theoretical_memory_footprint(size),
+            ),
         }
     }
 
@@ -391,7 +475,10 @@ impl super::Device {
         super::Buffer {
             resource,
             size,
-            allocation: None,
+            allocation: suballocation::Allocation::none(
+                suballocation::AllocationType::Buffer,
+                size,
+            ),
         }
     }
 }
@@ -403,53 +490,29 @@ impl crate::Device for super::Device {
         &self,
         desc: &crate::BufferDescriptor,
     ) -> Result<super::Buffer, crate::DeviceError> {
-        let mut size = desc.size;
-        if desc.usage.contains(wgt::BufferUses::UNIFORM) {
-            let align_mask = Direct3D12::D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT as u64 - 1;
-            size = ((size - 1) | align_mask) + 1;
-        }
+        let mut desc = desc.clone();
 
-        let raw_desc = Direct3D12::D3D12_RESOURCE_DESC {
-            Dimension: Direct3D12::D3D12_RESOURCE_DIMENSION_BUFFER,
-            Alignment: 0,
-            Width: size,
-            Height: 1,
-            DepthOrArraySize: 1,
-            MipLevels: 1,
-            Format: Dxgi::Common::DXGI_FORMAT_UNKNOWN,
-            SampleDesc: Dxgi::Common::DXGI_SAMPLE_DESC {
-                Count: 1,
-                Quality: 0,
-            },
-            Layout: Direct3D12::D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-            Flags: conv::map_buffer_usage_to_resource_flags(desc.usage),
-        };
+        if desc.usage.contains(wgt::BufferUses::UNIFORM) {
+            desc.size = desc
+                .size
+                .next_multiple_of(Direct3D12::D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT.into())
+        }
 
         let (resource, allocation) =
-            super::suballocation::create_buffer_resource(self, desc, raw_desc)?;
-
-        if let Some(label) = desc.label {
-            unsafe { resource.SetName(&windows::core::HSTRING::from(label)) }
-                .into_device_result("SetName")?;
-        }
+            suballocation::DeviceAllocationContext::from(self).create_buffer(&desc)?;
 
         self.counters.buffers.add(1);
 
         Ok(super::Buffer {
             resource,
-            size,
+            size: desc.size,
             allocation,
         })
     }
 
-    unsafe fn destroy_buffer(&self, mut buffer: super::Buffer) {
-        // Always Some except on Intel Xe: https://github.com/gfx-rs/wgpu/issues/3552
-        if let Some(alloc) = buffer.allocation.take() {
-            // Resource should be dropped before free suballocation
-            drop(buffer);
-
-            super::suballocation::free_buffer_allocation(self, alloc, &self.mem_allocator);
-        }
+    unsafe fn destroy_buffer(&self, buffer: super::Buffer) {
+        suballocation::DeviceAllocationContext::from(self)
+            .free_resource(buffer.resource, buffer.allocation);
 
         self.counters.buffers.sub(1);
     }
@@ -498,7 +561,9 @@ impl crate::Device for super::Device {
                 desc.format,
                 desc.usage,
                 !desc.view_formats.is_empty(),
-                self.private_caps.casting_fully_typed_format_supported,
+                self.shared
+                    .private_caps
+                    .casting_fully_typed_format_supported,
             ),
             SampleDesc: Dxgi::Common::DXGI_SAMPLE_DESC {
                 Count: desc.sample_count,
@@ -509,12 +574,7 @@ impl crate::Device for super::Device {
         };
 
         let (resource, allocation) =
-            super::suballocation::create_texture_resource(self, desc, raw_desc)?;
-
-        if let Some(label) = desc.label {
-            unsafe { resource.SetName(&windows::core::HSTRING::from(label)) }
-                .into_device_result("SetName")?;
-        }
+            suballocation::DeviceAllocationContext::from(self).create_texture(desc, raw_desc)?;
 
         self.counters.textures.add(1);
 
@@ -529,18 +589,9 @@ impl crate::Device for super::Device {
         })
     }
 
-    unsafe fn destroy_texture(&self, mut texture: super::Texture) {
-        if let Some(alloc) = texture.allocation.take() {
-            // Resource should be dropped before free suballocation
-            drop(texture);
-
-            super::suballocation::free_texture_allocation(
-                self,
-                alloc,
-                // SAFETY: for allocations to exist, the allocator must exist
-                &self.mem_allocator,
-            );
-        }
+    unsafe fn destroy_texture(&self, texture: super::Texture) {
+        suballocation::DeviceAllocationContext::from(self)
+            .free_resource(texture.resource, texture.allocation);
 
         self.counters.textures.sub(1);
     }
@@ -561,10 +612,14 @@ impl crate::Device for super::Device {
         Ok(super::TextureView {
             raw_format: view_desc.rtv_dsv_format,
             aspects: view_desc.aspects,
-            target_base: (
-                texture.resource.clone(),
-                texture.calc_subresource(desc.range.base_mip_level, desc.range.base_array_layer, 0),
+            dimension: desc.dimension,
+            texture: texture.resource.clone(),
+            subresource_index: texture.calc_subresource(
+                desc.range.base_mip_level,
+                desc.range.base_array_layer,
+                0,
             ),
+            mip_slice: desc.range.base_mip_level,
             handle_srv: if desc.usage.intersects(wgt::TextureUses::RESOURCE) {
                 match unsafe { view_desc.to_srv() } {
                     Some(raw_desc) => {
@@ -606,7 +661,10 @@ impl crate::Device for super::Device {
             } else {
                 None
             },
-            handle_rtv: if desc.usage.intersects(wgt::TextureUses::COLOR_TARGET) {
+            handle_rtv: if desc.usage.intersects(wgt::TextureUses::COLOR_TARGET)
+                && desc.dimension != wgt::TextureViewDimension::D3
+            // 3D RTVs must be created in the render pass
+            {
                 let raw_desc = unsafe { view_desc.to_rtv() };
                 let handle = self.rtv_pool.lock().alloc_handle()?;
                 unsafe {
@@ -679,7 +737,7 @@ impl crate::Device for super::Device {
         let mut filter = Direct3D12::D3D12_FILTER(
             (conv::map_filter_mode(desc.min_filter).0 << Direct3D12::D3D12_MIN_FILTER_SHIFT)
                 | (conv::map_filter_mode(desc.mag_filter).0 << Direct3D12::D3D12_MAG_FILTER_SHIFT)
-                | (conv::map_filter_mode(desc.mipmap_filter).0
+                | (conv::map_mipmap_filter_mode(desc.mipmap_filter).0
                     << Direct3D12::D3D12_MIP_FILTER_SHIFT)
                 | (reduction.0 << Direct3D12::D3D12_FILTER_REDUCTION_TYPE_SHIFT),
         );
@@ -737,8 +795,7 @@ impl crate::Device for super::Device {
         .into_device_result("Command allocator creation")?;
 
         if let Some(label) = desc.label {
-            unsafe { allocator.SetName(&windows::core::HSTRING::from(label)) }
-                .into_device_result("SetName")?;
+            allocator.set_name(label)?;
         }
 
         self.counters.command_encoders.add(1);
@@ -747,6 +804,10 @@ impl crate::Device for super::Device {
             allocator,
             device: self.raw.clone(),
             shared: Arc::clone(&self.shared),
+            mem_allocator: self.mem_allocator.clone(),
+            rtv_pool: Arc::clone(&self.rtv_pool),
+            temp_rtv_handles: Vec::new(),
+            intermediate_copy_bufs: Vec::new(),
             null_rtv_handle: self.null_rtv_handle,
             list: None,
             free_lists: Vec::new(),
@@ -774,8 +835,10 @@ impl crate::Device for super::Device {
                 wgt::BindingType::Buffer { .. }
                 | wgt::BindingType::Texture { .. }
                 | wgt::BindingType::StorageTexture { .. }
-                | wgt::BindingType::AccelerationStructure => num_views += count,
+                | wgt::BindingType::AccelerationStructure { .. } => num_views += count,
                 wgt::BindingType::Sampler { .. } => has_sampler_in_group = true,
+                // Three texture planes and one params buffer
+                wgt::BindingType::ExternalTexture => num_views += 4 * count,
             }
         }
 
@@ -812,7 +875,7 @@ impl crate::Device for super::Device {
         use naga::back::hlsl;
         // Pipeline layouts are implemented as RootSignature for D3D12.
         //
-        // Push Constants are implemented as root constants.
+        // Immediates are implemented as root constants.
         //
         // Each bind group layout will be one table entry of the root signature.
         // We have the additional restriction that SRV/CBV/UAV and samplers need to be
@@ -848,24 +911,17 @@ impl crate::Device for super::Device {
 
         let mut binding_map = hlsl::BindingMap::default();
         let mut sampler_buffer_binding_map = hlsl::SamplerIndexBufferBindingMap::default();
+        let mut external_texture_binding_map = hlsl::ExternalTextureBindingMap::default();
         let mut bind_cbv = hlsl::BindTarget::default();
         let mut bind_srv = hlsl::BindTarget::default();
         let mut bind_uav = hlsl::BindTarget::default();
         let mut parameters = Vec::new();
-        let mut push_constants_target = None;
+        let mut immediates_target = None;
         let mut root_constant_info = None;
 
-        let mut pc_start = u32::MAX;
-        let mut pc_end = u32::MIN;
-
-        for pc in desc.push_constant_ranges.iter() {
-            pc_start = pc_start.min(pc.range.start);
-            pc_end = pc_end.max(pc.range.end);
-        }
-
-        if pc_start != u32::MAX && pc_end != u32::MIN {
+        if desc.immediate_size != 0 {
             let parameter_index = parameters.len();
-            let size = (pc_end - pc_start) / 4;
+            let size = desc.immediate_size / 4;
             parameters.push(Direct3D12::D3D12_ROOT_PARAMETER {
                 ParameterType: Direct3D12::D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
                 Anonymous: Direct3D12::D3D12_ROOT_PARAMETER_0 {
@@ -881,14 +937,14 @@ impl crate::Device for super::Device {
             bind_cbv.register += 1;
             root_constant_info = Some(super::RootConstantInfo {
                 root_index: parameter_index as u32,
-                range: (pc_start / 4)..(pc_end / 4),
+                range: 0..size,
             });
-            push_constants_target = Some(binding);
+            immediates_target = Some(binding);
 
             bind_cbv.space += 1;
         }
 
-        let mut dynamic_storage_buffer_offsets_targets = std::collections::BTreeMap::new();
+        let mut dynamic_storage_buffer_offsets_targets = alloc::collections::BTreeMap::new();
         let mut total_dynamic_storage_buffers = 0;
 
         // Collect the whole number of bindings we will create upfront.
@@ -907,6 +963,8 @@ impl crate::Device for super::Device {
                         ..
                     } => {}
                     wgt::BindingType::Sampler(_) => sampler_in_bind_group = true,
+                    // Three texture planes and one params buffer
+                    wgt::BindingType::ExternalTexture => total_non_dynamic_entries += 4,
                     _ => total_non_dynamic_entries += 1,
                 }
             }
@@ -926,7 +984,7 @@ impl crate::Device for super::Device {
         let mut ranges = Vec::with_capacity(total_non_dynamic_entries);
 
         let mut bind_group_infos =
-            arrayvec::ArrayVec::<super::BindGroupInfo, { crate::MAX_BIND_GROUPS }>::default();
+            ArrayVec::<super::BindGroupInfo, { crate::MAX_BIND_GROUPS }>::default();
         for (index, bgl) in desc.bind_group_layouts.iter().enumerate() {
             let mut info = super::BindGroupInfo {
                 tables: super::TableTypes::empty(),
@@ -961,61 +1019,110 @@ impl crate::Device for super::Device {
             // SRV/CBV/UAV descriptor tables
             let range_base = ranges.len();
             for entry in bgl.entries.iter() {
-                let (range_ty, has_dynamic_offset) = match entry.ty {
-                    wgt::BindingType::Buffer {
-                        ty,
-                        has_dynamic_offset: true,
-                        ..
-                    } => match ty {
-                        wgt::BufferBindingType::Uniform => continue,
-                        wgt::BufferBindingType::Storage { .. } => {
-                            (conv::map_binding_type(&entry.ty), true)
-                        }
-                    },
-                    ref other => (conv::map_binding_type(other), false),
-                };
-                let bt = match range_ty {
-                    Direct3D12::D3D12_DESCRIPTOR_RANGE_TYPE_CBV => &mut bind_cbv,
-                    Direct3D12::D3D12_DESCRIPTOR_RANGE_TYPE_SRV => &mut bind_srv,
-                    Direct3D12::D3D12_DESCRIPTOR_RANGE_TYPE_UAV => &mut bind_uav,
-                    Direct3D12::D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER => continue,
-                    _ => todo!(),
-                };
-
-                let binding_array_size = entry.count.map(NonZeroU32::get);
-
-                let dynamic_storage_buffer_offsets_index = if has_dynamic_offset {
-                    debug_assert!(
-                        binding_array_size.is_none(),
-                        "binding arrays and dynamic buffers are mutually exclusive"
+                let count = entry.count.map_or(1, NonZeroU32::get);
+                if let wgt::BindingType::ExternalTexture = entry.ty {
+                    // External textures need 3 SRVs (a texture for each plane)
+                    // and 1 CBV for the parameters buffer.
+                    let bind_target = hlsl::ExternalTextureBindTarget {
+                        planes: core::array::from_fn(|_| hlsl::BindTarget {
+                            register: {
+                                let register = bind_srv.register;
+                                bind_srv.register += count;
+                                register
+                            },
+                            ..bind_srv
+                        }),
+                        params: hlsl::BindTarget {
+                            register: {
+                                let register = bind_cbv.register;
+                                bind_cbv.register += count;
+                                register
+                            },
+                            ..bind_cbv
+                        },
+                    };
+                    external_texture_binding_map.insert(
+                        naga::ResourceBinding {
+                            group: index as u32,
+                            binding: entry.binding,
+                        },
+                        bind_target,
                     );
-                    let ret = Some(dynamic_storage_buffers);
-                    dynamic_storage_buffers += 1;
-                    ret
+                    for bt in bind_target.planes {
+                        ranges.push(Direct3D12::D3D12_DESCRIPTOR_RANGE {
+                            RangeType: Direct3D12::D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+                            NumDescriptors: count,
+                            BaseShaderRegister: bt.register,
+                            RegisterSpace: bt.space as u32,
+                            OffsetInDescriptorsFromTableStart:
+                                Direct3D12::D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
+                        });
+                    }
+                    ranges.push(Direct3D12::D3D12_DESCRIPTOR_RANGE {
+                        RangeType: Direct3D12::D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
+                        NumDescriptors: count,
+                        BaseShaderRegister: bind_target.params.register,
+                        RegisterSpace: bind_target.params.space as u32,
+                        OffsetInDescriptorsFromTableStart:
+                            Direct3D12::D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
+                    });
                 } else {
-                    None
-                };
+                    let (range_ty, has_dynamic_offset) = match entry.ty {
+                        wgt::BindingType::Buffer {
+                            ty,
+                            has_dynamic_offset: true,
+                            ..
+                        } => match ty {
+                            wgt::BufferBindingType::Uniform => continue,
+                            wgt::BufferBindingType::Storage { .. } => {
+                                (conv::map_binding_type(&entry.ty), true)
+                            }
+                        },
+                        ref other => (conv::map_binding_type(other), false),
+                    };
+                    let bt = match range_ty {
+                        Direct3D12::D3D12_DESCRIPTOR_RANGE_TYPE_CBV => &mut bind_cbv,
+                        Direct3D12::D3D12_DESCRIPTOR_RANGE_TYPE_SRV => &mut bind_srv,
+                        Direct3D12::D3D12_DESCRIPTOR_RANGE_TYPE_UAV => &mut bind_uav,
+                        Direct3D12::D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER => continue,
+                        _ => todo!(),
+                    };
 
-                binding_map.insert(
-                    naga::ResourceBinding {
-                        group: index as u32,
-                        binding: entry.binding,
-                    },
-                    hlsl::BindTarget {
-                        binding_array_size,
-                        dynamic_storage_buffer_offsets_index,
-                        ..*bt
-                    },
-                );
-                ranges.push(Direct3D12::D3D12_DESCRIPTOR_RANGE {
-                    RangeType: range_ty,
-                    NumDescriptors: entry.count.map_or(1, |count| count.get()),
-                    BaseShaderRegister: bt.register,
-                    RegisterSpace: bt.space as u32,
-                    OffsetInDescriptorsFromTableStart:
-                        Direct3D12::D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
-                });
-                bt.register += entry.count.map(NonZeroU32::get).unwrap_or(1);
+                    let binding_array_size = entry.count.map(NonZeroU32::get);
+
+                    let dynamic_storage_buffer_offsets_index = if has_dynamic_offset {
+                        debug_assert!(
+                            binding_array_size.is_none(),
+                            "binding arrays and dynamic buffers are mutually exclusive"
+                        );
+                        let ret = Some(dynamic_storage_buffers);
+                        dynamic_storage_buffers += 1;
+                        ret
+                    } else {
+                        None
+                    };
+
+                    binding_map.insert(
+                        naga::ResourceBinding {
+                            group: index as u32,
+                            binding: entry.binding,
+                        },
+                        hlsl::BindTarget {
+                            binding_array_size,
+                            dynamic_storage_buffer_offsets_index,
+                            ..*bt
+                        },
+                    );
+                    ranges.push(Direct3D12::D3D12_DESCRIPTOR_RANGE {
+                        RangeType: range_ty,
+                        NumDescriptors: count,
+                        BaseShaderRegister: bt.register,
+                        RegisterSpace: bt.space as u32,
+                        OffsetInDescriptorsFromTableStart:
+                            Direct3D12::D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
+                    });
+                    bt.register += count;
+                }
             }
 
             let mut sampler_index_within_bind_group = 0;
@@ -1226,7 +1333,14 @@ impl crate::Device for super::Device {
                 ShaderVisibility: Direct3D12::D3D12_SHADER_VISIBILITY_ALL, // really needed for VS and CS only,
             });
             let binding = bind_cbv;
-            bind_cbv.register += 1;
+            // This is the last time we use this, but lets increment
+            // it so if we add more later, the value behaves correctly.
+
+            // This is an allow as it doesn't trigger on 1.90, hal's MSRV.
+            #[allow(unused_assignments)]
+            {
+                bind_cbv.register += 1;
+            }
             (Some(parameter_index as u32), Some(binding))
         } else {
             (None, None)
@@ -1277,6 +1391,29 @@ impl crate::Device for super::Device {
                     };
                     size_of_val(&first_vertex) + size_of_val(&first_instance) + size_of_val(&other)
                 };
+
+                let draw_mesh = if self
+                    .features
+                    .features_wgpu
+                    .contains(wgt::FeaturesWGPU::EXPERIMENTAL_MESH_SHADER)
+                {
+                    Some(Self::create_command_signature(
+                        &self.raw,
+                        Some(&raw),
+                        special_constant_buffer_args_len + size_of::<wgt::DispatchIndirectArgs>(),
+                        &[
+                            constant_indirect_argument_desc,
+                            Direct3D12::D3D12_INDIRECT_ARGUMENT_DESC {
+                                Type: Direct3D12::D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH,
+                                ..Default::default()
+                            },
+                        ],
+                        0,
+                    )?)
+                } else {
+                    None
+                };
+
                 Some(super::CommandSignatures {
                     draw: Self::create_command_signature(
                         &self.raw,
@@ -1305,6 +1442,7 @@ impl crate::Device for super::Device {
                         ],
                         0,
                     )?,
+                    draw_mesh,
                     dispatch: Self::create_command_signature(
                         &self.raw,
                         Some(&raw),
@@ -1331,8 +1469,7 @@ impl crate::Device for super::Device {
         };
 
         if let Some(label) = desc.label {
-            unsafe { raw.SetName(&windows::core::HSTRING::from(label)) }
-                .into_device_result("SetName")?;
+            raw.set_name(label)?;
         }
 
         self.counters.pipeline_layouts.add(1);
@@ -1347,17 +1484,19 @@ impl crate::Device for super::Device {
             },
             bind_group_infos,
             naga_options: hlsl::Options {
-                shader_model: self.private_caps.shader_model,
+                shader_model: self.shared.private_caps.shader_model,
                 binding_map,
                 fake_missing_bindings: false,
                 special_constants_binding,
-                push_constants_target,
+                immediates_target,
                 dynamic_storage_buffer_offsets_targets,
                 zero_initialize_workgroup_memory: true,
                 restrict_indexing: true,
                 sampler_heap_target,
                 sampler_buffer_binding_map,
+                external_texture_binding_map,
                 force_loop_bounding: true,
+                ray_query_initialization_tracking: true,
             },
         })
     }
@@ -1408,7 +1547,7 @@ impl crate::Device for super::Device {
                     let end = start + entry.count as usize;
                     for data in &desc.buffers[start..end] {
                         let gpu_address = data.resolve_address();
-                        let mut size = data.resolve_size() as u32;
+                        let mut size = data.resolve_size().try_into().unwrap();
 
                         if has_dynamic_offset {
                             match ty {
@@ -1515,7 +1654,7 @@ impl crate::Device for super::Device {
                         sampler_indexes.push(data.index);
                     }
                 }
-                wgt::BindingType::AccelerationStructure => {
+                wgt::BindingType::AccelerationStructure { .. } => {
                     let start = entry.resource_index as usize;
                     let end = start + entry.count as usize;
                     for data in &desc.acceleration_structures[start..end] {
@@ -1542,6 +1681,31 @@ impl crate::Device for super::Device {
                         inner.stage.push(handle);
                     }
                 }
+                wgt::BindingType::ExternalTexture => {
+                    // We don't yet support binding arrays of external textures.
+                    // https://github.com/gfx-rs/wgpu/issues/8027
+                    assert_eq!(entry.count, 1);
+                    let external_texture = &desc.external_textures[entry.resource_index as usize];
+                    for plane in &external_texture.planes {
+                        let plane_handle = plane.view.handle_srv.unwrap();
+                        cpu_views.as_mut().unwrap().stage.push(plane_handle.raw);
+                    }
+                    let gpu_address = external_texture.params.resolve_address();
+                    let size = external_texture.params.resolve_size() as u32;
+                    let inner = cpu_views.as_mut().unwrap();
+                    let cpu_index = inner.stage.len() as u32;
+                    let params_handle = desc.layout.cpu_heap_views.as_ref().unwrap().at(cpu_index);
+                    let size_mask = Direct3D12::D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT - 1;
+                    let raw_desc = Direct3D12::D3D12_CONSTANT_BUFFER_VIEW_DESC {
+                        BufferLocation: gpu_address,
+                        SizeInBytes: ((size - 1) | size_mask) + 1,
+                    };
+                    unsafe {
+                        self.raw
+                            .CreateConstantBufferView(Some(&raw_desc), params_handle)
+                    };
+                    inner.stage.push(params_handle);
+                }
             }
         }
 
@@ -1549,40 +1713,21 @@ impl crate::Device for super::Device {
             let buffer_size = (sampler_indexes.len() * size_of::<u32>()) as u64;
 
             let label = if let Some(label) = desc.label {
-                Cow::Owned(format!("{} (Internal Sampler Index Buffer)", label))
+                Cow::Owned(format!("{label} (Internal Sampler Index Buffer)"))
             } else {
                 Cow::Borrowed("Internal Sampler Index Buffer")
             };
 
             let buffer_desc = crate::BufferDescriptor {
-                label: None,
+                label: Some(&label),
                 size: buffer_size,
                 usage: wgt::BufferUses::STORAGE_READ_ONLY | wgt::BufferUses::MAP_WRITE,
                 // D3D12 backend doesn't care about the memory flags
                 memory_flags: crate::MemoryFlags::empty(),
             };
 
-            let raw_buffer_desc = Direct3D12::D3D12_RESOURCE_DESC {
-                Dimension: Direct3D12::D3D12_RESOURCE_DIMENSION_BUFFER,
-                Alignment: 0,
-                Width: buffer_size,
-                Height: 1,
-                DepthOrArraySize: 1,
-                MipLevels: 1,
-                Format: Dxgi::Common::DXGI_FORMAT_UNKNOWN,
-                SampleDesc: Dxgi::Common::DXGI_SAMPLE_DESC {
-                    Count: 1,
-                    Quality: 0,
-                },
-                Layout: Direct3D12::D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-                Flags: Direct3D12::D3D12_RESOURCE_FLAG_NONE,
-            };
-
             let (buffer, allocation) =
-                super::suballocation::create_buffer_resource(self, &buffer_desc, raw_buffer_desc)?;
-
-            unsafe { buffer.SetName(&windows::core::HSTRING::from(&*label)) }
-                .into_device_result("SetName")?;
+                suballocation::DeviceAllocationContext::from(self).create_buffer(&buffer_desc)?;
 
             let mut mapping = ptr::null_mut::<ffi::c_void>();
             unsafe { buffer.Map(0, None, Some(&mut mapping)) }.into_device_result("Map")?;
@@ -1661,12 +1806,8 @@ impl crate::Device for super::Device {
         }
 
         if let Some(sampler_buffer) = group.sampler_index_buffer {
-            // Make sure the buffer is dropped before the allocation
-            drop(sampler_buffer.buffer);
-
-            if let Some(allocation) = sampler_buffer.allocation {
-                super::suballocation::free_buffer_allocation(self, allocation, &self.mem_allocator);
-            }
+            suballocation::DeviceAllocationContext::from(self)
+                .free_resource(sampler_buffer.buffer, sampler_buffer.allocation);
         }
 
         self.counters.bind_groups.sub(1);
@@ -1679,15 +1820,45 @@ impl crate::Device for super::Device {
     ) -> Result<super::ShaderModule, crate::ShaderError> {
         self.counters.shader_modules.add(1);
 
-        let raw_name = desc.label.and_then(|label| ffi::CString::new(label).ok());
+        let raw_name = desc
+            .label
+            .and_then(|label| alloc::ffi::CString::new(label).ok());
         match shader {
             crate::ShaderInput::Naga(naga) => Ok(super::ShaderModule {
-                naga,
+                source: super::ShaderModuleSource::Naga(naga),
                 raw_name,
                 runtime_checks: desc.runtime_checks,
             }),
-            crate::ShaderInput::SpirV(_) => {
-                panic!("SPIRV_SHADER_PASSTHROUGH is not enabled for this backend")
+            crate::ShaderInput::Dxil {
+                shader,
+                entry_point,
+                num_workgroups,
+            } => Ok(super::ShaderModule {
+                source: super::ShaderModuleSource::DxilPassthrough(super::DxilPassthroughShader {
+                    shader: shader.to_vec(),
+                    entry_point,
+                    num_workgroups,
+                }),
+                raw_name,
+                runtime_checks: desc.runtime_checks,
+            }),
+            crate::ShaderInput::Hlsl {
+                shader,
+                entry_point,
+                num_workgroups,
+            } => Ok(super::ShaderModule {
+                source: super::ShaderModuleSource::HlslPassthrough(super::HlslPassthroughShader {
+                    shader: shader.to_owned(),
+                    entry_point,
+                    num_workgroups,
+                }),
+                raw_name,
+                runtime_checks: desc.runtime_checks,
+            }),
+            crate::ShaderInput::SpirV(_)
+            | crate::ShaderInput::Msl { .. }
+            | crate::ShaderInput::Glsl { .. } => {
+                unreachable!()
             }
         }
     }
@@ -1704,52 +1875,8 @@ impl crate::Device for super::Device {
             super::PipelineCache,
         >,
     ) -> Result<super::RenderPipeline, crate::PipelineError> {
+        let mut shader_stages = wgt::ShaderStages::empty();
         let (topology_class, topology) = conv::map_topology(desc.primitive.topology);
-        let mut shader_stages = wgt::ShaderStages::VERTEX;
-
-        let blob_vs = self.load_shader(
-            &desc.vertex_stage,
-            desc.layout,
-            naga::ShaderStage::Vertex,
-            desc.fragment_stage.as_ref(),
-        )?;
-        let blob_fs = match desc.fragment_stage {
-            Some(ref stage) => {
-                shader_stages |= wgt::ShaderStages::FRAGMENT;
-                Some(self.load_shader(stage, desc.layout, naga::ShaderStage::Fragment, None)?)
-            }
-            None => None,
-        };
-
-        let mut vertex_strides = [None; crate::MAX_VERTEX_BUFFERS];
-        let mut input_element_descs = Vec::new();
-        for (i, (stride, vbuf)) in vertex_strides
-            .iter_mut()
-            .zip(desc.vertex_buffers)
-            .enumerate()
-        {
-            *stride = NonZeroU32::new(vbuf.array_stride as u32);
-            let (slot_class, step_rate) = match vbuf.step_mode {
-                wgt::VertexStepMode::Vertex => {
-                    (Direct3D12::D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0)
-                }
-                wgt::VertexStepMode::Instance => {
-                    (Direct3D12::D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1)
-                }
-            };
-            for attribute in vbuf.attributes {
-                input_element_descs.push(Direct3D12::D3D12_INPUT_ELEMENT_DESC {
-                    SemanticName: windows::core::PCSTR(NAGA_LOCATION_SEMANTIC.as_ptr()),
-                    SemanticIndex: attribute.shader_location,
-                    Format: auxil::dxgi::conv::map_vertex_format(attribute.format),
-                    InputSlot: i as u32,
-                    AlignedByteOffset: attribute.offset as u32,
-                    InputSlotClass: slot_class,
-                    InstanceDataStepRate: step_rate,
-                });
-            }
-        }
-
         let mut rtv_formats = [Dxgi::Common::DXGI_FORMAT_UNKNOWN;
             Direct3D12::D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT as usize];
         for (rtv_format, ct) in rtv_formats.iter_mut().zip(desc.color_targets) {
@@ -1764,7 +1891,7 @@ impl crate::Device for super::Device {
             .map(|ds| ds.bias)
             .unwrap_or_default();
 
-        let raw_rasterizer = Direct3D12::D3D12_RASTERIZER_DESC {
+        let rasterizer_state = Direct3D12::D3D12_RASTERIZER_DESC {
             FillMode: conv::map_polygon_mode(desc.primitive.polygon_mode),
             CullMode: match desc.primitive.cull_mode {
                 None => Direct3D12::D3D12_CULL_MODE_NONE,
@@ -1778,8 +1905,8 @@ impl crate::Device for super::Device {
             DepthBias: bias.constant,
             DepthBiasClamp: bias.clamp,
             SlopeScaledDepthBias: bias.slope_scale,
-            DepthClipEnable: Foundation::BOOL::from(!desc.primitive.unclipped_depth),
-            MultisampleEnable: Foundation::BOOL::from(desc.multisample.count > 1),
+            DepthClipEnable: windows_core::BOOL::from(!desc.primitive.unclipped_depth),
+            MultisampleEnable: windows_core::BOOL::from(desc.multisample.count > 1),
             ForcedSampleCount: 0,
             AntialiasedLineEnable: false.into(),
             ConservativeRaster: if desc.primitive.conservative {
@@ -1789,90 +1916,227 @@ impl crate::Device for super::Device {
             },
         };
 
-        let raw_desc = Direct3D12::D3D12_GRAPHICS_PIPELINE_STATE_DESC {
-            pRootSignature: unsafe {
-                borrow_optional_interface_temporarily(&desc.layout.shared.signature)
-            },
-            VS: blob_vs.create_native_shader(),
-            PS: match &blob_fs {
-                Some(shader) => shader.create_native_shader(),
-                None => Direct3D12::D3D12_SHADER_BYTECODE::default(),
-            },
-            GS: Direct3D12::D3D12_SHADER_BYTECODE::default(),
-            DS: Direct3D12::D3D12_SHADER_BYTECODE::default(),
-            HS: Direct3D12::D3D12_SHADER_BYTECODE::default(),
-            StreamOutput: Direct3D12::D3D12_STREAM_OUTPUT_DESC {
-                pSODeclaration: ptr::null(),
-                NumEntries: 0,
-                pBufferStrides: ptr::null(),
-                NumStrides: 0,
-                RasterizedStream: 0,
-            },
-            BlendState: Direct3D12::D3D12_BLEND_DESC {
-                AlphaToCoverageEnable: Foundation::BOOL::from(
-                    desc.multisample.alpha_to_coverage_enabled,
-                ),
-                IndependentBlendEnable: true.into(),
-                RenderTarget: conv::map_render_targets(desc.color_targets),
-            },
-            SampleMask: desc.multisample.mask as u32,
-            RasterizerState: raw_rasterizer,
-            DepthStencilState: match desc.depth_stencil {
-                Some(ref ds) => conv::map_depth_stencil(ds),
-                None => Default::default(),
-            },
-            InputLayout: Direct3D12::D3D12_INPUT_LAYOUT_DESC {
-                pInputElementDescs: if input_element_descs.is_empty() {
-                    ptr::null()
-                } else {
-                    input_element_descs.as_ptr()
-                },
-                NumElements: input_element_descs.len() as u32,
-            },
-            IBStripCutValue: match desc.primitive.strip_index_format {
-                Some(wgt::IndexFormat::Uint16) => {
-                    Direct3D12::D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF
-                }
-                Some(wgt::IndexFormat::Uint32) => {
-                    Direct3D12::D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF
-                }
-                None => Direct3D12::D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
-            },
-            PrimitiveTopologyType: topology_class,
-            NumRenderTargets: desc.color_targets.len() as u32,
-            RTVFormats: rtv_formats,
-            DSVFormat: desc
-                .depth_stencil
-                .as_ref()
-                .map_or(Dxgi::Common::DXGI_FORMAT_UNKNOWN, |ds| {
-                    auxil::dxgi::conv::map_texture_format(ds.format)
-                }),
-            SampleDesc: Dxgi::Common::DXGI_SAMPLE_DESC {
-                Count: desc.multisample.count,
-                Quality: 0,
-            },
-            NodeMask: 0,
-            CachedPSO: Direct3D12::D3D12_CACHED_PIPELINE_STATE {
-                pCachedBlob: ptr::null(),
-                CachedBlobSizeInBytes: 0,
-            },
-            Flags: Direct3D12::D3D12_PIPELINE_STATE_FLAG_NONE,
+        let blob_fs = match desc.fragment_stage {
+            Some(ref stage) => {
+                shader_stages |= wgt::ShaderStages::FRAGMENT;
+                Some(self.load_shader(stage, desc.layout, naga::ShaderStage::Fragment, None)?)
+            }
+            None => None,
         };
+        let pixel_shader = match &blob_fs {
+            Some(shader) => shader.create_native_shader(),
+            None => Direct3D12::D3D12_SHADER_BYTECODE::default(),
+        };
+        let stream_output = Direct3D12::D3D12_STREAM_OUTPUT_DESC {
+            pSODeclaration: ptr::null(),
+            NumEntries: 0,
+            pBufferStrides: ptr::null(),
+            NumStrides: 0,
+            RasterizedStream: 0,
+        };
+        let blend_state = Direct3D12::D3D12_BLEND_DESC {
+            AlphaToCoverageEnable: windows_core::BOOL::from(
+                desc.multisample.alpha_to_coverage_enabled,
+            ),
+            IndependentBlendEnable: true.into(),
+            RenderTarget: conv::map_render_targets(desc.color_targets),
+        };
+        let depth_stencil_state = match desc.depth_stencil {
+            Some(ref ds) => conv::map_depth_stencil(ds),
+            None => Default::default(),
+        };
+        let dsv_format = desc
+            .depth_stencil
+            .as_ref()
+            .map_or(Dxgi::Common::DXGI_FORMAT_UNKNOWN, |ds| {
+                auxil::dxgi::conv::map_texture_format(ds.format)
+            });
+        let sample_desc = Dxgi::Common::DXGI_SAMPLE_DESC {
+            Count: desc.multisample.count,
+            Quality: 0,
+        };
+        let cached_pso = Direct3D12::D3D12_CACHED_PIPELINE_STATE {
+            pCachedBlob: ptr::null(),
+            CachedBlobSizeInBytes: 0,
+        };
+        let flags = Direct3D12::D3D12_PIPELINE_STATE_FLAG_NONE;
 
-        let raw: Direct3D12::ID3D12PipelineState = {
-            profiling::scope!("ID3D12Device::CreateGraphicsPipelineState");
-            unsafe { self.raw.CreateGraphicsPipelineState(&raw_desc) }
+        let mut view_instancing = ArrayVec::<Direct3D12::D3D12_VIEW_INSTANCE_LOCATION, 32>::new();
+        if let Some(mask) = desc.multiview_mask {
+            let mask = mask.get();
+            // This array is just what _could_ be rendered to. We actually apply the mask at
+            // renderpass creation time. The `view_index` passed to the shader depends on the
+            // view's index in this array, so if we include every view in this array, `view_index`
+            // actually the texture array layer, like in vulkan.
+            for i in 0..32 - mask.leading_zeros() {
+                view_instancing.push(Direct3D12::D3D12_VIEW_INSTANCE_LOCATION {
+                    ViewportArrayIndex: 0,
+                    RenderTargetArrayIndex: i,
+                });
+            }
         }
-        .map_err(|err| crate::PipelineError::Linkage(shader_stages, err.to_string()))?;
 
-        unsafe { blob_vs.destroy() };
-        if let Some(blob_fs) = blob_fs {
-            unsafe { blob_fs.destroy() };
+        // Borrow view instancing slice, so we can be sure that it won't be moved while we have pointers into this buffer.
+        let view_instancing_slice = view_instancing.as_slice();
+
+        let mut stream_desc = RenderPipelineStateStreamDesc {
+            // Shared by vertex and mesh pipelines
+            root_signature: desc.layout.shared.signature.as_ref(),
+            pixel_shader,
+            blend_state,
+            sample_mask: desc.multisample.mask as u32,
+            rasterizer_state,
+            depth_stencil_state,
+            primitive_topology_type: topology_class,
+            rtv_formats: Direct3D12::D3D12_RT_FORMAT_ARRAY {
+                RTFormats: rtv_formats,
+                NumRenderTargets: desc.color_targets.len() as u32,
+            },
+            dsv_format,
+            sample_desc,
+            node_mask: 0,
+            cached_pso,
+            flags,
+            view_instancing: if !view_instancing_slice.is_empty() {
+                Some(Direct3D12::D3D12_VIEW_INSTANCING_DESC {
+                    ViewInstanceCount: view_instancing_slice.len() as u32,
+                    pViewInstanceLocations: view_instancing_slice.as_ptr(),
+                    // This lets us hide/mask certain values later, at renderpass creation time.
+                    Flags: Direct3D12::D3D12_VIEW_INSTANCING_FLAG_ENABLE_VIEW_INSTANCE_MASKING,
+                })
+            } else {
+                None
+            },
+
+            // Optional data that depends on the pipeline type (vertex vs mesh).
+            vertex_shader: Default::default(),
+            input_layout: Default::default(),
+            index_buffer_strip_cut_value: Default::default(),
+            stream_output,
+            task_shader: Default::default(),
+            mesh_shader: Default::default(),
         };
+        let mut input_element_descs = Vec::new();
+        let blob_vs;
+        let blob_ts;
+        let blob_ms;
+        let mut vertex_strides = [None; crate::MAX_VERTEX_BUFFERS];
+        match &desc.vertex_processor {
+            &crate::VertexProcessor::Standard {
+                vertex_buffers,
+                ref vertex_stage,
+            } => {
+                shader_stages |= wgt::ShaderStages::VERTEX;
+                blob_vs = Some(self.load_shader(
+                    vertex_stage,
+                    desc.layout,
+                    naga::ShaderStage::Vertex,
+                    desc.fragment_stage.as_ref(),
+                )?);
+
+                for (i, (stride, vbuf)) in vertex_strides.iter_mut().zip(vertex_buffers).enumerate()
+                {
+                    *stride = Some(vbuf.array_stride as u32);
+                    let (slot_class, step_rate) = match vbuf.step_mode {
+                        wgt::VertexStepMode::Vertex => {
+                            (Direct3D12::D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0)
+                        }
+                        wgt::VertexStepMode::Instance => {
+                            (Direct3D12::D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1)
+                        }
+                    };
+                    for attribute in vbuf.attributes {
+                        input_element_descs.push(Direct3D12::D3D12_INPUT_ELEMENT_DESC {
+                            SemanticName: windows::core::PCSTR(NAGA_LOCATION_SEMANTIC.as_ptr()),
+                            SemanticIndex: attribute.shader_location,
+                            Format: auxil::dxgi::conv::map_vertex_format(attribute.format),
+                            InputSlot: i as u32,
+                            AlignedByteOffset: attribute.offset as u32,
+                            InputSlotClass: slot_class,
+                            InstanceDataStepRate: step_rate,
+                        });
+                    }
+                }
+                stream_desc.vertex_shader = blob_vs.as_ref().unwrap().create_native_shader();
+                stream_desc.input_layout = Direct3D12::D3D12_INPUT_LAYOUT_DESC {
+                    pInputElementDescs: if input_element_descs.is_empty() {
+                        ptr::null()
+                    } else {
+                        input_element_descs.as_ptr()
+                    },
+                    NumElements: input_element_descs.len() as u32,
+                };
+                stream_desc.index_buffer_strip_cut_value = match desc.primitive.strip_index_format {
+                    Some(wgt::IndexFormat::Uint16) => {
+                        Direct3D12::D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF
+                    }
+                    Some(wgt::IndexFormat::Uint32) => {
+                        Direct3D12::D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF
+                    }
+                    None => Direct3D12::D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
+                };
+                stream_desc.stream_output = Direct3D12::D3D12_STREAM_OUTPUT_DESC {
+                    pSODeclaration: ptr::null(),
+                    NumEntries: 0,
+                    pBufferStrides: ptr::null(),
+                    NumStrides: 0,
+                    RasterizedStream: 0,
+                };
+            }
+            crate::VertexProcessor::Mesh {
+                task_stage,
+                mesh_stage,
+            } => {
+                blob_ts = if let Some(ts) = task_stage {
+                    shader_stages |= wgt::ShaderStages::TASK;
+                    Some(self.load_shader(
+                        ts,
+                        desc.layout,
+                        naga::ShaderStage::Task,
+                        desc.fragment_stage.as_ref(),
+                    )?)
+                } else {
+                    None
+                };
+                let task_shader = if let Some(ts) = &blob_ts {
+                    ts.create_native_shader()
+                } else {
+                    Default::default()
+                };
+                shader_stages |= wgt::ShaderStages::MESH;
+                blob_ms = Some(self.load_shader(
+                    mesh_stage,
+                    desc.layout,
+                    naga::ShaderStage::Mesh,
+                    desc.fragment_stage.as_ref(),
+                )?);
+                stream_desc.task_shader = task_shader;
+                stream_desc.mesh_shader = blob_ms.as_ref().unwrap().create_native_shader();
+            }
+        };
+        let raw: Direct3D12::ID3D12PipelineState =
+            // If stream descriptors are available, use them as they are more flexible.
+            if let Ok(device) = self.raw.cast::<Direct3D12::ID3D12Device2>() {
+                // Prefer stream descs where possible
+                let mut stream = stream_desc.to_stream();
+                unsafe {
+                    profiling::scope!("ID3D12Device2::CreatePipelineState");
+                    stream.create_pipeline_state(&device).map_err(|err| {
+                        crate::PipelineError::Linkage(shader_stages, err.to_string())
+                    })?
+                }
+            } else {
+                unsafe {
+                    // Safety: `stream_desc` entirely outlives the `desc`.
+                    let desc = stream_desc.to_graphics_pipeline_descriptor();
+                    self.raw.CreateGraphicsPipelineState(&desc).map_err(|err| {
+                        crate::PipelineError::Linkage(shader_stages, err.to_string())
+                    })?
+                }
+            };
 
         if let Some(label) = desc.label {
-            unsafe { raw.SetName(&windows::core::HSTRING::from(label)) }
-                .into_device_result("SetName")?;
+            raw.set_name(label)?;
         }
 
         self.counters.render_pipelines.add(1);
@@ -1884,6 +2148,7 @@ impl crate::Device for super::Device {
             vertex_strides,
         })
     }
+
     unsafe fn destroy_render_pipeline(&self, _pipeline: super::RenderPipeline) {
         self.counters.render_pipelines.sub(1);
     }
@@ -1916,15 +2181,12 @@ impl crate::Device for super::Device {
             }
         };
 
-        unsafe { blob_cs.destroy() };
-
         let raw: Direct3D12::ID3D12PipelineState = pair.map_err(|err| {
             crate::PipelineError::Linkage(wgt::ShaderStages::COMPUTE, err.to_string())
         })?;
 
         if let Some(label) = desc.label {
-            unsafe { raw.SetName(&windows::core::HSTRING::from(label)) }
-                .into_device_result("SetName")?;
+            raw.set_name(label)?;
         }
 
         self.counters.compute_pipelines.add(1);
@@ -1966,6 +2228,24 @@ impl crate::Device for super::Device {
             ),
         };
 
+        if let Some(threshold) = self
+            .mem_allocator
+            .memory_budget_thresholds
+            .for_resource_creation
+        {
+            let info = self
+                .shared
+                .adapter
+                .query_video_memory_info(Dxgi::DXGI_MEMORY_SEGMENT_GROUP_LOCAL)?;
+
+            // Assume each query is 256 bytes.
+            // On an AMD W6800 with driver version 32.0.12030.9, occlusion and pipeline statistics are 256, timestamp is 8.
+
+            if info.CurrentUsage + desc.count as u64 * 256 >= info.Budget / 100 * threshold as u64 {
+                return Err(crate::DeviceError::OutOfMemory);
+            }
+        }
+
         let mut raw = None::<Direct3D12::ID3D12QueryHeap>;
         unsafe {
             self.raw.CreateQueryHeap(
@@ -1982,8 +2262,7 @@ impl crate::Device for super::Device {
         let raw = raw.ok_or(crate::DeviceError::Unexpected)?;
 
         if let Some(label) = desc.label {
-            unsafe { raw.SetName(&windows::core::HSTRING::from(label)) }
-                .into_device_result("SetName")?;
+            raw.set_name(label)?;
         }
 
         self.counters.query_sets.add(1);
@@ -2018,9 +2297,9 @@ impl crate::Device for super::Device {
         &self,
         fence: &super::Fence,
         value: crate::FenceValue,
-        timeout_ms: u32,
+        timeout: Option<Duration>,
     ) -> Result<bool, crate::DeviceError> {
-        let timeout_duration = Duration::from_millis(timeout_ms as u64);
+        let timeout = timeout.unwrap_or(Duration::MAX);
 
         // We first check if the fence has already reached the value we're waiting for.
         let mut fence_value = unsafe { fence.raw.GetCompletedValue() };
@@ -2028,7 +2307,9 @@ impl crate::Device for super::Device {
             return Ok(true);
         }
 
-        unsafe { fence.raw.SetEventOnCompletion(value, self.idler.event.0) }
+        let event = Event::create(false, false)?;
+
+        unsafe { fence.raw.SetEventOnCompletion(value, event.0) }
             .into_device_result("Set event")?;
 
         let start_time = Instant::now();
@@ -2052,7 +2333,7 @@ impl crate::Device for super::Device {
             //
             // This happens when a previous iteration WaitForSingleObject succeeded with a previous fence value,
             // right before the timeout would have been hit.
-            let remaining_wait_duration = match timeout_duration.checked_sub(elapsed) {
+            let remaining_wait_duration = match timeout.checked_sub(elapsed) {
                 Some(remaining) => remaining,
                 None => {
                     log::trace!("Timeout elapsed in between waits!");
@@ -2060,16 +2341,12 @@ impl crate::Device for super::Device {
                 }
             };
 
-            log::trace!(
-                "Waiting for fence value {} for {:?}",
-                value,
-                remaining_wait_duration
-            );
+            log::trace!("Waiting for fence value {value} for {remaining_wait_duration:?}");
 
             match unsafe {
                 Threading::WaitForSingleObject(
-                    self.idler.event.0,
-                    remaining_wait_duration.as_millis().try_into().unwrap(),
+                    event.0,
+                    remaining_wait_duration.as_millis().min(u32::MAX as u128) as u32,
                 )
             } {
                 Foundation::WAIT_OBJECT_0 => {}
@@ -2082,13 +2359,13 @@ impl crate::Device for super::Device {
                     break Ok(false);
                 }
                 other => {
-                    log::error!("Unexpected wait status: 0x{:?}", other);
+                    log::error!("Unexpected wait status: 0x{other:?}");
                     break Err(crate::DeviceError::Lost);
                 }
             };
 
             fence_value = unsafe { fence.raw.GetCompletedValue() };
-            log::trace!("Wait complete! Fence actual value: {}", fence_value);
+            log::trace!("Wait complete! Fence actual value: {fence_value}");
 
             if fence_value >= value {
                 break Ok(true);
@@ -2096,7 +2373,7 @@ impl crate::Device for super::Device {
         }
     }
 
-    unsafe fn start_capture(&self) -> bool {
+    unsafe fn start_graphics_debugger_capture(&self) -> bool {
         #[cfg(feature = "renderdoc")]
         {
             unsafe {
@@ -2108,7 +2385,7 @@ impl crate::Device for super::Device {
         false
     }
 
-    unsafe fn stop_capture(&self) {
+    unsafe fn stop_graphics_debugger_capture(&self) {
         #[cfg(feature = "renderdoc")]
         unsafe {
             self.render_doc
@@ -2273,13 +2550,8 @@ impl crate::Device for super::Device {
             Flags: Direct3D12::D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
         };
 
-        let (resource, allocation) =
-            super::suballocation::create_acceleration_structure_resource(self, desc, raw_desc)?;
-
-        if let Some(label) = desc.label {
-            unsafe { resource.SetName(&windows::core::HSTRING::from(label)) }
-                .into_device_result("SetName")?;
-        }
+        let (resource, allocation) = suballocation::DeviceAllocationContext::from(self)
+            .create_acceleration_structure(desc, raw_desc)?;
 
         // for some reason there is no counter for acceleration structures
 
@@ -2291,18 +2563,12 @@ impl crate::Device for super::Device {
 
     unsafe fn destroy_acceleration_structure(
         &self,
-        mut acceleration_structure: super::AccelerationStructure,
+        acceleration_structure: super::AccelerationStructure,
     ) {
-        if let Some(alloc) = acceleration_structure.allocation.take() {
-            // Resource should be dropped before suballocation is freed
-            drop(acceleration_structure);
-
-            super::suballocation::free_acceleration_structure_allocation(
-                self,
-                alloc,
-                &self.mem_allocator,
-            );
-        }
+        suballocation::DeviceAllocationContext::from(self).free_resource(
+            acceleration_structure.resource,
+            acceleration_structure.allocation,
+        );
     }
 
     fn get_internal_counters(&self) -> wgt::HalCounters {
@@ -2310,33 +2576,7 @@ impl crate::Device for super::Device {
     }
 
     fn generate_allocator_report(&self) -> Option<wgt::AllocatorReport> {
-        let mut upstream = self.mem_allocator.lock().allocator.generate_report();
-
-        let allocations = upstream
-            .allocations
-            .iter_mut()
-            .map(|alloc| wgt::AllocationReport {
-                name: mem::take(&mut alloc.name),
-                offset: alloc.offset,
-                size: alloc.size,
-            })
-            .collect();
-
-        let blocks = upstream
-            .blocks
-            .iter()
-            .map(|block| wgt::MemoryBlockReport {
-                size: block.size,
-                allocations: block.allocations.clone(),
-            })
-            .collect();
-
-        Some(wgt::AllocatorReport {
-            allocations,
-            blocks,
-            total_allocated_bytes: upstream.total_allocated_bytes,
-            total_reserved_bytes: upstream.total_reserved_bytes,
-        })
+        Some(self.mem_allocator.generate_report())
     }
 
     fn tlas_instance_to_bytes(&self, instance: TlasInstance) -> Vec<u8> {
@@ -2347,13 +2587,40 @@ impl crate::Device for super::Device {
             _bitfield2: 0,
             AccelerationStructure: instance.blas_address,
         };
-        let temp: *const _ = &temp;
-        unsafe {
-            slice::from_raw_parts(
-                temp.cast::<u8>(),
-                size_of::<Direct3D12::D3D12_RAYTRACING_INSTANCE_DESC>(),
-            )
-            .to_vec()
+
+        wgt::bytemuck_wrapper!(unsafe struct Desc(Direct3D12::D3D12_RAYTRACING_INSTANCE_DESC));
+
+        bytemuck::bytes_of(&Desc::wrap(temp)).to_vec()
+    }
+
+    fn check_if_oom(&self) -> Result<(), crate::DeviceError> {
+        let Some(threshold) = self.mem_allocator.memory_budget_thresholds.for_device_loss else {
+            return Ok(());
+        };
+
+        let info = self
+            .shared
+            .adapter
+            .query_video_memory_info(Dxgi::DXGI_MEMORY_SEGMENT_GROUP_LOCAL)?;
+
+        if info.CurrentUsage >= info.Budget / 100 * threshold as u64 {
+            return Err(crate::DeviceError::OutOfMemory);
         }
+
+        if matches!(
+            self.shared.private_caps.memory_architecture,
+            super::MemoryArchitecture::NonUnified
+        ) {
+            let info = self
+                .shared
+                .adapter
+                .query_video_memory_info(Dxgi::DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL)?;
+
+            if info.CurrentUsage >= info.Budget / 100 * threshold as u64 {
+                return Err(crate::DeviceError::OutOfMemory);
+            }
+        }
+
+        Ok(())
     }
 }

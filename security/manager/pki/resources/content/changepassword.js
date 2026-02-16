@@ -27,6 +27,16 @@ function onLoad() {
   document.addEventListener("dialogaccept", setPassword);
 
   pw1 = document.getElementById("pw1");
+  pw1.addEventListener("input", () => {
+    setPasswordStrength();
+    checkPasswords();
+  });
+
+  let pw2 = document.getElementById("pw2");
+  pw2.addEventListener("input", () => {
+    checkPasswords();
+  });
+
   params = window.arguments[0].QueryInterface(Ci.nsIDialogParamBlock);
   token = params.objects.GetElementAt(0).QueryInterface(Ci.nsIPK11Token);
 
@@ -94,10 +104,10 @@ function setPassword(event) {
           // checkPasswords() should have prevented this path from being reached.
         } else {
           if (pw1.value == "") {
-            var secmoddb = Cc[
-              "@mozilla.org/security/pkcs11moduledb;1"
-            ].getService(Ci.nsIPKCS11ModuleDB);
-            if (secmoddb.isFIPSEnabled) {
+            const fipsUtils = Cc[
+              "@mozilla.org/security/fipsutils;1"
+            ].getService(Ci.nsIFIPSUtils);
+            if (fipsUtils.isFIPSEnabled) {
               // empty passwords are not allowed in FIPS mode
               doPrompt("pippki-pw-change2empty-in-fips-mode");
               passok = 0;
@@ -209,3 +219,5 @@ function checkPasswords() {
   document.getElementById("set_password").getButton("accept").disabled =
     pw1 != pw2;
 }
+
+window.addEventListener("load", onLoad);

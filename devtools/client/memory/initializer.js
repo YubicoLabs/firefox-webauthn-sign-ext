@@ -9,14 +9,17 @@
 const {
   createFactory,
   createElement,
-} = require("resource://devtools/client/shared/vendor/react.js");
-const ReactDOM = require("resource://devtools/client/shared/vendor/react-dom.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
+const ReactDOM = require("resource://devtools/client/shared/vendor/react-dom.mjs");
 const {
   Provider,
 } = require("resource://devtools/client/shared/vendor/react-redux.js");
 const App = createFactory(require("resource://devtools/client/memory/app.js"));
 const Store = require("resource://devtools/client/memory/store.js");
 const { assert } = require("resource://devtools/shared/DevToolsUtils.js");
+const {
+  START_IGNORE_ACTION,
+} = require("resource://devtools/client/shared/redux/middleware/ignore.js");
 
 const {
   updateMemoryFront,
@@ -49,6 +52,9 @@ const updateFront = front => {
 };
 
 const destroy = function () {
+  // Prevents any further action from being dispatched
+  store.dispatch(START_IGNORE_ACTION);
+
   const ok = ReactDOM.unmountComponentAtNode(root);
   assert(
     ok,

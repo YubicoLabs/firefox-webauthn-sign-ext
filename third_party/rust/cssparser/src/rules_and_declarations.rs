@@ -31,7 +31,7 @@ pub trait DeclarationParser<'i> {
     /// Parse the value of a declaration with the given `name`.
     ///
     /// Return the finished representation for the declaration
-    /// as returned by `DeclarationListParser::next`,
+    /// as returned by `RuleBodyParser::next`,
     /// or an `Err(..)` to ignore the entire declaration as invalid.
     ///
     /// Declaration name matching should be case-insensitive in the ASCII range.
@@ -49,6 +49,7 @@ pub trait DeclarationParser<'i> {
         &mut self,
         name: CowRcStr<'i>,
         input: &mut Parser<'i, 't>,
+        _declaration_start: &ParserState,
     ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
         Err(input.new_error(BasicParseErrorKind::UnexpectedToken(Token::Ident(name))))
     }
@@ -62,7 +63,7 @@ pub trait DeclarationParser<'i> {
 ///
 /// Default implementations that reject all at-rules are provided,
 /// so that `impl AtRuleParser<(), ()> for ... {}` can be used
-/// for using `DeclarationListParser` to parse a declarations list with only qualified rules.
+/// for using `RuleBodyParser` to parse a declarations list with only qualified rules.
 pub trait AtRuleParser<'i> {
     /// The intermediate representation of prelude of an at-rule.
     type Prelude;
@@ -120,7 +121,7 @@ pub trait AtRuleParser<'i> {
     /// The location passed in is source location of the start of the prelude.
     ///
     /// Return the finished representation of the at-rule
-    /// as returned by `RuleListParser::next` or `DeclarationListParser::next`,
+    /// as returned by `StyleSheetParser::next` or `RuleBodyParser::next`,
     /// or an `Err(..)` to ignore the entire at-rule as invalid.
     ///
     /// This is only called when `parse_prelude` returned `WithBlock`, and a block
@@ -145,7 +146,7 @@ pub trait AtRuleParser<'i> {
 ///
 /// Default implementations that reject all qualified rules are provided, so that
 /// `impl QualifiedRuleParser<(), ()> for ... {}` can be used for example for using
-/// `RuleListParser` to parse a rule list with only at-rules (such as inside
+/// `StyleSheetParser` to parse a rule list with only at-rules (such as inside
 /// `@font-feature-values`).
 pub trait QualifiedRuleParser<'i> {
     /// The intermediate representation of a qualified rule prelude.
@@ -178,7 +179,7 @@ pub trait QualifiedRuleParser<'i> {
     /// The location passed in is source location of the start of the prelude.
     ///
     /// Return the finished representation of the qualified rule
-    /// as returned by `RuleListParser::next`,
+    /// as returned by `StyleSheetParser::next`,
     /// or an `Err(..)` to ignore the entire at-rule as invalid.
     fn parse_block<'t>(
         &mut self,
@@ -196,7 +197,7 @@ pub trait QualifiedRuleParser<'i> {
 pub struct RuleBodyParser<'i, 't, 'a, P, I, E> {
     /// The input given to the parser.
     pub input: &'a mut Parser<'i, 't>,
-    /// The parser given to `DeclarationListParser::new`
+    /// The parser given to `RuleBodyParser::new`
     pub parser: &'a mut P,
 
     _phantom: std::marker::PhantomData<(I, E)>,
@@ -217,7 +218,7 @@ pub trait RuleBodyItemParser<'i, DeclOrRule, Error: 'i>:
 }
 
 impl<'i, 't, 'a, P, I, E> RuleBodyParser<'i, 't, 'a, P, I, E> {
-    /// Create a new `DeclarationListParser` for the given `input` and `parser`.
+    /// Create a new `RuleBodyParser` for the given `input` and `parser`.
     ///
     /// Note that all CSS declaration lists can on principle contain at-rules.
     /// Even if no such valid at-rule exists (yet),
@@ -229,7 +230,7 @@ impl<'i, 't, 'a, P, I, E> RuleBodyParser<'i, 't, 'a, P, I, E> {
     /// since `AtRuleParser` provides default implementations of its methods.
     ///
     /// The return type for finished declarations and at-rules also needs to be the same,
-    /// since `<DeclarationListParser as Iterator>::next` can return either.
+    /// since `<RuleBodyParser as Iterator>::next` can return either.
     /// It could be a custom enum.
     pub fn new(input: &'a mut Parser<'i, 't>, parser: &'a mut P) -> Self {
         Self {
@@ -241,7 +242,7 @@ impl<'i, 't, 'a, P, I, E> RuleBodyParser<'i, 't, 'a, P, I, E> {
 }
 
 /// https://drafts.csswg.org/css-syntax/#consume-a-blocks-contents
-impl<'i, 't, 'a, I, P, E: 'i> Iterator for RuleBodyParser<'i, 't, 'a, P, I, E>
+impl<'i, I, P, E: 'i> Iterator for RuleBodyParser<'i, '_, '_, P, I, E>
 where
     P: RuleBodyItemParser<'i, I, E>,
 {
@@ -279,7 +280,7 @@ where
                             error_behavior,
                             |input| {
                                 input.expect_colon()?;
-                                parser.parse_value(name, input)
+                                parser.parse_value(name, input, &start)
                             },
                         )
                     };
@@ -338,7 +339,7 @@ where
     /// implementations of their methods.
     ///
     /// The return type for finished qualified rules and at-rules also needs to be the same,
-    /// since `<RuleListParser as Iterator>::next` can return either. It could be a custom enum.
+    /// since `<StyleSheetParser as Iterator>::next` can return either. It could be a custom enum.
     pub fn new(input: &'a mut Parser<'i, 't>, parser: &'a mut P) -> Self {
         Self {
             input,
@@ -348,8 +349,8 @@ where
     }
 }
 
-/// `RuleListParser` is an iterator that yields `Ok(_)` for a rule or an `Err(..)` for an invalid one.
-impl<'i, 't, 'a, R, P, E: 'i> Iterator for StyleSheetParser<'i, 't, 'a, P>
+/// `StyleSheetParser` is an iterator that yields `Ok(_)` for a rule or an `Err(..)` for an invalid one.
+impl<'i, R, P, E: 'i> Iterator for StyleSheetParser<'i, '_, '_, P>
 where
     P: QualifiedRuleParser<'i, QualifiedRule = R, Error = E>
         + AtRuleParser<'i, AtRule = R, Error = E>,
@@ -408,12 +409,13 @@ pub fn parse_one_declaration<'i, 't, P, E>(
 where
     P: DeclarationParser<'i, Error = E>,
 {
+    let start = input.state();
     let start_position = input.position();
     input
         .parse_entirely(|input| {
             let name = input.expect_ident()?.clone();
             input.expect_colon()?;
-            parser.parse_value(name, input)
+            parser.parse_value(name, input, &start)
         })
         .map_err(|e| (e, input.slice_from(start_position)))
 }

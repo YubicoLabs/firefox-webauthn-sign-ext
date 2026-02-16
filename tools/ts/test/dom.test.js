@@ -1,7 +1,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-/* eslint-env node, jest */
+
 "use strict";
 
 const fs = require("fs");
@@ -10,6 +10,7 @@ const { emitDom } = require("../build_dom.js");
 
 const domdir = path.join(__dirname, "../../../dom/webidl");
 const files = [
+  "BufferSource.webidl",
   "TestFunctions.webidl",
   "TestInterfaceJSDictionaries.webidl",
   "TestInterfaceObservableArray.webidl",

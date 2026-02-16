@@ -4,14 +4,17 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use super::err::{secstatus_to_res, Error};
-use crate::err::Res;
 use std::{
     convert::TryFrom,
     marker::PhantomData,
     mem,
     os::raw::{c_int, c_uint},
-    ptr::null_mut,
+    ptr::{self, null_mut},
+};
+
+use crate::{
+    err::{Error, Res},
+    nss::err::{secstatus_to_res, Error as NssError},
 };
 
 #[allow(
@@ -36,7 +39,7 @@ use sys::{
 };
 
 macro_rules! scoped_ptr {
-    ($scoped:ident, $target:ty, $dtor:path) => {
+    ($scoped:ident, $target:ty, $dtor:path, noptr) => {
         pub struct $scoped {
             ptr: *mut $target,
         }
@@ -51,23 +54,17 @@ macro_rules! scoped_ptr {
             }
         }
 
-        impl std::ops::Deref for $scoped {
-            type Target = *mut $target;
-            #[must_use]
-            fn deref(&self) -> &*mut $target {
-                &self.ptr
-            }
-        }
-
-        impl std::ops::DerefMut for $scoped {
-            fn deref_mut(&mut self) -> &mut *mut $target {
-                &mut self.ptr
-            }
-        }
-
         impl Drop for $scoped {
             fn drop(&mut self) {
                 unsafe { $dtor(self.ptr) };
+            }
+        }
+    };
+    ($scoped:ident, $target:ty, $dtor:path) => {
+        scoped_ptr!($scoped, $target, $dtor, noptr);
+        impl $scoped {
+            pub(crate) fn ptr(&self) -> *mut $target {
+                self.ptr
             }
         }
     };
@@ -76,7 +73,11 @@ macro_rules! scoped_ptr {
 scoped_ptr!(PrivateKey, SECKEYPrivateKey, SECKEY_DestroyPrivateKey);
 
 impl PrivateKey {
-    pub fn key_data(&self) -> Res<Vec<u8>> {
+    fn key_data(&self) -> Res<Vec<u8>> {
+        if !cfg!(feature = "unsafe-print-secrets") {
+            return Err(Error::from(NssError::internal()));
+        }
+
         let mut key_item = SECItem {
             type_: SECItemType::siBuffer,
             data: null_mut(),
@@ -85,9 +86,9 @@ impl PrivateKey {
         secstatus_to_res(unsafe {
             PK11_ReadRawAttribute(
                 PK11ObjectType::PK11_TypePrivKey,
-                (**self).cast(),
+                self.ptr().cast(),
                 CK_ATTRIBUTE_TYPE::from(CKA_VALUE),
-                &mut key_item,
+                &raw mut key_item,
             )
         })?;
         let slc = unsafe {
@@ -98,7 +99,7 @@ impl PrivateKey {
         // use the scoped `Item` implementation.  This is OK as long as nothing
         // panics between `PK11_ReadRawAttribute` succeeding and here.
         unsafe {
-            SECITEM_FreeItem(&mut key_item, PRBool::from(false));
+            SECITEM_FreeItem(&raw mut key_item, PRBool::from(false));
         }
         Ok(key)
     }
@@ -106,7 +107,6 @@ impl PrivateKey {
 unsafe impl Send for PrivateKey {}
 
 impl Clone for PrivateKey {
-    #[must_use]
     fn clone(&self) -> Self {
         let ptr = unsafe { sys::SECKEY_CopyPrivateKey(self.ptr) };
         assert!(!ptr.is_null());
@@ -133,9 +133,9 @@ impl PublicKey {
         let mut len: c_uint = 0;
         secstatus_to_res(unsafe {
             sys::PK11_HPKE_Serialize(
-                **self,
+                self.ptr(),
                 buf.as_mut_ptr(),
-                &mut len,
+                &raw mut len,
                 c_uint::try_from(buf.len()).unwrap(),
             )
         })?;
@@ -147,7 +147,6 @@ impl PublicKey {
 unsafe impl Send for PublicKey {}
 
 impl Clone for PublicKey {
-    #[must_use]
     fn clone(&self) -> Self {
         let ptr = unsafe { sys::SECKEY_CopyPublicKey(self.ptr) };
         assert!(!ptr.is_null());
@@ -188,14 +187,13 @@ impl SymKey {
         let key_item = unsafe { PK11_GetKeyData(self.ptr) };
         // This is accessing a value attached to the key, so we can treat this as a borrow.
         match unsafe { key_item.as_mut() } {
-            None => Err(Error::last()),
+            None => Err(NssError::last()),
             Some(key) => Ok(unsafe { std::slice::from_raw_parts(key.data, key.len as usize) }),
         }
     }
 }
 
 impl Clone for SymKey {
-    #[must_use]
     fn clone(&self) -> Self {
         let ptr = unsafe { PK11_ReferenceSymKey(self.ptr) };
         assert!(!ptr.is_null());
@@ -205,11 +203,12 @@ impl Clone for SymKey {
 
 impl std::fmt::Debug for SymKey {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Ok(b) = self.key_data() {
-            write!(f, "SymKey {}", hex::encode(b))
-        } else {
-            write!(f, "Opaque SymKey")
+        if cfg!(feature = "unsafe-print-secrets") {
+            if let Ok(b) = self.key_data() {
+                return write!(f, "SymKey {}", hex::encode(b));
+            }
         }
+        write!(f, "Opaque SymKey")
     }
 }
 
@@ -235,7 +234,7 @@ impl<'a, T: Sized + 'a> ParamItem<'a, T> {
     pub fn new(v: &'a mut T) -> Self {
         let item = SECItem {
             type_: SECItemType::siBuffer,
-            data: (v as *mut T).cast::<u8>(),
+            data: ptr::from_mut(v).cast::<u8>(),
             len: c_uint::try_from(mem::size_of::<T>()).unwrap(),
         };
         Self {
@@ -245,14 +244,14 @@ impl<'a, T: Sized + 'a> ParamItem<'a, T> {
     }
 
     pub fn ptr(&mut self) -> *mut SECItem {
-        std::ptr::addr_of_mut!(self.item)
+        ptr::addr_of_mut!(self.item)
     }
 }
 
 unsafe fn destroy_secitem(item: *mut SECItem) {
     SECITEM_FreeItem(item, PRBool::from(true));
 }
-scoped_ptr!(Item, SECItem, destroy_secitem);
+scoped_ptr!(Item, SECItem, destroy_secitem, noptr);
 
 impl Item {
     /// Create a wrapper for a slice of this object.
@@ -261,7 +260,7 @@ impl Item {
     pub(crate) fn wrap(buf: &[u8]) -> SECItem {
         SECItem {
             type_: SECItemType::siBuffer,
-            data: buf.as_ptr() as *mut u8,
+            data: buf.as_ptr().cast_mut(), // const cast :(
             len: c_uint::try_from(buf.len()).unwrap(),
         }
     }

@@ -13,14 +13,15 @@
 #include "TextEditor.h"       // for TextEditor
 #include "WSRunScanner.h"     // for WSRunScanner
 
-#include "mozilla/CaretAssociationHint.h"  // for CaretAssociationHint
-#include "mozilla/IntegerRange.h"          // for IntegerRange
-#include "mozilla/OwningNonNull.h"         // for OwningNonNull
-#include "mozilla/PresShell.h"             // for PresShell
-#include "mozilla/dom/Document.h"          // for dom::Document
-#include "mozilla/dom/HTMLBRElement.h"     // for dom HTMLBRElement
-#include "mozilla/dom/Selection.h"         // for dom::Selection
-#include "mozilla/dom/Text.h"              // for dom::Text
+#include "mozilla/CaretAssociationHint.h"     // for CaretAssociationHint
+#include "mozilla/IntegerRange.h"             // for IntegerRange
+#include "mozilla/OwningNonNull.h"            // for OwningNonNull
+#include "mozilla/PresShell.h"                // for PresShell
+#include "mozilla/dom/CharacterDataBuffer.h"  // for CharacterDataBuffer
+#include "mozilla/dom/Document.h"             // for dom::Document
+#include "mozilla/dom/HTMLBRElement.h"        // for dom HTMLBRElement
+#include "mozilla/dom/Selection.h"            // for dom::Selection
+#include "mozilla/dom/Text.h"                 // for dom::Text
 
 #include "gfxFontUtils.h"      // for gfxFontUtils
 #include "nsError.h"           // for NS_SUCCESS_* and NS_ERROR_*
@@ -28,13 +29,14 @@
 #include "nsIContent.h"        // for nsIContent
 #include "nsINode.h"           // for nsINode
 #include "nsRange.h"           // for nsRange
-#include "nsTextFragment.h"    // for nsTextFragment
 
 namespace mozilla {
 
 using namespace dom;
 
 using EmptyCheckOption = HTMLEditUtils::EmptyCheckOption;
+using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+using ReplaceOrVoidElementOption = HTMLEditUtils::ReplaceOrVoidElementOption;
 
 /******************************************************************************
  * mozilla::AutoClonedRangeArray
@@ -97,25 +99,15 @@ bool AutoClonedRangeArray::IsEditableRange(const dom::AbstractRange& aRange,
   //       first/last point of non-editable element.
   //       See https://github.com/w3c/editing/issues/283#issuecomment-788654850
   EditorRawDOMPoint atStart(aRange.StartRef());
-  const bool isStartEditable =
-      atStart.IsInContentNode() &&
-      EditorUtils::IsEditableContent(*atStart.ContainerAs<nsIContent>(),
-                                     EditorUtils::EditorType::HTML) &&
-      !HTMLEditUtils::IsNonEditableReplacedContent(
-          *atStart.ContainerAs<nsIContent>());
-  if (!isStartEditable) {
+  if (!atStart.IsInContentNode() || !HTMLEditUtils::IsSimplyEditableNode(
+                                        *atStart.ContainerAs<nsIContent>())) {
     return false;
   }
 
   if (aRange.GetStartContainer() != aRange.GetEndContainer()) {
     EditorRawDOMPoint atEnd(aRange.EndRef());
-    const bool isEndEditable =
-        atEnd.IsInContentNode() &&
-        EditorUtils::IsEditableContent(*atEnd.ContainerAs<nsIContent>(),
-                                       EditorUtils::EditorType::HTML) &&
-        !HTMLEditUtils::IsNonEditableReplacedContent(
-            *atEnd.ContainerAs<nsIContent>());
-    if (!isEndEditable) {
+    if (!atEnd.IsInContentNode() || !HTMLEditUtils::IsSimplyEditableNode(
+                                        *atEnd.ContainerAs<nsIContent>())) {
       return false;
     }
 
@@ -164,6 +156,80 @@ void AutoClonedRangeArray::EnsureOnlyEditableRanges(
     }
   }
   mAnchorFocusRange = mRanges.IsEmpty() ? nullptr : mRanges.LastElement().get();
+}
+
+bool AutoClonedRangeArray::AdjustRangesNotInReplacedNorVoidElements(
+    RangeInReplacedOrVoidElement aRangeInReplacedOrVoidElement,
+    const dom::Element& aEditingHost) {
+  bool adjusted = false;
+  for (const size_t index : Reversed(IntegerRange(mRanges.Length()))) {
+    const OwningNonNull<nsRange>& range = mRanges[index];
+    // If the range is in a replaced element or a void element, we should adjust
+    // the range boundaries outside of the element.
+    if (Element* const replacedOrVoidElementAtStart =
+            HTMLEditUtils::GetInclusiveAncestorReplacedOrVoidElement(
+                *range->StartRef().GetContainer()->AsContent(),
+                ReplaceOrVoidElementOption::LookForReplacedOrVoidElement)) {
+      adjusted = true;
+      if (MOZ_UNLIKELY(!replacedOrVoidElementAtStart->IsInclusiveDescendantOf(
+              &aEditingHost))) {
+        mRanges.RemoveElementAt(index);
+        continue;
+      }
+      nsIContent* const commonAncestorContent =
+          nsIContent::FromNode(range->GetClosestCommonInclusiveAncestor());
+      if (commonAncestorContent &&
+          commonAncestorContent->IsInclusiveDescendantOf(
+              replacedOrVoidElementAtStart)) {
+        // If the range is completely in a replaced element or a void element,
+        // let's treat that it's collapsed before the element or just delete the
+        // range.
+        if (aRangeInReplacedOrVoidElement ==
+                RangeInReplacedOrVoidElement::Delete ||
+            NS_WARN_IF(NS_FAILED(range->CollapseTo(
+                RawRangeBoundary::FromChild(*replacedOrVoidElementAtStart)))) ||
+            MOZ_UNLIKELY(
+                !AutoClonedRangeArray::IsEditableRange(range, aEditingHost))) {
+          mRanges.RemoveElementAt(index);
+          continue;
+        }
+        adjusted = true;
+      } else {
+        // If the range does not end in the replaced element or the void
+        // element, let's treat that the range starts after the element.
+        if (NS_WARN_IF(NS_FAILED(range->SetStartAndEnd(
+                RawRangeBoundary::After(*replacedOrVoidElementAtStart),
+                range->EndRef()))) ||
+            MOZ_UNLIKELY(
+                !AutoClonedRangeArray::IsEditableRange(range, aEditingHost))) {
+          mRanges.RemoveElementAt(index);
+          continue;
+        }
+      }
+    }
+    if (!range->Collapsed() &&
+        range->GetStartContainer() != range->GetEndContainer()) {
+      if (Element* const replacedOrVoidElementAtEnd =
+              HTMLEditUtils::GetInclusiveAncestorReplacedOrVoidElement(
+                  *range->EndRef().GetContainer()->AsContent(),
+                  ReplaceOrVoidElementOption::LookForReplacedOrVoidElement)) {
+        MOZ_ASSERT(
+            replacedOrVoidElementAtEnd->IsInclusiveDescendantOf(&aEditingHost));
+        adjusted = true;
+        // If the range ends in a replaced element or a void element, let's
+        // treat that the range ends before the element.
+        if (NS_WARN_IF(NS_FAILED(range->SetStartAndEnd(
+                range->StartRef(),
+                RawRangeBoundary::FromChild(*replacedOrVoidElementAtEnd)))) ||
+            MOZ_UNLIKELY(
+                !AutoClonedRangeArray::IsEditableRange(range, aEditingHost))) {
+          mRanges.RemoveElementAt(index);
+          continue;
+        }
+      }
+    }
+  }
+  return adjusted;
 }
 
 void AutoClonedRangeArray::EnsureRangesInTextNode(const Text& aTextNode) {
@@ -245,7 +311,7 @@ AutoClonedRangeArray::ShrinkRangesIfStartFromOrEndAfterAtomicContent(
                "Changing range in selection may cause running script");
     Result<bool, nsresult> result =
         WSRunScanner::ShrinkRangeIfStartsFromOrEndsAfterAtomicContent(
-            WSRunScanner::Scan::EditableNodes, range);
+            {WSRunScanner::Option::OnlyEditableNodes}, range);
     if (result.isErr()) {
       NS_WARNING(
           "WSRunScanner::ShrinkRangeIfStartsFromOrEndsAfterAtomicContent() "
@@ -368,20 +434,22 @@ GetPointAtFirstContentOfLineOrParentHTMLBlockIfFirstContentOfBlock(
   // Look back through any further inline nodes that aren't across a <br>
   // from us, and that are enclosed in the same block.
   // I.e., looking for start of current hard line.
-  constexpr HTMLEditUtils::WalkTreeOptions
-      ignoreNonEditableNodeAndStopAtBlockBoundary{
-          HTMLEditUtils::WalkTreeOption::IgnoreNonEditableNode,
-          HTMLEditUtils::WalkTreeOption::StopAtBlockBoundary};
-  for (nsIContent* previousEditableContent = HTMLEditUtils::GetPreviousContent(
-           point, ignoreNonEditableNodeAndStopAtBlockBoundary,
-           aBlockInlineCheck, &aAncestorLimiter);
+  for (nsIContent* previousEditableContent =
+           HTMLEditUtils::GetPreviousLeafContentOrPreviousBlockElement(
+               point,
+               {LeafNodeOption::IgnoreNonEditableNode,
+                LeafNodeOption::TreatChildBlockAsLeafNode},
+               aBlockInlineCheck, &aAncestorLimiter);
        previousEditableContent && previousEditableContent->GetParentNode() &&
        !HTMLEditUtils::IsVisibleBRElement(*previousEditableContent) &&
        !HTMLEditUtils::IsBlockElement(*previousEditableContent,
                                       aBlockInlineCheck);
-       previousEditableContent = HTMLEditUtils::GetPreviousContent(
-           point, ignoreNonEditableNodeAndStopAtBlockBoundary,
-           aBlockInlineCheck, &aAncestorLimiter)) {
+       previousEditableContent =
+           HTMLEditUtils::GetPreviousLeafContentOrPreviousBlockElement(
+               point,
+               {LeafNodeOption::IgnoreNonEditableNode,
+                LeafNodeOption::TreatChildBlockAsLeafNode},
+               aBlockInlineCheck, &aAncestorLimiter)) {
     EditorDOMPoint atLastPreformattedNewLine =
         HTMLEditUtils::GetPreviousPreformattedNewLineInTextNode<EditorDOMPoint>(
             EditorRawDOMPoint::AtEndOf(*previousEditableContent));
@@ -395,14 +463,20 @@ GetPointAtFirstContentOfLineOrParentHTMLBlockIfFirstContentOfBlock(
   // <br> element.  Look up the tree for as long as we are the first node in
   // the container (typically, start of nearest block ancestor), and as long
   // as we haven't hit the body node.
-  for (nsIContent* nearContent = HTMLEditUtils::GetPreviousContent(
-           point, ignoreNonEditableNodeAndStopAtBlockBoundary,
-           aBlockInlineCheck, &aAncestorLimiter);
+  for (nsIContent* nearContent =
+           HTMLEditUtils::GetPreviousLeafContentOrPreviousBlockElement(
+               point,
+               {LeafNodeOption::IgnoreNonEditableNode,
+                LeafNodeOption::TreatChildBlockAsLeafNode},
+               aBlockInlineCheck, &aAncestorLimiter);
        !nearContent && !point.IsContainerHTMLElement(nsGkAtoms::body) &&
        point.GetContainerParent();
-       nearContent = HTMLEditUtils::GetPreviousContent(
-           point, ignoreNonEditableNodeAndStopAtBlockBoundary,
-           aBlockInlineCheck, &aAncestorLimiter)) {
+       nearContent =
+           HTMLEditUtils::GetPreviousLeafContentOrPreviousBlockElement(
+               point,
+               {LeafNodeOption::IgnoreNonEditableNode,
+                LeafNodeOption::TreatChildBlockAsLeafNode},
+               aBlockInlineCheck, &aAncestorLimiter)) {
     // Don't keep looking up if we have found a blockquote element to act on
     // when we handle outdent.
     // XXX Sounds like this is hacky.  If possible, it should be check in
@@ -532,20 +606,22 @@ GetPointAfterFollowingLineBreakOrAtFollowingHTMLBlock(
   //     * <div contenteditable>foo[]<b contenteditable="false">bar</b>baz</div>
   //     Only in the first case, after the caret position isn't wrapped with
   //     new <div> element.
-  constexpr HTMLEditUtils::WalkTreeOptions
-      ignoreNonEditableNodeAndStopAtBlockBoundary{
-          HTMLEditUtils::WalkTreeOption::IgnoreNonEditableNode,
-          HTMLEditUtils::WalkTreeOption::StopAtBlockBoundary};
-  for (nsIContent* nextEditableContent = HTMLEditUtils::GetNextContent(
-           point, ignoreNonEditableNodeAndStopAtBlockBoundary,
-           aBlockInlineCheck, &aAncestorLimiter);
+  for (nsIContent* nextEditableContent =
+           HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
+               point,
+               {LeafNodeOption::IgnoreNonEditableNode,
+                LeafNodeOption::TreatChildBlockAsLeafNode},
+               aBlockInlineCheck, &aAncestorLimiter);
        nextEditableContent &&
        !HTMLEditUtils::IsBlockElement(*nextEditableContent,
                                       aBlockInlineCheck) &&
        nextEditableContent->GetParent();
-       nextEditableContent = HTMLEditUtils::GetNextContent(
-           point, ignoreNonEditableNodeAndStopAtBlockBoundary,
-           aBlockInlineCheck, &aAncestorLimiter)) {
+       nextEditableContent =
+           HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
+               point,
+               {LeafNodeOption::IgnoreNonEditableNode,
+                LeafNodeOption::TreatChildBlockAsLeafNode},
+               aBlockInlineCheck, &aAncestorLimiter)) {
     EditorDOMPoint atFirstPreformattedNewLine =
         HTMLEditUtils::GetInclusiveNextPreformattedNewLineInTextNode<
             EditorDOMPoint>(EditorRawDOMPoint(nextEditableContent, 0));
@@ -589,13 +665,18 @@ GetPointAfterFollowingLineBreakOrAtFollowingHTMLBlock(
   // element.  Look up the tree for as long as we are the last node in the
   // container (typically, block node), and as long as we haven't hit the body
   // node.
-  for (nsIContent* nearContent = HTMLEditUtils::GetNextContent(
-           point, ignoreNonEditableNodeAndStopAtBlockBoundary,
-           aBlockInlineCheck, &aAncestorLimiter);
+  for (nsIContent* nearContent =
+           HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
+               point,
+               {LeafNodeOption::IgnoreNonEditableNode,
+                LeafNodeOption::TreatChildBlockAsLeafNode},
+               aBlockInlineCheck, &aAncestorLimiter);
        !nearContent && !point.IsContainerHTMLElement(nsGkAtoms::body) &&
        point.GetContainerParent();
-       nearContent = HTMLEditUtils::GetNextContent(
-           point, ignoreNonEditableNodeAndStopAtBlockBoundary,
+       nearContent = HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
+           point,
+           {LeafNodeOption::IgnoreNonEditableNode,
+            LeafNodeOption::TreatChildBlockAsLeafNode},
            aBlockInlineCheck, &aAncestorLimiter)) {
     // Don't walk past the editable section. Note that we need to check before
     // walking up to a parent because we need to return the parent object, so
@@ -911,8 +992,8 @@ nsresult AutoClonedRangeArray::CollectEditTargetNodes(
       if (aEditSubAction == EditSubAction::eCreateOrRemoveBlock) {
         for (const size_t index :
              Reversed(IntegerRange(aOutArrayOfContents.Length()))) {
-          OwningNonNull<nsIContent> content = aOutArrayOfContents[index];
-          if (HTMLEditUtils::IsListItem(content)) {
+          const OwningNonNull<nsIContent> content = aOutArrayOfContents[index];
+          if (HTMLEditUtils::IsListItemElement(*content)) {
             aOutArrayOfContents.RemoveElementAt(index);
             HTMLEditUtils::CollectChildren(*content, aOutArrayOfContents, index,
                                            options);
@@ -928,8 +1009,8 @@ nsresult AutoClonedRangeArray::CollectEditTargetNodes(
             HTMLEditUtils::IsFormatTagForFormatBlockCommand(*nsGkAtoms::dd));
         for (const size_t index :
              Reversed(IntegerRange(aOutArrayOfContents.Length()))) {
-          OwningNonNull<nsIContent> content = aOutArrayOfContents[index];
-          MOZ_ASSERT_IF(HTMLEditUtils::IsListItem(content),
+          const OwningNonNull<nsIContent> content = aOutArrayOfContents[index];
+          MOZ_ASSERT_IF(HTMLEditUtils::IsListItemElement(*content),
                         content->IsAnyOfHTMLElements(
                             nsGkAtoms::dd, nsGkAtoms::dt, nsGkAtoms::li));
           if (content->IsHTMLElement(nsGkAtoms::li)) {
@@ -962,8 +1043,9 @@ nsresult AutoClonedRangeArray::CollectEditTargetNodes(
         // because if a selection range starts from end in a table-cell and
         // ends at or starts from outside the `<table>`, we need to make
         // lists in each selected table-cells.
-        OwningNonNull<nsIContent> content = aOutArrayOfContents[index];
-        if (HTMLEditUtils::IsAnyTableElementButNotTable(content)) {
+        const OwningNonNull<nsIContent> content = aOutArrayOfContents[index];
+        if (HTMLEditUtils::IsAnyTableElementExceptTableElementAndColumElement(
+                content)) {
           aOutArrayOfContents.RemoveElementAt(index);
           HTMLEditUtils::CollectChildren(content, aOutArrayOfContents, index,
                                          options);
@@ -975,11 +1057,10 @@ nsresult AutoClonedRangeArray::CollectEditTargetNodes(
       if (aOutArrayOfContents.Length() != 1) {
         break;
       }
-      Element* deepestDivBlockquoteOrListElement =
+      Element* const deepestDivBlockquoteOrListElement =
           HTMLEditUtils::GetInclusiveDeepestFirstChildWhichHasOneChild(
-              aOutArrayOfContents[0],
-              {HTMLEditUtils::WalkTreeOption::IgnoreNonEditableNode},
-              BlockInlineCheck::Unused, nsGkAtoms::div, nsGkAtoms::blockquote,
+              aOutArrayOfContents[0], {LeafNodeOption::IgnoreNonEditableNode},
+              BlockInlineCheck::Auto, nsGkAtoms::div, nsGkAtoms::blockquote,
               nsGkAtoms::ul, nsGkAtoms::ol, nsGkAtoms::dl);
       if (!deepestDivBlockquoteOrListElement) {
         break;
@@ -1010,8 +1091,9 @@ nsresult AutoClonedRangeArray::CollectEditTargetNodes(
       }
       for (const size_t index :
            Reversed(IntegerRange(aOutArrayOfContents.Length()))) {
-        OwningNonNull<nsIContent> content = aOutArrayOfContents[index];
-        if (HTMLEditUtils::IsAnyTableElementButNotTable(content)) {
+        const OwningNonNull<nsIContent> content = aOutArrayOfContents[index];
+        if (HTMLEditUtils::IsAnyTableElementExceptTableElementAndColumElement(
+                content)) {
           aOutArrayOfContents.RemoveElementAt(index);
           HTMLEditUtils::CollectChildren(*content, aOutArrayOfContents, index,
                                          options);
@@ -1052,7 +1134,7 @@ Element* AutoClonedRangeArray::GetClosestAncestorAnyListElementOfRange() const {
     }
     for (Element* const element :
          commonAncestorNode->InclusiveAncestorsOfType<Element>()) {
-      if (HTMLEditUtils::IsAnyListElement(element)) {
+      if (HTMLEditUtils::IsListElement(*element)) {
         return element;
       }
     }
@@ -1075,6 +1157,157 @@ void AutoClonedRangeArray::RemoveCollapsedRanges() {
     }
   } else {
     MOZ_ASSERT(mRanges.Contains(mAnchorFocusRange.get()));
+  }
+}
+
+void AutoClonedRangeArray::ExtendRangeToContainSurroundingInvisibleWhiteSpaces(
+    nsIEditor::EStripWrappers aStripWrappers) {
+  const auto PointAfterLineBoundary =
+      [](const WSScanResult& aPreviousThing) -> EditorRawDOMPoint {
+    if (aPreviousThing.ReachedCurrentBlockBoundary()) {
+      return EditorRawDOMPoint(aPreviousThing.ElementPtr(), 0u);
+    }
+    return aPreviousThing.PointAfterReachedContent<EditorRawDOMPoint>();
+  };
+  const auto PointeAtLineBoundary =
+      [](const WSScanResult& aNextThing) -> EditorRawDOMPoint {
+    if (aNextThing.ReachedCurrentBlockBoundary()) {
+      return EditorRawDOMPoint::AtEndOf(*aNextThing.ElementPtr());
+    }
+    return aNextThing.PointAtReachedContent<EditorRawDOMPoint>();
+  };
+  for (const OwningNonNull<nsRange>& range : mRanges) {
+    if (MOZ_UNLIKELY(range->Collapsed())) {
+      // Don't extend the collapsed range to do nothing for the range.
+      continue;
+    }
+    const WSScanResult previousThing =
+        WSRunScanner::ScanPreviousVisibleNodeOrBlockBoundary(
+            {WSRunScanner::Option::OnlyEditableNodes},
+            EditorRawDOMPoint(range->StartRef()));
+    if (previousThing.ReachedLineBoundary()) {
+      const EditorRawDOMPoint mostDistantNewStart =
+          [&]() MOZ_NEVER_INLINE_DEBUG {
+            if (aStripWrappers == nsIEditor::eStrip) {
+              nsINode* const commonAncestor =
+                  range->GetClosestCommonInclusiveAncestor();
+              MOZ_ASSERT(commonAncestor);
+              Element* const commonContainer =
+                  commonAncestor->GetAsElementOrParentElement();
+              if (NS_WARN_IF(!commonContainer)) {
+                return EditorRawDOMPoint();
+              }
+              return EditorRawDOMPoint(commonContainer, 0u);
+            }
+            Element* const container =
+                range->StartRef().GetContainer()->GetAsElementOrParentElement();
+            if (NS_WARN_IF(!container)) {
+              return EditorRawDOMPoint();
+            }
+            return EditorRawDOMPoint(container, 0u);
+          }();
+      const EditorRawDOMPoint afterLineBoundary =
+          PointAfterLineBoundary(previousThing);
+      const auto& newStart =
+          [&]() MOZ_NEVER_INLINE_DEBUG -> const EditorRawDOMPoint& {
+        // If the container wraps the line boundary, we can extend the range
+        // to the line boundary.
+        if (MOZ_UNLIKELY(!mostDistantNewStart.IsSet()) ||
+            mostDistantNewStart.IsBefore(afterLineBoundary)) {
+          return afterLineBoundary;
+        }
+        // If the container does not wrap the line boundary, we can delete
+        // first content of the container.
+        return mostDistantNewStart;
+      }();
+      const auto betterNewStart = [&]() MOZ_NEVER_INLINE_DEBUG {
+        if (MOZ_UNLIKELY(!newStart.IsSet())) {
+          return EditorRawDOMPoint();
+        }
+        MOZ_ASSERT_IF(mostDistantNewStart.IsSet(),
+                      mostDistantNewStart.IsStartOfContainer());
+        auto* const firstText = Text::FromNodeOrNull(
+            newStart == mostDistantNewStart
+                ? mostDistantNewStart.GetContainer()->GetFirstChild()
+                : newStart.GetChild());
+        if (!firstText) {
+          return newStart;
+        }
+        return EditorRawDOMPoint(firstText, 0u);
+      }();
+      if (MOZ_LIKELY(!NS_WARN_IF(!betterNewStart.IsSet())) &&
+          betterNewStart != range->StartRef()) {
+        IgnoredErrorResult ignoredError;
+        range->SetStart(betterNewStart.ToRawRangeBoundary(), ignoredError);
+        NS_WARNING_ASSERTION(!ignoredError.Failed(),
+                             "nsRange::SetStart() failed, but ignored");
+      }
+    }
+    const WSScanResult nextThing =
+        WSRunScanner::ScanInclusiveNextVisibleNodeOrBlockBoundary(
+            {WSRunScanner::Option::OnlyEditableNodes},
+            EditorRawDOMPoint(range->EndRef()));
+    if (!nextThing.ReachedLineBoundary()) {
+      continue;
+    }
+    const EditorRawDOMPoint mostDistantNewEnd = [&]() MOZ_NEVER_INLINE_DEBUG {
+      if (aStripWrappers == nsIEditor::eStrip) {
+        nsINode* const commonAncestor =
+            range->GetClosestCommonInclusiveAncestor();
+        MOZ_ASSERT(commonAncestor);
+        Element* const commonContainer =
+            commonAncestor->GetAsElementOrParentElement();
+        if (NS_WARN_IF(!commonContainer)) {
+          return EditorRawDOMPoint();
+        }
+        return EditorRawDOMPoint::AtEndOf(*commonContainer);
+      }
+      Element* const container =
+          range->EndRef().GetContainer()->GetAsElementOrParentElement();
+      if (NS_WARN_IF(!container)) {
+        return EditorRawDOMPoint();
+      }
+      return EditorRawDOMPoint::AtEndOf(*container);
+    }();
+    if (MOZ_UNLIKELY(!mostDistantNewEnd.IsSet())) {
+      continue;
+    }
+    const EditorRawDOMPoint atLineBoundary = PointeAtLineBoundary(nextThing);
+    const auto& newEnd =
+        [&]() MOZ_NEVER_INLINE_DEBUG -> const EditorRawDOMPoint& {
+      // If the container wraps the line boundary, we can use the boundary
+      // point.
+      if (atLineBoundary.IsBefore(mostDistantNewEnd)) {
+        return atLineBoundary;
+      }
+      // If the container does not wrap the line boundary, we can delete last
+      // content of the container.
+      return mostDistantNewEnd;
+    }();
+    if (MOZ_UNLIKELY(!newEnd.IsSet())) {
+      continue;
+    }
+    const auto betterNewEnd = [&]() MOZ_NEVER_INLINE_DEBUG {
+      MOZ_ASSERT_IF(mostDistantNewEnd.IsSet(),
+                    mostDistantNewEnd.IsEndOfContainer());
+      auto* const lastText = Text::FromNodeOrNull(
+          newEnd == mostDistantNewEnd
+              ? mostDistantNewEnd.GetContainer()->GetLastChild()
+              : (!newEnd.IsStartOfContainer()
+                     ? newEnd.GetPreviousSiblingOfChild()
+                     : nullptr));
+      if (!lastText) {
+        return newEnd;
+      }
+      return EditorRawDOMPoint::AtEndOf(*lastText);
+    }();
+    if (NS_WARN_IF(!betterNewEnd.IsSet()) || betterNewEnd == range->EndRef()) {
+      continue;
+    }
+    IgnoredErrorResult ignoredError;
+    range->SetEnd(betterNewEnd.ToRawRangeBoundary(), ignoredError);
+    NS_WARNING_ASSERTION(!ignoredError.Failed(),
+                         "nsRange::SetEnd() failed, but ignored");
   }
 }
 
@@ -1294,8 +1527,8 @@ AutoClonedSelectionRangeArray::ExtendAnchorFocusRangeFor(
         return aDirectionAndAmount;
       }
 
-      const nsTextFragment* data =
-          &insertionPoint.ContainerAs<Text>()->TextFragment();
+      const CharacterDataBuffer* data =
+          &insertionPoint.ContainerAs<Text>()->DataBuffer();
       uint32_t offset = insertionPoint.Offset();
       if (!(offset > 1 &&
             data->IsLowSurrogateFollowingHighSurrogateAt(offset - 1)) &&

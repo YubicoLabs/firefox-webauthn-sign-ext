@@ -17,8 +17,8 @@ interface ElementInternals {
   undefined setFormValue((File or USVString or FormData)? value,
                          optional (File or USVString or FormData)? state);
 
-  [Throws]
-  readonly attribute HTMLFormElement? form;
+  [Throws, BinaryName=formForBindings]
+  readonly attribute Element? form;
 
   [Throws]
   undefined setValidity(optional ValidityStateFlags flags = {},
@@ -38,10 +38,10 @@ interface ElementInternals {
   [Throws]
   readonly attribute NodeList labels;
 
-  [Pref="dom.element.customstateset.enabled", SameObject] readonly attribute CustomStateSet states;
+  [SameObject] readonly attribute CustomStateSet states;
 };
 
-[Pref="dom.element.customstateset.enabled", Exposed=Window]
+[Exposed=Window]
 interface CustomStateSet {
   setlike<DOMString>;
 };

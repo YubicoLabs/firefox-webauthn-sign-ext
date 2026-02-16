@@ -101,6 +101,8 @@ namespace jit {
   _(BigIntPtrRsh)                 \
   _(BigIntPtrBitNot)              \
   _(Compare)                      \
+  _(StrictConstantCompareInt32)   \
+  _(StrictConstantCompareBoolean) \
   _(Concat)                       \
   _(StringLength)                 \
   _(ArgumentsLength)              \
@@ -118,7 +120,6 @@ namespace jit {
   _(Sqrt)                         \
   _(Atan2)                        \
   _(Hypot)                        \
-  _(NearbyInt)                    \
   _(Sign)                         \
   _(MathFunction)                 \
   _(Random)                       \
@@ -141,7 +142,10 @@ namespace jit {
   _(NewCallObject)                \
   _(Lambda)                       \
   _(FunctionWithProto)            \
+  _(Callee)                       \
+  _(FunctionEnvironment)          \
   _(ObjectKeys)                   \
+  _(ObjectKeysFromIterator)       \
   _(ObjectState)                  \
   _(ArrayState)                   \
   _(AtomicIsLockFree)             \
@@ -151,6 +155,7 @@ namespace jit {
   _(CreateArgumentsObject)        \
   _(CreateInlinedArgumentsObject) \
   _(Rest)                         \
+  _(TypedArraySubarray)           \
   _(AssertRecoveredOnBailout)
 
 class RResumePoint;
@@ -614,6 +619,28 @@ class RCompare final : public RInstruction {
                              SnapshotIterator& iter) const override;
 };
 
+class RStrictConstantCompareInt32 final : public RInstruction {
+  JSOp jsop_;
+  int32_t constant_;
+
+ public:
+  RINSTRUCTION_HEADER_NUM_OP_(StrictConstantCompareInt32, 1)
+
+  [[nodiscard]] bool recover(JSContext* cx,
+                             SnapshotIterator& iter) const override;
+};
+
+class RStrictConstantCompareBoolean final : public RInstruction {
+  JSOp jsop_;
+  bool constant_;
+
+ public:
+  RINSTRUCTION_HEADER_NUM_OP_(StrictConstantCompareBoolean, 1)
+
+  [[nodiscard]] bool recover(JSContext* cx,
+                             SnapshotIterator& iter) const override;
+};
+
 class RConcat final : public RInstruction {
  public:
   RINSTRUCTION_HEADER_NUM_OP_(Concat, 2)
@@ -756,17 +783,6 @@ class RHypot final : public RInstruction {
   RINSTRUCTION_HEADER_(Hypot)
 
   uint32_t numOperands() const override { return numOperands_; }
-
-  [[nodiscard]] bool recover(JSContext* cx,
-                             SnapshotIterator& iter) const override;
-};
-
-class RNearbyInt final : public RInstruction {
- private:
-  uint8_t roundingMode_;
-
- public:
-  RINSTRUCTION_HEADER_NUM_OP_(NearbyInt, 1)
 
   [[nodiscard]] bool recover(JSContext* cx,
                              SnapshotIterator& iter) const override;
@@ -958,6 +974,22 @@ class RFunctionWithProto final : public RInstruction {
                              SnapshotIterator& iter) const override;
 };
 
+class RCallee final : public RInstruction {
+ public:
+  RINSTRUCTION_HEADER_NUM_OP_(Callee, 0)
+
+  [[nodiscard]] bool recover(JSContext* cx,
+                             SnapshotIterator& iter) const override;
+};
+
+class RFunctionEnvironment final : public RInstruction {
+ public:
+  RINSTRUCTION_HEADER_NUM_OP_(FunctionEnvironment, 1)
+
+  [[nodiscard]] bool recover(JSContext* cx,
+                             SnapshotIterator& iter) const override;
+};
+
 class RNewCallObject final : public RInstruction {
  public:
   RINSTRUCTION_HEADER_NUM_OP_(NewCallObject, 1)
@@ -969,6 +1001,14 @@ class RNewCallObject final : public RInstruction {
 class RObjectKeys final : public RInstruction {
  public:
   RINSTRUCTION_HEADER_NUM_OP_(ObjectKeys, 1)
+
+  [[nodiscard]] bool recover(JSContext* cx,
+                             SnapshotIterator& iter) const override;
+};
+
+class RObjectKeysFromIterator final : public RInstruction {
+ public:
+  RINSTRUCTION_HEADER_NUM_OP_(ObjectKeysFromIterator, 1)
 
   [[nodiscard]] bool recover(JSContext* cx,
                              SnapshotIterator& iter) const override;
@@ -1074,6 +1114,14 @@ class RRest final : public RInstruction {
 
  public:
   RINSTRUCTION_HEADER_NUM_OP_(Rest, 1)
+
+  [[nodiscard]] bool recover(JSContext* cx,
+                             SnapshotIterator& iter) const override;
+};
+
+class RTypedArraySubarray final : public RInstruction {
+ public:
+  RINSTRUCTION_HEADER_NUM_OP_(TypedArraySubarray, 3)
 
   [[nodiscard]] bool recover(JSContext* cx,
                              SnapshotIterator& iter) const override;

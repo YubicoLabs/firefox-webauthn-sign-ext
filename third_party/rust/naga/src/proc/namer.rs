@@ -1,22 +1,87 @@
-use crate::{arena::Handle, FastHashMap, FastHashSet};
-use std::borrow::Cow;
-use std::hash::{Hash, Hasher};
+use alloc::{
+    borrow::Cow,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
+
+use crate::{
+    arena::Handle,
+    proc::{keyword_set::CaseInsensitiveKeywordSet, KeywordSet},
+    FastHashMap,
+};
 
 pub type EntryPointIndex = u16;
 const SEPARATOR: char = '_';
 
+/// A component of a lowered external texture.
+///
+/// Whereas the WGSL backend implements [`ImageClass::External`]
+/// images directly, most other Naga backends lower them to a
+/// collection of ordinary textures that represent individual planes
+/// (as received from a video decoder, perhaps), together with a
+/// struct of parameters saying how they should be cropped, sampled,
+/// and color-converted.
+///
+/// This lowering means that individual globals and function
+/// parameters in Naga IR must be split out by the backends into
+/// collections of globals and parameters of simpler types.
+///
+/// A value of this enum serves as a name key for one specific
+/// component in the lowered representation of an external texture.
+/// That is, these keys are for variables/parameters that do not exist
+/// in the Naga IR, only in its lowered form.
+///
+/// [`ImageClass::External`]: crate::ir::ImageClass::External
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ExternalTextureNameKey {
+    Plane(usize),
+    Params,
+}
+
+impl ExternalTextureNameKey {
+    const ALL: &[(&str, ExternalTextureNameKey)] = &[
+        ("_plane0", ExternalTextureNameKey::Plane(0)),
+        ("_plane1", ExternalTextureNameKey::Plane(1)),
+        ("_plane2", ExternalTextureNameKey::Plane(2)),
+        ("_params", ExternalTextureNameKey::Params),
+    ];
+}
+
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub enum NameKey {
     Constant(Handle<crate::Constant>),
+    Override(Handle<crate::Override>),
     GlobalVariable(Handle<crate::GlobalVariable>),
     Type(Handle<crate::Type>),
     StructMember(Handle<crate::Type>, u32),
     Function(Handle<crate::Function>),
     FunctionArgument(Handle<crate::Function>, u32),
     FunctionLocal(Handle<crate::Function>, Handle<crate::LocalVariable>),
+
+    /// A local variable used by ReadZeroSkipWrite bounds-check policy
+    /// when it needs to produce a pointer-typed result for an OOB access.
+    /// These are unique per accessed type, so the second element is a
+    /// type handle. See docs for [`crate::back::msl`].
+    FunctionOobLocal(Handle<crate::Function>, Handle<crate::Type>),
+
     EntryPoint(EntryPointIndex),
     EntryPointLocal(EntryPointIndex, Handle<crate::LocalVariable>),
     EntryPointArgument(EntryPointIndex, u32),
+
+    /// Entry point version of `FunctionOobLocal`.
+    EntryPointOobLocal(EntryPointIndex, Handle<crate::Type>),
+
+    /// A global variable holding a component of a lowered external texture.
+    ///
+    /// See [`ExternalTextureNameKey`] for details.
+    ExternalTextureGlobalVariable(Handle<crate::GlobalVariable>, ExternalTextureNameKey),
+
+    /// A function argument holding a component of a lowered external
+    /// texture.
+    ///
+    /// See [`ExternalTextureNameKey`] for details.
+    ExternalTextureFunctionArgument(Handle<crate::Function>, u32, ExternalTextureNameKey),
 }
 
 /// This processor assigns names to all the things in a module
@@ -25,8 +90,9 @@ pub enum NameKey {
 pub struct Namer {
     /// The last numeric suffix used for each base name. Zero means "no suffix".
     unique: FastHashMap<String, u32>,
-    keywords: FastHashSet<&'static str>,
-    keywords_case_insensitive: FastHashSet<AsciiUniCase<&'static str>>,
+    keywords: &'static KeywordSet,
+    builtin_identifiers: &'static KeywordSet,
+    keywords_case_insensitive: &'static CaseInsensitiveKeywordSet,
     reserved_prefixes: Vec<&'static str>,
 }
 
@@ -54,20 +120,37 @@ impl Namer {
         {
             Cow::Borrowed(string)
         } else {
-            let mut filtered = string
-                .chars()
-                .filter(|&c| c.is_ascii_alphanumeric() || c == '_')
-                .fold(String::new(), |mut s, c| {
-                    if s.ends_with('_') && c == '_' {
-                        return s;
-                    }
+            let mut filtered = string.chars().fold(String::new(), |mut s, c| {
+                let c = match c {
+                    // Make several common characters in C++-ish types become snake case
+                    // separators.
+                    ':' | '<' | '>' | ',' => '_',
+                    c => c,
+                };
+                let had_underscore_at_end = s.ends_with('_');
+                if had_underscore_at_end && c == '_' {
+                    return s;
+                }
+                if c.is_ascii_alphanumeric() || c == '_' {
                     s.push(c);
-                    s
-                });
+                } else {
+                    use core::fmt::Write as _;
+                    if !s.is_empty() && !had_underscore_at_end {
+                        s.push('_');
+                    }
+                    write!(s, "u{:04x}_", c as u32).unwrap();
+                }
+                s
+            });
             let stripped_len = filtered.trim_end_matches(SEPARATOR).len();
             filtered.truncate(stripped_len);
             if filtered.is_empty() {
                 filtered.push_str("unnamed");
+            } else if filtered.starts_with(|c: char| c.is_ascii_digit()) {
+                unreachable!(
+                    "internal error: invalid identifier starting with ASCII digit {:?}",
+                    filtered.chars().nth(0)
+                )
             }
             Cow::Owned(filtered)
         };
@@ -92,7 +175,7 @@ impl Namer {
     /// Guarantee uniqueness by applying a numeric suffix when necessary. If `label_raw`
     /// itself ends with digits, separate them from the suffix with an underscore.
     pub fn call(&mut self, label_raw: &str) -> String {
-        use std::fmt::Write as _; // for write!-ing to Strings
+        use core::fmt::Write as _; // for write!-ing to Strings
 
         let base = self.sanitize(label_raw);
         debug_assert!(!base.is_empty() && !base.ends_with(SEPARATOR));
@@ -114,13 +197,12 @@ impl Namer {
                 let mut suffixed = base.to_string();
                 if base.ends_with(char::is_numeric)
                     || self.keywords.contains(base.as_ref())
-                    || self
-                        .keywords_case_insensitive
-                        .contains(&AsciiUniCase(base.as_ref()))
+                    || self.keywords_case_insensitive.contains(base.as_ref())
+                    || self.builtin_identifiers.contains(base.as_ref())
                 {
                     suffixed.push(SEPARATOR);
                 }
-                debug_assert!(!self.keywords.contains::<str>(&suffixed));
+                debug_assert!(!self.keywords.contains(&suffixed));
                 // `self.unique` wants to own its keys. This allocates only if we haven't
                 // already done so earlier.
                 self.unique.insert(base.into_owned(), 0);
@@ -142,18 +224,20 @@ impl Namer {
     /// globally. This function temporarily establishes a fresh, empty naming
     /// context for the duration of the call to `body`.
     fn namespace(&mut self, capacity: usize, body: impl FnOnce(&mut Self)) {
-        let fresh = FastHashMap::with_capacity_and_hasher(capacity, Default::default());
-        let outer = std::mem::replace(&mut self.unique, fresh);
+        let empty_unique = FastHashMap::with_capacity_and_hasher(capacity, Default::default());
+        let saved_unique = core::mem::replace(&mut self.unique, empty_unique);
+        let saved_builtin_identifiers = core::mem::take(&mut self.builtin_identifiers);
         body(self);
-        self.unique = outer;
+        self.unique = saved_unique;
+        self.builtin_identifiers = saved_builtin_identifiers;
     }
 
     pub fn reset(
         &mut self,
         module: &crate::Module,
-        reserved_keywords: &[&'static str],
-        extra_reserved_keywords: &[&'static str],
-        reserved_keywords_case_insensitive: &[&'static str],
+        reserved_keywords: &'static KeywordSet,
+        builtin_identifiers: &'static KeywordSet,
+        reserved_keywords_case_insensitive: &'static CaseInsensitiveKeywordSet,
         reserved_prefixes: &[&'static str],
         output: &mut FastHashMap<NameKey, String>,
     ) {
@@ -161,24 +245,43 @@ impl Namer {
         self.reserved_prefixes.extend(reserved_prefixes.iter());
 
         self.unique.clear();
-        self.keywords.clear();
-        self.keywords.extend(reserved_keywords.iter());
-        self.keywords.extend(extra_reserved_keywords.iter());
+        self.keywords = reserved_keywords;
+        self.builtin_identifiers = builtin_identifiers;
+        self.keywords_case_insensitive = reserved_keywords_case_insensitive;
 
-        debug_assert!(reserved_keywords_case_insensitive
-            .iter()
-            .all(|s| s.is_ascii()));
-        self.keywords_case_insensitive.clear();
-        self.keywords_case_insensitive.extend(
-            reserved_keywords_case_insensitive
-                .iter()
-                .map(|string| (AsciiUniCase(*string))),
-        );
+        // Choose fallback names for anonymous entry point return types.
+        let mut entrypoint_type_fallbacks = FastHashMap::default();
+        for ep in &module.entry_points {
+            if let Some(ref result) = ep.function.result {
+                if let crate::Type {
+                    name: None,
+                    inner: crate::TypeInner::Struct { .. },
+                } = module.types[result.ty]
+                {
+                    let label = match ep.stage {
+                        crate::ShaderStage::Vertex => "VertexOutput",
+                        crate::ShaderStage::Fragment => "FragmentOutput",
+                        crate::ShaderStage::Compute => "ComputeOutput",
+                        crate::ShaderStage::Task | crate::ShaderStage::Mesh => unreachable!(),
+                    };
+                    entrypoint_type_fallbacks.insert(result.ty, label);
+                }
+            }
+        }
 
         let mut temp = String::new();
 
         for (ty_handle, ty) in module.types.iter() {
-            let ty_name = self.call_or(&ty.name, "type");
+            // If the type is anonymous, check `entrypoint_types` for
+            // something better than just `"type"`.
+            let raw_label = match ty.name {
+                Some(ref given_name) => given_name.as_str(),
+                None => entrypoint_type_fallbacks
+                    .get(&ty_handle)
+                    .cloned()
+                    .unwrap_or("type"),
+            };
+            let ty_name = self.call(raw_label);
             output.insert(NameKey::Type(ty_handle), ty_name);
 
             if let crate::TypeInner::Struct { ref members, .. } = ty.inner {
@@ -214,6 +317,27 @@ impl Namer {
             for (index, arg) in fun.arguments.iter().enumerate() {
                 let name = self.call_or(&arg.name, "param");
                 output.insert(NameKey::FunctionArgument(fun_handle, index as u32), name);
+
+                if matches!(
+                    module.types[arg.ty].inner,
+                    crate::TypeInner::Image {
+                        class: crate::ImageClass::External,
+                        ..
+                    }
+                ) {
+                    let base = arg.name.as_deref().unwrap_or("param");
+                    for &(suffix, ext_key) in ExternalTextureNameKey::ALL {
+                        let name = self.call(&format!("{base}_{suffix}"));
+                        output.insert(
+                            NameKey::ExternalTextureFunctionArgument(
+                                fun_handle,
+                                index as u32,
+                                ext_key,
+                            ),
+                            name,
+                        );
+                    }
+                }
             }
             for (handle, var) in fun.local_variables.iter() {
                 let name = self.call_or(&var.name, "local");
@@ -224,13 +348,30 @@ impl Namer {
         for (handle, var) in module.global_variables.iter() {
             let name = self.call_or(&var.name, "global");
             output.insert(NameKey::GlobalVariable(handle), name);
+
+            if matches!(
+                module.types[var.ty].inner,
+                crate::TypeInner::Image {
+                    class: crate::ImageClass::External,
+                    ..
+                }
+            ) {
+                let base = var.name.as_deref().unwrap_or("global");
+                for &(suffix, ext_key) in ExternalTextureNameKey::ALL {
+                    let name = self.call(&format!("{base}_{suffix}"));
+                    output.insert(
+                        NameKey::ExternalTextureGlobalVariable(handle, ext_key),
+                        name,
+                    );
+                }
+            }
         }
 
         for (handle, constant) in module.constants.iter() {
             let label = match constant.name {
                 Some(ref name) => name,
                 None => {
-                    use std::fmt::Write;
+                    use core::fmt::Write;
                     // Try to be more descriptive about the constant values
                     temp.clear();
                     write!(temp, "const_{}", output[&NameKey::Type(constant.ty)]).unwrap();
@@ -240,32 +381,20 @@ impl Namer {
             let name = self.call(label);
             output.insert(NameKey::Constant(handle), name);
         }
-    }
-}
 
-/// A string wrapper type with an ascii case insensitive Eq and Hash impl
-struct AsciiUniCase<S: AsRef<str> + ?Sized>(S);
-
-impl<S: AsRef<str>> PartialEq<Self> for AsciiUniCase<S> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.0.as_ref().eq_ignore_ascii_case(other.0.as_ref())
-    }
-}
-
-impl<S: AsRef<str>> Eq for AsciiUniCase<S> {}
-
-impl<S: AsRef<str>> Hash for AsciiUniCase<S> {
-    #[inline]
-    fn hash<H: Hasher>(&self, hasher: &mut H) {
-        for byte in self
-            .0
-            .as_ref()
-            .as_bytes()
-            .iter()
-            .map(|b| b.to_ascii_lowercase())
-        {
-            hasher.write_u8(byte);
+        for (handle, override_) in module.overrides.iter() {
+            let label = match override_.name {
+                Some(ref name) => name,
+                None => {
+                    use core::fmt::Write;
+                    // Try to be more descriptive about the override values
+                    temp.clear();
+                    write!(temp, "override_{}", output[&NameKey::Type(override_.ty)]).unwrap();
+                    &temp
+                }
+            };
+            let name = self.call(label);
+            output.insert(NameKey::Override(handle), name);
         }
     }
 }

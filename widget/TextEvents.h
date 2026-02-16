@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_TextEvents_h__
-#define mozilla_TextEvents_h__
+#ifndef mozilla_TextEvents_h_
+#define mozilla_TextEvents_h_
 
 #include <stdint.h>
 
@@ -40,7 +40,7 @@ class nsStringHashKey;
 
 enum {
 #define NS_DEFINE_VK(aDOMKeyName, aDOMKeyCode) NS_##aDOMKeyName = aDOMKeyCode,
-#include "mozilla/VirtualKeyCodeList.h"
+#include "mozilla/VirtualKeyCodeList.inc"
 #undef NS_DEFINE_VK
   NS_VK_UNKNOWN = 0xFF
 };
@@ -310,28 +310,25 @@ class WidgetKeyboardEvent final : public WidgetInputEvent {
   }
 
   bool CanUserGestureActivateTarget() const {
-    // Printable keys, 'carriage return' and 'space' are supported user gestures
-    // for activating the document. However, if supported key is being pressed
-    // combining with other operation keys, such like alt, control ..etc., we
-    // won't activate the target for them because at that time user might
-    // interact with browser or window manager which doesn't necessarily
-    // demonstrate user's intent to play media.
-    const bool isCombiningWithOperationKeys = (IsControl() && !IsAltGraph()) ||
-                                              (IsAlt() && !IsAltGraph()) ||
-                                              IsMeta();
-    const bool isEnterOrSpaceKey =
-        mKeyNameIndex == KEY_NAME_INDEX_Enter || mKeyCode == NS_VK_SPACE;
-    return (PseudoCharCode() || isEnterOrSpaceKey) &&
-           (!isCombiningWithOperationKeys ||
-            // ctrl-c/ctrl-x/ctrl-v is quite common shortcut for clipboard
-            // operation.
-            // XXXedgar, we have to find a better way to handle browser keyboard
-            // shortcut for user activation, instead of just ignoring all
-            // combinations, see bug 1641171.
-            ((mKeyCode == dom::KeyboardEvent_Binding::DOM_VK_C ||
-              mKeyCode == dom::KeyboardEvent_Binding::DOM_VK_V ||
-              mKeyCode == dom::KeyboardEvent_Binding::DOM_VK_X) &&
-             IsAccel()));
+    if (mFlags.mIsShortcutKey) {
+      // Space is quite common shortcut for playing media.
+      return mKeyCode == NS_VK_SPACE ||
+             // ctrl-c/ctrl-x/ctrl-v is quite common shortcut for clipboard
+             // operation.
+             // XXXedgar, we probably could improve this by referring to
+             // EditCommandsConstRef() if we're sure the event target on Linux
+             // and macOS is active with any edit commands.
+             ((mKeyCode == dom::KeyboardEvent_Binding::DOM_VK_C ||
+               mKeyCode == dom::KeyboardEvent_Binding::DOM_VK_V ||
+               mKeyCode == dom::KeyboardEvent_Binding::DOM_VK_X) &&
+              IsAccel());
+    }
+
+    // ESC key is ususally used to exit some state, it should not be considered
+    // as a user activation key to avoid page requests to enter again the same
+    // state to trap the user.
+    // https://html.spec.whatwg.org/multipage/interaction.html#activation-triggering-input-event
+    return mKeyNameIndex != KEY_NAME_INDEX_Escape;
   }
 
   // Returns true if this event is likely an user activation for a link or
@@ -1547,4 +1544,4 @@ class InternalLegacyTextEvent : public InternalUIEvent {
 
 }  // namespace mozilla
 
-#endif  // mozilla_TextEvents_h__
+#endif  // mozilla_TextEvents_h_

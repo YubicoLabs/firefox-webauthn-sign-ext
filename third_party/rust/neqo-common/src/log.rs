@@ -4,8 +4,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(clippy::module_name_repetitions)]
-
 use std::{
     io::Write as _,
     sync::{Once, OnceLock},
@@ -51,7 +49,7 @@ pub fn init(level_filter: Option<log::LevelFilter>) {
 }
 
 #[macro_export]
-// TODO: Enable `#[clippy::format_args]` once our MSRV is >= 1.84
+#[clippy::format_args]
 macro_rules! qerror {
     ($($arg:tt)*) => ( {
         #[cfg(any(test, feature = "bench"))]
@@ -60,7 +58,7 @@ macro_rules! qerror {
     } );
 }
 #[macro_export]
-// TODO: Enable `#[clippy::format_args]` once our MSRV is >= 1.84
+#[clippy::format_args]
 macro_rules! qwarn {
     ($($arg:tt)*) => ( {
         #[cfg(any(test, feature = "bench"))]
@@ -69,7 +67,7 @@ macro_rules! qwarn {
     } );
 }
 #[macro_export]
-// TODO: Enable `#[clippy::format_args]` once our MSRV is >= 1.84
+#[clippy::format_args]
 macro_rules! qinfo {
     ($($arg:tt)*) => ( {
         #[cfg(any(test, feature = "bench"))]
@@ -78,7 +76,7 @@ macro_rules! qinfo {
     } );
 }
 #[macro_export]
-// TODO: Enable `#[clippy::format_args]` once our MSRV is >= 1.84
+#[clippy::format_args]
 macro_rules! qdebug {
     ($($arg:tt)*) => ( {
         #[cfg(any(test, feature = "bench"))]
@@ -87,7 +85,7 @@ macro_rules! qdebug {
     } );
 }
 #[macro_export]
-// TODO: Enable `#[clippy::format_args]` once our MSRV is >= 1.84
+#[clippy::format_args]
 macro_rules! qtrace {
     ($($arg:tt)*) => ( {
         #[cfg(any(test, feature = "bench"))]

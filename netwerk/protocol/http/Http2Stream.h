@@ -13,7 +13,7 @@ namespace mozilla::net {
 
 class Http2Stream : public Http2StreamBase {
  public:
-  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(Http2Stream, override)
+  NS_INLINE_DECL_REFCOUNTING_INHERITED(Http2Stream, Http2StreamBase)
 
   Http2Stream(nsAHttpTransaction* httpTransaction, Http2Session* session,
               int32_t priority, uint64_t bcId);
@@ -24,11 +24,6 @@ class Http2Stream : public Http2StreamBase {
 
   nsresult OnWriteSegment(char* buf, uint32_t count,
                           uint32_t* countWritten) override;
-
-  nsresult CheckPushCache();
-  Http2PushedStream* PushSource() { return mPushSource; }
-  bool IsReadingFromPushStream();
-  void ClearPushSource();
 
   nsAHttpTransaction* Transaction() override { return mTransaction; }
   nsIRequestContext* RequestContext() override {
@@ -43,10 +38,6 @@ class Http2Stream : public Http2StreamBase {
                            uint8_t& firstFrameFlags) override;
 
  private:
-  // For Http2Push
-  void AdjustPushedPriority();
-  Http2PushedStream* mPushSource{nullptr};
-
   // The underlying HTTP transaction. This pointer is used as the key
   // in the Http2Session mStreamTransactionHash so it is important to
   // keep a reference to it as long as this stream is a member of that hash.

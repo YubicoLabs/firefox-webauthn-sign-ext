@@ -2,23 +2,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const lazy = {};
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
-  AppProvidedSearchEngine:
-    "resource://gre/modules/AppProvidedSearchEngine.sys.mjs",
   DeferredTask: "resource://gre/modules/DeferredTask.sys.mjs",
   ObjectUtils: "resource://gre/modules/ObjectUtils.sys.mjs",
-  SearchUtils: "resource://gre/modules/SearchUtils.sys.mjs",
+  SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
+  logConsole: () =>
+    console.createInstance({
+      prefix: "SearchSettings",
+      maxLogLevel: lazy.SearchUtils.loggingEnabled ? "Debug" : "Warn",
+    }),
 });
 
-ChromeUtils.defineLazyGetter(lazy, "logConsole", () => {
-  return console.createInstance({
-    prefix: "SearchSettings",
-    maxLogLevel: lazy.SearchUtils.loggingEnabled ? "Debug" : "Warn",
-  });
-});
+/**
+ * @import {SearchEngine} from "./SearchEngine.sys.mjs"
+ */
 
 const SETTINGS_FILENAME = "search.json.mozlz4";
 
@@ -65,6 +65,10 @@ export class SearchSettings {
   // Delay for batching invalidation of the JSON settings (ms)
   static SETTINGS_INVALIDATION_DELAY = 1000;
 
+  get #settingsFilePath() {
+    return PathUtils.join(PathUtils.profileDir, SETTINGS_FILENAME);
+  }
+
   /**
    * A reference to the pending DeferredTask, if there is one.
    */
@@ -75,7 +79,7 @@ export class SearchSettings {
    */
   #searchService = null;
 
-  /*
+  /**
    * The user's settings file read from disk so we can persist metadata for
    * engines that are default or hidden, the user's locale and region, hashes
    * for the loadPath, and hashes for default and private default engines.
@@ -83,37 +87,44 @@ export class SearchSettings {
    * to the settings.
    *
    * Structure of settings:
-   * Object { version: <number>,
-   *          engines: [...],
-   *          metaData: {...},
-   *        }
+   *
+   * ```
+   * Object {
+   *   version: <number>,
+   *   engines: [...],
+   *   metaData: {...},
+   * }
+   * ```
    *
    * Settings metaData is the active metadata for setting and getting attributes.
    * When a new metadata attribute is set, we save it to #settings.metaData and
    * write #settings to disk.
    *
    * #settings.metaData attributes:
-   * @property {string} current
-   *    The current user-set default engine. The associated hash is called
-   *    'hash'.
-   * @property {string} private
-   *    The current user-set private engine. The associated hash is called
-   *    'privateHash'.
-   *    The current and prviate objects have associated hash fields to validate
-   *    the value is set by the application.
-   * @property {string} appDefaultEngine
-   * @property {string} channel
-   *    Configuration is restricted to the specified channel. ESR is an example
-   *    of a channel.
-   * @property {string} distroID
-   *    Specifies which distribution the default engine is included in.
-   * @property {string} experiment
-   *    Specifies if the application is running on an experiment.
-   * @property {string} locale
-   * @property {string} region
-   * @property {boolean} useSavedOrder
-   *    True if the user's order information stored in settings is used.
    *
+   * @property {string} current
+   *   The current user-set default engine. The associated hash is called
+   *   'hash'.
+   * @property {string} private
+   *   The current user-set private engine. The associated hash is called
+   *   'privateHash'.
+   *   The current and prviate objects have associated hash fields to validate
+   *   the value is set by the application.
+   * @property {string} appDefaultEngine
+   *   The identifier of the current application default engine.
+   * @property {string} channel
+   *   Configuration is restricted to the specified channel. ESR is an example
+   *   of a channel.
+   * @property {string} distroID
+   *   Specifies which distribution the default engine is included in.
+   * @property {string} experiment
+   *   Specifies if the application is running on an experiment.
+   * @property {string} locale
+   *   The current locale.
+   * @property {string} region
+   *   The current region.
+   * @property {boolean} useSavedOrder
+   *   True if the user's order information stored in settings is used.
    */
   #settings = null;
 
@@ -143,6 +154,11 @@ export class SearchSettings {
   }
 
   /**
+   * Whether the last `get` reset the settings because they were corrupt.
+   */
+  lastGetCorrupt = false;
+
+  /**
    * Reads the settings file.
    *
    * @param {string} origin
@@ -153,28 +169,24 @@ export class SearchSettings {
    *   Returns the settings file data.
    */
   async get(origin = "") {
+    this.lastGetCorrupt = false;
+
     let json;
     await this._ensurePendingWritesCompleted(origin);
     try {
-      let settingsFilePath = PathUtils.join(
-        PathUtils.profileDir,
-        SETTINGS_FILENAME
-      );
-      json = await IOUtils.readJSON(settingsFilePath, { decompress: true });
+      json = await IOUtils.readJSON(this.#settingsFilePath, {
+        decompress: true,
+      });
       if (!json.engines || !json.engines.length) {
         throw new Error("no engine in the file");
       }
     } catch (ex) {
       if (DOMException.isInstance(ex) && ex.name === "NotFoundError") {
         lazy.logConsole.debug("get: No settings file exists, new profile?", ex);
-      } else {
-        lazy.logConsole.error("get: Settings file empty or corrupt.", ex);
-        Services.prefs.setIntPref(
-          lazy.SearchUtils.BROWSER_SEARCH_PREF + "lastSettingsCorruptTime",
-          Date.now() / 1000
-        );
+        return this.#resetSettings(false);
       }
-      json = {};
+      lazy.logConsole.error("get: Settings file empty or corrupt.", ex);
+      return this.#resetSettings(true);
     }
 
     this.#settings = json;
@@ -184,9 +196,59 @@ export class SearchSettings {
       this.#settings.metaData = {};
     }
 
-    await this.#migrateSettings();
+    try {
+      await this.#migrateSettings();
+    } catch (ex) {
+      lazy.logConsole.error("get: Migration failed.", ex);
+      return this.#resetSettings(true);
+    }
 
     return structuredClone(json);
+  }
+
+  /**
+   * Resets the search settings without writing to disk yet.
+   *
+   * If the reset is due to a corrupt settings file, the corrupt file is
+   * backed up, the lastSettingsCorruptTime pref is set to the current time,
+   * and this.lastGetCorrupt is set to true.
+   *
+   * @param {boolean} corrupt
+   *   Whether the reset is carried out because the settings are corrupt.
+   * @returns {Promise<object>}
+   *   New empty search settings.
+   */
+  async #resetSettings(corrupt) {
+    this.#settings = { metaData: {} };
+    this.#cachedSettings = {};
+
+    if (corrupt) {
+      this.lastGetCorrupt = true;
+      Services.prefs.setIntPref(
+        lazy.SearchUtils.BROWSER_SEARCH_PREF + "lastSettingsCorruptTime",
+        Date.now() / 1000
+      );
+      try {
+        await IOUtils.move(
+          this.#settingsFilePath,
+          this.#settingsFilePath + ".bak"
+        );
+      } catch (ex) {
+        lazy.logConsole.warn(
+          "#resetSettings: Unable to create backup of corrupt settings file.",
+          ex
+        );
+      }
+    }
+
+    return structuredClone(this.#settings);
+  }
+
+  /**
+   * Test-only function to reset the settings.
+   */
+  _testResetSettings() {
+    this.#resetSettings(false);
   }
 
   /**
@@ -260,13 +322,17 @@ export class SearchSettings {
     );
     settings.metaData = this.#settings.metaData;
 
-    // Persist metadata for AppProvided engines even if they aren't currently
+    // Persist metadata for config engines even if they aren't currently
     // active, this means if they become active again their settings
-    // will be restored.
+    // will be restored. This can happen if a user switches between regions.
     if (this.#settings?.engines) {
       for (let engine of this.#settings.engines) {
+        // TODO: The line below should compare names instead of ids (bug 1973899).
         let included = settings.engines.some(e => e._name == engine._name);
-        if (engine._isAppProvided && !included) {
+        // If a config engine is user-installed and not included, it was
+        // explicitly removed by the user and we should not persist its metadata.
+        let userInstalled = engine._metaData["user-installed"];
+        if (engine._isConfigEngine && !userInstalled && !included) {
           settings.engines.push(engine);
         }
       }
@@ -303,10 +369,9 @@ export class SearchSettings {
       this.#cachedSettings = structuredClone(this.#settings);
 
       lazy.logConsole.debug("_write: Writing to settings file.");
-      let path = PathUtils.join(PathUtils.profileDir, SETTINGS_FILENAME);
-      await IOUtils.writeJSON(path, settings, {
+      await IOUtils.writeJSON(this.#settingsFilePath, settings, {
         compress: true,
-        tmpPath: path + ".tmp",
+        tmpPath: this.#settingsFilePath + ".tmp",
       });
       lazy.logConsole.debug("_write: settings file written to disk.");
       Services.obs.notifyObservers(
@@ -375,21 +440,20 @@ export class SearchSettings {
    *
    * @param {string} name
    *   The name of the attribute to get.
-   * @param {boolean} isAppProvided
-   *   |true| if the engine associated with the attribute is an application
-   *          provided engine.
+   * @param {boolean} isConfigEngine
+   *   Whether the engine associated with the attribute is a config engine.
    * @returns {*}
    *   The value of the attribute.
    *   We return undefined if the value of the attribute is not known or does
    *   not match the verification hash.
    */
-  getVerifiedMetaDataAttribute(name, isAppProvided) {
+  getVerifiedMetaDataAttribute(name, isConfigEngine) {
     let attribute = this.getMetaDataAttribute(name);
 
-    // If the selected engine is an application provided one, we can relax the
+    // If the selected engine is a config engine, we can relax the
     // verification hash check to reduce the annoyance for users who
     // backup/sync their profile in custom ways.
-    if (isAppProvided) {
+    if (isConfigEngine) {
       return attribute;
     }
 
@@ -488,7 +552,7 @@ export class SearchSettings {
   }
 
   // nsIObserver
-  observe(engine, topic, verb) {
+  observe(subject, topic, verb) {
     switch (topic) {
       case lazy.SearchUtils.TOPIC_ENGINE_MODIFIED:
         switch (verb) {
@@ -498,11 +562,9 @@ export class SearchSettings {
             this._delayedWrite();
             break;
           case lazy.SearchUtils.MODIFIED_TYPE.ICON_CHANGED:
-            // Application Provided Search Engines have their icons stored in
-            // Remote Settings, so we don't need to update the saved settings.
-            if (
-              !(engine?.wrappedJSObject instanceof lazy.AppProvidedSearchEngine)
-            ) {
+            // Config Search Engines have their icons stored in Remote
+            // Settings, so we don't need to update the saved settings.
+            if (!subject.wrappedJSObject.isConfigEngine) {
               this._delayedWrite();
             }
             break;
@@ -637,7 +699,7 @@ export class SearchSettings {
    *
    * @param {string} engineName
    *   The name of the engine.
-   * @returns {nsISearchEngine}
+   * @returns {?SearchEngine}
    *   The associated engine if found, null otherwise.
    */
   #getEngineByName(engineName) {
@@ -662,6 +724,7 @@ export class SearchSettings {
     this.#migrateTo10();
     this.#migrateTo11();
     await this.#migrateTo12();
+    this.#migrateTo13();
   }
 
   #migrateTo6() {
@@ -769,7 +832,7 @@ export class SearchSettings {
         engine._iconMapObj = {};
 
         for (let [sizeStr, icon] of Object.entries(oldIconMap)) {
-          let sizeObj = {};
+          let sizeObj;
           try {
             sizeObj = JSON.parse(sizeStr);
           } catch {}
@@ -861,6 +924,24 @@ export class SearchSettings {
           let size = lazy.SearchUtils.decodeSize(byteArray, contentType, 16);
           engine._iconMapObj ||= {};
           engine._iconMapObj[size] = iconURL;
+        }
+      }
+    }
+  }
+
+  #migrateTo13() {
+    // App provided engines are renamed to config engines, see bug 1973315.
+    // At the same time, we also rename _isBuiltin _isConfigEngine.
+    // This originally happed in bug 1631898, but instead of adding a migration,
+    // the initial implementation simply checked both values.
+    if (this.#settings.version < 13 && this.#settings.engines) {
+      for (let engine of this.#settings.engines) {
+        if (engine._isAppProvided) {
+          delete engine._isAppProvided;
+          engine._isConfigEngine = true;
+        } else if (engine._isBuiltin) {
+          delete engine._isBuiltin;
+          engine._isConfigEngine = true;
         }
       }
     }

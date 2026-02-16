@@ -306,7 +306,10 @@ addAccessibleTask(
     <li id="li">Number one</li>
   </ol>
   `,
-  async function (browser, docAcc) {
+  async function testApiSelection(browser, docAcc) {
+    // waitForSelectionChange expects caret events. Ensure the document is
+    // focused so we get caret events.
+    docAcc.takeFocus();
     const paragraph = findAccessibleChildByID(docAcc, "paragraph", [
       nsIAccessibleText,
     ]);
@@ -341,4 +344,43 @@ addAccessibleTask(
     iframe: true,
     remoteIframe: true,
   }
+);
+
+/**
+ * Test selections which start or end in an empty container.
+ */
+addAccessibleTask(
+  `<div id="div" contenteditable>a<p id="p"></p>b</div>`,
+  async function testEmptyContainer(browser, docAcc) {
+    const div = findAccessibleChildByID(docAcc, "div", [nsIAccessibleText]);
+    info('Selecting from the empty<p> to after the text "b"');
+    let selected = waitForSelectionChange(div);
+    await invokeContentTask(browser, [], () => {
+      const divDom = content.document.getElementById("div");
+      content
+        .getSelection()
+        .setBaseAndExtent(divDom.childNodes[1], 0, divDom.childNodes[2], 1);
+    });
+    await selected;
+    const p = findAccessibleChildByID(docAcc, "p");
+    testSelectionRange(browser, div, p, 0, div, 3);
+    testTextGetSelection(div, 1, 3, 0);
+    info('Selecting from the text "a" to after the empty<p>');
+    selected = waitForSelectionChange(div, p);
+    await invokeContentTask(browser, [], () => {
+      const divDom = content.document.getElementById("div");
+      content
+        .getSelection()
+        .setBaseAndExtent(divDom.childNodes[0], 0, divDom.childNodes[1], 0);
+    });
+    await selected;
+    testSelectionRange(browser, div, div, 0, p, 0);
+    // XXX Bug 1973166: This should perhaps be (0, 2), indicating that the
+    // selection includes the empty paragraph. However, offset 1 isn't valid in
+    // an empty container, which means we use offset 0 in the paragraph. Since
+    // the end is exclusive, that causes us to exclude the paragraph when we
+    // transform to the div.
+    testTextGetSelection(div, 0, 1, 0);
+  },
+  { chrome: true, toplevel: true }
 );

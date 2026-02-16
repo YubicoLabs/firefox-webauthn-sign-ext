@@ -42,13 +42,21 @@ add_setup(async function () {
   // suggestions so the suggested index of sponsored suggestions should be -1.
   await SearchTestUtils.installSearchExtension({}, { setAsDefault: true });
 
+  let isAmp = suggestion => suggestion.iab_category == "22 - Shopping";
   await QuickSuggestTestUtils.ensureQuickSuggestInit({
     remoteSettingsRecords: [
       {
-        type: "data",
-        attachment: REMOTE_SETTINGS_RESULTS,
+        collection: QuickSuggestTestUtils.RS_COLLECTION.AMP,
+        type: QuickSuggestTestUtils.RS_TYPE.AMP,
+        attachment: REMOTE_SETTINGS_RESULTS.filter(isAmp),
+      },
+      {
+        collection: QuickSuggestTestUtils.RS_COLLECTION.OTHER,
+        type: QuickSuggestTestUtils.RS_TYPE.WIKIPEDIA,
+        attachment: REMOTE_SETTINGS_RESULTS.filter(s => !isAmp(s)),
       },
     ],
+    prefs: [["quicksuggest.ampTopPickCharThreshold", 0]],
   });
 
   registerCleanupFunction(async () => {
@@ -271,17 +279,13 @@ class TestProvider extends UrlbarTestUtils.TestProvider {
   constructor() {
     super({
       results: [
-        Object.assign(
-          new UrlbarResult(
-            UrlbarUtils.RESULT_TYPE.URL,
-            UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
-            { url: "http://example.com/test" }
-          ),
-          {
-            suggestedIndex: 1,
-            resultSpan: 2,
-          }
-        ),
+        new UrlbarResult({
+          type: UrlbarUtils.RESULT_TYPE.URL,
+          source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+          suggestedIndex: 1,
+          resultSpan: 2,
+          payload: { url: "http://example.com/test" },
+        }),
       ],
     });
   }
@@ -422,19 +426,16 @@ async function withSuggestions(callback, enableSuggestions = true) {
   let engine = await SearchTestUtils.installOpenSearchEngine({
     url: getRootDirectory(gTestPath) + TEST_ENGINE_BASENAME,
   });
-  let oldDefaultEngine = await Services.search.getDefault();
-  await Services.search.setDefault(
-    engine,
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
-  );
+  let oldDefaultEngine = await SearchService.getDefault();
+  await SearchService.setDefault(engine, SearchService.CHANGE_REASON.UNKNOWN);
   try {
     await callback(engine);
   } finally {
-    await Services.search.setDefault(
+    await SearchService.setDefault(
       oldDefaultEngine,
-      Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+      SearchService.CHANGE_REASON.UNKNOWN
     );
-    await Services.search.removeEngine(engine);
+    await SearchService.removeEngine(engine);
     await SpecialPowers.popPrefEnv();
   }
 }
@@ -449,7 +450,8 @@ async function withSuggestions(callback, enableSuggestions = true) {
 async function doSuggestedIndexTest(expectedProps) {
   await addHistory();
   let provider = new TestProvider();
-  UrlbarProvidersManager.registerProvider(provider);
+  let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+  providersManager.registerProvider(provider);
 
   let context = await UrlbarTestUtils.promiseAutocompleteResultPopup({
     window,
@@ -458,7 +460,7 @@ async function doSuggestedIndexTest(expectedProps) {
   checkResults(context.results, expectedProps);
   await UrlbarTestUtils.promisePopupClose(window);
 
-  UrlbarProvidersManager.unregisterProvider(provider);
+  providersManager.unregisterProvider(provider);
   await PlacesUtils.history.clear();
 }
 

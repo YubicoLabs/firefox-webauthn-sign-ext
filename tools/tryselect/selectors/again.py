@@ -57,7 +57,13 @@ class AgainParser(BaseTryParser):
 
 
 def run(
-    index=0, purge=False, list_configs=False, list_tasks=0, message="{msg}", **pushargs
+    metrics,
+    index=0,
+    purge=False,
+    list_configs=False,
+    list_tasks=0,
+    message="{msg}",
+    **pushargs,
 ):
     if index == "list":
         list_configs = True
@@ -73,9 +79,10 @@ def run(
         return
 
     if not os.path.isfile(history_path):
-        print("error: history file not found: {}".format(history_path))
+        print(f"error: history file not found: {history_path}")
         return 1
 
+    metrics.mach_try.task_config_generation_duration.start()
     with open(history_path) as fh:
         history = fh.readlines()
 
@@ -124,7 +131,7 @@ def run(
 
                     num_hidden_tasks = len(tasks) - len(shown_tasks)
                     if num_hidden_tasks > 0:
-                        print("{}... and {} more".format(indent, num_hidden_tasks))
+                        print(f"{indent}... and {num_hidden_tasks} more")
 
                 if list_tasks and env:
                     for line in ("env: " + json.dumps(env, indent=2)).splitlines():
@@ -136,16 +143,16 @@ def run(
                     ).splitlines():
                         print("    " + line)
             else:
-                print(
-                    "{index}. {msg}".format(
-                        index=i,
-                        msg=msg,
-                    )
-                )
+                print(f"{i}. {msg}")
 
         return
 
+    metrics.mach_try.task_config_generation_duration.stop()
     msg, try_task_config = json.loads(history[index])
     return push_to_try(
-        "again", message.format(msg=msg), try_task_config=try_task_config, **pushargs
+        "again",
+        message.format(msg=msg),
+        metrics,
+        try_task_config=try_task_config,
+        **pushargs,
     )

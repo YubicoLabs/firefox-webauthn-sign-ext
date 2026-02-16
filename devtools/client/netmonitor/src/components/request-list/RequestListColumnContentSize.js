@@ -6,9 +6,9 @@
 
 const {
   Component,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 const {
   getFormattedSize,
 } = require("resource://devtools/client/netmonitor/src/utils/format-utils.js");
@@ -29,7 +29,11 @@ class RequestListColumnContentSize extends Component {
     const size =
       typeof contentSize === "number" ? getFormattedSize(contentSize) : null;
     return dom.td(
-      { className: "requests-list-column requests-list-size", title: size },
+      {
+        className:
+          "requests-list-column requests-list-number-column requests-list-size",
+        title: size,
+      },
       size
     );
   }

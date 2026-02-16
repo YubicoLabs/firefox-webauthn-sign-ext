@@ -5,63 +5,59 @@
 package org.mozilla.fenix.home.bookmarks
 
 import androidx.navigation.NavController
-import io.mockk.Runs
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.verify
+import kotlinx.coroutines.test.runTest
 import mozilla.appservices.places.BookmarkRoot
+import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.EngineSession.LoadUrlFlags.Companion.ALLOW_JAVASCRIPT_URL
 import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.support.test.robolectric.testContext
-import mozilla.components.support.test.rule.MainCoroutineRule
-import mozilla.components.support.test.rule.runTestOnMain
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.GleanMetrics.HomeBookmarks
-import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
+import org.mozilla.fenix.components.usecases.FenixBrowserUseCases
 import org.mozilla.fenix.helpers.FenixGleanTestRule
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
 import org.mozilla.fenix.home.HomeFragmentDirections
 import org.mozilla.fenix.home.bookmarks.controller.DefaultBookmarksController
+import org.mozilla.fenix.utils.Settings
+import org.robolectric.RobolectricTestRunner
 
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class DefaultBookmarksControllerTest {
 
     @get:Rule
     val gleanTestRule = FenixGleanTestRule(testContext)
 
-    @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
-
-    private val activity: HomeActivity = mockk(relaxed = true)
     private val navController: NavController = mockk(relaxUnitFun = true)
+    private val settings: Settings = mockk(relaxed = true)
+    private val fenixBrowserUseCases: FenixBrowserUseCases = mockk(relaxed = true)
     private val selectTabUseCase: TabsUseCases = mockk(relaxed = true)
-    private val browserStore: BrowserStore = mockk(relaxed = true)
+    private lateinit var browserStore: BrowserStore
 
     private lateinit var controller: DefaultBookmarksController
 
     @Before
     fun setup() {
-        every { activity.openToBrowserAndLoad(any(), any(), any()) } just Runs
-        every { browserStore.state.tabs }.returns(emptyList())
+        browserStore = BrowserStore()
 
         controller = spyk(
             DefaultBookmarksController(
-                activity = activity,
                 navController = navController,
                 appStore = mockk(),
                 browserStore = browserStore,
+                settings = settings,
+                fenixBrowserUseCases = fenixBrowserUseCases,
                 selectTabUseCase = selectTabUseCase.selectTab,
             ),
         )
@@ -75,11 +71,12 @@ class DefaultBookmarksControllerTest {
         controller.handleBookmarkClicked(bookmark)
 
         verify {
-            activity.openToBrowserAndLoad(
+            navController.navigate(R.id.browserFragment)
+            fenixBrowserUseCases.loadUrlOrSearch(
                 searchTermOrURL = bookmark.url!!,
                 newTab = true,
+                private = false,
                 flags = EngineSession.LoadUrlFlags.select(ALLOW_JAVASCRIPT_URL),
-                from = BrowserDirection.FromHome,
             )
         }
         assertNotNull(HomeBookmarks.bookmarkClicked.testGetValue())
@@ -90,17 +87,18 @@ class DefaultBookmarksControllerTest {
         assertNull(HomeBookmarks.bookmarkClicked.testGetValue())
 
         val testTab = createTab("https://www.not_example.com")
-        every { browserStore.state.tabs }.returns(listOf(testTab))
+        browserStore = BrowserStore(BrowserState(tabs = listOf(testTab)))
 
         val bookmark = Bookmark(title = null, url = "https://www.example.com")
         controller.handleBookmarkClicked(bookmark)
 
         verify {
-            activity.openToBrowserAndLoad(
+            navController.navigate(R.id.browserFragment)
+            fenixBrowserUseCases.loadUrlOrSearch(
                 searchTermOrURL = bookmark.url!!,
                 newTab = true,
+                private = false,
                 flags = EngineSession.LoadUrlFlags.select(ALLOW_JAVASCRIPT_URL),
-                from = BrowserDirection.FromHome,
             )
         }
         assertNotNull(HomeBookmarks.bookmarkClicked.testGetValue())
@@ -112,7 +110,7 @@ class DefaultBookmarksControllerTest {
 
         val testUrl = "https://www.example.com"
         val testTab = createTab(testUrl)
-        every { browserStore.state.tabs }.returns(listOf(testTab))
+        browserStore = BrowserStore(BrowserState(tabs = listOf(testTab)))
 
         val bookmark = Bookmark(title = null, url = testUrl)
         controller.handleBookmarkClicked(bookmark)
@@ -125,7 +123,29 @@ class DefaultBookmarksControllerTest {
     }
 
     @Test
-    fun `WHEN show all bookmarks is clicked THEN the bookmarks root is opened`() = runTestOnMain {
+    fun `GIVEN homepage as a new tab is enabled WHEN a bookmark is clicked THEN open bookmark in the existing tab`() {
+        every { settings.enableHomepageAsNewTab } returns true
+
+        assertNull(HomeBookmarks.bookmarkClicked.testGetValue())
+
+        val bookmark = Bookmark(title = null, url = "https://www.example.com")
+        controller.handleBookmarkClicked(bookmark)
+
+        verify {
+            navController.navigate(R.id.browserFragment)
+            fenixBrowserUseCases.loadUrlOrSearch(
+                searchTermOrURL = bookmark.url!!,
+                newTab = false,
+                private = false,
+                flags = EngineSession.LoadUrlFlags.select(ALLOW_JAVASCRIPT_URL),
+            )
+        }
+
+        assertNotNull(HomeBookmarks.bookmarkClicked.testGetValue())
+    }
+
+    @Test
+    fun `WHEN show all bookmarks is clicked THEN the bookmarks root is opened`() = runTest {
         assertNull(HomeBookmarks.showAllBookmarks.testGetValue())
 
         controller.handleShowAllBookmarksClicked()

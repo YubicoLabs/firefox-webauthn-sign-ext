@@ -7,9 +7,9 @@
 const {
   createRef,
   PureComponent,
-} = require("resource://devtools/client/shared/vendor/react.js");
+} = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
-const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.js");
+const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
 
 class CurrentTimeLabel extends PureComponent {
   static get propTypes() {
@@ -53,8 +53,8 @@ class CurrentTimeLabel extends PureComponent {
 /**
  * Format a timestamp (in ms) as a mm:ss.mmm string.
  *
- * @param {Number} time
- * @return {String}
+ * @param {number} time
+ * @return {string}
  */
 function formatStopwatchTime(time) {
   // Format falsy values as 0

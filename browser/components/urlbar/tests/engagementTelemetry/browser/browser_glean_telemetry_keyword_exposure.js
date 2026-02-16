@@ -441,7 +441,7 @@ async function doTest({
     keywords.filter(
       ({ keyword }) => keyword == context.trimmedLowerCaseSearchString
     );
-  provider.isActive = context => {
+  provider.isActive = async context => {
     return !!getMatchingKeywords(context).length;
   };
   provider.startQuery = (context, addCallback) => {
@@ -455,16 +455,17 @@ async function doTest({
       }
       addCallback(
         provider,
-        new UrlbarResult(UrlbarUtils.RESULT_TYPE.URL, source, {
-          url: "https://example.com/",
+        new UrlbarResult({
+          type: UrlbarUtils.RESULT_TYPE.URL,
+          source,
+          payload: { url: "https://example.com/" },
         })
       );
     }
   };
-  UrlbarProvidersManager.registerProvider(provider);
-  registerCleanupFunction(() =>
-    UrlbarProvidersManager.unregisterProvider(provider)
-  );
+  let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+  providersManager.registerProvider(provider);
+  registerCleanupFunction(() => providersManager.unregisterProvider(provider));
 
   // Set up the prefs/Nimbus.
   let nimbusCleanup;
@@ -519,7 +520,7 @@ async function doTest({
     await SpecialPowers.popPrefEnv();
   }
   Services.fog.testResetFOG();
-  UrlbarProvidersManager.unregisterProvider(provider);
+  providersManager.unregisterProvider(provider);
 
   Assert.deepEqual(
     [...UrlbarPrefs.get("exposureResults").values()],

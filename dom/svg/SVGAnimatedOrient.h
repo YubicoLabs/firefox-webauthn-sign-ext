@@ -7,15 +7,15 @@
 #ifndef DOM_SVG_SVGANIMATEDORIENT_H_
 #define DOM_SVG_SVGANIMATEDORIENT_H_
 
+#include <memory>
+
 #include "DOMSVGAnimatedEnumeration.h"
-#include "nsError.h"
 #include "SVGAnimatedEnumeration.h"
 #include "mozilla/AlreadyAddRefed.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/SMILAttr.h"
 #include "mozilla/dom/SVGAngleBinding.h"
 #include "mozilla/dom/SVGMarkerElementBinding.h"
-#include "mozilla/UniquePtr.h"
+#include "nsError.h"
 
 class nsISupports;
 
@@ -77,7 +77,7 @@ class SVGAnimatedOrient {
       SVGElement* aSVGElement);
   already_AddRefed<dom::DOMSVGAnimatedEnumeration> ToDOMAnimatedEnum(
       SVGElement* aSVGElement);
-  UniquePtr<SMILAttr> ToSMILAttr(SVGElement* aSVGElement);
+  std::unique_ptr<SMILAttr> ToSMILAttr(SVGElement* aSVGElement);
 
   static bool IsValidUnitType(uint16_t aUnitType);
 
@@ -88,8 +88,8 @@ class SVGAnimatedOrient {
  private:
   float mAnimVal;
   float mBaseVal;
-  uint8_t mAnimType;
-  uint8_t mBaseType;
+  uint8_t mAnimType : 4;
+  uint8_t mBaseType : 4;
   uint8_t mAnimValUnit;
   uint8_t mBaseValUnit;
   bool mIsAnimated;

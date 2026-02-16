@@ -27,7 +27,6 @@
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/ipc/Endpoint.h"
 #include "mozilla/mozalloc.h"  // for operator new, etc
-#include "mozilla/Telemetry.h"
 #include "gfxConfig.h"
 #include "nsDebug.h"          // for NS_WARNING
 #include "nsISupportsImpl.h"  // for MOZ_COUNT_CTOR, etc
@@ -35,8 +34,6 @@
 #include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/BrowserParent.h"
 #include "mozilla/dom/ContentChild.h"
-#include "mozilla/Unused.h"
-#include "mozilla/DebugOnly.h"
 #include "mozilla/SpinEventLoopUntil.h"
 #include "nsThreadUtils.h"
 #if defined(XP_WIN)
@@ -48,7 +45,6 @@
 #endif
 #include "VsyncSource.h"
 
-using mozilla::Unused;
 using mozilla::gfx::GPUProcessManager;
 
 namespace mozilla {
@@ -166,7 +162,7 @@ void CompositorBridgeChild::Destroy() {
   AutoTArray<PAPZChild*, 16> apzChildren;
   ManagedPAPZChild(apzChildren);
   for (PAPZChild* child : apzChildren) {
-    Unused << child->SendDestroy();
+    (void)child->SendDestroy();
   }
 
   const ManagedContainer<PTextureChild>& textures = ManagedPTextureChild();
@@ -441,7 +437,7 @@ mozilla::ipc::IPCResult CompositorBridgeChild::RecvCompositorOptionsChanged(
 
   if (RefPtr<dom::BrowserParent> tab =
           dom::BrowserParent::GetBrowserParentFromLayersId(aLayersId)) {
-    Unused << tab->SendCompositorOptionsChanged(aNewOptions);
+    (void)tab->SendCompositorOptionsChanged(aNewOptions);
   }
   return IPC_OK();
 }
@@ -556,24 +552,6 @@ bool CompositorBridgeChild::DeallocShmem(ipc::Shmem& aShmem) {
     return false;
   }
   return PCompositorBridgeChild::DeallocShmem(aShmem);
-}
-
-widget::PCompositorWidgetChild*
-CompositorBridgeChild::AllocPCompositorWidgetChild(
-    const CompositorWidgetInitData& aInitData) {
-  // We send the constructor manually.
-  MOZ_CRASH("Should not be called");
-  return nullptr;
-}
-
-bool CompositorBridgeChild::DeallocPCompositorWidgetChild(
-    PCompositorWidgetChild* aActor) {
-#ifdef MOZ_WIDGET_SUPPORTS_OOP_COMPOSITING
-  delete aActor;
-  return true;
-#else
-  return false;
-#endif
 }
 
 PAPZCTreeManagerChild* CompositorBridgeChild::AllocPAPZCTreeManagerChild(

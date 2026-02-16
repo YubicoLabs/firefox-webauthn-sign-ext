@@ -16,6 +16,7 @@
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/ThrottledEventQueue.h"
+#include "mozilla/dom/ProcessIsolation.h"
 #include "nsFocusManager.h"
 #include "nsTHashMap.h"
 
@@ -228,8 +229,8 @@ void BrowsingContextGroup::Subscribe(ContentParent* aProcess) {
   }
 
   // Send all of our contexts to the target content process.
-  Unused << aProcess->SendRegisterBrowsingContextGroup(Id(), inits,
-                                                       useOriginAgentCluster);
+  (void)aProcess->SendRegisterBrowsingContextGroup(Id(), inits,
+                                                   useOriginAgentCluster);
 }
 
 void BrowsingContextGroup::Unsubscribe(ContentParent* aProcess) {
@@ -248,6 +249,42 @@ void BrowsingContextGroup::Unsubscribe(ContentParent* aProcess) {
 ContentParent* BrowsingContextGroup::GetHostProcess(
     const nsACString& aRemoteType) {
   return mHosts.GetWeak(aRemoteType);
+}
+
+bool BrowsingContextGroup::IsKnownForMessageReader(
+    IPC::MessageReader* aReader) {
+  if (!aReader->GetActor()) {
+    aReader->FatalError(
+        "No actor for BrowsingContextGroup::IsKnownForMessageReader");
+    return false;
+  }
+
+  mozilla::ipc::IToplevelProtocol* topActor =
+      aReader->GetActor()->ToplevelProtocol();
+  switch (topActor->GetProtocolId()) {
+    case PInProcessMsgStart:
+      // PInProcess always exists only within a single process, so we don't need
+      // to do any validation on it.
+      return true;
+
+    case PContentMsgStart:
+      // The process should only be able to name this BCG if it is
+      // subscribed, or if the BCG has been destroyed (and has therefore
+      // stopped tracking subscribers).
+      if (topActor->GetSide() == mozilla::ipc::ParentSide && !mDestroyed &&
+          !mSubscribers.Contains(static_cast<ContentParent*>(topActor))) {
+        aReader->FatalError(
+            "Process is not subscribed to this BrowsingContextGroup");
+        return false;
+      }
+      return true;
+
+    default:
+      aReader->FatalError(
+          "Unsupported toplevel actor for "
+          "BrowsingContextGroup::IsKnownForMessageReader");
+      return false;
+  }
 }
 
 void BrowsingContextGroup::UpdateToplevelsSuspendedIfNeeded() {
@@ -295,8 +332,8 @@ void BrowsingContextGroup::Destroy() {
                              !sBrowsingContextGroups->Contains(Id()) ||
                                  *sBrowsingContextGroups->Lookup(Id()) != this);
   }
-  mDestroyed = true;
 #endif
+  mDestroyed = true;
 
   // Make sure to call `RemoveBrowsingContextGroup` for every entry in both
   // `mHosts` and `mSubscribers`. This will visit most entries twice, but
@@ -593,7 +630,7 @@ void BrowsingContextGroup::NotifyFocusedOrActiveBrowsingContextToProcess(
     }
 
     if (focused || active) {
-      Unused << aProcess->SendSetupFocusedAndActive(
+      (void)aProcess->SendSetupFocusedAndActive(
           focused, fm->GetActionIdForFocusedBrowsingContextInChrome(), active,
           fm->GetActionIdForActiveBrowsingContextInChrome());
     }
@@ -629,7 +666,7 @@ void BrowsingContextGroup::SetUseOriginAgentClusterFromNetwork(
       return;
     }
 
-    Unused << aContentParent->SendSetUseOriginAgentCluster(
+    (void)aContentParent->SendSetUseOriginAgentCluster(
         Id(), WrapNotNull(aPrincipal), aUseOriginAgentCluster);
   });
 }
@@ -651,8 +688,13 @@ Maybe<bool> BrowsingContextGroup::UsesOriginAgentCluster(
     return Some(true);
   }
 
-  // NOTE: An in-content equivalent to `ValidatePrincipal`, should probably be
-  // asserted here.
+  // If this assertion fails, we may return `Nothing()` below unexpectedly, as
+  // the parent process may have chosen to not process-switch.
+  MOZ_DIAGNOSTIC_ASSERT(
+      XRE_IsParentProcess() ||
+          ValidatePrincipalCouldPotentiallyBeLoadedBy(
+              aPrincipal, ContentChild::GetSingleton()->GetRemoteType(), {}),
+      "Attempting to create document with unexpected principal");
 
   if (auto entry = mUseOriginAgentCluster.Lookup(aPrincipal)) {
     return Some(entry.Data());

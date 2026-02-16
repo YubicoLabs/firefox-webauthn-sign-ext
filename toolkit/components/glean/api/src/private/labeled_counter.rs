@@ -4,14 +4,15 @@
 
 use inherent::inherent;
 
-use glean::traits::Counter;
-
 use super::CommonMetricData;
+use glean::traits::Counter;
 
 use crate::ipc::{need_ipc, with_ipc_payload};
 #[cfg(test)]
-use crate::private::MetricGetter;
-use crate::private::{CounterMetric, MetricId};
+use crate::private::MetricId;
+use crate::private::{
+    BaseMetric, BaseMetricId, BaseMetricResult, CounterMetric, MetricMetadataGetterImpl,
+};
 
 use std::collections::HashMap;
 
@@ -22,12 +23,21 @@ use std::collections::HashMap;
 #[derive(Clone)]
 pub enum LabeledCounterMetric {
     Parent(CounterMetric),
-    Child { id: MetricId, label: String },
+    Child { id: BaseMetricId, label: String },
 }
+
+define_metric_metadata_getter!(
+    CounterMetric,
+    LabeledCounterMetric,
+    COUNTER_MAP,
+    LABELED_COUNTER_MAP
+);
+
+define_metric_namer!(LabeledCounterMetric, LABELED);
 
 impl LabeledCounterMetric {
     /// Create a new labeled counter submetric.
-    pub fn new(id: MetricId, meta: CommonMetricData, label: String) -> Self {
+    pub fn new(id: BaseMetricId, meta: CommonMetricData, label: String) -> Self {
         if need_ipc() {
             LabeledCounterMetric::Child { id, label }
         } else {
@@ -36,7 +46,7 @@ impl LabeledCounterMetric {
     }
 
     #[cfg(test)]
-    pub(crate) fn metric_id(&self) -> MetricGetter {
+    pub(crate) fn metric_id(&self) -> MetricId {
         match self {
             LabeledCounterMetric::Parent(p) => p.metric_id(),
             LabeledCounterMetric::Child { id, .. } => (*id).into(),
@@ -60,12 +70,12 @@ impl Counter for LabeledCounterMetric {
             LabeledCounterMetric::Parent(p) => p.add(amount),
             LabeledCounterMetric::Child { id, label } => {
                 #[cfg(feature = "with_gecko")]
-                if gecko_profiler::can_accept_markers() {
+                if gecko_profiler::current_thread_is_being_profiled_for_markers() {
                     gecko_profiler::add_marker(
                         "LabeledCounter::add",
                         super::profiler_utils::TelemetryProfilerCategory,
                         Default::default(),
-                        super::profiler_utils::IntLikeMetricMarker::new(
+                        super::profiler_utils::IntLikeMetricMarker::<LabeledCounterMetric, i32>::new(
                             (*id).into(),
                             Some(label.clone()),
                             amount,
@@ -85,27 +95,6 @@ impl Counter for LabeledCounterMetric {
                         payload.labeled_counters.insert(*id, map);
                     }
                 });
-            }
-        }
-    }
-
-    /// **Test-only API.**
-    ///
-    /// Get the currently stored value as an integer.
-    /// This doesn't clear the stored value.
-    ///
-    /// ## Arguments
-    ///
-    /// * `ping_name` - the storage name to look into.
-    ///
-    /// ## Return value
-    ///
-    /// Returns the stored value or `None` if nothing stored.
-    pub fn test_get_value<'a, S: Into<Option<&'a str>>>(&self, ping_name: S) -> Option<i32> {
-        match self {
-            LabeledCounterMetric::Parent(p) => p.test_get_value(ping_name),
-            LabeledCounterMetric::Child { id, .. } => {
-                panic!("Cannot get test value for {:?} in non-parent process!", id)
             }
         }
     }
@@ -134,6 +123,46 @@ impl Counter for LabeledCounterMetric {
     }
 }
 
+#[inherent]
+impl glean::TestGetValue for LabeledCounterMetric {
+    type Output = i32;
+
+    /// **Test-only API.**
+    ///
+    /// Get the currently stored value as an integer.
+    /// This doesn't clear the stored value.
+    ///
+    /// ## Arguments
+    ///
+    /// * `ping_name` - the storage name to look into.
+    ///
+    /// ## Return value
+    ///
+    /// Returns the stored value or `None` if nothing stored.
+    pub fn test_get_value(&self, ping_name: Option<String>) -> Option<i32> {
+        match self {
+            LabeledCounterMetric::Parent(p) => p.test_get_value(ping_name),
+            LabeledCounterMetric::Child { id, .. } => {
+                panic!("Cannot get test value for {:?} in non-parent process!", id)
+            }
+        }
+    }
+}
+
+impl BaseMetric for LabeledCounterMetric {
+    type BaseMetricT = CounterMetric;
+    fn get_base_metric<'a>(&'a self) -> BaseMetricResult<'a, Self::BaseMetricT> {
+        match self {
+            LabeledCounterMetric::Parent(counter_metric) => {
+                BaseMetricResult::BaseMetric(&counter_metric)
+            }
+            LabeledCounterMetric::Child { id, label } => {
+                BaseMetricResult::IndexLabelPair(*id, &label)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::{common_test::*, ipc, metrics};
@@ -147,7 +176,10 @@ mod test {
 
         assert_eq!(
             1,
-            metric.get("a_label").test_get_value("test-ping").unwrap()
+            metric
+                .get("a_label")
+                .test_get_value(Some("test-ping".to_string()))
+                .unwrap()
         );
     }
 
@@ -177,8 +209,8 @@ mod test {
 
             let metric_id = child_metric
                 .metric_id()
-                .metric_id()
-                .expect("Cannot perform IPC calls without a MetricId");
+                .base_metric_id()
+                .expect("Cannot perform IPC calls without a BaseMetricId");
 
             child_metric.add(42);
 
@@ -215,7 +247,7 @@ mod test {
             45,
             parent_metric
                 .get(label)
-                .test_get_value("test-ping")
+                .test_get_value(Some("test-ping".to_string()))
                 .unwrap(),
             "Values from the 'processes' should be summed"
         );

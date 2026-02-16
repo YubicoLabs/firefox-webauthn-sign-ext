@@ -18,13 +18,10 @@
 #include "js/ProfilingCategory.h"
 #include "js/ProfilingStack.h"
 #include "js/RootingAPI.h"
-#include "mozilla/Assertions.h"
-#include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/BaseProfilerRAIIMacro.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/ProfilerThreadRegistration.h"
-#include "mozilla/ThreadLocal.h"
 #include "nsString.h"
 
 #include <stdint.h>
@@ -106,6 +103,12 @@ struct JSContext;
 #define AUTO_PROFILER_LABEL_DYNAMIC_CSTR(label, categoryPair, cStr) \
   mozilla::AutoProfilerLabel PROFILER_RAII(                         \
       label, cStr, JS::ProfilingCategoryPair::categoryPair)
+
+#define AUTO_PROFILER_LABEL_DYNAMIC_CSTR_RELEVANT_FOR_JS(label, categoryPair, \
+                                                         cStr)                \
+  mozilla::AutoProfilerLabel PROFILER_RAII(                                   \
+      label, cStr, JS::ProfilingCategoryPair::categoryPair,                   \
+      uint32_t(js::ProfilingStackFrame::Flags::RELEVANT_FOR_JS))
 
 // Like AUTO_PROFILER_LABEL_DYNAMIC_CSTR, but with the NONSENSITIVE flag to
 // note that it does not contain sensitive information (so we can include it

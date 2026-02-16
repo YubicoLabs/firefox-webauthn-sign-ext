@@ -2,7 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import io
 import itertools
 import os
 import time
@@ -10,7 +9,6 @@ from abc import ABCMeta, abstractmethod
 from contextlib import contextmanager
 
 import mozpack.path as mozpath
-import six
 from mach.mixin.logging import LoggingMixin
 
 from mozbuild.base import ExecutionSummary
@@ -141,13 +139,13 @@ class BuildBackend(LoggingMixin):
         for path in delete_files:
             full_path = mozpath.join(self.environment.topobjdir, path)
             try:
-                with io.open(full_path, mode="r", encoding="utf-8") as existing:
+                with open(full_path, encoding="utf-8") as existing:
                     old_content = existing.read()
                     if old_content:
                         self.file_diffs[full_path] = simple_diff(
                             full_path, old_content.splitlines(), None
                         )
-            except IOError:
+            except OSError:
                 pass
             try:
                 if not self.dry_run:
@@ -166,11 +164,10 @@ class BuildBackend(LoggingMixin):
         if backend_output_list != self._backend_output_files:
             with self._write_file(list_file) as fh:
                 fh.write("\n".join(sorted(self._backend_output_files)))
-        else:
-            # Always update its mtime if we're not in dry-run mode.
-            if not self.dry_run:
-                with open(list_file, "a"):
-                    os.utime(list_file, None)
+        # Always update its mtime if we're not in dry-run mode.
+        elif not self.dry_run:
+            with open(list_file, "a"):
+                os.utime(list_file, None)
 
         # Write out the list of input files for the backend
         with self._write_file("%s.in" % list_file) as fh:
@@ -238,7 +235,8 @@ class BuildBackend(LoggingMixin):
             purgecaches_dirs.append(bundledir)
 
         for dir in purgecaches_dirs:
-            with open(mozpath.join(dir, ".purgecaches"), "wt") as f:
+            os.makedirs(dir, exist_ok=True)
+            with open(mozpath.join(dir, ".purgecaches"), "w") as f:
                 f.write("\n")
 
     def post_build(self, config, output, jobs, verbose, status):
@@ -307,12 +305,10 @@ class BuildBackend(LoggingMixin):
         in the current environment."""
         pp = Preprocessor()
         srcdir = mozpath.dirname(obj.input_path)
-        pp.context.update(
-            {
-                k: " ".join(v) if isinstance(v, list) else v
-                for k, v in six.iteritems(obj.config.substs)
-            }
-        )
+        pp.context.update({
+            k: " ".join(v) if isinstance(v, list) else v
+            for k, v in obj.config.substs.items()
+        })
         pp.context.update(
             top_srcdir=obj.topsrcdir,
             topobjdir=obj.topobjdir,
@@ -350,7 +346,7 @@ def HybridBackend(*backends):
     class TheHybridBackend(BuildBackend):
         def __init__(self, environment):
             self._backends = [b(environment) for b in backends]
-            super(TheHybridBackend, self).__init__(environment)
+            super().__init__(environment)
 
         def consume_object(self, obj):
             return any(b.consume_object(obj) for b in self._backends)

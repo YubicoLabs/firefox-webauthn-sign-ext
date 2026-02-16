@@ -5,15 +5,16 @@
 
 #include "WebGLShaderValidator.h"
 
-#include "GLContext.h"
-#include "mozilla/gfx/Logging.h"
-#include "mozilla/Preferences.h"
-#include "mozilla/StaticPrefs_webgl.h"
-#include "MurmurHash3.h"
-#include "nsPrintfCString.h"
 #include <string>
 #include <vector>
+
+#include "GLContext.h"
+#include "MurmurHash3.h"
 #include "WebGLContext.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/StaticPrefs_webgl.h"
+#include "mozilla/gfx/Logging.h"
+#include "nsPrintfCString.h"
 
 namespace mozilla {
 namespace webgl {
@@ -35,15 +36,11 @@ static ShCompileOptions ChooseValidatorCompileOptions(
   options.initGLPosition = true;
   options.initializeUninitializedLocals = true;
   options.initOutputVariables = true;
-
-#ifdef XP_MACOSX
-  options.removeInvariantAndCentroidForESSL3 = true;
-#else
-  // We want to do this everywhere, but to do this on Mac, we need
-  // to do it only on Mac OSX > 10.6 as this causes the shader
-  // compiler in 10.6 to crash
   options.clampIndirectArrayBounds = true;
-#endif
+
+  if (kIsMacOS) {
+    options.removeInvariantAndCentroidForESSL3 = true;
+  }
 
   if (gl->WorkAroundDriverBugs()) {
     if (kIsMacOS) {

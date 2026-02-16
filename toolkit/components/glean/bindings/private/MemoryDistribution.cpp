@@ -7,6 +7,7 @@
 #include "mozilla/glean/bindings/MemoryDistribution.h"
 
 #include "mozilla/Components.h"
+#include "mozilla/ErrorResult.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/ResultVariant.h"
 #include "mozilla/dom/GleanMetricsBinding.h"
@@ -18,21 +19,22 @@
 #include "nsPrintfCString.h"
 #include "nsString.h"
 #include "js/PropertyAndElement.h"  // JS_DefineProperty
+#include "GIFFTFwd.h"
 
 namespace mozilla::glean {
 
 namespace impl {
 
-void MemoryDistributionMetric::Accumulate(size_t aSample) const {
+void MemoryDistributionStandalone::Accumulate(size_t aSample) const {
   auto hgramId = HistogramIdForMetric(mId);
   if (hgramId) {
-    Telemetry::Accumulate(hgramId.extract(), aSample);
+    TelemetryHistogram::Accumulate(hgramId.extract(), aSample);
   } else if (IsSubmetricId(mId)) {
     GetLabeledDistributionMirrorLock().apply([&](const auto& lock) {
       auto tuple = lock.ref()->MaybeGet(mId);
       if (tuple) {
-        Telemetry::Accumulate(std::get<0>(tuple.ref()),
-                              std::get<1>(tuple.ref()), aSample);
+        TelemetryHistogram::Accumulate(std::get<0>(tuple.ref()),
+                                       std::get<1>(tuple.ref()), aSample);
       }
     });
   }

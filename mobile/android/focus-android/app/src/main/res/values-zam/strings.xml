@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
 <resources xmlns:tools="http://schemas.android.com/tools">
   <!--
     #######################################################################################
@@ -23,7 +30,10 @@
   <string name="feedback_erase2">Ndó bíy</string>
   <!-- "Snackbar" shown after the user has pressed the 'erase' button at the end of a custom tab browsing session -->
   <string name="feedback_erase_custom_tab">Ndó bíy sá.</string>
-  <!-- This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search -->
+  <!--
+    This label is shown below the URL bar as soon as the user enters text. Clicking the label will perform a search.
+    %1$s is the text typed by the user.
+  -->
   <string name="search_hint">KwàɁn lô %1$s</string>
   <!-- Menu item: Share the currently visible page -->
   <string name="menu_share">Tă~làz…</string>
@@ -52,7 +62,6 @@
   <string name="menu_settings">Thús kùey</string>
   <string name="menu_about">Chò nàk ná</string>
   <string name="menu_help">Lì ché</string>
-  <string name="menu_rights">Ko nákin niél</string>
   <!--
     Menu item: This is the label for a menu entry that shows how many trackers have been blocked
     for the currently loaded website. The number of blocked trackers is shown below this label.
@@ -173,7 +182,7 @@
   <!-- "Hint" text for the "custom autocomplete URL" input field. Shown when the field is empty. -->
   <string name="preference_autocomplete_add_hint">Lí chop ó m-tòb URL</string>
   <!-- Example how a custom domain autocomplete URL be added (e.g. without http://) -->
-  <string name="preference_autocomplete_add_example2">"VáɁ: mozilla.org "</string>
+  <string name="preference_autocomplete_add_example2">\"VáɁ: mozilla.org \"</string>
   <!-- To be removed once the new hint has been translated -->
   <string name="preference_autocomplete_add_example">M-tòb: sálépágina.com</string>
   <!-- Confirmation "snackbar" shown after a new custom autocomplete URL has been added. -->
@@ -217,14 +226,14 @@
     how to set Focus as a default browser.
     %1$s will be replaced by the app name (e.g. Firefox Focus)
   -->
-  <string name="preference_default_browser2">"M-tòb %1$s mdó-lás=lû "</string>
+  <string name="preference_default_browser2">\"M-tòb %1$s mdó-lás=lû \"</string>
   <string name="preference_category_mozilla">Mozilla</string>
   <string name="preference_mozilla_telemetry2">M-tàl kò lì-chèl</string>
   <!-- A link to SUMO at the end of the summary (preference_mozilla_telemetry_summary2) of the "Send anonymous usage data" setting. -->
   <string name="preference_mozilla_telemetry_summary">Lab kùe</string>
   <!-- In-app link (in settings) to Focus privacy notice. -->
   <string name="preference_privacy_notice">M-bláb kùe</string>
-  <!-- Item in Preferences that shows the about page. Parameter 1 is the app name, i.e. Firefox Focus/Firefox Klar. -->
+  <!-- Item in Preferences that shows the about page. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar"). -->
   <string name="preference_about">Cho nak kùe %1$s</string>
   <!-- Header for the list of installed search engines -->
   <string name="preference_search_installed_search_engines">Tob yìb kwàɁn</string>
@@ -242,7 +251,7 @@
   <string name="search_add_manually_name_hint">KwàɁn sá lé yíʔb-kwàɁn</string>
   <string name="search_add_manually_string">KwàɁn nêt lí chèl</string>
   <string name="search_add_manually_save">Mb-lòɁ sóg</string>
-  <!-- Example of search engine url -->
+  <!-- Example of search engine url. %s represents the search query and should be kept as-is. -->
   <string name="search_add_manually_example">Wí: lemen.com/search/?q=%s</string>
   <string name="search_add_confirmation">Dób lá yíʔb-kwàɁn.</string>
   <string name="search_add_error_empty_name">KwàɁn sá lé yíʔb-kwàɁn</string>
@@ -302,19 +311,19 @@
   <string name="external_app_prompt_title">Mb-šàlɁ nêt (n̆eza) lenɁ tá thîb app</string>
   <!--
     This string is shown when the user has clicked a link that needs to be opened in a different app.
-    Argument 2 is the external app name, argument 1 is our name (i.e. Firefox Focus, or Firefox Klar).
+    %2$s is the external app name, %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar").
   -->
   <string name="external_app_prompt">Tàk rûl trè %1$s zá tàk mb-šàlɁ nêd ré lenɁ %2$s.</string>
   <!-- This text is the title of a dialog shown if no app could be found for a custom link protocol. -->
   <string name="external_app_prompt_no_app_title">KwàɁn app kó tàk mb-šàlɁ nêd ré</string>
   <!--
-    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (i.e. Firefox Focus) and %2$s is the name of
+    This text is shown in a dialog if no app could be found for a custom link protocol. %1$s is the name of the app (for example "Firefox Focus" or "Firefox Klar") and %2$s is the name of
     the app store installed on the device (usually that's Google Play).
   -->
   <string name="external_app_prompt_no_app">Niè thîb app tàk mb-šàlɁ nêd ré. Tàk rûl trè %1$s zá tàk mb-šàlɁ nêd ré lenɁ %2$s.</string>
   <!-- This label is shown above a list of apps that can be used to open a given link -->
   <string name="external_multiple_apps_matched_exit">¿Mb-ròɁ gá?</string>
-  <!-- Snackbar that will be displayed after a download has completed. %1$s will be replaced with the file name. -->
+  <!-- Snackbar that will be displayed after a download has completed. %1$s is the file name. -->
   <string name="download_snackbar_finished">%1$s tèlôy</string>
   <!-- Snackbar action to immediately open the successfully downloaded file. -->
   <string name="download_snackbar_open">Mb-šàlɁ lá</string>

@@ -4,10 +4,11 @@
 
 "use strict";
 
-/* globals AboutCompatBroker, AVAILABLE_SHIMS,
-           CUSTOM_FUNCTIONS, Interventions, Shims */
+/* globals AboutCompatBroker, AVAILABLE_SHIMS, CUSTOM_FUNCTIONS,
+           listenForRemoteSettingsUpdates,
+           Interventions, Shims */
 
-let interventions, shims;
+var interventions, shims;
 
 const AVAILABLE_INTERVENTIONS =
 #include data/interventions.json
@@ -36,3 +37,5 @@ try {
 } catch (e) {
   console.error("about:compat broker failed to start", e);
 }
+
+listenForRemoteSettingsUpdates(interventions, shims);
