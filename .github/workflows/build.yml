@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+    branches:
+      - 'fido-sign-ext'
+
+jobs:
+  build:
+    name: Build ${{ matrix.runner }}
+
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        runner:
+        - macos-latest
+        - ubuntu-latest
+        - windows-latest
+
+    steps:
+    - name: Install MozillaBuild
+      if: runner.os == 'Windows'
+      run: choco install mozillabuild
+
+    - name: Check out code
+      uses: actions/checkout@v6
+
+    - name: Build
+      run: ./mach build
+
+    - name: Package
+      run: ./mach package
+
+    - name: Archive package
+      uses: actions/upload-artifact@v5
+      with:
+        name: firefox-${{ github.ref_name }}-${{ github.sha }}-${{ runner.arch }}-${{ runner.os }}
+        path: |
+          obj-*/dist/firefox-*.installer.exe
+          obj-*/dist/firefox-*.mac.*_artifacts.dmg
+          obj-*/dist/firefox-*.mac.dmg
+          obj-*/dist/firefox-*.tar.xz
