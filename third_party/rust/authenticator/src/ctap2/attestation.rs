@@ -408,6 +408,14 @@ bitflags! {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct AuthenticatorData {
+    /// The original bytes this AuthenticatorData was parsed from, if it was
+    /// parsed from an existing serialization.
+    ///
+    /// If present, this is emitted verbatim during serialization instead of
+    /// re-serializing the parsed components. This ensures that the original
+    /// representation is preserved, which is required for signatures to verify
+    /// correctly.
+    pub src: Option<Box<[u8]>>,
     pub rp_id_hash: RpIdHash,
     pub flags: AuthenticatorDataFlags,
     pub counter: u32,
@@ -438,11 +446,13 @@ impl<'de> Deserialize<'de> for AuthenticatorData {
                 formatter.write_str("a byte array")
             }
 
-            fn visit_bytes<E>(self, input: &[u8]) -> Result<Self::Value, E>
+            fn visit_byte_buf<E>(self, input: Vec<u8>) -> Result<Self::Value, E>
             where
                 E: SerdeError,
             {
-                let mut cursor = Cursor::new(input);
+                let src = input.into_boxed_slice();
+
+                let mut cursor = Cursor::new(&src);
                 let mut rp_id_hash_raw = [0u8; 32];
                 cursor
                     .read_exact(&mut rp_id_hash_raw)
@@ -466,6 +476,7 @@ impl<'de> Deserialize<'de> for AuthenticatorData {
                 // TODO(baloo): we should check for end of buffer and raise a parse
                 //              parse error if data is still in the buffer
                 Ok(AuthenticatorData {
+                    src: Some(src),
                     rp_id_hash,
                     flags,
                     counter,
@@ -492,42 +503,47 @@ impl Serialize for AuthenticatorData {
     where
         S: Serializer,
     {
-        let mut data = Vec::new();
-        data.extend(self.rp_id_hash.0); // (1) "rpIDHash", len=32
-        data.extend([self.flags.bits()]); // (2) "flags", len=1 (u8)
-        data.extend(self.counter.to_be_bytes()); // (3) "signCount", len=4, 32-bit unsigned big-endian integer.
+        if let Some(src) = &self.src {
+            serializer.serialize_bytes(src)
+        } else {
+            let mut data = Vec::new();
+            data.extend(self.rp_id_hash.0); // (1) "rpIDHash", len=32
+            data.extend([self.flags.bits()]); // (2) "flags", len=1 (u8)
+            data.extend(self.counter.to_be_bytes()); // (3) "signCount", len=4, 32-bit unsigned big-endian integer.
 
-        if let Some(cred) = &self.credential_data {
-            // see https://www.w3.org/TR/webauthn-2/#sctn-attested-credential-data
-            // Attested Credential Data
-            //                Name Length (in bytes)
-            //              aaguid 16
-            //  credentialIdLength 2
-            //        credentialId L
-            // credentialPublicKey variable
-            data.extend(cred.aaguid.0); // (1) "aaguid", len=16
-            data.extend((cred.credential_id.len() as u16).to_be_bytes()); // (2) "credentialIdLength", len=2, 16-bit unsigned big-endian integer
-            data.extend(&cred.credential_id); // (3) "credentialId", len= see (2)
-            data.extend(
-                // (4) "credentialPublicKey", len=variable
-                &serde_cbor::to_vec(&cred.credential_public_key)
-                    .map_err(|_| SerError::custom("Failed to serialize auth_data"))?,
-            );
-        }
-        // If we have parsed extension data, then we should serialize it even if the authenticator
-        // failed to set the extension data flag.
-        // If we don't have parsed extension data, then what we output depends on the flag.
-        // If the flag is set, we output the empty CBOR map. If it is not set, we output nothing.
-        if self.extensions.has_some() || self.flags.contains(AuthenticatorDataFlags::EXTENSION_DATA)
-        {
-            data.extend(
-                // (5) "extensions", len=variable
-                &serde_cbor::to_vec(&self.extensions)
-                    .map_err(|_| SerError::custom("Failed to serialize auth_data"))?,
-            );
-        }
+            if let Some(cred) = &self.credential_data {
+                // see https://www.w3.org/TR/webauthn-2/#sctn-attested-credential-data
+                // Attested Credential Data
+                //                Name Length (in bytes)
+                //              aaguid 16
+                //  credentialIdLength 2
+                //        credentialId L
+                // credentialPublicKey variable
+                data.extend(cred.aaguid.0); // (1) "aaguid", len=16
+                data.extend((cred.credential_id.len() as u16).to_be_bytes()); // (2) "credentialIdLength", len=2, 16-bit unsigned big-endian integer
+                data.extend(&cred.credential_id); // (3) "credentialId", len= see (2)
+                data.extend(
+                    // (4) "credentialPublicKey", len=variable
+                    &serde_cbor::to_vec(&cred.credential_public_key)
+                        .map_err(|_| SerError::custom("Failed to serialize auth_data"))?,
+                );
+            }
+            // If we have parsed extension data, then we should serialize it even if the authenticator
+            // failed to set the extension data flag.
+            // If we don't have parsed extension data, then what we output depends on the flag.
+            // If the flag is set, we output the empty CBOR map. If it is not set, we output nothing.
+            if self.extensions.has_some()
+                || self.flags.contains(AuthenticatorDataFlags::EXTENSION_DATA)
+            {
+                data.extend(
+                    // (5) "extensions", len=variable
+                    &serde_cbor::to_vec(&self.extensions)
+                        .map_err(|_| SerError::custom("Failed to serialize auth_data"))?,
+                );
+            }
 
-        serializer.serialize_bytes(&data)
+            serializer.serialize_bytes(&data)
+        }
     }
 }
 

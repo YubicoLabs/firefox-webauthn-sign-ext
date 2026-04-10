@@ -776,6 +776,7 @@ impl GetAssertionResult {
         let flag_mask = AuthenticatorDataFlags::USER_PRESENT | AuthenticatorDataFlags::RESERVED_1;
         let flags = flag_mask & AuthenticatorDataFlags::from_bits_truncate(user_presence);
         let auth_data = AuthenticatorData {
+            src: None,
             rp_id_hash: rp_id_hash.clone(),
             flags,
             counter,

@@ -77,6 +77,7 @@ impl TestTokenCredential {
         });
 
         let auth_data = AuthenticatorData {
+            src: None,
             rp_id_hash: self.rp.hash(),
             flags,
             counter: self.sign_count.fetch_add(1, Ordering::Relaxed),
@@ -652,6 +653,7 @@ impl VirtualFidoDevice for TestToken {
         flags |= AuthenticatorDataFlags::ATTESTED;
 
         let auth_data = AuthenticatorData {
+            src: None,
             rp_id_hash: req.rp.hash(),
             flags,
             counter,

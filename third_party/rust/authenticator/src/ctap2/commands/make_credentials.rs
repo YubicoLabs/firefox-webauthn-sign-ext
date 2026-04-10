@@ -82,6 +82,7 @@ impl MakeCredentialsResult {
         };
 
         let auth_data = AuthenticatorData {
+            src: None,
             rp_id_hash: rp_id_hash.clone(),
             // https://fidoalliance.org/specs/fido-v2.0-ps-20190130/fido-client-to-authenticator-protocol-v2.0-ps-20190130.html#u2f-authenticatorMakeCredential-interoperability
             // "Let flags be a byte whose zeroth bit (bit 0, UP) is set, and whose sixth bit
@@ -1000,6 +1001,7 @@ pub mod test {
 
         let att_obj = AttestationObject {
             auth_data: AuthenticatorData {
+                src: None,
                 rp_id_hash: RpIdHash::from(&[
                     0xA3, 0x79, 0xA6, 0xF6, 0xEE, 0xAF, 0xB9, 0xA5, 0x5E, 0x37, 0x8C, 0x11, 0x80,
                     0x34, 0xE2, 0x75, 0x1E, 0x68, 0x2F, 0xAB, 0x9F, 0x2D, 0x30, 0xAB, 0x13, 0xD2,
