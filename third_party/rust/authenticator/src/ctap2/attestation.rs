@@ -446,6 +446,17 @@ impl<'de> Deserialize<'de> for AuthenticatorData {
                 formatter.write_str("a byte buffer")
             }
 
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: SerdeError,
+            {
+                // deserialize_byte_buf below indicates we want to take
+                // ownership, and serde will invoke visit_byte_buf directly if
+                // it can provide a zero-copy owned byte buffer. If not, we need
+                // this method as a fallback to create the copy ourselves.
+                self.visit_byte_buf(v.to_vec())
+            }
+
             fn visit_byte_buf<E>(self, input: Vec<u8>) -> Result<Self::Value, E>
             where
                 E: SerdeError,
