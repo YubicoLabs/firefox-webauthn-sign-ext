@@ -443,7 +443,7 @@ impl<'de> Deserialize<'de> for AuthenticatorData {
             type Value = AuthenticatorData;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a byte array")
+                formatter.write_str("a byte buffer")
             }
 
             fn visit_byte_buf<E>(self, input: Vec<u8>) -> Result<Self::Value, E>
@@ -486,7 +486,7 @@ impl<'de> Deserialize<'de> for AuthenticatorData {
             }
         }
 
-        deserializer.deserialize_bytes(AuthenticatorDataVisitor)
+        deserializer.deserialize_byte_buf(AuthenticatorDataVisitor)
     }
 }
 
