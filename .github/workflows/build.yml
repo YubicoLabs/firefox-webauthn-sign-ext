@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'fido-sign-ext'
+      - 'fido-sign-ext-gha'
 
 jobs:
   build:
