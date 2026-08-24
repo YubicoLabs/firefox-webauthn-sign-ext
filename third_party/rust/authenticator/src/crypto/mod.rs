@@ -586,6 +586,7 @@ pub enum COSEAlgorithm {
     ARKG_P256 = -65700,
     ESBLS256 = -65600,
     SplitBBS256 = -65602,
+    SchnorrBls12381BP1Sha256Sec1 = -65609,
     ESP256_2P = -70009,
 }
 
@@ -736,6 +737,7 @@ impl TryFrom<i64> for COSEAlgorithm {
             }
             i if i == COSEAlgorithm::ESBLS256 as i64 => Ok(COSEAlgorithm::ESBLS256),
             i if i == COSEAlgorithm::SplitBBS256 as i64 => Ok(COSEAlgorithm::SplitBBS256),
+            i if i == COSEAlgorithm::SchnorrBls12381BP1Sha256Sec1 as i64 => Ok(COSEAlgorithm::SchnorrBls12381BP1Sha256Sec1),
             _ => Err(CryptoError::UnknownAlgorithm),
         }
     }
