@@ -25,6 +25,10 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v6
 
+    - name: Create .mozconfig
+      run: |
+        echo 'ac_add_options --enable-rust-debug' >> .mozconfig
+
     - name: Build
       run: ./mach build
 
